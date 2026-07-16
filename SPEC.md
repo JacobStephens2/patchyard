@@ -41,18 +41,18 @@ patchyard/
 ├── queue/                 # requests + rulings (moves from orchestration/factory/queue)
 │   └── processed/
 ├── runs.md                # the ledger
-├── bin/                   # deterministic verify helpers (exit nonzero = fail)
-│   ├── verify-caps.sh          # ≤2 files, ≤50 lines, ≤2 open factory PRs
-│   ├── verify-deny-paths.sh    # deny-list scan of the final diff
-│   ├── verify-postconditions.py# e.g. option labels = sorted permutation
-│   └── verify-preview.sh       # preview slot + /opt/headless/render.py screenshots
+├── verify/                # Rust crate → `factory-verify` binary (A42)
+│   ├── Cargo.toml · src/      # subcommands: caps · deny-paths · postconditions · ledger-append
+│   │                          # exit nonzero = fail; A10 gate self-tests are cargo tests
+│   └── (preview screenshots shell out to /opt/headless/render.py - the
+│        Selenium harness stays Python; ecosystem owns that job)
 ├── subagents/              # A37 role definitions, installed to .claude/agents/
 │   ├── factory-triage.md      # tools: Read, Grep, Glob ONLY
 │   ├── factory-implement.md   # tools: Read/Grep/Glob/Edit/Write/Bash, worktree-scoped
 │   └── factory-verify.md      # tools: Read/Grep/Glob/Bash (execute checks; no Edit/Write)
-├── dashboard/              # Flask app
-│   ├── app.py · templates/ · static/
-└── systemd/factory-dashboard.service
+├── dashboard/              # Rust (Axum) app (A42)
+│   ├── Cargo.toml · src/ · templates/ (Askama) · static/
+└── systemd/factory-dashboard.service   # runs the compiled binary; no venv
 ```
 
 ## The `/factory` skill
@@ -76,9 +76,11 @@ with restricted tools, A37):
    worktrees; branch `factory/<id>-<slug>`; playbook rides the prompt
    (Guide, A27); smallest coherent diff; stop-and-demote on anything
    schema-shaped or over-cap.
-3. **Verify** (`factory-verify`, no write tools) - run `bin/` helpers in
-   order (caps, deny-paths, php -l on touched files, postconditions,
-   preview screenshots of the exact pages), then targeted PHPUnit. One
+3. **Verify** (`factory-verify` subagent, no write tools) - run the
+   `factory-verify` binary's subcommands in order (caps, deny-paths, then
+   php -l on touched files, postconditions), plus preview screenshots of
+   the exact pages via the existing headless harness, then targeted
+   PHPUnit. One
    repair loop (A9): a narrow defect returns ONCE to implement with the
    log; second failure escalates to the human.
 4. **PR** - `gh pr create` with the full contract: request verbatim, lane +
@@ -113,8 +115,10 @@ every replay run.
 
 ## Dashboard v0
 
-- Flask + gunicorn on `127.0.0.1:5001`, systemd `factory-dashboard.service`
-  (user `conductor`), Caddy vhost `factory.example.com` with the same
+- Rust: Axum on `127.0.0.1:5001` (Askama templates, tower-http static
+  files, multipart uploads with hard size/type limits enforced in types),
+  compiled binary run by systemd `factory-dashboard.service` (user
+  `conductor`), Caddy vhost `factory.example.com` with the same
   `forward_auth` gate as report/docs. Build items in the status-dashboard
   app: an `auth-check` branch for the new host (reports permission) and a
   `_SAFE_NEXT_HOSTS` entry. Requires a DNS A record → 142.93.121.94.
@@ -149,10 +153,30 @@ every replay run.
 6. **Caps outside the model:** helpers enforce 2/50/2-open-PRs regardless
    of what any prompt says.
 
-## Build sequence and estimate (2-3 sessions)
+## Language policy (A42)
 
-1. Migrate constitution + model; scaffold rubric, skill, subagents, bin/.
-2. `/factory` skill against replay fixtures until acceptance 1-4 green.
+Rust wherever it buys correctness or will run long-lived: the
+`factory-verify` crate (the gates ARE the product - typed, cargo-tested,
+single static binary) and the dashboard (Axum; a fleet-legible static
+binary, no venv). Existing Python host tooling where the ecosystem owns
+the job: the Selenium/headless harness, and the status-dashboard
+touchpoints (`/api/rulings` repoint, auth-check branch) which live in
+that Python app. Prompts, policy, and playbooks stay markdown. Phase-2
+direction: the supervisor/poller/publisher daemons are Rust - small
+attack surface, static binaries, and the credential-free worker image
+stays tiny. Grounding: Jacob's preference (performance + correctness,
+2026-07-16), notes p.184 and p.202 (typing puts the burden of
+correctness on the model), and the compiler acting as a free
+deterministic verifier inside the agent loop. Toolchain note: rustup +
+cargo are NOT yet installed on the orchestration VM - first build step.
+
+## Build sequence and estimate (2-3 sessions, + toolchain setup)
+
+1. Install rustup/cargo for `conductor`; migrate constitution + model;
+   scaffold rubric, skill, subagents, verify/ crate.
+2. `factory-verify` crate green under cargo test (A10 self-tests built
+   in); `/factory` skill against replay fixtures until acceptance 1-4
+   green.
 3. Dashboard v0 + vhost + auth wiring; acceptance 5.
 4. Move `factory/queue/` here; repoint `/api/rulings` queue path; ledger
    begins; acceptance 6 and the full pass.

@@ -121,7 +121,7 @@ every replay run.
   `conductor`), Caddy vhost `factory.example.com` with the same
   `forward_auth` gate as report/docs. Build items in the status-dashboard
   app: an `auth-check` branch for the new host (reports permission) and a
-  `_SAFE_NEXT_HOSTS` entry. Requires a DNS A record → 142.93.121.94.
+  `_SAFE_NEXT_HOSTS` entry. DNS A record → 142.93.121.94: DONE (Route 53, Jacob, 2026-07-16). The Caddy vhost itself is build work - the subdomain stays unserved until the build.
 - Routes: `GET /` request list with stage badges (intake → triage → lane →
   implementing → verifying → PR open → merged → deployed → closed);
   `GET /request/<id>` detail with the verbatim request, current stage,

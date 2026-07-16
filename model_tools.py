@@ -85,11 +85,18 @@ def schema_errors(
     """Validate the model against its checked-in Draft 7 JSON Schema."""
 
     try:
+        import jsonschema
         from jsonschema import Draft7Validator, FormatChecker
     except ImportError as exc:  # pragma: no cover - depends on host packaging
         raise RuntimeError(
             "jsonschema is required; install requirements-model.txt"
         ) from exc
+
+    version = tuple(int(part) for part in jsonschema.__version__.split(".")[:2])
+    if version < (3, 2):  # Draft 7 support floor; CI pins newer in requirements
+        raise RuntimeError(
+            f"jsonschema {jsonschema.__version__} is older than the 3.2 floor"
+        )
 
     schema = load_json(schema_path)
     Draft7Validator.check_schema(schema)

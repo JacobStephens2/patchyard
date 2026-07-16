@@ -1,7 +1,7 @@
 {
   "$schema": "./factory-model.schema.json",
-  "schemaVersion": 1,
-  "modelVersion": 5,
+  "schemaVersion": 2,
+  "modelVersion": 6,
   "updated": "2026-07-16",
   "rulings": [
     "A39",
@@ -111,7 +111,7 @@
       "num": 4,
       "id": "approve",
       "name": "Approve",
-      "summary": "Engineering reviews the pull request; merge is the approval",
+      "summary": "Engineering reviews the pull request; merge is the approval; nothing merges itself",
       "actor": "human",
       "gate": true
     },
@@ -346,6 +346,9 @@
         "review-capacity"
       ]
     },
+    "rulings": [
+      "A31"
+    ],
     "defaults": {
       "arrivalPerWeek": 20,
       "agentMinPerFix": 20,

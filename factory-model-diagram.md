@@ -1,16 +1,16 @@
 # Factory model - generated diagram
 
-*Generated from `factory-model.json` schema v1, model
-v5 (2026-07-16), canonical identity
-`sha256:43b2f5ea45672e7f485acea914e69809ffda661185d95b1a95d4ffbb1d40a252`. Do not edit by hand - edit the model, update its identity,
+*Generated from `factory-model.json` schema v2, model
+v6 (2026-07-16), canonical identity
+`sha256:f4a097356ca4f43e6bfe4fd8eb9413878c2da46e4c6fdf359c63b798865bfcfc`. Do not edit by hand - edit the model, update its identity,
 and re-run the projector. Hexagons = human; dashed rounded nodes = AI agent;
 rectangles = deterministic software. Dotted edges are decision or feedback
 paths; inspect their labels and endpoints to distinguish human gates from the
 learning loop.*
 
 ```mermaid
-%% factory-model schema v1, model v5
-%% canonical sha256:43b2f5ea45672e7f485acea914e69809ffda661185d95b1a95d4ffbb1d40a252
+%% factory-model schema v2, model v6
+%% canonical sha256:f4a097356ca4f43e6bfe4fd8eb9413878c2da46e4c6fdf359c63b798865bfcfc
 flowchart LR
   intake["Intake<br/><i>deterministic</i>"]:::det
   triage(["Triage<br/><i>agent</i>"]):::agent

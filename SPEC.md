@@ -1,4 +1,4 @@
-# patchyard - phase 1 build spec
+# factory - phase 1 build spec
 
 *Status: spec for review. Written 2026-07-16 by the orchestration agent as
 phase-1 preparation (ruling: approved in scope, "don't build it yet").
@@ -31,7 +31,7 @@ option b activates in phase 2).
 ## Repo layout (this repo, after build)
 
 ```
-patchyard/
+factory/  (checkout: /srv/orchestration/patchyard)
 ├── README.md · SPEC.md
 ├── agents.md              # constitution (A36) - migrates from orchestration at build start
 ├── factory-model.json     # canonical model - same migration

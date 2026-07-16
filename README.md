@@ -1,4 +1,9 @@
-# patchyard
+# factory
+
+*(GitHub: `JacobStephens2/patchyard`; local checkout on the
+orchestration VM lives at `/srv/orchestration/patchyard/` to avoid
+colliding with the orchestration repo's `factory/queue/` until the queue
+migrates here at build.)*
 
 Patchyard's software factory: small, self-describing staff requests in, evidenced
 pull requests out. One human gate - the PR - held by the engineering

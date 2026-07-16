@@ -18,7 +18,10 @@ department + the company owner. The production deploy path is never touched.
 - **Constitution:** `agents.md` (migrates here from the orchestration repo at
   build start; until then the orchestration copy is canonical). Its hard
   rules ride every factory agent prompt.
-- **Canonical model:** `factory-model.json` (same migration note).
+- **Canonical model:** `factory-model.json`. After editing it, run
+  `python3 render-model.py` to regenerate the Mermaid sources, then
+  `./render-model-assets.sh` to regenerate the SVG and high-resolution PNG
+  used by the hosted review page.
 
 Build status: **approved in scope, not yet started** - console ruling
 2026-07-16, "don't build it yet." Nothing in this repo executes anything

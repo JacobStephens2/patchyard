@@ -7,6 +7,7 @@ is a projection; this script is the projector. Run after editing the model:
     python3 render-model.py
 
 Writes factory-model.mmd and factory-model-diagram.md beside the model.
+Run render-model-assets.sh afterward to refresh the standalone web projections.
 The build-phase CI check is byte-identical regeneration (blog checklist #4).
 """
 import json, pathlib

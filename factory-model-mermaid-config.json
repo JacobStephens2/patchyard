@@ -1,0 +1,13 @@
+{
+  "securityLevel": "strict",
+  "theme": "base",
+  "flowchart": {
+    "htmlLabels": false
+  },
+  "themeVariables": {
+    "background": "#ffffff",
+    "fontFamily": "Trebuchet MS, Verdana, Arial, sans-serif",
+    "lineColor": "#333333",
+    "primaryTextColor": "#333333"
+  }
+}

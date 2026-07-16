@@ -47,7 +47,34 @@
         "unattended": "dedicated mailbox, gmail.readonly, sender allowlist, 2-min poll, message-id idempotency"
       },
       "actor": "deterministic",
-      "actorNote": "capture + hash is code; humans feed it (dashboard form or /factory)"
+      "actorNote": "capture + hash is code; humans feed it (dashboard form or /factory)",
+      "sources": [
+        {
+          "id": "human-forward",
+          "kind": "human",
+          "status": "phase 1",
+          "desc": "an engineer forwards or drops the request and runs /factory"
+        },
+        {
+          "id": "dashboard",
+          "kind": "human",
+          "status": "phase 1 (A32)",
+          "desc": "manual entry at factory.example.com"
+        },
+        {
+          "id": "mailbox",
+          "kind": "deterministic",
+          "status": "phase 2 (D3)",
+          "desc": "gmail.readonly poll of the dedicated mailbox, sender-allowlisted"
+        },
+        {
+          "id": "monitoring",
+          "kind": "deterministic",
+          "status": "future",
+          "desc": "watchdog/alert-sourced requests - e.g. a daemon-down alert; the fully deterministic left edge until triage (Lloyd's monitoring input, notes p.170)"
+        }
+      ],
+      "sourcesNote": "sources are trigger types, distinct from the station's actor (A52); the station treats every source identically - verbatim capture, hash, dedupe - and the vouching trigger is recorded as request metadata"
     },
     {
       "num": 1,

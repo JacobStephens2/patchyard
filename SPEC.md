@@ -18,7 +18,13 @@ staff requests stop dying in inboxes and review is the only human cost.
 Design authority: the decision log and synthesized solution in the
 orchestration repo. Where this spec conflicts with a ruling, the ruling
 wins - and if a ruling requires an unsafe design, the ruling gets amended
-first (per the critique's correction of v1's wording).
+first (per the critique's correction of v1's wording). The canonical
+machine-readable model is `factory-model.json` **in this repo** (A51),
+served at https://report.example.com/software-factory-model.json;
+`render-model.py` projects it to Mermaid (`factory-model-diagram.md`).
+Edit the model first, regenerate the views, copy json+mmd to the
+orchestration VM's `hosted/` - byte-identical regeneration becomes a CI
+check at build (A50).
 
 ## What changed from v1 (critique verdicts, Jacob's rulings)
 

@@ -148,7 +148,7 @@ does not count as a passing factory run.
 ## The `/factory` skill (pipeline contract)
 
 `/factory <id>`: supervisor claims via lease → triage (no-shell subagent)
-classifies against `rubric.md`; B/C/D exit to drafts and the run ends. Drafts are a loop, not a sink (A46): an approved B spec re-enters at implement with the spec as its Guide and a human-approved budget replacing the lane-A caps; an answered D question re-triages; an executed C runbook closes →
+classifies against `rubric.md`; B/C/D exit to the plan bin (drafts for human review) and the run ends. The plan bin is a loop, not a sink (A46): an approved B spec re-enters at implement with the spec as its Guide and a human-approved budget replacing the lane-A caps; an answered D question re-triages; an executed C runbook closes →
 implement worker (isolated, above) emits patch → worker terminated →
 verifier runs `factory-verify` subcommands + targeted PHPUnit as
 `factory-worker` → one repair loop (A9), second failure escalates →

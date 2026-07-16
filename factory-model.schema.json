@@ -1,0 +1,527 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Patchyard software factory model",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schemaVersion",
+    "modelVersion",
+    "updated",
+    "rulings",
+    "topology",
+    "actorTypes",
+    "lanes",
+    "stages",
+    "entities",
+    "edges",
+    "macroStages",
+    "caps",
+    "approval",
+    "phases",
+    "capacity"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "./factory-model.schema.json"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "modelVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "updated": {
+      "type": "string",
+      "format": "date"
+    },
+    "rulings": {
+      "$ref": "#/definitions/rulings"
+    },
+    "topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "rulings"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "hierarchical-pipeline"
+          ]
+        },
+        "rulings": {
+          "$ref": "#/definitions/rulings"
+        }
+      }
+    },
+    "actorTypes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "human",
+        "deterministic",
+        "agent"
+      ],
+      "properties": {
+        "human": {
+          "type": "string",
+          "minLength": 1
+        },
+        "deterministic": {
+          "type": "string",
+          "minLength": 1
+        },
+        "agent": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "lanes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/lane"
+      }
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/stage"
+      }
+    },
+    "entities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/entity"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/edge"
+      }
+    },
+    "macroStages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/macroStage"
+      }
+    },
+    "caps": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxFiles",
+        "maxChangedLines",
+        "maxOpenPRs",
+        "repairLoops"
+      ],
+      "properties": {
+        "maxFiles": {
+          "$ref": "#/definitions/positiveInteger"
+        },
+        "maxChangedLines": {
+          "$ref": "#/definitions/positiveInteger"
+        },
+        "maxOpenPRs": {
+          "$ref": "#/definitions/positiveInteger"
+        },
+        "repairLoops": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "humanGateStage",
+        "requiredRoles",
+        "factoryMayMerge",
+        "rulings"
+      ],
+      "properties": {
+        "humanGateStage": {
+          "$ref": "#/definitions/id"
+        },
+        "requiredRoles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/id"
+          }
+        },
+        "factoryMayMerge": {
+          "const": false
+        },
+        "rulings": {
+          "$ref": "#/definitions/rulings"
+        }
+      }
+    },
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/phase"
+      }
+    },
+    "capacity": {
+      "$ref": "#/definitions/capacity"
+    }
+  },
+  "definitions": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "ruling": {
+      "type": "string",
+      "pattern": "^[ADR][0-9]+$"
+    },
+    "rulings": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/definitions/ruling"
+      }
+    },
+    "actor": {
+      "enum": [
+        "human",
+        "deterministic",
+        "agent"
+      ]
+    },
+    "positiveInteger": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "laneId": {
+      "enum": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ]
+    },
+    "lane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "definition",
+        "deliverable"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/laneId"
+        },
+        "name": {
+          "$ref": "#/definitions/id"
+        },
+        "definition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "deliverable": {
+          "enum": [
+            "evidenced-pr",
+            "one-page-spec",
+            "human-executed-runbook",
+            "scoped-question"
+          ]
+        },
+        "rulings": {
+          "$ref": "#/definitions/rulings"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "actor",
+        "availability"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "actor": {
+          "$ref": "#/definitions/actor"
+        },
+        "availability": {
+          "enum": [
+            "phase-1",
+            "phase-2",
+            "future"
+          ]
+        },
+        "rulings": {
+          "$ref": "#/definitions/rulings"
+        }
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "num",
+        "id",
+        "name",
+        "summary",
+        "actor"
+      ],
+      "properties": {
+        "num": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actor": {
+          "$ref": "#/definitions/actor"
+        },
+        "gate": {
+          "type": "boolean"
+        },
+        "lanes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/laneId"
+          }
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/source"
+          }
+        }
+      }
+    },
+    "entity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "actor",
+        "summary"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actor": {
+          "$ref": "#/definitions/actor"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to",
+        "kind"
+      ],
+      "properties": {
+        "from": {
+          "$ref": "#/definitions/id"
+        },
+        "to": {
+          "$ref": "#/definitions/id"
+        },
+        "kind": {
+          "enum": [
+            "belt",
+            "exit",
+            "human-gated",
+            "learning"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rulings": {
+          "$ref": "#/definitions/rulings"
+        }
+      }
+    },
+    "macroStage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "members"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "members": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/id"
+          }
+        }
+      }
+    },
+    "evidenceGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "minLaneARuns": {
+          "$ref": "#/definitions/positiveInteger"
+        },
+        "minFirstPassMergeRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "acceptancePassK": {
+          "$ref": "#/definitions/positiveInteger"
+        },
+        "minCleanRuns": {
+          "$ref": "#/definitions/positiveInteger"
+        },
+        "maxMedianReviewMinutes": {
+          "$ref": "#/definitions/positiveInteger"
+        },
+        "ledgerEvidenceOnly": {
+          "const": true
+        }
+      }
+    },
+    "phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "state"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "enum": [
+            "complete",
+            "approved-not-started",
+            "gated",
+            "active"
+          ]
+        },
+        "evidenceGate": {
+          "$ref": "#/definitions/evidenceGate"
+        }
+      }
+    },
+    "capacity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "throughput",
+        "defaults"
+      ],
+      "properties": {
+        "throughput": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "operator",
+            "terms"
+          ],
+          "properties": {
+            "operator": {
+              "const": "min"
+            },
+            "terms": {
+              "const": [
+                "demand",
+                "agent-capacity",
+                "review-capacity"
+              ]
+            }
+          }
+        },
+        "defaults": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "arrivalPerWeek",
+            "agentMinPerFix",
+            "agentHoursPerWeek",
+            "reviewMinPerPR",
+            "reviewBudgetMinPerWeek"
+          ],
+          "properties": {
+            "arrivalPerWeek": {
+              "$ref": "#/definitions/positiveInteger"
+            },
+            "agentMinPerFix": {
+              "$ref": "#/definitions/positiveInteger"
+            },
+            "agentHoursPerWeek": {
+              "$ref": "#/definitions/positiveInteger"
+            },
+            "reviewMinPerPR": {
+              "$ref": "#/definitions/positiveInteger"
+            },
+            "reviewBudgetMinPerWeek": {
+              "$ref": "#/definitions/positiveInteger"
+            }
+          }
+        }
+      }
+    }
+  }
+}

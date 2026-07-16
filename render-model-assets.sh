@@ -8,6 +8,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PUPPETEER_EXECUTABLE_PATH="${PUPPETEER_EXECUTABLE_PATH:-/bin/chromium-browser}"
 
+python3 "$HERE/validate-model.py"
+python3 "$HERE/render-model.py" --check
+
 MMDC=(npx --yes @mermaid-js/mermaid-cli@11.12.0)
 
 "${MMDC[@]}" \

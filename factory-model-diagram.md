@@ -1,11 +1,16 @@
 # Factory model - generated diagram
 
-*Generated from `factory-model.json` v4 (2026-07-16) by
-`render-model.py`. Do not edit by hand - edit the model, re-run the
-projector. Hexagons = human, dashed rounded = AI agent (non-deterministic),
-rectangles = deterministic software. Dashed edges are human-gated.*
+*Generated from `factory-model.json` schema v1, model
+v5 (2026-07-16), canonical identity
+`sha256:43b2f5ea45672e7f485acea914e69809ffda661185d95b1a95d4ffbb1d40a252`. Do not edit by hand - edit the model, update its identity,
+and re-run the projector. Hexagons = human; dashed rounded nodes = AI agent;
+rectangles = deterministic software. Dotted edges are decision or feedback
+paths; inspect their labels and endpoints to distinguish human gates from the
+learning loop.*
 
 ```mermaid
+%% factory-model schema v1, model v5
+%% canonical sha256:43b2f5ea45672e7f485acea914e69809ffda661185d95b1a95d4ffbb1d40a252
 flowchart LR
   intake["Intake<br/><i>deterministic</i>"]:::det
   triage(["Triage<br/><i>agent</i>"]):::agent
@@ -19,10 +24,10 @@ flowchart LR
   rubric{{"Rubric<br/><i>human</i>"}}:::human
   intake --> triage
   triage -->|"lane A"| implement
-  triage -->|"lanes B C D"| plan
-  plan -.->|"approved - A46"| implement
-  plan -.->|"answered - A46"| triage
-  plan -.->|"binned - A48"| ledger
+  triage -->|"lanes B, C, D"| plan
+  plan -.->|"approved"| implement
+  plan -.->|"answered"| triage
+  plan -.->|"binned"| ledger
   implement --> verify
   verify --> approve
   approve -.->|"approved"| deploy
@@ -31,7 +36,7 @@ flowchart LR
   deploy --> close
   close --> ledger
   ledger -.->|"learning loop"| rubric
-  rubric -.->|"policy edits via PR"| triage
+  rubric -.->|"policy edit via PR"| triage
   classDef human fill:#eaf2fc,stroke:#2a78d6,stroke-width:2.5px,color:#1c5cab
   classDef agent fill:#fdf6ec,stroke:#b07d2b,stroke-dasharray:5 3,color:#7c5200
   classDef det fill:#f4f5f7,stroke:#9aa0a8,color:#4c545f

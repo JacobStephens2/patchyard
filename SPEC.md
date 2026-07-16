@@ -1,4 +1,4 @@
-# factory - phase 1 build spec, v2
+# factory - phase 1 build spec, v2.1
 
 *(GitHub: `JacobStephens2/patchyard`; local checkout on the
 orchestration VM at `/srv/orchestration/patchyard/`.)*
@@ -10,6 +10,11 @@ Build remains gated on Jacob's "go". Builder: the orchestration agent.
 Merge gate: engineering department + company owner (A33). PR #213 was
 closed by Jacob 2026-07-16 - ALPHABETIZE is now the factory's first live
 test subject with no duplicate-PR conflict.*
+
+*v2.1, 2026-07-16 (later the same day): rulings A53-A55 folded in - the
+dashboard business-logic boundary (§ Dashboard v0), SQLite graduation
+tripwires (§ State layer), and host placement (§ Trust architecture).
+The session-by-session build plan is `PLAN.md`, beside this file.*
 
 **Job statement:** when a small self-describing Fieldbook request arrives,
 help Patchyard turn it into an evidenced pull request within the hour, so that
@@ -83,6 +88,18 @@ untrusted request content must hold nothing worth stealing.
 - **Publisher** (supervisor-side, deterministic): applies the verified
   patch to a fresh worktree at the recorded base SHA, confirms tree hash,
   pushes, opens the draft PR as the **factory bot identity**.
+- **Host placement (A55)**: phase 1 runs on the orchestration VM - the
+  factory is made of this host's parts (claude-orchestrator, the fieldbook
+  checkout, the secrets wiring, the headless harness, the auth stack),
+  and `/dev/kvm` is verified here, so moving would re-risk the
+  Firecracker plan. The isolation budget is spent at the worker boundary
+  above, not on host separation. When unattended mode arrives (phase 2),
+  the worker/publisher split gets its physical expression: a stripped,
+  secret-free worker droplet (no 1Password token, no DB grants, no SSH
+  material - nothing worth escaping to), while supervisor, state, and
+  publisher stay here. Tripwires that advance the timeline: sustained
+  resource contention on this droplet, materially raised caps or run
+  volume, unattended intake arriving early.
 
 ## Identity (finding 5 + Jacob's ruling 3)
 
@@ -120,6 +137,21 @@ does not count as a passing factory run.
 - The `/api/rulings` intake on the status dashboard repoints from
   `/srv/orchestration/factory/queue/` to the intake spool at build;
   rulings and software requests get separate namespaces.
+- **Engine choice + graduation tripwires (A54)**: SQLite is the phase-1
+  engine on ops + trust cost, not capability - no daemon, no port, no
+  credentials (a networked DB would add exactly the secret class the
+  credential-free worker design eliminates); access control is Unix file
+  permissions, which the `factory-web`/`conductor` split already
+  expresses. Queries go through sqlx (or a thin storage trait) so the
+  choice stays cheap to revisit. The graduation target is **PostgreSQL**,
+  and only when a tripwire fires: a second host needs direct state
+  access; sustained `SQLITE_BUSY` contention in logs; dashboard polling
+  latency becomes a real complaint; leases need cross-machine
+  `SKIP LOCKED` semantics. MySQL is declined both ways: co-tenanting on
+  prod's mysql8 couples factory availability to the prod DB and lands
+  factory chatter in its audit surface; a second local MySQL is daemon
+  ops without the familiarity benefit. The phase-2 worker-host split
+  (A55) does not trigger graduation - workers never touch the DB.
 
 ## Dashboard v0 (findings 2, 6, 7)
 
@@ -141,6 +173,21 @@ does not count as a passing factory run.
   (submit), `GET /evidence/<run>/<name>` (admin: authenticated artifact
   serving - PR bodies link here; no images committed to fieldbook),
   `GET /healthz`.
+- **Business-logic boundary (A53)**: the dashboard is a scribe and a
+  window - it writes exactly one thing (an intake row) and reads
+  everything else; no state transitions, no triage, no caps enforcement,
+  no verification (those belong to the pipeline, `factory-verify`, and
+  the supervisor). Intake validation is one function in `factory-core`
+  (parse-don't-validate: the only constructor of the validated request
+  type), called identically by the dashboard, `factoryctl`, and the
+  pipeline - no inline validation in handlers. The client gets zero
+  authoritative logic: HTML-native constraints (`maxlength`, `required`,
+  `accept`) are template-injected from the same core constants the parse
+  function enforces, and phase 1 ships no hand-written validation JS.
+  SSR only: Axum + Askama - no WASM, no npm, no TypeScript. Intake
+  validation is a quality gate, not a security boundary: the threat
+  model assumes well-formed-but-malicious content passes it, and the
+  downstream gates re-enforce regardless.
 - **Upload hardening acceptance criteria**: canonical server-generated
   IDs and filenames (user filename never a path); create-new + atomic
   rename; magic-byte sniffing + decoder pixel limits + re-encode to clean

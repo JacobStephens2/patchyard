@@ -1,0 +1,388 @@
+{
+  "version": 4,
+  "updated": "2026-07-16",
+  "note": "Canonical model of the Patchyard software factory. CANONICAL HOME: the factory repo (JacobStephens2/patchyard), beside SPEC.md - edit here first, run render-model.py, then copy the json+mmd to /srv/orchestration/hosted/ (the served projection at report.example.com/software-factory-model.json). All diagrams project from this file. Per stephens.page/blog/the-diagram-is-not-the-model/",
+  "source_doc": "projects/software-factory/synthesis/synthesized-solution.md",
+  "lanes": [
+    {
+      "id": "A",
+      "name": "auto-resolve",
+      "definition": "Matches a named skill; bounded presentation/report/wording/ordering/validation fix in internal mfieldbook; acceptance criteria recoverable from the request itself",
+      "exit": "implement -> evidenced PR",
+      "example": "ALPHABETIZE -> PR #213"
+    },
+    {
+      "id": "B",
+      "name": "needs-spec",
+      "definition": "Real feature, over-cap, or any deny-rule hit",
+      "exit": "one-pager spec + estimate (job statement), no code",
+      "example": "add a commissions report",
+      "then": "on human approval of the spec: re-enters at implement; the approved spec is the Guide and its declared budget replaces the lane-A caps (A46); on rejection: closes to the ledger with outcome 'rejected-at-plan' and the reason (A48)"
+    },
+    {
+      "id": "C",
+      "name": "not-code",
+      "definition": "Data correction or ops task",
+      "exit": "matching runbook, human-executed",
+      "example": "merge these duplicate agencies",
+      "then": "on runbook execution: closed with a ledger row (A46)"
+    },
+    {
+      "id": "D",
+      "name": "clarify",
+      "definition": "Target or intent not identifiable with confidence",
+      "exit": "one scoped question with the two likeliest readings; never guess",
+      "example": "the report is wrong",
+      "then": "on answer: request amended and re-triaged (A46); unanswered/abandoned: closes to the ledger with outcome 'rejected-at-plan' (A48)"
+    }
+  ],
+  "stages": [
+    {
+      "num": 0,
+      "id": "intake",
+      "name": "Intake",
+      "summary": "Request captured verbatim - email + attachments, hashed, uninterpreted",
+      "runtime": {
+        "interactive": "Human Engineering forwards into factory/queue/ and runs /factory",
+        "unattended": "dedicated mailbox, gmail.readonly, sender allowlist, 2-min poll, message-id idempotency"
+      },
+      "actor": "deterministic",
+      "actorNote": "capture + hash is code; humans feed it (dashboard form or /factory)"
+    },
+    {
+      "num": 1,
+      "id": "triage",
+      "name": "Triage",
+      "summary": "Four lanes vs versioned rubric.md; deny-rules demote, nothing promotes",
+      "branch": "lanes B/C/D exit to the plan bin (drafts for human review)",
+      "actor": "agent",
+      "actorNote": "classification is model judgment; the deny-rule veto is deterministic and can only demote"
+    },
+    {
+      "num": 2,
+      "id": "implement",
+      "name": "Implement",
+      "summary": "Fresh worktree at recorded SHA; smallest coherent diff; playbook checks ride the prompt (Guide)",
+      "lane": "A only",
+      "runtime": {
+        "interactive": "claude-orchestrator session, gh PAT",
+        "unattended": "credential-free worker; emits a patch, nothing else"
+      },
+      "actor": "agent",
+      "actorNote": "isolated and credential-free (A44); the component that reads untrusted content"
+    },
+    {
+      "num": 3,
+      "id": "verify",
+      "name": "Verify",
+      "summary": "Fail-closed gates + postconditions + preview screenshots; one repair loop; cross-family reviewer when unattended",
+      "actor": "deterministic",
+      "actorNote": "gates, tests, postconditions; unattended mode adds a cross-family agent reviewer (A18)"
+    },
+    {
+      "num": 4,
+      "id": "approve",
+      "name": "Approve",
+      "summary": "Engineering reviews the PR; merge is the approval; nothing merges itself",
+      "gate": true,
+      "runtime": {
+        "interactive": "publisher opens a draft PR as the factory bot identity (A45)",
+        "unattended": "deterministic publisher, same bot identity, repo-scoped short-lived token"
+      },
+      "outcomes": {
+        "approved": "merge -> deploy",
+        "changesRequested": "back to implement with the review comments (counts as the run's repair pass; a second bounce escalates to a human-led session)",
+        "rejected": "close with outcome 'rejected'; the ledger row feeds the learning loop - a rubric/skill edit via PR"
+      },
+      "actor": "human",
+      "actorNote": "the one gate that never automates"
+    },
+    {
+      "num": 5,
+      "id": "deploy",
+      "name": "Deploy",
+      "summary": "Existing dashboard path: CI gate, typed-hostname confirm; unchanged forever",
+      "actor": "deterministic",
+      "actorNote": "existing dashboard pipeline, human-initiated with typed-hostname confirm; no model in the path"
+    },
+    {
+      "num": 6,
+      "id": "close",
+      "name": "Close the loop",
+      "summary": "Drafted reply (never auto-sent) + ledger row with outcome label",
+      "actor": "deterministic",
+      "actorNote": "ledger write is code; the reply is agent-drafted but human-sent (drafts only)"
+    }
+  ],
+  "caps": {
+    "maxFiles": 2,
+    "maxChangedLines": 50,
+    "maxOpenPRs": 2,
+    "repairLoops": 1
+  },
+  "phases": [
+    {
+      "id": 0,
+      "name": "Pilot + synthesis",
+      "status": "done"
+    },
+    {
+      "id": 1,
+      "name": "/factory skill + dashboard v0 + isolation substrate + state layer",
+      "status": "SPEC v2 (post-critique) awaiting Human Engineering's go",
+      "gate": ">=10 lane-A requests and >=70% first-pass merge (pre-registered); low volume => stop happily",
+      "dashboard": "factory.example.com - manual request intake writing factory/queue/<id>/request.md + pipeline observability from queue/ledger (A32)",
+      "buildRequirements": [
+        "per-role subagents with frontmatter tool restrictions: triage read-only, implement write-scoped to worktree, verify read+execute (A37)",
+        "skill playbooks include a graded eval rubric scored on replays, pass^k (A38)",
+        "SQLite ledger + /var/lib/patchyard artifact store (A43)",
+        "container/microVM implement worker - Firecracker evaluated first, /dev/kvm present (A44)",
+        "factory bot identity - GitHub App preferred (A45)"
+      ],
+      "estimate": "~8-11 sessions (component estimates in SPEC.md)"
+    },
+    {
+      "id": 2,
+      "name": "Unattended intake",
+      "status": "gated",
+      "gate": "acceptance tests pass^k, then 20 clean runs, median review < 5 min; promotions expire, demotion triggers pre-defined; volume half pre-satisfied by demand evidence (A31, 2026-07-16) - quality half still requires ledger runs"
+    },
+    {
+      "id": 3,
+      "name": "Widen on evidence",
+      "status": "gated",
+      "gate": "ledger evidence only; prod gate never moves"
+    }
+  ],
+  "capacity": {
+    "arithmetic": "throughput = min(demandPerWeek, agentHours*60/agentMinPerFix, reviewBudgetMin/reviewMinPerPR); the binding term is the constraint (Goldratt)",
+    "defaults": {
+      "arrivalPerWeek": 20,
+      "agentMinPerFix": 20,
+      "agentHoursPerWeek": 5,
+      "reviewMinPerPR": 10,
+      "reviewBudgetMinPerWeek": 60
+    },
+    "demandEvidence": {
+      "asOf": "2026-07-16",
+      "estimatePerWeek": 20,
+      "rangePerWeek": [
+        15,
+        25
+      ],
+      "sources": [
+        "fieldbook merged PRs ~21-25/wk (Jun 1-Jul 16 2026: 137 merged in ~6.4 wk)",
+        "Trello engineering board done-batches ~15-30/wk recent (35-55/wk in May)",
+        "Gmail staff request emails ~15+/wk"
+      ],
+      "caveat": "observable engineering throughput, not a lane-tagged lane-A ledger; runs.md owns the precise share",
+      "rulings": [
+        "A31"
+      ]
+    }
+  },
+  "company": {
+    "employees": 40,
+    "engineeringCapacity": "~1 engineer (Jacob) + agents"
+  },
+  "approvers": [
+    {
+      "name": "Jacob Stephens",
+      "role": "engineering"
+    },
+    {
+      "name": "Engineer Two",
+      "role": "engineering",
+      "note": "returning week of 2026-07-20"
+    },
+    {
+      "name": "the Owner",
+      "role": "owner/GM"
+    }
+  ],
+  "approverPolicy": "engineering department + company owner",
+  "approverNotes": "Marketing Colleague (marketing manager) does development but is not engineering - not an approver under the policy",
+  "pilot": {
+    "pr": 213,
+    "status": "PR #213 CLOSED by Jacob 2026-07-16 (A35 executed); ALPHABETIZE is the factory's first live test subject"
+  },
+  "github": {
+    "branchProtection": {
+      "verified": "2026-07-16",
+      "type": "classic",
+      "requirePR": true,
+      "approvals": 1,
+      "mostRecentPushApproval": false,
+      "noBypass": false,
+      "bypassActors": [],
+      "flipWhen": "second engineer active or phase 2: enable most-recent-push approval + no-bypass; never add the factory GitHub App to bypass actors; migrate to Rulesets"
+    }
+  },
+  "topology": {
+    "primary": "hierarchical-pipeline",
+    "insideStage": "orchestrator-worker permitted",
+    "reserved": "parallel fan-out for phase-3 homogeneous batch skills",
+    "rejected": "agent teams / peer messaging (R21)"
+  },
+  "constitution": "synthesis/agents.md - hard rules ride every factory prompt as static context (A36); skill playbooks are the dynamic layer",
+  "repo": {
+    "name": "JacobStephens2/patchyard",
+    "visibility": "private",
+    "checkout": "/srv/orchestration/patchyard (renames after the queue migrates at build)",
+    "status": "live: 4 commits pushed 2026-07-16 (README, SPEC.md, A42 language policy, DNS note); spec awaiting Human Engineering + GPT 5.6-Sol review (A41)",
+    "spec": "SPEC.md - phase-1 build spec awaiting Human Engineering + GPT 5.6-Sol review (A41)",
+    "dns": "factory.example.com A record -> 142.93.121.94 created in Route 53 (2026-07-16); Caddy vhost lands at build"
+  },
+  "language": {
+    "policy": "Rust where correctness is the product or the process is long-lived; existing Python tooling where the ecosystem owns the job; prompts/policy in markdown (A42)",
+    "rust": [
+      "verify crate (factory-verify)",
+      "dashboard (Axum)",
+      "phase-2 supervisor/poller/publisher (directed)"
+    ],
+    "python": [
+      "Selenium/headless harness",
+      "status-dashboard touchpoints"
+    ],
+    "toolchainNote": "rustup/cargo not yet installed on the orchestration VM - first build step"
+  },
+  "review": {
+    "critique": "reviews/2026-07-16-gpt-5.6-sol-spec-critique.md (17 findings, 5 blockers)",
+    "disposition": "reviews/2026-07-16-disposition.md - 15 conceded, 2 resolved by ruling, 0 rejected"
+  },
+  "planLoop": "The plan bin is a loop, not a sink (A46): iteration - critique rounds, clarification, free-form spec-ing - is cheap in the plan bin; the belt is strict. Human approval is the re-entry edge. A binned plan closes to the ledger with its reason - rejected ideas are data (A48; Dailey p.50: some things shouldn't be built, and that's good).",
+  "triad": {
+    "shape": "Plan -> Implement -> Verify",
+    "grounding": "Dailey, AIEWF 2026 (notes p.48-51): Plan/Implement/Polish, 'the doc is the state; the agent is the action' - with Verify replacing Polish (Jacob, 2026-07-16). The factory replaces polish with proof (A7). Ruling A47",
+    "grouping": {
+      "Plan": [
+        "intake",
+        "triage",
+        "plan bin"
+      ],
+      "Implement": [
+        "implement"
+      ],
+      "Verify": [
+        "verify",
+        "approve (the human gate)"
+      ],
+      "aftermath": [
+        "deploy",
+        "close"
+      ]
+    }
+  },
+  "actorTypes": {
+    "human": "human judgment - the accountable decision",
+    "deterministic": "ordinary software - same input, same output, no model in the path",
+    "agent": "non-deterministic machine - an AI agent whose output must be verified"
+  },
+  "entities": [
+    {
+      "id": "plan",
+      "name": "Plan bin",
+      "actor": "human",
+      "note": "the decision layer; free-form iteration is cheap here (A46/A47)"
+    },
+    {
+      "id": "ledger",
+      "name": "Ledger",
+      "actor": "deterministic",
+      "note": "runs + outcomes; every path ends here"
+    },
+    {
+      "id": "rubric",
+      "name": "Rubric",
+      "actor": "human",
+      "note": "policy; edits only via reviewed PR (A14)"
+    }
+  ],
+  "edges": [
+    {
+      "from": "intake",
+      "to": "triage",
+      "kind": "belt"
+    },
+    {
+      "from": "triage",
+      "to": "implement",
+      "kind": "belt",
+      "label": "lane A"
+    },
+    {
+      "from": "triage",
+      "to": "plan",
+      "kind": "exit",
+      "label": "lanes B C D"
+    },
+    {
+      "from": "plan",
+      "to": "implement",
+      "kind": "human-gated",
+      "label": "approved - A46"
+    },
+    {
+      "from": "plan",
+      "to": "triage",
+      "kind": "human-gated",
+      "label": "answered - A46"
+    },
+    {
+      "from": "plan",
+      "to": "ledger",
+      "kind": "human-gated",
+      "label": "binned - A48"
+    },
+    {
+      "from": "implement",
+      "to": "verify",
+      "kind": "belt"
+    },
+    {
+      "from": "verify",
+      "to": "approve",
+      "kind": "belt"
+    },
+    {
+      "from": "approve",
+      "to": "deploy",
+      "kind": "human-gated",
+      "label": "approved"
+    },
+    {
+      "from": "approve",
+      "to": "implement",
+      "kind": "human-gated",
+      "label": "changes requested"
+    },
+    {
+      "from": "approve",
+      "to": "ledger",
+      "kind": "human-gated",
+      "label": "rejected"
+    },
+    {
+      "from": "deploy",
+      "to": "close",
+      "kind": "belt"
+    },
+    {
+      "from": "close",
+      "to": "ledger",
+      "kind": "belt"
+    },
+    {
+      "from": "ledger",
+      "to": "rubric",
+      "kind": "learning",
+      "label": "learning loop"
+    },
+    {
+      "from": "rubric",
+      "to": "triage",
+      "kind": "human-gated",
+      "label": "policy edits via PR"
+    }
+  ]
+}

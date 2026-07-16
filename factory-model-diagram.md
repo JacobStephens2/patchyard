@@ -1,0 +1,38 @@
+# Factory model - generated diagram
+
+*Generated from `factory-model.json` v4 (2026-07-16) by
+`render-model.py`. Do not edit by hand - edit the model, re-run the
+projector. Hexagons = human, dashed rounded = AI agent (non-deterministic),
+rectangles = deterministic software. Dashed edges are human-gated.*
+
+```mermaid
+flowchart LR
+  intake["Intake<br/><i>deterministic</i>"]:::det
+  triage(["Triage<br/><i>agent</i>"]):::agent
+  implement(["Implement<br/><i>agent</i>"]):::agent
+  verify["Verify<br/><i>deterministic</i>"]:::det
+  approve{{"Approve<br/><i>human</i>"}}:::human
+  deploy["Deploy<br/><i>deterministic</i>"]:::det
+  close["Close the loop<br/><i>deterministic</i>"]:::det
+  plan{{"Plan bin<br/><i>human</i>"}}:::human
+  ledger["Ledger<br/><i>deterministic</i>"]:::det
+  rubric{{"Rubric<br/><i>human</i>"}}:::human
+  intake --> triage
+  triage -->|"lane A"| implement
+  triage -->|"lanes B C D"| plan
+  plan -.->|"approved - A46"| implement
+  plan -.->|"answered - A46"| triage
+  plan -.->|"binned - A48"| ledger
+  implement --> verify
+  verify --> approve
+  approve -.->|"approved"| deploy
+  approve -.->|"changes requested"| implement
+  approve -.->|"rejected"| ledger
+  deploy --> close
+  close --> ledger
+  ledger -.->|"learning loop"| rubric
+  rubric -.->|"policy edits via PR"| triage
+  classDef human fill:#eaf2fc,stroke:#2a78d6,stroke-width:2.5px,color:#1c5cab
+  classDef agent fill:#fdf6ec,stroke:#b07d2b,stroke-dasharray:5 3,color:#7c5200
+  classDef det fill:#f4f5f7,stroke:#9aa0a8,color:#4c545f
+```

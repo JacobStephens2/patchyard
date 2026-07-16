@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from model_tools import (
+    DECISION_LOG_PATH,
     IDENTITY_PATH,
     MODEL_PATH,
     SCHEMA_PATH,
@@ -21,6 +22,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("model", nargs="?", type=Path, default=MODEL_PATH)
     parser.add_argument("--schema", type=Path, default=SCHEMA_PATH)
+    parser.add_argument("--decision-log", type=Path, default=DECISION_LOG_PATH)
     parser.add_argument("--identity", type=Path, default=IDENTITY_PATH)
     parser.add_argument(
         "--skip-identity",
@@ -31,7 +33,7 @@ def main() -> int:
 
     try:
         model = load_model(args.model)
-        errors = validate_model(model, args.schema)
+        errors = validate_model(model, args.schema, args.decision_log)
     except (OSError, ValueError, RuntimeError) as exc:
         print(f"model validation failed: {exc}", file=sys.stderr)
         return 1

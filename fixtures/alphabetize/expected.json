@@ -1,0 +1,35 @@
+{
+  "classification": {
+    "lane": "A",
+    "skill": "ui.sort-dropdown"
+  },
+  "targets": [
+    {
+      "page": "Simple Sales Report",
+      "path": "mfieldbook/common_functions.php",
+      "symbol": "get_salespeople_usernames"
+    },
+    {
+      "page": "Create or Assign School",
+      "path": "mfieldbook/leads/assign.php"
+    }
+  ],
+  "postconditions": {
+    "sortKey": "firstName, then lastName",
+    "caseFolded": true,
+    "preserveMembership": true,
+    "preserveValues": true,
+    "preserveSelectedValue": true,
+    "preserveLeadingBlankOrAllOption": true
+  },
+  "limits": {
+    "maxFiles": 2,
+    "maxChangedLines": 50
+  },
+  "forbidden": [
+    "schema change",
+    "data mutation",
+    "outbound message",
+    "automatic merge"
+  ]
+}

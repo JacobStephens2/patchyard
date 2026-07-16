@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import Counter, deque
 from pathlib import Path
 from typing import Any, Iterable
@@ -14,8 +15,10 @@ HERE = Path(__file__).resolve().parent
 MODEL_PATH = HERE / "factory-model.json"
 SCHEMA_PATH = HERE / "factory-model.schema.json"
 IDENTITY_PATH = HERE / "factory-model.sha256"
+DECISION_LOG_PATH = HERE / "docs" / "decision-log.md"
 
 SUPPORTED_EDGE_KINDS = {"belt", "exit", "human-gated", "learning"}
+RULING_ROW = re.compile(r"^\|\s*([ADR]\d+)\s*\|")
 
 
 class DuplicateKeyError(ValueError):
@@ -112,7 +115,34 @@ def _reachable(start: str, adjacency: dict[str, set[str]]) -> set[str]:
     return seen
 
 
-def semantic_errors(model: dict[str, Any]) -> list[str]:
+def load_ruling_ids(path: Path = DECISION_LOG_PATH) -> list[str]:
+    """Return ruling identifiers defined by decision-log table rows."""
+
+    return [
+        match.group(1)
+        for line in path.read_text().splitlines()
+        if (match := RULING_ROW.match(line))
+    ]
+
+
+def _ruling_references(value: Any, path: str = "$") -> Iterable[tuple[str, str]]:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            child_path = f"{path}.{key}"
+            if key == "rulings" and isinstance(child, list):
+                for index, ruling_id in enumerate(child):
+                    if isinstance(ruling_id, str):
+                        yield f"{child_path}[{index}]", ruling_id
+            else:
+                yield from _ruling_references(child, child_path)
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            yield from _ruling_references(child, f"{path}[{index}]")
+
+
+def semantic_errors(
+    model: dict[str, Any], decision_log_path: Path = DECISION_LOG_PATH
+) -> list[str]:
     """Check graph and cross-reference rules JSON Schema cannot express."""
 
     errors: list[str] = []
@@ -124,6 +154,18 @@ def semantic_errors(model: dict[str, Any]) -> list[str]:
     edges = model.get("edges", [])
     macro_stages = model.get("macroStages", [])
     actor_types = set(model.get("actorTypes", {}))
+
+    ruling_ids = load_ruling_ids(decision_log_path)
+    duplicate_rulings = _duplicates(ruling_ids)
+    if duplicate_rulings:
+        errors.append(f"duplicate ruling id(s) in decision log: {duplicate_rulings}")
+    defined_rulings = set(ruling_ids)
+    for path, ruling_id in _ruling_references(model):
+        if ruling_id not in defined_rulings:
+            errors.append(
+                f"{path} references ruling {ruling_id!r} absent from "
+                f"{decision_log_path.name}"
+            )
 
     stage_ids = [stage.get("id") for stage in stages]
     entity_ids = [entity.get("id") for entity in entities]
@@ -250,9 +292,10 @@ def semantic_errors(model: dict[str, Any]) -> list[str]:
 
 
 def validate_model(
-    model: dict[str, Any], schema_path: Path = SCHEMA_PATH
+    model: dict[str, Any], schema_path: Path = SCHEMA_PATH,
+    decision_log_path: Path = DECISION_LOG_PATH,
 ) -> list[str]:
     errors = schema_errors(model, schema_path)
     if not errors:
-        errors.extend(semantic_errors(model))
+        errors.extend(semantic_errors(model, decision_log_path))
     return errors

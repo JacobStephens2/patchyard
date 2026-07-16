@@ -97,7 +97,8 @@ as noted; ~10 sessions plus session 11 as buffer/cutover, inside the
 
 ### Session 6 - /factory skill + rubric + triage *(component 4)*
 
-- Skill playbook; `rubric.md` migrated into this repo; no-shell triage
+- Constitution already canonical here as `agents.md`; skill playbook;
+  `rubric.md` migrated into this repo; no-shell triage
   subagent (Read/Grep/Glob frontmatter allowlist - A37); plan-bin exits
   for B/C/D with ledger rows (A46/A48); one repair loop (A9); replay
   fixtures wired.
@@ -152,9 +153,8 @@ as noted; ~10 sessions plus session 11 as buffer/cutover, inside the
 ### Session 11 - cutover + buffer
 
 - Migrate `queue/` + ledger out of the orchestration repo; repoint
-  `/api/rulings` to the intake spool; migrate the `agents.md`
-  constitution into this repo (A36); runbook v0 (operate, back up, roll
-  back, kill); sync memory and docs.
+  `/api/rulings` to the intake spool; runbook v0 (operate, back up, roll back,
+  kill); sync memory and docs.
 - Exit: the orchestration repo carries pointers only; a request filed
   via the dashboard reaches the same spool the skill consumes.
 

@@ -10,15 +10,17 @@ pull requests out. One human gate - the PR - held by the engineering
 department + the company owner. The production deploy path is never touched.
 
 - **Spec:** [SPEC.md](SPEC.md) - the phase-1 build contract.
-- **Design record:** the synthesis, 87-ruling decision log, and comparison of
-  the five founding proposals live in the orchestration repo at
-  `projects/software-factory/synthesis/`; the interactive review is at
-  https://report.example.com/software-factory-review.html. The planned
-  ownership split is documented in
+- **Design record:** [`docs/decision-log.md`](docs/decision-log.md) is the
+  canonical 87-ruling log. The independent proposals, comparison and
+  historical synthesis remain as provenance in the orchestration repo at
+  `projects/software-factory/`; the interactive review is at
+  https://report.example.com/software-factory-review.html. Repository
+  ownership is documented in
   [`docs/repository-boundary.md`](docs/repository-boundary.md).
-- **Constitution:** `agents.md` (migrates here from the orchestration repo at
-  build start; until then the orchestration copy is canonical). Its hard
-  rules ride every factory agent prompt.
+- **Constitution:** [`agents.md`](agents.md). Its hard rules ride every factory
+  agent prompt and change only through a human-reviewed pull request.
+- **Acceptance fixtures:** sanitized replay inputs live under `fixtures/`;
+  raw requests and screenshots never enter Git.
 - **Canonical model:** `factory-model.json`, governed by
   `factory-model.schema.json` and the boundary in
   [`docs/model-boundary.md`](docs/model-boundary.md). Its canonical JSON

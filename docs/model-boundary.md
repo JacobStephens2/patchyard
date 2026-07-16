@@ -15,7 +15,8 @@ is deliberately narrower than the factory's complete design record.
 
 These fields have consumers or invariants that code can validate. The JSON
 Schema defines their shape; `validate-model.py` checks cross-references and
-graph properties that JSON Schema cannot express.
+graph properties that JSON Schema cannot express, including that every model
+ruling reference resolves to one unique row in `docs/decision-log.md`.
 
 ## What does not belong in the model
 
@@ -27,8 +28,9 @@ graph properties that JSON Schema cannot express.
 - Runtime requests, runs, artifacts, leases or current pipeline state.
 
 The phase-1 build contract belongs in `SPEC.md`; its session ordering belongs
-in `PLAN.md`; critique records belong in `reviews/`. The decision log and
-founding synthesis currently remain in the orchestration repository at
+in `PLAN.md`; critique records belong in `reviews/`; rulings belong in the
+local `docs/decision-log.md`. The founding synthesis remains historical
+provenance in the orchestration repository at
 `projects/software-factory/synthesis/`. Runtime state will live in SQLite and
 the private artifact store described by the spec.
 

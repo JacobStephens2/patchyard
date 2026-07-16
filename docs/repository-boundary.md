@@ -4,34 +4,28 @@ The factory repository should become self-contained for build and runtime
 policy without absorbing the orchestration repository's research archive.
 Do not bulk-copy `projects/software-factory/`.
 
-## Migrate into this repository
+## Migrated into this repository
 
 ### Decision log
 
-Move `projects/software-factory/synthesis/decision-log.md` to
-`docs/decision-log.md` in a coordinated, reviewed change. The model contains
-structured references such as `A39` and `A52`; their definitions should
-eventually resolve inside the same repository. After migration, leave a
-pointer in the synthesis directory and extend model validation to reject a
-ruling identifier absent from the local log.
+`docs/decision-log.md` is now the canonical ruling log. The model contains
+structured references such as `A39` and `A52`; model validation rejects a
+ruling identifier absent from this local log. The synthesis directory keeps a
+pointer for historical links.
 
 ### Factory constitution
 
-Move `projects/software-factory/synthesis/agents.md` to this repository as
-`agents.md` through the human-reviewed policy process required by that file.
-This must happen no later than the `/factory` skill work: the constitution's
-hard rules are prompt input, not a cutover after the skill is built. The
-current build plan places the move in session 11; move that one item forward
-to session 6 when the plan is next revised.
+`agents.md` is now canonical here through the human-reviewed policy process
+required by that file. Its hard rules are available before the `/factory`
+skill work because the constitution is prompt input, not a cutover artifact.
 
 ### Acceptance fixtures
 
-Create a sanitized ALPHABETIZE fixture under `fixtures/` when replay work
-begins. Bring only the minimum request text, expected classification,
-postconditions and scrubbed images needed by the acceptance test. Do not copy
-raw email attachments or the proposal directories wholesale; the spec allows
-only sanitized fixtures in Git, while live artifacts belong in the private
-artifact store.
+`fixtures/alphabetize/` contains the minimum synthetic request text, expected
+classification, postconditions and scrubbed images needed by the smoke test.
+Raw email attachments and proposal directories remain outside this repo; the
+spec allows only sanitized fixtures in Git, while live artifacts belong in the
+private artifact store.
 
 ## Keep in the orchestration repository
 

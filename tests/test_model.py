@@ -71,6 +71,23 @@ class FactoryModelTests(unittest.TestCase):
             semantic_errors(model),
         )
 
+    def test_unknown_ruling_reference_is_rejected(self) -> None:
+        model = copy.deepcopy(self.model)
+        model["rulings"].append("A999")
+        self.assertTrue(
+            any(
+                "references ruling 'A999' absent" in error
+                for error in semantic_errors(model)
+            )
+        )
+
+    def test_duplicate_decision_log_ruling_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "decision-log.md"
+            path.write_text("| A1 | first |\n| A1 | duplicate |\n")
+            errors = semantic_errors(self.model, path)
+        self.assertIn("duplicate ruling id(s) in decision log: ['A1']", errors)
+
     def test_canonical_bytes_ignore_object_key_order(self) -> None:
         left = {"b": 2, "a": {"d": 4, "c": 3}}
         right = json.loads('{"a":{"c":3,"d":4},"b":2}')

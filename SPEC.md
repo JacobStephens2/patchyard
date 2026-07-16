@@ -20,10 +20,11 @@ The session-by-session build plan is `PLAN.md`, beside this file.*
 help Patchyard turn it into an evidenced pull request within the hour, so that
 staff requests stop dying in inboxes and review is the only human cost.
 
-Design authority: the decision log and synthesized solution in the
-orchestration repo. Where this spec conflicts with a ruling, the ruling
-wins - and if a ruling requires an unsafe design, the ruling gets amended
-first (per the critique's correction of v1's wording). The canonical
+Design authority: `docs/decision-log.md` in this repo. The founding synthesis
+remains provenance in the orchestration repo, not a second editable authority.
+Where this spec conflicts with a ruling, the ruling wins - and if a ruling
+requires an unsafe design, the ruling gets amended first (per the critique's
+correction of v1's wording). The canonical
 machine-readable model is `factory-model.json` **in this repo** (A51),
 served at https://report.example.com/software-factory-model.json;
 `render-model.py` projects it to Mermaid (`factory-model-diagram.md`).
@@ -251,8 +252,8 @@ tree hash. Replays are meaningless without them.
 
 ## Acceptance criteria (finding 9; pass^k, k=3)
 
-1. **Smoke (public)**: ALPHABETIZE from Fred's raw email → lane A, both
-   root-cause files, patch equivalent to the closed PR #213's - 3/3.
+1. **Smoke (public)**: the sanitized `fixtures/alphabetize/` request → lane A,
+   both root-cause files, patch equivalent to the closed PR #213's - 3/3.
    PR #213 is closed, so the one live run publishes the factory's own
    draft PR with no duplicate conflict.
 2. **Hidden positives**: sort fixes in other report/dropdown

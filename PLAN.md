@@ -5,9 +5,15 @@ plan says in what order, cut into sessions, each with a verifiable exit.
 Build remains gated on Jacob's explicit "go" - this document is prep,
 not build.)*
 
-*Status: v1, 2026-07-16. Builder: the orchestration agent. Cross-family
-reviewer: GPT 5.6-Sol xhigh on each build PR (A41). Merge gate:
-engineering + owner (A33).*
+*Status: v2, 2026-07-16 - re-planned after the adversarial review
+(`reviews/2026-07-16-plan-adversarial-review.md`; dispositions in
+`reviews/2026-07-16-plan-review-disposition.md`; all findings conceded).
+v1's ~10+1 sessions re-baselined to ~15: same components, honest cuts -
+isolation qualification, preview-integrated verification, dashboard
+hardening, and post-cutover acceptance each get their own exit instead
+of hiding inside another session's. Builder: the orchestration agent.
+Cross-family reviewer: GPT 5.6-Sol xhigh on each build PR (A41). Merge
+gate: engineering + owner (A33).*
 
 The factory's own macro-shape is Plan → Implement → Verify (A47), and
 lane B demands a plan before implementation. Phase 1's build is itself a
@@ -24,145 +30,266 @@ are its human-approved budget.
   deliverable is a recorded decision (in `reviews/` or `docs/`), even if
   its code is thrown away.
 - **The factory repo gets CI in session 1** (fmt, clippy, test,
-  `cargo audit`, `cargo deny`, byte-identical model regeneration per
-  A50). This does not conflict with R4: Actions is rejected as the
-  *coding runtime for fieldbook changes*; the factory repo running its own
-  test suite in CI is ordinary hygiene.
+  `cargo audit`, `cargo deny`, `./check-model.sh`). This does not
+  conflict with R4: Actions is rejected as the *coding runtime for
+  fieldbook changes*; the factory repo running its own test suite in CI is
+  ordinary hygiene.
 - **Nothing touches fieldbook prod.** All live-fire runs target scratch
   branches and the preview fleet until the acceptance matrix passes.
-- **Model edits regenerate views** (`render-model.py`; copy json + mmd
-  to the orchestration VM's `hosted/`) in the same commit.
+- **Model edits follow `docs/model-boundary.md`'s workflow** (bump
+  `modelVersion`, `model-id.py --write`, `render-model.py`,
+  `./check-model.sh`) and the generated json/schema/identity/mmd/svg/png
+  get copied to the orchestration VM's `hosted/` in the same change.
+- **Nothing is called end-to-end before its dependencies exist.** An
+  exit may use fixtures and seeded state when the real mechanism lands
+  later, but must say so; the full-pipeline claims live only in the
+  final acceptance session, which runs against the cut-over topology.
 
 ## Session sequence
 
-Component estimates from `SPEC.md` § Component estimates map to sessions
-as noted; ~10 sessions plus session 11 as buffer/cutover, inside the
-8-11 estimate.
+Sessions 1-2 cover SPEC component 1; 3-5 component 2; 6-7 component 3
+plus verifier-runtime integration; 8-9 component 4; 10 the publisher;
+11-12 component 5; 13 component 6's evidence lifecycle; 14 cutover;
+15 final acceptance. There is no padded buffer - an overrun surfaces as
+an overrun instead of compressing the security and failure testing.
 
-### Session 1 - toolchain + workspace scaffold *(component 1, first half)*
+### Session 1 - toolchain, scaffold, service identities, CI
 
-- Entry: Jacob's "go"; repo access live (done 2026-07-16).
+- Entry: Jacob's "go"; repo access live (done 2026-07-16). **The GitHub
+  App dependency opens now, not at session 10**: Jacob starts
+  `patchyard` App creation + installation (org admin; private key to
+  1Password, `env.tpl` entry); token minting gets a smoke test as soon
+  as the key exists.
 - Install rustup/cargo for `conductor`; pin `rust-toolchain.toml`;
   commit `Cargo.lock`.
 - Cargo workspace: `factory-core` (types, the parse-don't-validate
   intake constructor, shared constants), `factory-verify`, `factoryctl`,
   `factory-web` - empty shells beyond core.
-- CI per the ground rule above.
-- Exit: `cargo test` green on the skeleton; CI green on a PR; README
-  gains build/run instructions.
-- Non-goals: no schema, no dashboard, no isolation work.
+- **Provision all service identities now**: `factory-worker` and
+  `factory-web` users, `factory` group; `/var/lib/patchyard/` skeleton
+  with asserted ownership and modes recorded as tests, before anything
+  depends on them implicitly.
+- Verify the in-repo constitution (`agents.md`, canonical here since
+  dee992d) is wired into CI as a checked artifact.
+- Exit: `cargo test` green on the skeleton; CI green on a PR; identity/
+  ownership assertions pass; README gains build/run instructions.
 
-### Session 2 - state layer *(component 1, second half)*
+### Session 2 - state layer behind a storage boundary
 
-- SQLite schema + migrations for `requests`, `runs`, `events`,
-  `artifacts`, `pr_state`, `leases` (SPEC § State layer); WAL;
-  `/var/lib/patchyard/` layout, ownership, permissions.
+- **Storage trait/sqlx boundary explicitly owned here** (A54: Postgres
+  graduation stays cheap): SQLite is an implementation behind it, not
+  the API.
+- Schema + migrations for `requests`, `runs`, `events`, `artifacts`,
+  `pr_state`, `leases` (SPEC § State layer) - `runs` includes **all
+  eight provenance hash columns** from day one; WAL; artifact directory
+  lifecycle (0700, retention sweep).
 - `factoryctl` v0: `request new` (through the single core parse
   function - A53), `status`, `claim` (lease TTL), `close`,
-  `retention-sweep`; `reconcile` stubbed, lands in session 7.
-- Exit: `factoryctl request new` inserts a row and `factoryctl status`
-  reads it back; lease claim/expiry and double-claim rejection covered
-  by cargo tests; crash recovery demonstrated (kill mid-write, reopen,
-  ledger consistent).
-- Non-goals: no GitHub calls; no dashboard.
+  `retention-sweep`; `reconcile` stubbed, lands in session 10.
+- Exit: automated crash tests at **named state boundaries** (kill
+  before/after each transition; reopen; `PRAGMA integrity_check`;
+  idempotent retry converges); lease claim/expiry, double-claim
+  rejection, and request/run/event/lease invariants asserted as tests.
 
-### Session 3 - isolation spike: Firecracker vs rootless Podman *(component 2, spike)*
+### Session 3 - isolation spike: Firecracker vs rootless Podman
 
-- Evaluate Firecracker first (`/dev/kvm` verified present 2026-07-16):
-  boot a microVM with the request mounted read-only, one fresh worktree
-  read-write, no reachable network beyond the model endpoint. Fallback
-  candidate: rootless Podman under the same mount/egress contract (A44).
-- Measure: startup overhead, image build story, egress-restriction
-  mechanism, credential plumbing shape under the
-  `conductor`/`factory-worker` user split.
-- Exit: **a decision recorded in this repo** (runtime, rationale,
-  measurements, the credential path) - implementation may be partial.
+- Evaluate Firecracker first (`/dev/kvm` verified present 2026-07-16);
+  fallback candidate rootless Podman under the same mount/egress
+  contract (A44).
+- **Probe manifest predeclared before running**: read-only request
+  mount, read-write worktree mount, host-write attempts, egress beyond
+  the model endpoint (IPv4, IPv6, DNS), credential absence, startup and
+  teardown overhead - with must-pass selection criteria written down
+  first.
+- Exit: **a decision recorded in this repo** - runtime, rationale, raw
+  probe results against the predeclared criteria, and the credential
+  plumbing shape under the `conductor`/`factory-worker` split.
+  Implementation may be partial; the probes may not be.
 
-### Session 4 - worker image + credential plumbing *(component 2, remainder)*
+### Session 4 - worker runtime build-out
 
-- Build the worker environment per the session-3 decision: worker
-  contract (a patch + a rationale out, nothing else), short-lived
-  spend-capped model credential (never `conductor`'s env).
-- Exit: scripted demo - a hostile fixture inside the boundary cannot
-  read a canary secret planted on the host, cannot reach the private
-  network, and a toy request still yields a patch.
+- The chosen runtime becomes the production worker shape: image
+  construction, mount wiring, egress enforcement, short-lived
+  spend-capped model credential (never `conductor`'s env), worker I/O
+  contract (a patch + a rationale out, nothing else), guaranteed
+  teardown.
+- Exit: a toy request yields a patch through the real boundary; egress
+  and mount contracts hold under the probe scripts from session 3;
+  teardown leaves no residue (asserted).
 
-### Session 5 - factory-verify crate *(component 3)*
+### Session 5 - worker adversarial qualification
 
-- `caps`, `deny-paths`, `postconditions` (sort skill), `ledger-append`
-  per SPEC § Verification; mutation self-tests enumerating every
-  mutation each subcommand must reject (A10).
+- **Enumerated hostile-test manifest, all automated**: environment
+  variables, SSH/`op` file paths, sockets, cloud metadata endpoints,
+  private IPv4/IPv6 ranges, DNS exfiltration, filesystem boundary
+  writes, and alternate output channels beyond the patch+rationale
+  contract.
+- Exit: every manifest entry passes (canary secret unread, private
+  network unreachable, no out-of-contract output); the manifest and
+  results are committed - they become regression fixtures for
+  acceptance.
+
+### Session 6 - factory-verify crate (pure logic)
+
+- `caps`, `deny-paths`, `postconditions` (sort skill, against canned
+  DOM fixtures at this stage), `ledger-append` - which **also validates
+  provenance-field completeness** on every run record; mutation
+  self-tests enumerating every mutation each subcommand must reject
+  (A10).
 - Exit: cargo test proves each subcommand fails its enumerated
-  mutations; reproducible build documented; binary checksummed.
+  mutations; **two independent clean builds produce identical binary
+  hashes**; checksum-verified install and rollback exercised, not just
+  documented.
 
-### Session 6 - /factory skill + rubric + triage *(component 4)*
+### Session 7 - preview slice + verifier runtime
 
-- Constitution already canonical here as `agents.md`; skill playbook;
-  `rubric.md` migrated into this repo; no-shell triage
-  subagent (Read/Grep/Glob frontmatter allowlist - A37); plan-bin exits
-  for B/C/D with ledger rows (A46/A48); one repair loop (A9); replay
-  fixtures wired.
-- Exit: dry run on the ALPHABETIZE fixture through triage → worker →
-  verify, stopping before publish; B/C/D fixtures land in the plan bin
-  with ledger rows.
+- **The minimal preview mechanism lands here, before anything claims
+  integrated verification** (review finding 1): preview lease (owner,
+  request-id, expected SHA, TTL, guaranteed cleanup), in-preview
+  `git rev-parse HEAD` verification, headless bearer-header extension,
+  baseline-DOM capture at the base SHA.
+- **Verifier runtime harness**: worker terminated before verify
+  (asserted, not assumed); verification runs as `factory-worker` in a
+  clean environment; before/after tree-hash equality; **targeted
+  PHPUnit selection and execution as `factory-worker`**.
+- Exit: the sort postcondition runs against a real preview baseline on
+  a fixture branch; PHPUnit runs under the verifier identity; lease
+  cleanup proven on both success and failure paths.
 
-### Session 7 - publisher + factory bot identity *(components 4/6)*
+### Session 8 - /factory skill part 1: triage + the plan bin
 
-- **Jacob dependency**: create + install the `patchyard` GitHub App
-  (needs org admin - the PAT lacks it); private key into 1Password;
-  `env.tpl` entry. PAT fallback (A45) keeps the session unblocked if
-  App friction bites.
-- Publisher: apply the verified patch at the recorded base SHA in a
-  fresh worktree under `/var/lib/patchyard/worktrees/`, confirm tree
-  hash, push, open a **draft PR** as the bot; `factoryctl reconcile`
-  lands (bounded call, fail-closed on stale GitHub state); PR-cap check
-  under the publisher lease.
-- Exit: a draft PR authored by the bot on a scratch branch; cap race
-  test passes (two simultaneous publishes → one PR).
+- Constitution already canonical here as `agents.md` - its hard rules
+  ride the triage prompt from the first run. `rubric.md` migrated into
+  this repo; no-shell triage subagent (Read/Grep/Glob frontmatter
+  allowlist - A37); lane classification against the rubric.
+- **All plan-bin transitions, not just the exits** (A46/A48): approved
+  B re-enters implement with the spec as Guide and a human-approved
+  budget replacing lane-A caps; answered D re-triages; executed C
+  closes; rejected-at-plan closes with its reason.
+- Exit: a replay manifest states the expected lane per fixture and
+  every fixture classifies correctly; **each plan-bin re-entry and
+  close transition is exercised** with its ledger row.
 
-### Session 8 - dashboard v0 *(component 5)*
+### Session 9 - /factory skill part 2: pipeline orchestration
 
-- Axum + Askama SSR (no WASM, no npm - A53); `factory-web` systemd unit
-  with the SPEC's hardening; Unix socket; Caddy vhost + forward_auth;
-  `factory_submit`/`factory_admin` permissions in the members store.
-- Intake form constraints template-injected from `factory-core`
-  constants (A53); upload hardening + adversarial fixtures per SPEC.
-- Exit: SPEC acceptance item 7 in full (submit → receipt; admin sees
-  stage transitions through a run; anonymous 302; upload fixtures
-  rejected; evidence route authenticated).
+- Supervisor as deterministic steps only, with a test proving raw
+  request content flows exclusively into the isolated triage/worker
+  path - never into the supervisor's own instructions (SPEC trust
+  architecture).
+- Worker invocation, verify integration, one repair loop (A9) with
+  exhaustion escalating, **provenance fields populated on every run**
+  (model id, CLI version, constitution/rubric/skill/prompt-template/
+  verifier-binary hashes, base tree hash).
+- Exit: ALPHABETIZE dry run with expected lane, target files, and patch
+  semantics asserted; worker-terminated-before-verify ordering observed;
+  provenance complete (ledger-append accepts); repair exhaustion
+  escalates; stops before publish - and is labeled a dry run, not
+  end-to-end.
 
-### Session 9 - evidence lifecycle *(component 6, first half)*
+### Session 10 - publisher, bot identity, reconcile
 
-- Draft-PR evidence lifecycle per SPEC: preview lease, in-preview SHA
-  verification, headless bearer-header extension, evidence into the
-  artifact store, PR-body links via the dashboard evidence route,
-  ready-for-review flip with the full contract (A26 quiz, explain-diff,
-  drafted reply).
+- Bot identity live: GitHub App token minting (smoke-tested since
+  session 1); the fallback, if needed, is a **dedicated machine-user
+  fine-grained PAT, never Jacob's** (A45) - and "PR author is the
+  machine identity" is part of the exit either way.
+- **Full worktree lifecycle per SPEC**: dedicated bare clone under
+  `/var/lib/patchyard/worktrees/`, fetch-before-branch, refuse an
+  existing branch unless it belongs to the same request, cleanup on
+  failure, close, and merge.
+- Publisher state machine: apply verified patch at recorded base SHA,
+  tree-hash confirm, push, draft PR; crash points tested (crash before/
+  after branch push resumes to one branch + one PR, no orphans); PR-cap
+  check under the publisher lease, fail-closed on stale GitHub state.
+- `factoryctl reconcile`: bounded call (argument-vector exec, timeout,
+  output cap); **deployed-SHA comparison against the status dashboard's
+  existing deployed-version source**; **admin-bypassed merges recorded
+  as not-a-passing-run**.
+- Exit: draft PR authored by the bot on a scratch branch; per-transition
+  and per-crash-point tests pass; cap race (two simultaneous publishes →
+  one PR); stale-state fail-closed observed.
+
+### Session 11 - dashboard part 1: routes, auth, service
+
+- Axum + Askama SSR (no WASM, no npm - A53);
+  **`factory-dashboard.service`** (the SPEC's unit name) running as the
+  **`factory-web` user** with the SPEC's hardening; Unix socket; Caddy
+  vhost + forward_auth; `factory_submit`/`factory_admin` permissions in
+  the members store.
+- **Scribe-only boundary enforced and tested** (A53): the submit
+  handler calls the same `factory-core` constructor as `factoryctl`;
+  tests prove the dashboard cannot perform state transitions, cap
+  checks, triage, or verification. Form constraints template-injected
+  from core constants. Refresh action triggers the bounded reconcile.
+- Exit: a **route-by-role matrix** (anonymous/submitter/admin × every
+  route, exact 302/200/403 outcomes) green against seeded state;
+  systemd/Caddy/socket hardening asserted. Full-run stage-transition
+  display is explicitly *not* claimed here - it lands in session 15.
+
+### Session 12 - dashboard part 2: upload hardening + threat model
+
+- The SPEC's full upload contract: canonical server-generated IDs and
+  filenames, create-new + atomic rename, magic-byte sniffing, decoder
+  pixel limits, re-encode to clean PNG/JPEG, archive/executable/SVG
+  rejection, per-request and per-user quotas, rate limits, disk-full
+  behavior, strict CSP + `Content-Disposition: attachment`,
+  symlink/hardlink defense.
+- The budgeted **threat-model/fuzz session** runs here against the
+  upload and path surfaces, with seed corpus and time budget declared
+  up front.
+- Exit: every named adversarial fixture rejected (traversal names,
+  double extensions, MIME spoofing, decompression bombs, malformed
+  images, duplicate/concurrent submissions); fuzz campaign completed
+  within its declared budget with zero unresolved findings.
+
+### Session 13 - evidence lifecycle
+
+- The full draft-PR evidence lifecycle on session 7's preview slice:
+  GitHub CI wait states, evidence artifacts (screenshots + extracted
+  DOM order) stored with hashes, PR-body links via the authenticated
+  dashboard evidence route, ready-for-review flip with the full
+  contract (A26 quiz, explain-diff, drafted reply).
+- Failure paths are first-class: CI/preview timeouts fail closed; lease
+  cleanup on success and failure; navigation restricted to the leased
+  host; bearer header redacted from logs, verified by a log-secret
+  scan.
 - Exit: a full ALPHABETIZE run produces an evidence-linked
-  ready-for-review draft PR.
+  ready-for-review draft PR **and** each failure path lands in its
+  named fail-closed state.
 
-### Session 10 - acceptance matrix + threat-model session *(component 6, second half)*
+### Session 14 - cutover
 
-- Run SPEC § Acceptance criteria 1-7 at pass^k, k=3 (smoke, hidden
-  positives, near-miss negatives, injection, concurrency/crash, gate
-  self-tests, dashboard); the budgeted threat-model/fuzz session on the
-  upload + path surfaces; fix and re-run what fails.
-- Exit: all seven criteria pass; results recorded in the ledger and
-  `reviews/`.
+- Migrate `queue/` + ledger out of the orchestration repo with
+  before/after row and artifact counts + hashes; repoint `/api/rulings`
+  to the intake spool with **distinct ruling and software-request
+  namespaces, tested** - including old-path write rejection.
+- Runbook v0: operate, back up, restore, roll back, kill - with the
+  restore and rollback actually drilled, not described.
+- Exit: the installed topology is live; a request filed via the
+  dashboard reaches the same spool the skill consumes; the orchestration
+  repo carries pointers only; post-cutover smoke passes.
 
-### Session 11 - cutover + buffer
+### Session 15 - final acceptance against the installed topology
 
-- Migrate `queue/` + ledger out of the orchestration repo; repoint
-  `/api/rulings` to the intake spool; runbook v0 (operate, back up, roll back,
-  kill); sync memory and docs.
-- Exit: the orchestration repo carries pointers only; a request filed
-  via the dashboard reaches the same spool the skill consumes.
+- **Frozen, versioned case manifest first**: every SPEC § Acceptance
+  case (smoke, hidden positives, near-miss negatives, injection,
+  concurrency/crash, gate self-tests, dashboard incl. the full-run
+  stage-transition display) × 3 repetitions, each with expected lane,
+  end state, and publication count; fixture hashes recorded.
+- Run at pass^k, k=3, **against the cut-over topology from session 14**
+  - the accepted artifact is the installed system, not a pre-cutover
+  approximation. Discovered failures: fix, then rerun the affected
+  criteria from a clean base; zero unresolved failures.
+- Exit: all seven criteria pass on the installed topology; results
+  recorded in the ledger and `reviews/`.
 
 ## Jacob-side dependencies (surfaced early)
 
 1. The "go" itself - gates session 1.
-2. GitHub App creation + installation on the fieldbook repo - gates
-   session 7's preferred path (PAT fallback exists).
+2. GitHub App creation + installation on the fieldbook repo - **starts at
+   session 1** (needs org admin - the PAT lacks it); only the smoke
+   test blocks on it early, the publisher (session 10) blocks on it
+   late. The PAT fallback is a dedicated machine user, to be created if
+   the App path stalls.
 3. Optional: factory repo description/topics via the GitHub UI (text
    already provided), or grant the PAT Administration permission.
 
@@ -171,8 +298,12 @@ as noted; ~10 sessions plus session 11 as buffer/cutover, inside the
 - **Firecracker on a DO droplet** - `/dev/kvm` is present, but jailer +
   networking under the service-user split is the real test; the Podman
   fallback is pre-approved (A44), so the spike cannot dead-end.
-- **GitHub App friction** - installation/permission iteration may push
-  publisher work wide; the PAT fallback keeps session 7 shippable.
+- **GitHub App friction** - now opened at session 1 precisely so
+  permission iteration burns calendar time, not session time.
 - **Preview-fleet coupling** - the evidence lifecycle leases shared
-  mutable previews; session 9 must fail closed on lease conflicts, never
-  queue silently.
+  mutable previews; sessions 7 and 13 must fail closed on lease
+  conflicts, never queue silently.
+- **No buffer session** - the 15-session baseline is honest rather than
+  padded; if a session overruns, the overrun is reported in that build
+  PR rather than absorbed silently (the ground rules forbid compressing
+  the security and failure testing to stay on schedule).

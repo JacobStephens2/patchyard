@@ -284,7 +284,15 @@ rollback documented. Python stays where the ecosystem owns the job
 (headless harness, status-dashboard touchpoints). One explicit
 threat-model/fuzz session budgeted for upload and path surfaces.
 
-## Component estimates (finding 12; ~8-11 sessions)
+## Component estimates (finding 12; ~8-11 sessions, re-baselined ~15)
+
+*Re-baseline, 2026-07-16: the adversarial plan review
+(`reviews/2026-07-16-plan-adversarial-review.md`, all findings conceded)
+showed the 8-11 total undercounted by bundling - isolation
+qualification, preview-integrated verification, dashboard hardening,
+and post-cutover acceptance each need their own session and exit. The
+component estimates below stand; the session cutting is `PLAN.md` v2's
+~15 sessions.*
 
 1. Toolchain + scaffold + state layer (SQLite, artifacts, factoryctl): 1.5-2
 2. Isolation substrate (Firecracker eval vs rootless Podman, worker

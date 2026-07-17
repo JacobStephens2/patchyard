@@ -171,3 +171,8 @@ Three-model consensus: distillation-induced identity confusion triggered
 by Claude-Code-lineage prompt style; substitution is generation-side;
 no outside reproductions or Meta acknowledgment found. Bisection of the
 captured envelope remains the decisive local test.*
+
+*Bisection completed later the same day - see
+[`2026-07-17-muse-spark-envelope-bisection.md`](2026-07-17-muse-spark-envelope-bisection.md):
+stochastic dose-dependent identity-token substitution, no "claude"
+token required, `cursor` variant observed, no mitigation reaches zero.*

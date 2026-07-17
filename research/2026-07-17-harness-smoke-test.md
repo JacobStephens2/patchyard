@@ -21,6 +21,14 @@ proposed (non-Claude-style custom agent prompt; the
 `experimental.chat.system.transform` hook). See
 [the council response](2026-07-17-muse-spark-council-response.md).
 Attribution formally remains open until the envelope bisection runs.
+**Bisection run same evening** - see
+[`2026-07-17-muse-spark-envelope-bisection.md`](2026-07-17-muse-spark-envelope-bisection.md):
+the substitution is stochastic and dose-dependent (100% under the full
+harness prompt, ~40-50% under minimal agentic envelopes, 0% in the
+fully synthetic probe), needs no "claude" token (the captured envelope
+contains none), generalizes beyond claude (`cursor-smoke.txt`
+observed), and no tested mitigation eliminates it. Final attribution:
+model-side context-conditional identity-token substitution.
 
 ## Method
 

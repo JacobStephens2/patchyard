@@ -34,42 +34,6 @@ Thinking about the Artificial Analysis - George Cameron & Micah Hill-Smith, "The
 
 The Artificial Analysis charts renders client-side, so they probably need to be scraped with a headless browser.
 
-#### Factory implement worker agent seat
-
-Harness model pairing makes more impact on this seat given that tool use and loop quality impact the work done here more.
-
-##### Preference order when there is no ceiling on output quality
-
-Use the Artificial Analysis Coding Agent Index (https://artificialanalysis.ai/agents/coding-agents?coding-agents-performance-chart=index#coding-agents-index) to stay up to date. Use that coding agent index primarily.
-
-Harness, Model, Index, as of July 17, 2026
-1. Codex, GPT-5.6 Sol (max), 80
-2. Claude Code, Fable 5 (max, with fallback), 77
-3. Grok Build, Grok 4.5 (high), 76
-4. OpenCode, Muse Spark 1.1 (xhigh), 69
-
-→ smoke-tested 2026-07-17, see `../research/2026-07-17-harness-smoke-test.md`:
-pairs 1-3 pass k=3; pair 4 **fails 0/13 in the tested OpenCode and
-OpenHands loops** (rewrites `muse-*` names to `claude-*` through both
-wirings and past an explicit identity rule) - but the harness-free
-control passes **80/80** raw tool calls on both Meta endpoints
-(`../research/2026-07-17-muse-spark-raw-tool-probe.md`), so the cause
-sits somewhere in the richer harness loop and is not yet localized;
-unsuitable for an implement seat until it is. Same-day additions tested
-there too: OpenCode/Pi × GLM-5.2, OpenCode × MiniMax-M3, Gemini
-CLI × 3.5-flash and 3.1-pro, OpenHands × Kimi-K2.6 all pass; Cursor ×
-Composer 2.5 blocked on missing credentials.
-
-##### Preference order when there is a ceiling on output quality
-
-Use the coding agent cost per task chart to decide here (https://artificialanalysis.ai/agents/coding-agents#coding-agents-cost-chart-tabs).
-
-Harness, Model, Cost per task, as of July 17, 2026
-1. OpenCode, Muse Spark 1.1 (xhigh), $1.43
-2. Grok Build, Grok 4.5 (high), $2.59
-3. Codex, GPT-5.6 Sol (max), $7.08
-4. Claude Code, Fable 5 (max, with fallback), $11.70
-
 #### Triage and cross-family verification agent seats
 
 ##### No ceiling
@@ -91,3 +55,43 @@ Model, cost per task, as of July 17, 2026
 2. Grok 4.5 (high), $0.31
 3. GPT-5.6 Sol (max), $1.04
 4. Claude Fable 5 (with fallback), $2.75
+
+
+#### Factory implement worker agent seat
+
+Harness model pairing makes more impact on this seat given that tool use and loop quality impact the work done here more.
+
+##### Preference order when there is no ceiling on output quality
+
+Use the Artificial Analysis Coding Agent Index (https://artificialanalysis.ai/agents/coding-agents?coding-agents-performance-chart=index#coding-agents-index) to stay up to date. Use that coding agent index primarily.
+
+Harness, Model, Index, as of July 17, 2026
+1. Codex, GPT-5.6 Sol (max), 80
+2. Claude Code, Fable 5 (max, with fallback), 77
+3. Grok Build, Grok 4.5 (high), 76
+4. OpenCode, Muse Spark 1.1 (xhigh), 69
+
+→ smoke-tested 2026-07-17, see `../research/2026-07-17-harness-smoke-test.md`:
+pairs 1-3 pass k=3; pair 4 **fails 0/13 in the tested OpenCode and
+OpenHands loops** (rewrites `muse-*` names to `claude-*` through both
+wirings and past an explicit identity rule) - but the harness-free
+control passes **80/80** raw tool calls on both Meta endpoints
+(`../research/2026-07-17-muse-spark-raw-tool-probe.md`), localized by envelope
+bisection (`../research/2026-07-17-muse-spark-envelope-bisection.md`):
+stochastic model-side identity-token substitution, dose-dependent on
+agentic-envelope richness (100% rich / ~50% minimal / 0% synthetic),
+no "claude" token needed, also emits `cursor-*`; no mitigation reaches
+zero - implement seat closed pending a Meta model update. Same-day additions tested
+there too: OpenCode/Pi × GLM-5.2, OpenCode × MiniMax-M3, Gemini
+CLI × 3.5-flash and 3.1-pro, OpenHands × Kimi-K2.6 all pass; Cursor ×
+Composer 2.5 blocked on missing credentials.
+
+##### Preference order when there is a ceiling on output quality
+
+Use the coding agent cost per task chart to decide here (https://artificialanalysis.ai/agents/coding-agents#coding-agents-cost-chart-tabs).
+
+Harness, Model, Cost per task, as of July 17, 2026
+1. OpenCode, Muse Spark 1.1 (xhigh), $1.43
+2. Grok Build, Grok 4.5 (high), $2.59
+3. Codex, GPT-5.6 Sol (max), $7.08
+4. Claude Code, Fable 5 (max, with fallback), $11.70

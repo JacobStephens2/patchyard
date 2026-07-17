@@ -22,8 +22,8 @@ Adventures), region `us-east-1`.
 
 Bedrock runs the model on AWS infra. Nothing is downloaded or hosted locally —
 the server only makes authenticated HTTPS calls. The one-time Anthropic use-case
-form is submitted. AWS Marketplace product enablement is a separate account-level
-step; the live 2026-07-17 probe found it is not yet complete for Haiku 4.5.
+form and AWS Marketplace product enablement are complete. The live 2026-07-17
+retest passed text inference, the exact-file floor check 3/3, and image reading.
 
 ## 2. Identities created (the two-tier credential design)
 
@@ -127,8 +127,14 @@ export AWS_DEFAULT_REGION=us-east-1
 export ANTHROPIC_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
 
 claude -p --model "$ANTHROPIC_MODEL" --effort high --output-format json \
-  --no-session-persistence "<task>"
+  "<task>"
 ```
+
+For tool-using workers, retain the standard Claude Code prompt and expose the
+specific tools with `--allowedTools`. The qualified floor command used
+`--allowedTools Write`. A minimal-mode variant using `--bare --tools Write`
+returned prose that claimed to write the file but made no tool call in 3/3
+runs; do not substitute that variant without a separate qualification.
 
 **Optional raw API smoke (requires AWS CLI v2, which is not currently installed
 on the orchestration VM):**

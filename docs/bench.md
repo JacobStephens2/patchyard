@@ -8,7 +8,7 @@ cites. Floor probe = the muse-smoke exact-instruction check
 Seats are design-time assignments; nothing runs in production until
 phase 1 builds.*
 
-*Last updated: 2026-07-17 (late - Bedrock Haiku configuration probe).*
+*Last updated: 2026-07-17 (late - Bedrock Haiku qualified).*
 
 ## Pairs
 
@@ -30,7 +30,7 @@ phase 1 builds.*
 | Cline × gpt-oss-120b | **Cerebras** (preferred) / Fireworks | ✅ 3/3, 4-6 s/run | ❌ | US | **Speed-seat lead** - Cerebras ~1,000-1,100 tok/s ±5% vs Fireworks 118-234 ([head-to-head](../research/2026-07-17-harness-smoke-test.md)); effort pin blocked by Cline's provider schema |
 | OpenCode × Nemotron 3 Ultra 550B-A55B | Blackbox AI | ✅ 3/3, with stalls | ? | US | On hold - AA speed claim not reproduced (60-87 tok/s here) and intermittent >300 s hangs disqualify it for a speed seat |
 | Claude Code × MiMo-V2.5-Pro | Novita | ✅ 3/3, 8-10 s/run | ? | CN-created; Novita hosting (jurisdiction to confirm for the allowlist ruling) | Jacob's ideas.md pick; first **direct** Claude Code × non-Anthropic pairing - Novita's Anthropic endpoint passes CLI model validation; intelligence 42 (#18) |
-| Claude Code × Claude Haiku 4.5 (high) | Amazon Bedrock | ⛔ blocked before inference | ✅ model; harness untested | US | STS boundary passes: only 15-minute role credentials reached Claude Code. AWS rejected invoke because the account's one-time Haiku Marketplace subscription is not enabled; floor and image probes remain unrun ([record](../research/2026-07-17-claude-code-bedrock-haiku.md)) |
+| Claude Code × Claude Haiku 4.5 (high) | Amazon Bedrock | ✅ 3/3, 3.6 s and $0.0357/run | ✅ content; strict format miss | US | **Qualified floor configuration:** `claude -p --allowedTools Write`; exact 7-byte file every run. STS boundary passes and only 15-minute role credentials reach the harness. Image labels were all correct, but the requested bare JSON was fenced. A `--bare --tools Write` variant failed 0/3 by claiming success without calling the tool; pin the canonical form ([record](../research/2026-07-17-claude-code-bedrock-haiku.md)) |
 | Kimi Code CLI × Kimi K3 | OpenRouter → Moonshot | ✅ 3/3 | ✅ | ⚠️ **interim exception** (CN money; ruled by Jacob pending open weights + US host, ~weeks) | Prime triage/verify candidate (intelligence #3) once a US host exists; then: fresh floor probe, allowlist entry, fixture gauntlet |
 
 ## Gateway routes (change what's runnable)
@@ -55,7 +55,6 @@ phase 1 builds.*
 | Item | Status |
 | :-- | :-- |
 | Cursor CLI × Composer 2.5 | Blocked: no Cursor credentials on this VM |
-| Claude Code × Claude Haiku 4.5 on Bedrock | Blocked: one-time AWS Marketplace enablement for product `prod-xdkflymybwmvi`; the permanent invoke role intentionally lacks subscription authority ([record](../research/2026-07-17-claude-code-bedrock-haiku.md)) |
 | MiniMax Code × MiniMax-M3 | N/A: desktop app only (macOS/Windows), no MiniMax platform key; its Agent Teams pattern is R21-rejected anyway |
 | OpenSymphony | Not a harness - an orchestrator (control plane), which R11 says we build, not buy |
 

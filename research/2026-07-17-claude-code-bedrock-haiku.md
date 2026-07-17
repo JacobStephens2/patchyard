@@ -1,34 +1,50 @@
-# Claude Code x Claude Haiku 4.5 on Amazon Bedrock - blocked before inference
+# Claude Code x Claude Haiku 4.5 on Amazon Bedrock - floor passes 3/3
 
 *2026-07-17. Operator: the orchestration agent on the orchestration VM.
-This is a configuration and trust-boundary probe, not a floor result. No
-model completion was returned, so the exact-instruction and image-input
-fixtures remain unrun.*
+The first attempt localized an account-level Marketplace blocker. After an AWS
+administrator enabled the Haiku 4.5 product and removed the temporary bootstrap
+policy, the same STS flow reached inference. The canonical Claude Code harness
+then passed the exact-file floor check 3/3 and read the image fixture correctly.*
 
-## Result
+## Final result
 
-The intended credential boundary works, but the AWS account has not completed
-the one-time AWS Marketplace enablement for Claude Haiku 4.5:
+The pair clears the pre-gauntlet floor in this exact configuration:
 
-1. The supervisor's static `factory-supervisor` credentials successfully
-   assumed `factory-bedrock-invoke` for a 900-second session.
-2. Only the returned `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
-   `AWS_SESSION_TOKEN` were exposed to Claude Code.
-3. Claude Code 2.1.212 selected Amazon Bedrock and dispatched to
-   `us.anthropic.claude-haiku-4-5-20251001-v1:0` in `us-east-1`.
-4. Bedrock rejected both the main request and Claude Code's session-title
-   request with HTTP 403. AWS reported that model access could not be enabled
-   because the role lacks `aws-marketplace:ViewSubscriptions` and
-   `aws-marketplace:Subscribe`.
+```bash
+claude -p --model us.anthropic.claude-haiku-4-5-20251001-v1:0 \
+  --effort high --allowedTools Write
+```
 
-The run consumed zero input tokens, zero output tokens, and recorded no model
-cost. It therefore says nothing yet about instruction adherence, tool use,
-image input, latency, or reasoning quality.
+- Text inference: exact `bedrock-haiku-ok` response, 2.0 seconds, $0.001501.
+- Tool-use floor: PASS 3/3. Each fresh run created `muse-smoke.txt` with the
+  exact seven bytes `factory`, used two turns, and finished in 3.6-3.7 seconds.
+- Image input: content PASS. With only the Read tool available, the model read
+  the sanitized dropdown PNG and returned the correct first four visible labels
+  in order: `Test User Delta`, `QA Example Tango`, `Sample Pilot Juliet`, and
+  `User Zulu 42`.
+- Image strict-output caveat: the prompt requested only a JSON array, but the
+  model wrapped the correct array in a Markdown `json` fence. The visual content
+  is qualified; exact structured formatting is not qualified by this run.
 
-Claude Code also attempted `bedrock:ListInferenceProfiles`, which the narrow
-role does not allow. The CLI logged that denial and correctly fell back to its
-hardcoded model catalog before making the pinned-model invocation, so that
-permission is not the present blocker.
+The three canonical floor runs cost $0.03575525, $0.03575265, and $0.03572265.
+Their mean was $0.03574352/run. The image run cost $0.01938720 and took 5.4
+seconds. All calls made during the successful retest and configuration
+comparison cost $0.13325475 total.
+
+## Configuration discriminator
+
+A preliminary minimal-mode variant failed 0/3:
+
+```bash
+claude -p --bare --tools Write --allowedTools Write \
+  --permission-mode acceptEdits ...
+```
+
+Each response printed an `echo` command and falsely said the file had been
+created, but made no tool call and wrote no file. This does not overturn the
+canonical 3/3 result; it proves the harness configuration is part of the
+qualified identity. Do not use the minimal variant for this seat unless a
+future isolated retest qualifies it.
 
 ## Configuration exercised
 
@@ -46,19 +62,21 @@ permission is not the present blocker.
 No standing credential was written to disk or included in the captured
 evidence.
 
-## Exact unblock
+Claude Code also attempted `bedrock:ListInferenceProfiles`, which the narrow
+role does not allow. The CLI logged that denial and correctly fell back to its
+hardcoded model catalog before making the pinned-model invocation, so that
+permission is not required for this pinned configuration.
 
-AWS documents Marketplace enablement as a one-time account step. An AWS
-administrator must enable the Haiku 4.5 product, `prod-xdkflymybwmvi`, using a
-principal that has the Marketplace subscription permissions. Once the product
-is enabled for the account, the existing `factory-bedrock-invoke` role should
-invoke it without retaining Marketplace permissions.
+## Initial blocker - resolved
 
-Keep Marketplace permissions out of the long-lived worker role. Use a
-temporary bootstrap principal or the Bedrock console, enable only this product,
-then rerun the same probe. After the first successful text request, run the
-existing `muse-smoke.txt` floor check three fresh times and then an image-input
-fixture before assigning the pair a bench seat.
+The first attempt reached the correct Bedrock endpoint but received HTTP 403
+before inference because Haiku 4.5 Marketplace product `prod-xdkflymybwmvi`
+had not been enabled for the account. No tokens or model cost were incurred.
+
+An administrator enabled it with temporary Marketplace subscription authority
+and then removed that authority. The successful retest proves the subscription
+persists and the existing `factory-bedrock-invoke` role needs only its scoped
+invoke permissions. Marketplace permissions remain absent from the worker role.
 
 References:
 

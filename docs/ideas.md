@@ -48,12 +48,12 @@ Harness, Model, Index, as of July 17, 2026
 3. Grok Build, Grok 4.5 (high), 76
 4. OpenCode, Muse Spark 1.1 (xhigh), 69
 
-→ smoke-tested 2026-07-17, see `../reviews/2026-07-17-harness-smoke-test.md`:
+→ smoke-tested 2026-07-17, see `../research/2026-07-17-harness-smoke-test.md`:
 pairs 1-3 pass k=3; pair 4 **fails 0/13 in the tested OpenCode and
 OpenHands loops** (rewrites `muse-*` names to `claude-*` through both
 wirings and past an explicit identity rule) - but the harness-free
 control passes **80/80** raw tool calls on both Meta endpoints
-(`../reviews/2026-07-17-muse-spark-raw-tool-probe.md`), so the cause
+(`../research/2026-07-17-muse-spark-raw-tool-probe.md`), so the cause
 sits somewhere in the richer harness loop and is not yet localized;
 unsuitable for an implement seat until it is. Same-day additions tested
 there too: OpenCode/Pi × GLM-5.2, OpenCode × MiniMax-M3, Gemini

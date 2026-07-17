@@ -28,7 +28,8 @@ ruling reference resolves to one unique row in `docs/decision-log.md`.
 - Runtime requests, runs, artifacts, leases or current pipeline state.
 
 The phase-1 build contract belongs in `SPEC.md`; its session ordering belongs
-in `PLAN.md`; critique records belong in `reviews/`; rulings belong in the
+in `PLAN.md`; critique records belong in `reviews/`; measurement and research
+records (harness/provider evidence, external research) in `research/`; rulings belong in the
 local `docs/decision-log.md`. The founding synthesis remains historical
 provenance in the orchestration repository at
 `projects/software-factory/synthesis/`. Runtime state will live in SQLite and

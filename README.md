@@ -10,6 +10,10 @@ pull requests out. One human gate - the PR - held by the engineering
 department + the company owner. The production deploy path is never touched.
 
 - **Spec:** [SPEC.md](SPEC.md) - the phase-1 build contract.
+- **Dated records:** [`reviews/`](reviews/) holds critiques of our own
+  artifacts plus their dispositions; [`research/`](research/) holds
+  world-facing evidence - harness and provider measurements, external
+  research briefs and their responses.
 - **Ideas inbox:** [`docs/ideas.md`](docs/ideas.md) - hand-written,
   pre-ruling scratch space. Carries no authority; ideas graduate into the
   decision log or die there.

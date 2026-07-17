@@ -27,7 +27,7 @@ are its human-approved budget.
   exit, which becomes the checklist for that build PR's review. No PR
   bundles two sessions unless both exits are met.
 - **Spikes end on decisions, not implementations.** A spike session's
-  deliverable is a recorded decision (in `reviews/` or `docs/`), even if
+  deliverable is a recorded decision (in `research/` or `docs/`), even if
   its code is thrown away.
 - **The factory repo gets CI in session 1** (fmt, clippy, test,
   `cargo audit`, `cargo deny`, `./check-model.sh`). This does not
@@ -280,7 +280,7 @@ an overrun instead of compressing the security and failure testing.
   approximation. Discovered failures: fix, then rerun the affected
   criteria from a clean base; zero unresolved failures.
 - Exit: all seven criteria pass on the installed topology; results
-  recorded in the ledger and `reviews/`.
+  recorded in the ledger and `research/`.
 
 ## Jacob-side dependencies (surfaced early)
 

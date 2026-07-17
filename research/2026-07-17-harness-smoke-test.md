@@ -12,6 +12,15 @@ control passed 80/80 across Meta's Responses and Chat Completions APIs.
 That result supersedes this report's interim "model-level" conclusion;
 see [the raw tool probe](2026-07-17-muse-spark-raw-tool-probe.md) and
 the final Muse addendum below.
+An external research council (three cross-family models) reviewed the
+published brief the same day: consensus favors distillation-induced
+identity confusion activated by Claude-Code-lineage prompt style -
+OpenCode's `system.ts` has no `muse`/`meta` branch, so the model
+receives the default Claude-heritage prompt - with concrete mitigations
+proposed (non-Claude-style custom agent prompt; the
+`experimental.chat.system.transform` hook). See
+[the council response](2026-07-17-muse-spark-council-response.md).
+Attribution formally remains open until the envelope bisection runs.
 
 ## Method
 

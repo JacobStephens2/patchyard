@@ -162,3 +162,12 @@ trivial tasks ranged from ~30 s to over 5 minutes at xhigh).
 Deliverable wanted: sources + a judgment on which remaining suspect the
 public evidence favors, and any reproduction reports from outside our
 environment.
+
+---
+
+*Council response received same day: see
+[`2026-07-17-muse-spark-council-response.md`](2026-07-17-muse-spark-council-response.md).
+Three-model consensus: distillation-induced identity confusion triggered
+by Claude-Code-lineage prompt style; substitution is generation-side;
+no outside reproductions or Meta acknowledgment found. Bisection of the
+captured envelope remains the decisive local test.*

@@ -1,0 +1,63 @@
+diff --git a/deepclaude.sh b/deepclaude.sh
+index 5f59e3a..52f609a 100644
+--- a/deepclaude.sh
++++ b/deepclaude.sh
+@@ -10,6 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ DEEPSEEK_URL="https://api.deepseek.com/anthropic"
+ OPENROUTER_URL="https://openrouter.ai/api"
+ FIREWORKS_URL="https://api.fireworks.ai/inference"
++DEEPINFRA_URL="https://api.deepinfra.com/anthropic"
+
+ BACKEND="${CHEAPCLAUDE_DEFAULT_BACKEND:-ds}"
+ ACTION="launch"
+@@ -69,8 +70,15 @@ resolve_backend() {
+             haiku="accounts/fireworks/models/deepseek-v4-pro"
+             subagent="accounts/fireworks/models/deepseek-v4-pro"
+             ;;
++        di|deepinfra)
++            key="${DEEPINFRA_API_KEY:-}"
++            [[ -z "$key" ]] && { echo "ERROR: DEEPINFRA_API_KEY not set" >&2; exit 1; }
++            url="$DEEPINFRA_URL"
++            opus="${DEEPCLAUDE_MODEL:-deepseek-ai/DeepSeek-V4-Pro}"
++            sonnet="$opus"; haiku="$opus"; subagent="$opus"
++            ;;
+         anthropic) ;;
+-        *) echo "ERROR: Unknown backend '$BACKEND'. Use: ds, or, fw, anthropic" >&2; exit 1 ;;
++        *) echo "ERROR: Unknown backend '$BACKEND'. Use: ds, or, fw, di, anthropic" >&2; exit 1 ;;
+     esac
+     RESOLVED_URL="$url"; RESOLVED_KEY="$key"
+     RESOLVED_OPUS="$opus"; RESOLVED_SONNET="$sonnet"
+@@ -78,6 +86,7 @@ resolve_backend() {
+ }
+
+ set_model_env() {
++    export ANTHROPIC_MODEL="$RESOLVED_OPUS"
+     export ANTHROPIC_DEFAULT_OPUS_MODEL="$RESOLVED_OPUS"
+     export ANTHROPIC_DEFAULT_SONNET_MODEL="$RESOLVED_SONNET"
+     export ANTHROPIC_DEFAULT_HAIKU_MODEL="$RESOLVED_HAIKU"
+@@ -99,6 +108,7 @@ show_status() {
+     echo "    deepclaude                  # DeepSeek V4 Pro (default)"
+     echo "    deepclaude -b or            # OpenRouter (cheapest)"
+     echo "    deepclaude -b fw            # Fireworks AI (fastest)"
++    echo "    deepclaude -b di            # DeepInfra (DEEPCLAUDE_MODEL selects model)"
+     echo "    deepclaude -b anthropic     # Normal Claude Code"
+     echo "    deepclaude --remote         # Remote control + DeepSeek"
+     echo "    deepclaude --remote -b or   # Remote control + OpenRouter"
+@@ -136,7 +146,7 @@ show_help() {
+     echo "Usage: deepclaude [options] [-- claude-args...]"
+     echo ""
+     echo "Options:"
+-    echo "  -b, --backend <ds|or|fw|anthropic>  Backend (default: ds)"
++    echo "  -b, --backend <ds|or|fw|di|anthropic>  Backend (default: ds)"
+     echo "  -r, --remote                        Remote control mode (browser URL)"
+     echo "  --status                             Show keys and backends"
+     echo "  --cost                               Pricing comparison"
+@@ -148,6 +158,8 @@ show_help() {
+     echo "  DEEPSEEK_API_KEY      DeepSeek API key (required for ds)"
+     echo "  OPENROUTER_API_KEY    OpenRouter API key (required for or)"
+     echo "  FIREWORKS_API_KEY     Fireworks API key (required for fw)"
++    echo "  DEEPINFRA_API_KEY     DeepInfra API key (required for di)"
++    echo "  DEEPCLAUDE_MODEL      DeepInfra model ID (default: DeepSeek V4 Pro)"
+     echo "  CHEAPCLAUDE_DEFAULT_BACKEND  Default backend (default: ds)"
+ }
+

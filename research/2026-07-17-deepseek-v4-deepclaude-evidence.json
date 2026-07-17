@@ -1,0 +1,112 @@
+{
+  "date": "2026-07-17",
+  "operator": "orchestration agent",
+  "status": "floor_complete",
+  "deepclaude": {
+    "repository": "https://github.com/aattaran/deepclaude.git",
+    "commit": "70518b6cdcf3cc488e62e817b86da4b550dd7dfa",
+    "archived_patch_sha256": "c22ae546237bab213521e80f50015b04c82641c1df97639b397ef9c2219aa702",
+    "working_diff_sha256": "b597b095110edd1b2f3625e6e18f0890b064ba1614e20414cc9a09bfeda2c6aa",
+    "patched_launcher_sha256": "28768bfc8b3bb7e399bb13ffea8d49e14845b894a604cb6f5858873746981dad"
+  },
+  "claude_code_version": "2.1.212 (Claude Code)",
+  "provider": "DeepInfra",
+  "endpoint": "https://api.deepinfra.com/anthropic",
+  "effort": "max",
+  "tool_policy": ["Write"],
+  "timeout_seconds": 300,
+  "catalog": [
+    {
+      "id": "deepseek-ai/DeepSeek-V4-Flash",
+      "owned_by": "deepinfra",
+      "context_length": 1048576,
+      "pricing_per_million_tokens": {
+        "input": 0.09,
+        "output": 0.18,
+        "cache_read": 0.018
+      }
+    },
+    {
+      "id": "deepseek-ai/DeepSeek-V4-Pro",
+      "owned_by": "deepinfra",
+      "context_length": 1048576,
+      "pricing_per_million_tokens": {
+        "input": 1.30,
+        "output": 2.60,
+        "cache_read": 0.10
+      }
+    }
+  ],
+  "scored_results": [
+    {
+      "model": "deepseek-ai/DeepSeek-V4-Flash",
+      "result": "PASS",
+      "passes": 3,
+      "runs": 3,
+      "wall_ms": [5763, 8076, 12274],
+      "mean_wall_ms": 8704.333333333334,
+      "tokens": {
+        "uncached_input": 5892,
+        "cached_input": 4096,
+        "output": 449
+      },
+      "provider_cost_usd": 0.000684828,
+      "claude_reported_cost_usd": 0.063213
+    },
+    {
+      "model": "deepseek-ai/DeepSeek-V4-Pro",
+      "result": "PASS",
+      "passes": 3,
+      "runs": 3,
+      "wall_ms": [4185, 4588, 6552],
+      "mean_wall_ms": 5108.333333333333,
+      "tokens": {
+        "uncached_input": 5626,
+        "cached_input": 4352,
+        "output": 461
+      },
+      "provider_cost_usd": 0.0089476,
+      "claude_reported_cost_usd": 0.063591
+    }
+  ],
+  "provider_cost_total_usd": 0.009632428,
+  "claude_reported_cost_total_usd": 0.126804,
+  "max_wire": {
+    "flash": {
+      "tool_loop_requests": 2,
+      "thinking": {"type": "adaptive", "display": "omitted"},
+      "output_config": {"effort": "max"},
+      "system_sha256": "6fc84c4133f64b61987b9b9ef788e01813325a5b2d811f8f248643ff86d2ae27",
+      "stable_across_tool_result": true
+    },
+    "pro": {
+      "tool_loop_requests": 2,
+      "thinking": {"type": "adaptive", "display": "omitted"},
+      "output_config": {"effort": "max"},
+      "system_sha256": "dd7627079402f02353cb48f51717c3487258537d59027deeaf91fb732cbea1b2",
+      "stable_across_tool_result": true
+    }
+  },
+  "image_input": {
+    "deepseek-ai/DeepSeek-V4-Flash": {
+      "http_status": 405,
+      "accepted": false,
+      "error": "Model deepseek-ai/DeepSeek-V4-Flash does not accept image input"
+    },
+    "deepseek-ai/DeepSeek-V4-Pro": {
+      "http_status": 405,
+      "accepted": false,
+      "error": "Model deepseek-ai/DeepSeek-V4-Pro does not accept image input"
+    }
+  },
+  "initial_unscored_transport_probe": {
+    "http_status": 402,
+    "reason": "zero account balance before user funding",
+    "tokens": 0,
+    "cost_usd": 0,
+    "included_in_score": false
+  },
+  "raw_scored_results": "2026-07-17-deepseek-v4-deepclaude-raw.jsonl",
+  "max_wire_results": "2026-07-17-deepseek-v4-deepclaude-max-wire.json"
+}
+

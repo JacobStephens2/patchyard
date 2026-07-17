@@ -1,0 +1,432 @@
+{
+  "treatment": "transparent capture adapter controls",
+  "scored_floor_runs": false,
+  "controls": [
+    {
+      "model": "deepseek-ai/DeepSeek-V4-Flash",
+      "requested_effort": "max",
+      "artifact": {
+        "name": "max-wire-control.txt",
+        "bytes": 7,
+        "exact_content": true
+      },
+      "requests": [
+        {
+          "path": "/v1/messages?beta=true",
+          "top_level_keys": [
+            "max_tokens",
+            "messages",
+            "metadata",
+            "model",
+            "output_config",
+            "stream",
+            "system",
+            "tools"
+          ],
+          "model": "deepseek-ai/DeepSeek-V4-Flash",
+          "max_tokens": 32000,
+          "stream": true,
+          "thinking": null,
+          "output_config": {
+            "effort": "max",
+            "format": {
+              "type": "json_schema",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "tool_names": [],
+          "system_chars": 1328,
+          "system_sha256": "5dcf5245777b864e73965fa8ae9c984d558c059c6e9c52e07ba7e1fa5c47cf5e",
+          "system_markers": {
+            "max": false,
+            "effort": false,
+            "think": false
+          },
+          "messages": [
+            {
+              "role": "user",
+              "content_types": [
+                "text"
+              ]
+            }
+          ]
+        },
+        {
+          "path": "/v1/messages?beta=true",
+          "top_level_keys": [
+            "context_management",
+            "max_tokens",
+            "messages",
+            "metadata",
+            "model",
+            "output_config",
+            "stream",
+            "system",
+            "thinking",
+            "tools"
+          ],
+          "model": "deepseek-ai/DeepSeek-V4-Flash",
+          "max_tokens": 32000,
+          "stream": true,
+          "thinking": {
+            "type": "adaptive",
+            "display": "omitted"
+          },
+          "output_config": {
+            "effort": "max"
+          },
+          "tool_names": [
+            "Write"
+          ],
+          "system_chars": 3943,
+          "system_sha256": "6fc84c4133f64b61987b9b9ef788e01813325a5b2d811f8f248643ff86d2ae27",
+          "system_markers": {
+            "max": true,
+            "effort": false,
+            "think": true
+          },
+          "messages": [
+            {
+              "role": "user",
+              "content_types": [
+                "text",
+                "text"
+              ]
+            }
+          ]
+        },
+        {
+          "path": "/v1/messages?beta=true",
+          "top_level_keys": [
+            "context_management",
+            "max_tokens",
+            "messages",
+            "metadata",
+            "model",
+            "output_config",
+            "stream",
+            "system",
+            "thinking",
+            "tools"
+          ],
+          "model": "deepseek-ai/DeepSeek-V4-Flash",
+          "max_tokens": 32000,
+          "stream": true,
+          "thinking": {
+            "type": "adaptive",
+            "display": "omitted"
+          },
+          "output_config": {
+            "effort": "max"
+          },
+          "tool_names": [
+            "Write"
+          ],
+          "system_chars": 3943,
+          "system_sha256": "6fc84c4133f64b61987b9b9ef788e01813325a5b2d811f8f248643ff86d2ae27",
+          "system_markers": {
+            "max": true,
+            "effort": false,
+            "think": true
+          },
+          "messages": [
+            {
+              "role": "user",
+              "content_types": [
+                "text",
+                "text"
+              ]
+            },
+            {
+              "role": "assistant",
+              "content_types": [
+                "text",
+                "tool_use"
+              ]
+            },
+            {
+              "role": "user",
+              "content_types": [
+                "tool_result"
+              ]
+            }
+          ]
+        }
+      ],
+      "claude_result": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "api_error_status": null,
+        "duration_ms": 4642,
+        "duration_api_ms": 5856,
+        "ttft_ms": 2713,
+        "ttft_stream_ms": 479,
+        "time_to_request_ms": 47,
+        "num_turns": 2,
+        "result": "Done. The file `max-wire-control.txt` has been created in the current directory with the exact content: `control`.",
+        "stop_reason": "end_turn",
+        "session_id": "e98f5ee5-cc46-44b0-93ec-7b0ea3c02dd9",
+        "total_cost_usd": 0.02074,
+        "usage": {
+          "input_tokens": 2945,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 150,
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "",
+          "iterations": [],
+          "speed": "standard"
+        },
+        "modelUsage": {
+          "deepseek-ai/DeepSeek-V4-Flash": {
+            "inputTokens": 3333,
+            "outputTokens": 163,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0,
+            "webSearchRequests": 0,
+            "costUSD": 0.02074,
+            "contextWindow": 200000,
+            "maxOutputTokens": 32000
+          }
+        },
+        "permission_denials": [],
+        "terminal_reason": "completed",
+        "fast_mode_state": "off",
+        "uuid": "5fbe1f5d-eb62-453d-a37c-5a4674073e9e"
+      }
+    },
+    {
+      "model": "deepseek-ai/DeepSeek-V4-Pro",
+      "requested_effort": "max",
+      "artifact": {
+        "name": "pro-max-wire-control.txt",
+        "bytes": 7,
+        "exact_content": true
+      },
+      "requests": [
+        {
+          "path": "/v1/messages?beta=true",
+          "top_level_keys": [
+            "max_tokens",
+            "messages",
+            "metadata",
+            "model",
+            "output_config",
+            "stream",
+            "system",
+            "tools"
+          ],
+          "model": "deepseek-ai/DeepSeek-V4-Pro",
+          "max_tokens": 32000,
+          "stream": true,
+          "thinking": null,
+          "output_config": {
+            "effort": "max",
+            "format": {
+              "type": "json_schema",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "tool_names": [],
+          "system_chars": 1328,
+          "system_sha256": "5dcf5245777b864e73965fa8ae9c984d558c059c6e9c52e07ba7e1fa5c47cf5e",
+          "system_markers": {
+            "max": false,
+            "effort": false,
+            "think": false
+          },
+          "messages": [
+            {
+              "role": "user",
+              "content_types": [
+                "text"
+              ]
+            }
+          ]
+        },
+        {
+          "path": "/v1/messages?beta=true",
+          "top_level_keys": [
+            "context_management",
+            "max_tokens",
+            "messages",
+            "metadata",
+            "model",
+            "output_config",
+            "stream",
+            "system",
+            "thinking",
+            "tools"
+          ],
+          "model": "deepseek-ai/DeepSeek-V4-Pro",
+          "max_tokens": 32000,
+          "stream": true,
+          "thinking": {
+            "type": "adaptive",
+            "display": "omitted"
+          },
+          "output_config": {
+            "effort": "max"
+          },
+          "tool_names": [
+            "Write"
+          ],
+          "system_chars": 3945,
+          "system_sha256": "dd7627079402f02353cb48f51717c3487258537d59027deeaf91fb732cbea1b2",
+          "system_markers": {
+            "max": true,
+            "effort": false,
+            "think": true
+          },
+          "messages": [
+            {
+              "role": "user",
+              "content_types": [
+                "text",
+                "text"
+              ]
+            }
+          ]
+        },
+        {
+          "path": "/v1/messages?beta=true",
+          "top_level_keys": [
+            "context_management",
+            "max_tokens",
+            "messages",
+            "metadata",
+            "model",
+            "output_config",
+            "stream",
+            "system",
+            "thinking",
+            "tools"
+          ],
+          "model": "deepseek-ai/DeepSeek-V4-Pro",
+          "max_tokens": 32000,
+          "stream": true,
+          "thinking": {
+            "type": "adaptive",
+            "display": "omitted"
+          },
+          "output_config": {
+            "effort": "max"
+          },
+          "tool_names": [
+            "Write"
+          ],
+          "system_chars": 3945,
+          "system_sha256": "dd7627079402f02353cb48f51717c3487258537d59027deeaf91fb732cbea1b2",
+          "system_markers": {
+            "max": true,
+            "effort": false,
+            "think": true
+          },
+          "messages": [
+            {
+              "role": "user",
+              "content_types": [
+                "text",
+                "text"
+              ]
+            },
+            {
+              "role": "assistant",
+              "content_types": [
+                "text",
+                "tool_use"
+              ]
+            },
+            {
+              "role": "user",
+              "content_types": [
+                "tool_result"
+              ]
+            }
+          ]
+        }
+      ],
+      "claude_result": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "api_error_status": null,
+        "duration_ms": 8319,
+        "duration_api_ms": 11047,
+        "ttft_ms": 1561,
+        "ttft_stream_ms": 495,
+        "time_to_request_ms": 50,
+        "num_turns": 2,
+        "result": "Done. The file `pro-max-wire-control.txt` has been created with the content \"control\".",
+        "stop_reason": "end_turn",
+        "session_id": "cd0b205e-3bff-4191-83cd-0a6751ff1b36",
+        "total_cost_usd": 0.020319999999999998,
+        "usage": {
+          "input_tokens": 2955,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 131,
+          "server_tool_use": {
+            "web_search_requests": 0,
+            "web_fetch_requests": 0
+          },
+          "service_tier": "standard",
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 0,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "inference_geo": "",
+          "iterations": [],
+          "speed": "standard"
+        },
+        "modelUsage": {
+          "deepseek-ai/DeepSeek-V4-Pro": {
+            "inputTokens": 3344,
+            "outputTokens": 144,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0,
+            "webSearchRequests": 0,
+            "costUSD": 0.020319999999999998,
+            "contextWindow": 200000,
+            "maxOutputTokens": 32000
+          }
+        },
+        "permission_denials": [],
+        "terminal_reason": "completed",
+        "fast_mode_state": "off",
+        "uuid": "b6cfaa4b-954f-4499-932a-395865160e3b"
+      }
+    }
+  ]
+}

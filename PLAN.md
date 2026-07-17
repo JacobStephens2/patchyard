@@ -12,7 +12,7 @@ v1's ~10+1 sessions re-baselined to ~15: same components, honest cuts -
 isolation qualification, preview-integrated verification, dashboard
 hardening, and post-cutover acceptance each get their own exit instead
 of hiding inside another session's. Builder: the orchestration agent.
-Cross-family reviewer: GPT 5.6-Sol xhigh on each build PR (A41). Merge
+Cross-family reviewer: GPT 5.6-Sol xhigh in Codex on each build PR (A41). Merge
 gate: engineering + owner (A33).*
 
 The factory's own macro-shape is Plan → Implement → Verify (A47), and

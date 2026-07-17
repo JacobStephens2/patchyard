@@ -10,6 +10,9 @@ pull requests out. One human gate - the PR - held by the engineering
 department + the company owner. The production deploy path is never touched.
 
 - **Spec:** [SPEC.md](SPEC.md) - the phase-1 build contract.
+- **Bench status:** [`docs/bench.md`](docs/bench.md) - living at-a-glance
+  status of every (model × harness) pair: floor result, seat eligibility,
+  provenance. Evidence lives in the dated records it cites.
 - **Dated records:** [`reviews/`](reviews/) holds critiques of our own
   artifacts plus their dispositions; [`research/`](research/) holds
   world-facing evidence - harness and provider measurements, external

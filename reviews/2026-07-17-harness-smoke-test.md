@@ -23,7 +23,7 @@ candidate failed it in an unexpected way (below).
 Harness versions (pin these when re-running - harness churn is real):
 Claude Code 2.1.211 · codex-cli 0.144.4 · Grok Build 0.2.101 ·
 OpenCode 1.18.3 · pi 0.73.1 (`@mariozechner/pi-coding-agent`) ·
-Gemini CLI 0.51.0 · OpenHands 1.11.0 (V1 SDK). Model access: native
+Gemini CLI 0.51.0 · OpenHands 1.11.0 (V1 SDK) · Cline CLI 3.0.44. Model access: native
 APIs for Anthropic/OpenAI/xAI/Google; Fireworks AI serverless for GLM
 5.2 (`accounts/fireworks/models/glm-5p2`), MiniMax-M3 (`.../minimax-m3`,
 unlisted on the account but served), Kimi K2.6 (`.../kimi-k2p6`).
@@ -42,6 +42,7 @@ unlisted on the account but served), Kimi K2.6 (`.../kimi-k2p6`).
 | Gemini CLI × Gemini 3.5 Flash | PASS 3/3 | needs `GEMINI_CLI_TRUST_WORKSPACE=true` + `--approval-mode yolo` |
 | Gemini CLI × Gemini 3.1 Pro (preview) | PASS 3/3 | same; no CLI flag to pin thinking level yet |
 | OpenHands × Kimi K2.6 | PASS 3/3 | no CLI executable in 1.11.0 - driven via a ~15-line SDK script (`uv run --python 3.12 --with openhands-ai`), LiteLLM `fireworks_ai/` prefix |
+| Cline CLI × gpt-oss-120b (Fireworks) | PASS 3/3 | speed probe (added later same day): **4s / 4s / 6s wall-clock per full agentic run** - an order of magnitude faster than every other pair. `cline -P fireworks -k ... -m ... --auto-approve true`. Caveat: Cline's `--thinking high` injects fields the fireworks provider schema rejects, so runs used provider-default effort; Fireworks itself accepts `reasoning_effort: "high"` for gpt-oss (verified), so the "(high)" pin awaits a Cline schema fix or a proxy |
 
 Not scored: OpenCode's first run per new provider timed out at 300s
 (one-time provider-package download); retries were immediate and clean.

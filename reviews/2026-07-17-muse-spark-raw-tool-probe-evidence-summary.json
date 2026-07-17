@@ -1,0 +1,2350 @@
+[
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 400,
+    "kind": "named_tool_choice_control",
+    "model": null,
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": null,
+    "status": null,
+    "tool_calls": [],
+    "trial": 0,
+    "usage": null
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": null,
+    "http_status": 400,
+    "kind": "named_tool_choice_control",
+    "model": null,
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": null,
+    "status": null,
+    "tool_calls": [],
+    "trial": 0,
+    "usage": null
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "resp_6a5a6b227e5de671412c45fe",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 5,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 278,
+      "output_tokens_details": {
+        "reasoning_tokens": 190
+      },
+      "total_tokens": 859
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "resp_6a5a6b23f7d8bb89bd4742ce",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 2,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 225,
+      "output_tokens_details": {
+        "reasoning_tokens": 133
+      },
+      "total_tokens": 806
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "resp_6a5a6b23e5892b917f984027",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 6,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 254,
+      "output_tokens_details": {
+        "reasoning_tokens": 162
+      },
+      "total_tokens": 835
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "resp_6a5a6b234ee7d9d12b0447b2",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 8,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 294,
+      "output_tokens_details": {
+        "reasoning_tokens": 205
+      },
+      "total_tokens": 875
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "resp_6a5a6b23070181ecc3984b4b",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 4,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 266,
+      "output_tokens_details": {
+        "reasoning_tokens": 174
+      },
+      "total_tokens": 847
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "resp_6a5a6b2398e2892e94f54a02",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 1,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 377,
+      "output_tokens_details": {
+        "reasoning_tokens": 294
+      },
+      "total_tokens": 958
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "resp_6a5a6b23ce1a1303559d4ade",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 7,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 294,
+      "output_tokens_details": {
+        "reasoning_tokens": 204
+      },
+      "total_tokens": 875
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "resp_6a5a6b24e7cb2ed9d6594424",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 3,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 342,
+      "output_tokens_details": {
+        "reasoning_tokens": 251
+      },
+      "total_tokens": 923
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "resp_6a5a6b2505379eef92b1477d",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 1,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 251,
+      "output_tokens_details": {
+        "reasoning_tokens": 162
+      },
+      "total_tokens": 832
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "resp_6a5a6b25ffca8264290a45ad",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 2,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 223,
+      "output_tokens_details": {
+        "reasoning_tokens": 137
+      },
+      "total_tokens": 804
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "resp_6a5a6b257fdc96da4f44447d",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 10,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 306,
+      "output_tokens_details": {
+        "reasoning_tokens": 221
+      },
+      "total_tokens": 887
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "resp_6a5a6b256fb40cf74c844911",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 3,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 313,
+      "output_tokens_details": {
+        "reasoning_tokens": 222
+      },
+      "total_tokens": 894
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "resp_6a5a6b25d8de2cc5a1df43f3",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 9,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 497,
+      "output_tokens_details": {
+        "reasoning_tokens": 407
+      },
+      "total_tokens": 1078
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "resp_6a5a6b263ec86c3863e94797",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 4,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 322,
+      "output_tokens_details": {
+        "reasoning_tokens": 236
+      },
+      "total_tokens": 903
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "resp_6a5a6b2633a83d7a57e84136",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 5,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 284,
+      "output_tokens_details": {
+        "reasoning_tokens": 198
+      },
+      "total_tokens": 865
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "resp_6a5a6b26285b851960a74245",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 6,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 252,
+      "output_tokens_details": {
+        "reasoning_tokens": 161
+      },
+      "total_tokens": 833
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "resp_6a5a6b27226cda8ced364cc1",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 8,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 433
+      },
+      "output_tokens": 278,
+      "output_tokens_details": {
+        "reasoning_tokens": 187
+      },
+      "total_tokens": 859
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "resp_6a5a6b273c53ca81f2dc43d2",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 9,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 433
+      },
+      "output_tokens": 289,
+      "output_tokens_details": {
+        "reasoning_tokens": 200
+      },
+      "total_tokens": 870
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "resp_6a5a6b286919a2673fad450a",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 1,
+    "usage": {
+      "input_tokens": 582,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 303,
+      "output_tokens_details": {
+        "reasoning_tokens": 218
+      },
+      "total_tokens": 885
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "resp_6a5a6b28cf116571be174bc1",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 4,
+    "usage": {
+      "input_tokens": 582,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 223,
+      "output_tokens_details": {
+        "reasoning_tokens": 133
+      },
+      "total_tokens": 805
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "resp_6a5a6b2829907884104449c8",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 5,
+    "usage": {
+      "input_tokens": 582,
+      "input_tokens_details": {
+        "cached_tokens": 433
+      },
+      "output_tokens": 225,
+      "output_tokens_details": {
+        "reasoning_tokens": 137
+      },
+      "total_tokens": 807
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "resp_6a5a6b28910b3656b619467d",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 7,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 433
+      },
+      "output_tokens": 310,
+      "output_tokens_details": {
+        "reasoning_tokens": 219
+      },
+      "total_tokens": 891
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "resp_6a5a6b2866dd4b50f4bc4cbe",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 10,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 297,
+      "output_tokens_details": {
+        "reasoning_tokens": 215
+      },
+      "total_tokens": 878
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "resp_6a5a6b28c03d7032437643fc",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 2,
+    "usage": {
+      "input_tokens": 582,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 260,
+      "output_tokens_details": {
+        "reasoning_tokens": 177
+      },
+      "total_tokens": 842
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "resp_6a5a6b296f883acd652046e4",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 3,
+    "usage": {
+      "input_tokens": 582,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 360,
+      "output_tokens_details": {
+        "reasoning_tokens": 269
+      },
+      "total_tokens": 942
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "resp_6a5a6b29061676f6a4224743",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 6,
+    "usage": {
+      "input_tokens": 582,
+      "input_tokens_details": {
+        "cached_tokens": 433
+      },
+      "output_tokens": 290,
+      "output_tokens_details": {
+        "reasoning_tokens": 193
+      },
+      "total_tokens": 872
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "resp_6a5a6b2a470f4fcd5c194791",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 7,
+    "usage": {
+      "input_tokens": 582,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 284,
+      "output_tokens_details": {
+        "reasoning_tokens": 196
+      },
+      "total_tokens": 866
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "resp_6a5a6b2a88f403d5010247f4",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 8,
+    "usage": {
+      "input_tokens": 582,
+      "input_tokens_details": {
+        "cached_tokens": 433
+      },
+      "output_tokens": 310,
+      "output_tokens_details": {
+        "reasoning_tokens": 218
+      },
+      "total_tokens": 892
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "resp_6a5a6b2ac00986b149f745eb",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 10,
+    "usage": {
+      "input_tokens": 582,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 242,
+      "output_tokens_details": {
+        "reasoning_tokens": 152
+      },
+      "total_tokens": 824
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "resp_6a5a6b2ad2a029a3954e47ea",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 2,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 296,
+      "output_tokens_details": {
+        "reasoning_tokens": 204
+      },
+      "total_tokens": 877
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "resp_6a5a6b2ba88c7fa532714269",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 4,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 229,
+      "output_tokens_details": {
+        "reasoning_tokens": 137
+      },
+      "total_tokens": 810
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "resp_6a5a6b2b0e31bced24474a85",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 1,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 273,
+      "output_tokens_details": {
+        "reasoning_tokens": 181
+      },
+      "total_tokens": 854
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "resp_6a5a6b2b83d36eab53564162",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 3,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 433
+      },
+      "output_tokens": 309,
+      "output_tokens_details": {
+        "reasoning_tokens": 210
+      },
+      "total_tokens": 890
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "resp_6a5a6b2b719bfd39a1164e8a",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 9,
+    "usage": {
+      "input_tokens": 582,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 395,
+      "output_tokens_details": {
+        "reasoning_tokens": 307
+      },
+      "total_tokens": 977
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "resp_6a5a6b2c613ad577fcd44a75",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 7,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 433
+      },
+      "output_tokens": 266,
+      "output_tokens_details": {
+        "reasoning_tokens": 177
+      },
+      "total_tokens": 847
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "resp_6a5a6b2c5e428d1c1249425e",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 5,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 315,
+      "output_tokens_details": {
+        "reasoning_tokens": 223
+      },
+      "total_tokens": 896
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "resp_6a5a6b2c0cd7ce7aea5b4314",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 8,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 230,
+      "output_tokens_details": {
+        "reasoning_tokens": 130
+      },
+      "total_tokens": 811
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "resp_6a5a6b2c5e79d12856464c99",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 6,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 302,
+      "output_tokens_details": {
+        "reasoning_tokens": 205
+      },
+      "total_tokens": 883
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "chatcmpl-e403fee7-de09-494d-80e3-b580428ffa6a",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 2,
+    "usage": {
+      "completion_tokens": 245,
+      "completion_tokens_details": {
+        "reasoning_tokens": 162
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 826
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "resp_6a5a6b2d3a82dcf9be9b4af9",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 10,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 279,
+      "output_tokens_details": {
+        "reasoning_tokens": 187
+      },
+      "total_tokens": 860
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "chatcmpl-d47be919-3a0c-48f5-9bd2-72e8311a7cb6",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 1,
+    "usage": {
+      "completion_tokens": 306,
+      "completion_tokens_details": {
+        "reasoning_tokens": 216
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 433
+      },
+      "total_tokens": 887
+    }
+  },
+  {
+    "endpoint": "responses",
+    "finish_reason": null,
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "resp_6a5a6b2d945c9addcd2c42a4",
+    "status": "completed",
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 9,
+    "usage": {
+      "input_tokens": 581,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 287,
+      "output_tokens_details": {
+        "reasoning_tokens": 200
+      },
+      "total_tokens": 868
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "chatcmpl-5abbd605-57c9-4b35-a753-50586c7bcf05",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 3,
+    "usage": {
+      "completion_tokens": 271,
+      "completion_tokens_details": {
+        "reasoning_tokens": 186
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 852
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "chatcmpl-d15418e1-dc9e-4a60-9023-75542c47309d",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 5,
+    "usage": {
+      "completion_tokens": 222,
+      "completion_tokens_details": {
+        "reasoning_tokens": 130
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 803
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "chatcmpl-04aefa19-3823-4f63-ba5c-77771c091c4b",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 4,
+    "usage": {
+      "completion_tokens": 362,
+      "completion_tokens_details": {
+        "reasoning_tokens": 271
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 943
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "chatcmpl-72095d63-6b8f-43a0-bfa3-b473757d443e",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 10,
+    "usage": {
+      "completion_tokens": 227,
+      "completion_tokens_details": {
+        "reasoning_tokens": 135
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 808
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "chatcmpl-4dc89a8c-6b0f-4732-abfa-b7420d1f73e9",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 6,
+    "usage": {
+      "completion_tokens": 266,
+      "completion_tokens_details": {
+        "reasoning_tokens": 183
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 847
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "chatcmpl-ba1c3da1-3050-4feb-be41-bee65ceee150",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 7,
+    "usage": {
+      "completion_tokens": 356,
+      "completion_tokens_details": {
+        "reasoning_tokens": 273
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 937
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "chatcmpl-897f1e47-d40e-4ffd-855b-3897b966698a",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 9,
+    "usage": {
+      "completion_tokens": 315,
+      "completion_tokens_details": {
+        "reasoning_tokens": 225
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 896
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "muse-smoke.txt",
+    "response_id": "chatcmpl-4163e5df-9df9-4f57-9e4c-33977a263477",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"muse-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 8,
+    "usage": {
+      "completion_tokens": 376,
+      "completion_tokens_details": {
+        "reasoning_tokens": 284
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 957
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "chatcmpl-41f3e767-3d30-4afe-968e-2ca34335a901",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 1,
+    "usage": {
+      "completion_tokens": 267,
+      "completion_tokens_details": {
+        "reasoning_tokens": 176
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 848
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "chatcmpl-e763e1a4-05e9-4126-a15c-436d949e33c0",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 3,
+    "usage": {
+      "completion_tokens": 285,
+      "completion_tokens_details": {
+        "reasoning_tokens": 194
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 433
+      },
+      "total_tokens": 866
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "chatcmpl-4138788e-d281-431c-90f5-0aabd2005344",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 5,
+    "usage": {
+      "completion_tokens": 213,
+      "completion_tokens_details": {
+        "reasoning_tokens": 129
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 794
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "chatcmpl-c023f715-dde5-41e3-b5c6-6e8f70bc4969",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 2,
+    "usage": {
+      "completion_tokens": 281,
+      "completion_tokens_details": {
+        "reasoning_tokens": 190
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 862
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "chatcmpl-0c7c4630-c2cd-4d69-ae2a-9c1442d71ce9",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 4,
+    "usage": {
+      "completion_tokens": 336,
+      "completion_tokens_details": {
+        "reasoning_tokens": 250
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 433
+      },
+      "total_tokens": 917
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "chatcmpl-22382dd6-02ac-4269-9e3a-3f2d7905376e",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 6,
+    "usage": {
+      "completion_tokens": 257,
+      "completion_tokens_details": {
+        "reasoning_tokens": 166
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 838
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "chatcmpl-16ca811f-6658-454d-be6a-a6d893d995a1",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 7,
+    "usage": {
+      "completion_tokens": 225,
+      "completion_tokens_details": {
+        "reasoning_tokens": 140
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 806
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "chatcmpl-0017a9d4-a05a-476e-a5b6-63b809e88f0c",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 8,
+    "usage": {
+      "completion_tokens": 271,
+      "completion_tokens_details": {
+        "reasoning_tokens": 180
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 433
+      },
+      "total_tokens": 852
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "chatcmpl-30e9934f-4c4c-4549-9b63-0bf9b2fccab3",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 9,
+    "usage": {
+      "completion_tokens": 269,
+      "completion_tokens_details": {
+        "reasoning_tokens": 178
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 850
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "meta-smoke.txt",
+    "response_id": "chatcmpl-06f12520-62e9-4ef1-9403-735c6c344b5e",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"meta-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 10,
+    "usage": {
+      "completion_tokens": 304,
+      "completion_tokens_details": {
+        "reasoning_tokens": 219
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 885
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "chatcmpl-fbf4aa76-67f3-411d-a426-9aedff0a736d",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 1,
+    "usage": {
+      "completion_tokens": 298,
+      "completion_tokens_details": {
+        "reasoning_tokens": 208
+      },
+      "prompt_tokens": 582,
+      "prompt_tokens_details": {
+        "cached_tokens": 433
+      },
+      "total_tokens": 880
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "chatcmpl-37560b59-9d2a-4e5b-800a-6df3f5200492",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 2,
+    "usage": {
+      "completion_tokens": 364,
+      "completion_tokens_details": {
+        "reasoning_tokens": 276
+      },
+      "prompt_tokens": 582,
+      "prompt_tokens_details": {
+        "cached_tokens": 433
+      },
+      "total_tokens": 946
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "chatcmpl-d26ae68c-ce59-4ea0-99f2-bbf26b9f21b2",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 3,
+    "usage": {
+      "completion_tokens": 315,
+      "completion_tokens_details": {
+        "reasoning_tokens": 227
+      },
+      "prompt_tokens": 582,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 897
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "chatcmpl-fe770099-598e-4409-ab20-3a8e1a07849a",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 6,
+    "usage": {
+      "completion_tokens": 275,
+      "completion_tokens_details": {
+        "reasoning_tokens": 187
+      },
+      "prompt_tokens": 582,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 857
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "chatcmpl-779dee83-aa3e-4839-8408-b0cd69066824",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 5,
+    "usage": {
+      "completion_tokens": 310,
+      "completion_tokens_details": {
+        "reasoning_tokens": 222
+      },
+      "prompt_tokens": 582,
+      "prompt_tokens_details": {
+        "cached_tokens": 433
+      },
+      "total_tokens": 892
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "chatcmpl-29a51d99-f5ed-459b-a129-c70804b4e060",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 7,
+    "usage": {
+      "completion_tokens": 240,
+      "completion_tokens_details": {
+        "reasoning_tokens": 152
+      },
+      "prompt_tokens": 582,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 822
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "chatcmpl-7492fa28-6614-4cfc-97ad-ad3ef3697b9f",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 4,
+    "usage": {
+      "completion_tokens": 411,
+      "completion_tokens_details": {
+        "reasoning_tokens": 323
+      },
+      "prompt_tokens": 582,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 993
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "chatcmpl-f2072364-8af8-449b-ae2e-96f29d22c81c",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 8,
+    "usage": {
+      "completion_tokens": 276,
+      "completion_tokens_details": {
+        "reasoning_tokens": 192
+      },
+      "prompt_tokens": 582,
+      "prompt_tokens_details": {
+        "cached_tokens": 433
+      },
+      "total_tokens": 858
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "chatcmpl-2b08d08d-ef6d-4e1e-b2a9-a81872c6a071",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 9,
+    "usage": {
+      "completion_tokens": 303,
+      "completion_tokens_details": {
+        "reasoning_tokens": 213
+      },
+      "prompt_tokens": 582,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 885
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "chatcmpl-78a98687-03ed-465e-9801-8ccacb93493a",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 3,
+    "usage": {
+      "completion_tokens": 316,
+      "completion_tokens_details": {
+        "reasoning_tokens": 229
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 433
+      },
+      "total_tokens": 897
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "claude-smoke.txt",
+    "response_id": "chatcmpl-9d5925b5-4bb5-4663-a534-c307779869fd",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"claude-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 10,
+    "usage": {
+      "completion_tokens": 535,
+      "completion_tokens_details": {
+        "reasoning_tokens": 452
+      },
+      "prompt_tokens": 582,
+      "prompt_tokens_details": {
+        "cached_tokens": 433
+      },
+      "total_tokens": 1117
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "chatcmpl-f531af08-49ca-463a-8405-8bf355216003",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 2,
+    "usage": {
+      "completion_tokens": 307,
+      "completion_tokens_details": {
+        "reasoning_tokens": 212
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 433
+      },
+      "total_tokens": 888
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "chatcmpl-d3226a82-eb4a-47b6-96c5-3b7fd6fe91b4",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 5,
+    "usage": {
+      "completion_tokens": 389,
+      "completion_tokens_details": {
+        "reasoning_tokens": 304
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 970
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "chatcmpl-2f23b623-0d30-43a8-82c5-e1ebb41a1c99",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 4,
+    "usage": {
+      "completion_tokens": 265,
+      "completion_tokens_details": {
+        "reasoning_tokens": 175
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 846
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "chatcmpl-e662b0c5-974b-4133-afec-74a10c1ba2c7",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 6,
+    "usage": {
+      "completion_tokens": 298,
+      "completion_tokens_details": {
+        "reasoning_tokens": 206
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 879
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "chatcmpl-8e265b04-52f7-4a8b-96ea-571ad7167b58",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 7,
+    "usage": {
+      "completion_tokens": 476,
+      "completion_tokens_details": {
+        "reasoning_tokens": 381
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 433
+      },
+      "total_tokens": 1057
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "chatcmpl-dccb0842-37e4-4ba4-a97d-cace304c6ec4",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 8,
+    "usage": {
+      "completion_tokens": 321,
+      "completion_tokens_details": {
+        "reasoning_tokens": 229
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 433
+      },
+      "total_tokens": 902
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "chatcmpl-d311267a-cd96-404b-9523-c22b32dd14f9",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 10,
+    "usage": {
+      "completion_tokens": 230,
+      "completion_tokens_details": {
+        "reasoning_tokens": 138
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 433
+      },
+      "total_tokens": 811
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "chatcmpl-45fc7158-5b12-49d1-8d93-993b77f8ee1e",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 9,
+    "usage": {
+      "completion_tokens": 256,
+      "completion_tokens_details": {
+        "reasoning_tokens": 164
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 837
+    }
+  },
+  {
+    "endpoint": "chat/completions",
+    "finish_reason": "tool_calls",
+    "http_status": 200,
+    "kind": "matrix",
+    "model": "muse-spark-1.1",
+    "parse_error": null,
+    "requested_path": "zebra-smoke.txt",
+    "response_id": "chatcmpl-f034c322-2b47-44b2-8d4f-3d5526b1d6ef",
+    "status": null,
+    "tool_calls": [
+      {
+        "arguments": "{\"path\": \"zebra-smoke.txt\", \"content\": \"factory\"}",
+        "name": "write_file"
+      }
+    ],
+    "trial": 1,
+    "usage": {
+      "completion_tokens": 514,
+      "completion_tokens_details": {
+        "reasoning_tokens": 423
+      },
+      "prompt_tokens": 581,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 1095
+    }
+  }
+]

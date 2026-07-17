@@ -7,6 +7,12 @@ admission: it checks one behavior (exact-instruction adherence in a
 headless agentic run), k=3 per pair. Admission remains the full fixture
 gauntlet + shadow mode (D6).*
 
+**Final Muse attribution update:** the later harness-free tool-call
+control passed 80/80 across Meta's Responses and Chat Completions APIs.
+That result supersedes this report's interim "model-level" conclusion;
+see [the raw tool probe](2026-07-17-muse-spark-raw-tool-probe.md) and
+the final Muse addendum below.
+
 ## Method
 
 One probe, identical for every pair, three runs each in a fresh
@@ -62,13 +68,14 @@ writing the wrong name. Isolation matrix:
 | neutral cwd (no "claude" in path) | still wrong - path is not the trigger |
 | `muse-smoke.txt` question via direct Meta API, no harness | correct |
 
-So the defect needs both the OpenCode context and a `muse-*` name; the
-model alone answers correctly. Working hypothesis: OpenCode's prompt
-lineage is Claude-Code-derived (its binary carries ~156 `claude`
-strings) and Muse Spark treats "muse"-prefixed names as references to
-itself, substituting the identity it infers from context. The runs also
-showed weaker tool discipline (raw `echo` redirects instead of the
-write tool, gratuitous verification commands).
+At this stage the defect appeared to need both the OpenCode context and
+a `muse-*` name. The initial working hypothesis was that OpenCode's
+Claude-Code-derived prompt lineage triggered an identity substitution.
+The later raw tool-call control and captured OpenCode envelope supersede
+that hypothesis as an attribution: the precise later-loop change point
+remains unknown. The runs also showed weaker tool discipline (raw
+`echo` redirects instead of the write tool, gratuitous verification
+commands).
 
 Factory relevance: wrong-filename behavior is wrong-target-file
 behavior. `factory-verify`'s caps check would reject the patch
@@ -114,7 +121,7 @@ Tooling from this exercise persists on the VM (`opencode`, `pi`,
 orchestration agent's memory). Re-running the matrix after a harness
 upgrade is ~30 minutes.
 
-## Addendum (same day): the Muse Spark defect is model-level, not pair-level
+## Addendum (same day, superseded): failure reproduced across two harnesses
 
 Follow-up prompted by two research docs Jacob supplied (harness
 recommendations for Muse Spark; an OpenHands × Muse Spark guide). Four
@@ -123,28 +130,23 @@ new experiments, all on the same probe:
 | Experiment | Result |
 | :-- | :-- |
 | OpenCode via Responses-capable wiring (`@ai-sdk/openai` instead of `@ai-sdk/openai-compatible`) | still `claude-smoke.txt`; its completion message also renamed the working *directory* from `muse-test` to `claude-test` in prose |
-| OpenCode + explicit identity rule in `AGENTS.md` ("You are Muse Spark 1.1, a model built by Meta... use names exactly as written") | still `claude-smoke.txt`, 2/2 - **not promptable-away** |
+| OpenCode + explicit identity rule in `AGENTS.md` ("You are Muse Spark 1.1, a model built by Meta... use names exactly as written") | still `claude-smoke.txt`, 2/2 - this one prompt did not correct it; no broader prompt-independence claim |
 | **OpenHands (V1 SDK) × Muse Spark** - an entirely different harness, prompts, tool stack, and transport | **still `claude-smoke.txt`, 3/3** |
 | Registry check: the research doc's claim that OpenCode ships a built-in Meta provider | false as of OpenCode 1.18.3 / current models.dev - no `meta` provider exists; custom wiring remains the only route |
 
-Revised attribution: the substitution follows the **model into any
-agentic context** - it is not an OpenCode artifact. Full tally: 0/13
-correct across every agentic configuration tested (two OpenCode
-wirings, identity-primed OpenCode, OpenHands), while the same harnesses
-run GLM 5.2, MiniMax-M3, and Kimi K2.6 correctly and the model answers
-the same question correctly when asked *non-agentically* via the raw
-API. Hypothesis upgraded accordingly: Muse Spark's agentic training
-distribution appears heavily Claude-Code-flavored, and in tool-loop
-contexts those priors override literal instructions for
-identity-adjacent tokens. The original "pair-level" phrasing above is
-retained as written but superseded by this addendum.
+These runs established cross-harness reproduction, not a defect in the
+model weights or every agentic context. Full tally: 0/13 correct across
+the tested configurations (two OpenCode wirings, identity-primed
+OpenCode, and OpenHands), while the same harnesses ran GLM 5.2,
+MiniMax-M3, and Kimi K2.6 correctly. That evidence moved the working
+hypothesis away from an OpenCode-only bug, but it did not capture the
+raw later-turn argument before adapter parsing and execution. The final
+Muse addendum below supersedes the stronger attribution originally
+drawn here.
 
-Bench consequence: Muse Spark 1.1's implement-seat candidacy is
-impaired *regardless of harness* until a configuration passes this
-probe - which also removes the cheapest option from the
-cost-per-task preference order for capped tasks, pending a fix or a
-Meta-side model update. Its non-agentic seats (judgment calls via raw
-API) are untouched by this finding.
+Bench consequence: Muse Spark 1.1's implementation-seat candidacy is
+impaired under both tested harnesses until a configuration passes this
+probe. Its raw-API judgment-seat candidacy is untouched.
 
 Operational notes from the follow-up: Meta's API also serves native
 `/v1/responses` and Anthropic-compatible `/v1/messages`; the OpenHands
@@ -155,6 +157,42 @@ prefix postdates the litellm version OpenHands pins (use
 `openai/muse-spark-1.1` + `base_url`). Muse Spark runs also showed
 high latency variance through both wirings (occasional >5-minute
 runs on a trivial task).
+
+## Final Muse addendum (same day): raw tool calls pass 80/80
+
+The missing harness-free control used one synthetic `write_file` tool,
+four filenames, 10 fresh trials per filename, and both Meta tool-capable
+API shapes. `/v1/responses` passed 40/40 and
+`/v1/chat/completions` passed 40/40. `muse-smoke.txt` was preserved in
+20/20 raw returned argument strings. Every request returned HTTP 200,
+the exact model identifier, one `write_file` call, and content
+`factory`. No returned tool call was executed.
+
+OpenCode's captured initial build request also preserved
+`muse-smoke.txt` and contained no `Claude` or `Anthropic` strings. A
+direct replay of that richer envelope made `bash` the first call; the
+protocol stopped without executing it, before the later write turn.
+The proven defect boundary is therefore narrower than either earlier
+hypothesis: minimal raw Meta tool calls are correct, initial OpenCode
+request construction is correct, and completed OpenCode/OpenHands loops
+are wrong. The exact later turn where the argument changes remains
+unisolated.
+
+Updated attribution: **harness-context or later-loop defect**, without
+yet choosing among model behavior induced by the richer prompt,
+adapter serialization/parsing, or executor mutation. This result rules
+out an unconditional Muse/Meta filename substitution and overturns the
+interim model-level claim. It does not exonerate the model in the richer
+multi-turn context or prove a harness adapter bug. Full method, raw
+credential-free evidence, specimens, and limitations are in
+[`2026-07-17-muse-spark-raw-tool-probe.md`](2026-07-17-muse-spark-raw-tool-probe.md).
+
+Factory decision: Muse remains out of an implementation seat under the
+current OpenCode and OpenHands configurations. The raw 80/80 pass is a
+necessary control, not admission; the actual model × harness × adapter
+version still has to pass this floor, the fixture gauntlet, and shadow
+mode. Raw-text success supports the narrower judgment seat, while raw
+tool-call success restores Muse as a candidate for future harness work.
 
 ## Addendum 2: gpt-oss-120b provider head-to-head - Cerebras vs Fireworks
 

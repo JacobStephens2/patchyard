@@ -10,6 +10,9 @@ pull requests out. One human gate - the PR - held by the engineering
 department + the company owner. The production deploy path is never touched.
 
 - **Spec:** [SPEC.md](SPEC.md) - the phase-1 build contract.
+- **Ideas inbox:** [`docs/ideas.md`](docs/ideas.md) - hand-written,
+  pre-ruling scratch space. Carries no authority; ideas graduate into the
+  decision log or die there.
 - **Design record:** [`docs/decision-log.md`](docs/decision-log.md) is the
   canonical 87-ruling log. The independent proposals, comparison and
   historical synthesis remain as provenance in the orchestration repo at

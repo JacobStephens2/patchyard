@@ -155,3 +155,31 @@ prefix postdates the litellm version OpenHands pins (use
 `openai/muse-spark-1.1` + `base_url`). Muse Spark runs also showed
 high latency variance through both wirings (occasional >5-minute
 runs on a trivial task).
+
+## Addendum 2: gpt-oss-120b provider head-to-head - Cerebras vs Fireworks
+
+Same day, after Jacob enabled Cerebras billing
+(`CEREBRAS_API_KEY` now in env.tpl). Identical requests (400
+completion tokens, `reasoning_effort: high`), interleaved C-F-C-F so a
+transient load spike on either side cannot masquerade as an
+architecture difference:
+
+| Provider | TTFB | Total (400 tok) | Generation rate | Variance |
+| :-- | :-- | :-- | :-- | :-- |
+| Cerebras | 34-54 ms | 0.42-0.44 s | **~1,000-1,100 tok/s** | ±5% |
+| Fireworks | 43-67 ms | 1.75-3.46 s | 118-234 tok/s | ~3× swing |
+
+Raw generation: **Cerebras ~5-8× faster, with far tighter variance.**
+First-token latency is a wash.
+
+Agentic leg: Cline CLI × gpt-oss-120b **via Cerebras** (native `-P
+cerebras` provider) passes the probe 3/3 at **4.0 / 4.6 / 4.6 s** -
+statistically identical to the Fireworks 4-6 s runs. Conclusion: at
+small task sizes the agentic loop is harness-bound (session startup,
+tool round-trips, per-turn TTFB), so provider throughput is invisible;
+it becomes decisive on long-generation work (big diffs, long
+rationales, high-effort reasoning) and for keeping many-turn latency
+predictable. For a factory speed seat, Cerebras is the better host for
+this model on the evidence - same price class, same wire format, 5-8×
+the headroom - with the note that Cerebras' catalog also lists
+`zai-glm-4.7` and `gemma-4-31b` as additional US-hosted options.

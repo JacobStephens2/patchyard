@@ -1,0 +1,123 @@
+{
+  "date": "2026-07-17",
+  "operator": "orchestration-agent",
+  "prompt": "Create a file named muse-smoke.txt in the current directory containing exactly the word: factory",
+  "pass_criteria": {
+    "artifact_count": 1,
+    "filename": "muse-smoke.txt",
+    "bytes": 7,
+    "content_hex": "666163746f7279"
+  },
+  "treatment": {
+    "provider": "DeepInfra",
+    "model": "openai/gpt-oss-120b",
+    "reasoning_effort": "high",
+    "text_only": true,
+    "ideas_cost_per_intelligence_task_usd": 0.06,
+    "provider_price_per_million_tokens": {
+      "input_usd": 0.037,
+      "output_usd": 0.17
+    }
+  },
+  "ordered_results": [
+    {
+      "order": 1,
+      "harness": "Harmony Agent",
+      "source": "https://github.com/borislavmavrin/harmonyagent",
+      "commit": "175dda4a212193b79e5d860186c5043fd9cdc8e1",
+      "status": "rejected_on_first_standardized_exact_failure",
+      "standardized_runs": [
+        {
+          "run": 1,
+          "status": "Submitted",
+          "wall_seconds": 27.635,
+          "model_calls": 14,
+          "cost_usd": 0.00124437,
+          "reasoning_high_marker_on_all_requests": true,
+          "artifact_bytes": 8,
+          "artifact_content_hex": "666163746f72790a",
+          "exact_pass": false
+        }
+      ],
+      "setup_runs": {
+        "scored": false,
+        "reason": "non-upstream four-step cap used while validating transport",
+        "exact_passes": 2,
+        "runs": 3
+      }
+    },
+    {
+      "order": 2,
+      "harness": "Codex CLI with generic Responses-to-Chat adapter",
+      "codex_version": "0.144.5",
+      "codex_commit": "87db9bc18ba5bc82c1cb4e4381b44f693ee35623",
+      "adapter_source": "https://github.com/relux-works/open-responses-server",
+      "adapter_commit": "e885aff562bfe6e58a742592733f6baa1f44a411",
+      "status": "protocol_incompatible",
+      "deepinfra_http_200": true,
+      "adapter_logged_reasoning_effort": "high",
+      "returned_model": "openai/gpt-oss-120b",
+      "repeated_errors": [
+        "Fatal error: tool exec invoked with incompatible payload",
+        "Fatal error: tool apply_patch invoked with incompatible payload"
+      ],
+      "artifact_created": false,
+      "floor_score": null
+    },
+    {
+      "order": 3,
+      "harness": "mini-swe-agent with LiteLLM/DeepInfra Harmony integration",
+      "version": "2.3.0",
+      "commit": "adfe20233d456104c38c3129161b54f0fd39f2c7",
+      "status": "rejected",
+      "exact_passes": 4,
+      "runs": 10,
+      "total_cost_usd": 0.00118809,
+      "mean_cost_usd": 0.000118809,
+      "results": [
+        {"run": 1, "action": "printf", "artifact_bytes": 7, "exact_pass": true, "cost_usd": 0.000117792},
+        {"run": 2, "action": "printf", "artifact_bytes": 7, "exact_pass": true, "cost_usd": 0.000118125},
+        {"run": 3, "action": "heredoc", "artifact_bytes": 8, "exact_pass": false, "cost_usd": 0.000116979},
+        {"run": 4, "action": "heredoc", "artifact_bytes": 8, "exact_pass": false, "cost_usd": 0.000112966},
+        {"run": 5, "action": "printf", "artifact_bytes": 7, "exact_pass": true, "cost_usd": 0.000121429},
+        {"run": 6, "action": "printf", "artifact_bytes": 7, "exact_pass": true, "cost_usd": 0.000121414},
+        {"run": 7, "action": "heredoc", "artifact_bytes": 8, "exact_pass": false, "cost_usd": 0.000108856},
+        {"run": 8, "action": "heredoc", "artifact_bytes": 8, "exact_pass": false, "cost_usd": 0.000106447},
+        {"run": 9, "action": "heredoc", "artifact_bytes": 8, "exact_pass": false, "cost_usd": 0.000162824},
+        {"run": 10, "action": "heredoc", "artifact_bytes": 8, "exact_pass": false, "cost_usd": 0.000101258}
+      ]
+    },
+    {
+      "order": 4,
+      "harness": "OpenCode",
+      "version": "1.18.3",
+      "commit": "127bdb30784d508cc556c71a0f32b508a3061517",
+      "provider_integration": "@ai-sdk/deepinfra",
+      "status": "selected",
+      "variant": "high",
+      "variant_resolution_evidence": "OpenCode reasoningVariants maps the model's advertised high effort through @ai-sdk/deepinfra to reasoningEffort=high; pinned @ai-sdk/openai-compatible 2.0.37 serializes it as reasoning_effort; no independent HTTP-body capture",
+      "exact_passes": 3,
+      "runs": 3,
+      "recorded_build_loop_total_cost_usd": 0.001648585,
+      "recorded_build_loop_mean_cost_usd": 0.0005495283333333333,
+      "cost_scope": "JSON step events exclude one small title-generation model call per run; recorded cost is a lower bound",
+      "unmetered_title_model_call_per_run": true,
+      "results": [
+        {"run": 1, "wall_seconds": 12.884, "recorded_build_loop_cost_usd": 0.000550258, "recorded_build_loop_output_tokens": 400, "tool": "write", "tool_content": "factory", "artifact_bytes": 7, "artifact_content_hex": "666163746f7279", "exact_pass": true},
+        {"run": 2, "wall_seconds": 16.364, "recorded_build_loop_cost_usd": 0.000543338, "recorded_build_loop_output_tokens": 368, "tool": "write", "tool_content": "factory", "artifact_bytes": 7, "artifact_content_hex": "666163746f7279", "exact_pass": true},
+        {"run": 3, "wall_seconds": 16.907, "recorded_build_loop_cost_usd": 0.000554989, "recorded_build_loop_output_tokens": 425, "tool": "write", "tool_content": "factory", "artifact_bytes": 7, "artifact_content_hex": "666163746f7279", "exact_pass": true}
+      ]
+    },
+    {
+      "order": 4,
+      "harness": "Cline / Roo Code",
+      "status": "not_run",
+      "reason": "OpenCode passed first in the shared fallback tier; stop rule applied"
+    }
+  ],
+  "decision": {
+    "selected_pair": "OpenCode 1.18.3 x openai/gpt-oss-120b (high) x DeepInfra",
+    "floor": "PASS 3/3",
+    "next_gate": "text-only alphabetize fixture gauntlet"
+  }
+}

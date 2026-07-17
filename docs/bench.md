@@ -8,7 +8,7 @@ cites. Floor probe = the muse-smoke exact-instruction check
 Seats are design-time assignments; nothing runs in production until
 phase 1 builds.*
 
-*Last updated: 2026-07-17 (late - MiMo × Claude Code added).*
+*Last updated: 2026-07-17 (late - DeepInfra gpt-oss harness selected).*
 
 ## Pairs
 
@@ -18,6 +18,7 @@ phase 1 builds.*
 | Claude Code × Fable 5 (max) | Anthropic | ✅ 3/3 | ✅ | US | Implement bench #2; **builder incumbent** |
 | Claude Code × DeepClaude × DeepSeek V4 Flash (max) | DeepInfra | ✅ 3/3, 5.8-12.3 s wall/run | ❌ text-only | US infra (CN-created, allowed) | Floor passes; advance to text-only alphabetize fixture gauntlet. Request-level max evidence captured; provider mode still needs fixture validation ([record](../research/2026-07-17-deepseek-v4-deepclaude.md)) |
 | Claude Code × DeepClaude × DeepSeek V4 Pro (max) | DeepInfra | ✅ 3/3, 4.2-6.6 s wall/run | ❌ text-only | US infra (CN-created, allowed) | Floor passes; advance to text-only alphabetize fixture gauntlet. Request-level max evidence captured; provider mode still needs fixture validation ([record](../research/2026-07-17-deepseek-v4-deepclaude.md)) |
+| OpenCode × gpt-oss-120b (high) | DeepInfra | ✅ 3/3, 12.9-16.9 s wall/run | ❌ text-only | US infra; US-created, open weights | **Preferred viable harness** from the ordered search: native `write` tool and exact 7-byte artifact in every run. Harmony Agent missed exact acceptance, Codex + generic adapter was tool-protocol-incompatible, and mini-swe-agent scored 4/10 exact; Cline/Roo were not tested after OpenCode passed ([record](../research/2026-07-17-gpt-oss-120b-deepinfra-harness-selection.md)) |
 | Grok Build × Grok 4.5 (high) | xAI | ✅ 3/3 | ✅ | US | Implement bench #3; tiebreak-verifier candidate |
 | OpenCode × Muse Spark 1.1 (xhigh) | Meta | ❌ 0/13 | ✅ | US | **Implement seat closed** - stochastic identity-token substitution, dose-dependent, no mitigation reaches zero ([bisection](../research/2026-07-17-muse-spark-envelope-bisection.md)). Candidate for *tool-free* judgment calls only, not yet qualified ([role assessment](../research/2026-07-17-muse-spark-factory-role-assessment.md)). Retest on Meta model update: B2 variant, n=10 |
 | OpenCode × GLM 5.2 | Fireworks | ✅ 3/3 | ❌ text-only | US infra (CN-created, allowed) | Implement-capable; excluded from screenshot-reading seats |

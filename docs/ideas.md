@@ -49,11 +49,14 @@ Harness, Model, Index, as of July 17, 2026
 4. OpenCode, Muse Spark 1.1 (xhigh), 69
 
 → smoke-tested 2026-07-17, see `../reviews/2026-07-17-harness-smoke-test.md`:
-pairs 1-3 pass k=3; pair 4 **fails 0/4** (rewrites `muse-*` filenames to
-`claude-*`; model alone is clean - pair-level defect). Same-day additions
-tested there too: OpenCode/Pi × GLM-5.2, OpenCode × MiniMax-M3, Gemini
-CLI × 3.5-flash and 3.1-pro, OpenHands × Kimi-K2.6 all pass; Cursor ×
-Composer 2.5 blocked on missing credentials.
+pairs 1-3 pass k=3; pair 4 **fails 0/13 across every agentic
+configuration** (rewrites `muse-*` names to `claude-*` in OpenCode, in
+OpenHands, through Responses wiring, and past an explicit identity
+rule - model-level in agentic contexts, per the report's addendum; only
+the non-agentic raw API is clean). Same-day additions tested there too:
+OpenCode/Pi × GLM-5.2, OpenCode × MiniMax-M3, Gemini CLI × 3.5-flash
+and 3.1-pro, OpenHands × Kimi-K2.6 all pass; Cursor × Composer 2.5
+blocked on missing credentials.
 
 ##### Preference order when there is a ceiling on output quality
 

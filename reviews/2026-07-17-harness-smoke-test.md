@@ -112,3 +112,45 @@ Tooling from this exercise persists on the VM (`opencode`, `pi`,
 `gemini`, `uv` under `~/.local/bin`; provider wiring recorded in the
 orchestration agent's memory). Re-running the matrix after a harness
 upgrade is ~30 minutes.
+
+## Addendum (same day): the Muse Spark defect is model-level, not pair-level
+
+Follow-up prompted by two research docs Jacob supplied (harness
+recommendations for Muse Spark; an OpenHands × Muse Spark guide). Four
+new experiments, all on the same probe:
+
+| Experiment | Result |
+| :-- | :-- |
+| OpenCode via Responses-capable wiring (`@ai-sdk/openai` instead of `@ai-sdk/openai-compatible`) | still `claude-smoke.txt`; its completion message also renamed the working *directory* from `muse-test` to `claude-test` in prose |
+| OpenCode + explicit identity rule in `AGENTS.md` ("You are Muse Spark 1.1, a model built by Meta... use names exactly as written") | still `claude-smoke.txt`, 2/2 - **not promptable-away** |
+| **OpenHands (V1 SDK) × Muse Spark** - an entirely different harness, prompts, tool stack, and transport | **still `claude-smoke.txt`, 3/3** |
+| Registry check: the research doc's claim that OpenCode ships a built-in Meta provider | false as of OpenCode 1.18.3 / current models.dev - no `meta` provider exists; custom wiring remains the only route |
+
+Revised attribution: the substitution follows the **model into any
+agentic context** - it is not an OpenCode artifact. Full tally: 0/13
+correct across every agentic configuration tested (two OpenCode
+wirings, identity-primed OpenCode, OpenHands), while the same harnesses
+run GLM 5.2, MiniMax-M3, and Kimi K2.6 correctly and the model answers
+the same question correctly when asked *non-agentically* via the raw
+API. Hypothesis upgraded accordingly: Muse Spark's agentic training
+distribution appears heavily Claude-Code-flavored, and in tool-loop
+contexts those priors override literal instructions for
+identity-adjacent tokens. The original "pair-level" phrasing above is
+retained as written but superseded by this addendum.
+
+Bench consequence: Muse Spark 1.1's implement-seat candidacy is
+impaired *regardless of harness* until a configuration passes this
+probe - which also removes the cheapest option from the
+cost-per-task preference order for capped tasks, pending a fix or a
+Meta-side model update. Its non-agentic seats (judgment calls via raw
+API) are untouched by this finding.
+
+Operational notes from the follow-up: Meta's API also serves native
+`/v1/responses` and Anthropic-compatible `/v1/messages`; the OpenHands
+guide's `openhands --headless` CLI does not exist in the current PyPI
+package (1.11.0 is the V1 SDK, no executable - the SDK-script pattern
+in this report is the working route), and its LiteLLM `meta/` provider
+prefix postdates the litellm version OpenHands pins (use
+`openai/muse-spark-1.1` + `base_url`). Muse Spark runs also showed
+high latency variance through both wirings (occasional >5-minute
+runs on a trivial task).

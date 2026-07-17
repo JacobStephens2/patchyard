@@ -8,7 +8,7 @@ cites. Floor probe = the muse-smoke exact-instruction check
 Seats are design-time assignments; nothing runs in production until
 phase 1 builds.*
 
-*Last updated: 2026-07-17.*
+*Last updated: 2026-07-17 (late - MiMo × Claude Code added).*
 
 ## Pairs
 
@@ -28,6 +28,7 @@ phase 1 builds.*
 | OpenHands × Kimi K2.6 | Fireworks | ✅ 3/3 | ✅ | US infra | Implement candidate; V1 SDK-script route (no CLI executable); good cost telemetry |
 | Cline × gpt-oss-120b | **Cerebras** (preferred) / Fireworks | ✅ 3/3, 4-6 s/run | ❌ | US | **Speed-seat lead** - Cerebras ~1,000-1,100 tok/s ±5% vs Fireworks 118-234 ([head-to-head](../research/2026-07-17-harness-smoke-test.md)); effort pin blocked by Cline's provider schema |
 | OpenCode × Nemotron 3 Ultra 550B-A55B | Blackbox AI | ✅ 3/3, with stalls | ? | US | On hold - AA speed claim not reproduced (60-87 tok/s here) and intermittent >300 s hangs disqualify it for a speed seat |
+| Claude Code × MiMo-V2.5-Pro | Novita | ✅ 3/3, 8-10 s/run | ? | CN-created; Novita hosting (jurisdiction to confirm for the allowlist ruling) | Jacob's ideas.md pick; first **direct** Claude Code × non-Anthropic pairing - Novita's Anthropic endpoint passes CLI model validation; intelligence 42 (#18) |
 | Kimi Code CLI × Kimi K3 | OpenRouter → Moonshot | ✅ 3/3 | ✅ | ⚠️ **interim exception** (CN money; ruled by Jacob pending open weights + US host, ~weeks) | Prime triage/verify candidate (intelligence #3) once a US host exists; then: fresh floor probe, allowlist entry, fixture gauntlet |
 
 ## Gateway routes (change what's runnable)
@@ -38,6 +39,12 @@ phase 1 builds.*
   supports Claude Code directly
   ([gateways note](../research/2026-07-17-claude-code-non-anthropic-gateways.md)).
   The smoke-test report's "not runnable" for Claude Code × GLM is stale.
+- **Novita's Anthropic-compatible endpoint works with Claude Code
+  directly** (no gateway): `ANTHROPIC_BASE_URL=https://api.novita.ai/anthropic`
+  + the Novita model id as `--model`, in an isolated `CLAUDE_CONFIG_DIR`.
+  First proof that the CLI's model validation is satisfied by a
+  well-shaped third-party endpoint - the proxy requirement is
+  per-endpoint, not absolute.
 - Meta's Anthropic-compatible endpoint does **not** alias Claude model
   names - Claude Code × Muse still needs one of the gateways above.
 

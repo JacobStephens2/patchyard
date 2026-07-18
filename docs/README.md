@@ -1,7 +1,7 @@
 # docs/
 
 Factory documentation that is not the phase-1 build contract (`SPEC.md` /
-`PLAN.md` at the repo root) and not the constitution (`agents.md`).
+`PLAN.md` at the repo root) and not the constitution (`AGENTS.md`).
 
 | File | Kind | Authority |
 | :-- | :-- | :-- |

@@ -72,7 +72,7 @@ an overrun instead of compressing the security and failure testing.
   `factory-web` users, `factory` group; `/var/lib/patchyard/` skeleton
   with asserted ownership and modes recorded as tests, before anything
   depends on them implicitly.
-- Verify the in-repo constitution (`agents.md`, canonical here since
+- Verify the in-repo constitution (`AGENTS.md`, canonical here since
   dee992d) is wired into CI as a checked artifact.
 - Exit: `cargo test` green on the skeleton; CI green on a PR; identity/
   ownership assertions pass; README gains build/run instructions.
@@ -172,7 +172,7 @@ an overrun instead of compressing the security and failure testing.
 
 ### Session 8 - /factory skill part 1: triage + the plan bin
 
-- Constitution already canonical here as `agents.md` - its hard rules
+- Constitution already canonical here as `AGENTS.md` - its hard rules
   ride the triage prompt from the first run. `rubric.md` migrated into
   this repo; no-shell triage subagent (Read/Grep/Glob frontmatter
   allowlist - A37); lane classification against the rubric.

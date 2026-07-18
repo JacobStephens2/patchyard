@@ -17,7 +17,7 @@
 | `docs/decision-log.md` | 89 rulings: 57 accepted, 11 deferred, 21 rejected; a ruling wins over a conflicting spec or model field | this repo |
 | `SPEC.md` | Phase-1 build contract | this repo |
 | `model/factory-model.json` | Schema-validated model: stages, actors, edges, lanes, caps, phases and capacity defaults (A51); `model/render-model.py` projects Mermaid (A50) | this repo · https://report.example.com/software-factory-model.json |
-| `agents.md` | This constitution; hard rules carried into every factory prompt | this repo |
+| `AGENTS.md` | This constitution; hard rules carried into every factory prompt | this repo |
 | `synthesized-solution.md`, `comparison.md`, `model-assessments.md` | Historical synthesis and provenance for how five inputs merged | orchestration repo: `projects/software-factory/synthesis/` |
 | `factory/queue/` | Jacob's filed rulings land here as `rulings-*.md` | `/srv/orchestration/factory/queue/` |
 

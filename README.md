@@ -14,7 +14,7 @@ department + the company owner. The production deploy path is never touched.
 | Path | Role |
 | :-- | :-- |
 | `SPEC.md` / `PLAN.md` | Phase-1 build contract and session plan |
-| `agents.md` | Constitution - hard rules that ride every factory agent prompt |
+| `AGENTS.md` | Constitution - hard rules that ride every factory agent prompt |
 | `model/` | Canonical architecture/deployment model + validators, projectors, tests |
 | `docs/` | Decision log, boundaries, living ops (bench, runbooks), ideas inbox |
 | `research/` | Dated world-facing evidence, grouped by topic |
@@ -50,7 +50,7 @@ design authority and evidence stay where they are.
   https://report.example.com/software-factory-review.html. Repository
   ownership is documented in
   [`docs/repository-boundary.md`](docs/repository-boundary.md).
-- **Constitution:** [`agents.md`](agents.md). Its hard rules ride every factory
+- **Constitution:** [`AGENTS.md`](AGENTS.md). Its hard rules ride every factory
   agent prompt and change only through a human-reviewed pull request.
 - **Acceptance fixtures:** sanitized replay inputs live under
   `fixtures/alphabetize/`; raw requests and screenshots never enter Git.

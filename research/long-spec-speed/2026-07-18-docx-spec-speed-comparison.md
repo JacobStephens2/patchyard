@@ -226,3 +226,36 @@ Findings:
 Caveat: n is small and Fireworks-side variance is visibly large; treat the
 completion-rate split as indicative, the ~2.5× completed-wall gap as solid
 (it reproduced across every completed pair of runs).
+
+
+## Addendum 3: the same A/B for MiniMax-M3 and Kimi K2.6 - opposite verdicts
+
+Same fixture, checks, 250-second cap, default effort everywhere, twelve runs
+interleaved in rounds (all four configurations sample the same Fireworks
+conditions). Kimi Code CLI ran K2.6 via its Fireworks provider block.
+
+| Configuration | Full pass | Completed wall | Notes |
+| :-- | --: | :-- | :-- |
+| MiniMax-M3 × Claude Code | **3/3** | 50.7 / 80.8 / 92.0 s | words 1,607-1,757, exact headings every run |
+| MiniMax-M3 × OpenCode | **0/3** | - | three 250 s cap-outs with **no file at all** |
+| Kimi K2.6 × Claude Code | **0/3** | 50.3 / 92.5 s (+1 cap) | exact headings every run, but 1,847 / 2,007 / 2,487 words - always over range |
+| Kimi K2.6 × Kimi Code CLI | **2/3** | 103.6 / 225.8 s | in-range passes at 1,630 and 1,762 words; one cap-out at 2,004 |
+
+Findings:
+
+1. **The OpenCode long-form penalty on Fireworks-hosted models is now a
+   pattern, not a GLM quirk**: GLM completed 1/3 at ~169 s; MiniMax completed
+   0/3. Both models pass the *short* floor probe in OpenCode 3/3 - the
+   failure is specific to long-form generation under OpenCode's envelope.
+2. **The native harness wins for K2.6 - but not on speed.** Claude Code makes
+   K2.6 *faster* (50-93 s completions vs 104-226 s) and *wordier*: every
+   Claude Code run overshot the range, while both in-range results came from
+   Kimi Code. Harness choice moved the verbosity, not just the wall clock.
+3. **K2.6's overshoot is model-flavored** (5/6 runs at or over the cap's
+   range, both harnesses), the mirror image of GLM's under-the-bound hugging.
+   Word-count discipline is a per-model property the fixture gauntlet should
+   score explicitly.
+4. Preferred harnesses after this round: **Claude Code for MiniMax-M3**
+   (floor probe also passed 3/3 at 4-9 s, same day), **Kimi Code CLI for
+   K2.6**. One A/B template, two opposite answers - harness preference is a
+   pair-level fact and cannot be defaulted from any single model's result.

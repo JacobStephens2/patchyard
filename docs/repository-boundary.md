@@ -15,9 +15,11 @@ synthesis directory keeps a pointer for historical links.
 
 ### Factory constitution
 
-`agents.md` is now canonical here through the human-reviewed policy process
-required by that file. Its hard rules are available before the `/factory`
-skill work because the constitution is prompt input, not a cutover artifact.
+`AGENTS.md` is now canonical here through the human-reviewed policy process
+required by that file (uppercase name matches the cross-tool instruction-file
+convention so harnesses auto-load it). Its hard rules are available before the
+`/factory` skill work because the constitution is prompt input, not a cutover
+artifact.
 
 ### Acceptance fixtures
 

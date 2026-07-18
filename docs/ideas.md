@@ -24,8 +24,18 @@ Two rules only:
   mechanically 2026-07-17 - Grok Build headless verified; Fireworks-hosted
   GLM under consideration). One accepted ruling naming the list, plus the
   one-provider-per-worker-boot egress rule.
+  → **A61** (accepted 2026-07-18): the allowlist is the full seat-roster
+  union - 13 providers, one per worker boot; the provenance rule is A59;
+  operative roster in `bench.md` § Seat preference orders.
 
 ### Model and Harness Choice
+
+→ graduated 2026-07-18: selection method **A58**, provenance **A59**,
+diversity/modality **A60**, provider allowlist **A61**; Cursor/Composer
+rejected as **R22**. The seat tables below are superseded by the living
+roster in `bench.md` § Seat preference orders (which re-ranks GLM-5.2
+above Luna on the post-A/B Claude Code wall time).
+
 I'm interested in these model - harness pairs for coding agent work. I want each pair to use a different harness and different model family to avoid rubber stamping and get advantages of various harnesses. I want each model to be accept text and image inputs - so that much multimodality for these. It is fine if they can only output text. All the money for the usage of these harnesses and models should go to American companies. It is fine if the model was created in China, so long as it can be run entirely on American infrastructure, such as GLM-5.2, created by Z.ai, though can be run on the American Fireworks.
 
 For all the seats below, use the provenance and modality guidance above. And for each spot, use a different model family and if choosing a harness, a different harness.
@@ -139,4 +149,10 @@ Model, harness, API provider, locally observed visible output tokens per second,
 
 ## Cursor x Composer 2.5
 
+→ rejected, see R22.
+
 I'm not using Cursor CLI or Composer 2.5 Fast because they don't appear to have API pricing available without a $20 / month Cursor pro subscription, and I don't want any LLM dependencies that require subscriptions.
+
+## 2026-07-18
+
+How will the dashboard user be able to view the state of a task as it proceeds through the factory? through the pipeline? Does having visibility like this on the dashboard warrant more front end than the minimal SSR html and possibly very slight javascript we've thus far imagined?

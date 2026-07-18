@@ -14,7 +14,7 @@
 
 | Source | What it is | Where |
 | --- | --- | --- |
-| `docs/decision-log.md` | 89 rulings: 57 accepted, 11 deferred, 21 rejected; a ruling wins over a conflicting spec or model field | this repo |
+| `docs/decision-log.md` | 94 rulings: 61 accepted, 11 deferred, 22 rejected; a ruling wins over a conflicting spec or model field | this repo |
 | `SPEC.md` | Phase-1 build contract | this repo |
 | `model/factory-model.json` | Schema-validated model: stages, actors, edges, lanes, caps, phases and capacity defaults (A51); `model/render-model.py` projects Mermaid (A50) | this repo · https://report.example.com/software-factory-model.json |
 | `AGENTS.md` | This constitution; hard rules carried into every factory prompt | this repo |
@@ -24,7 +24,7 @@
 The HTML review page is a projection for humans. Do not treat it as a source;
 do not scrape it.
 
-## Current state (as of 2026-07-18, after Jacob's PostgreSQL + worker rulings)
+## Current state (as of 2026-07-18, after the PostgreSQL, worker, and seat-policy rulings)
 
 - Phase 0 complete: pilot ran end to end. Fieldbook PR #213 was **closed
   by Jacob 2026-07-16** (A35 executed); ALPHABETIZE is the factory's
@@ -51,17 +51,24 @@ do not scrape it.
   are running, a human started you.
 - **Phase-1 prep (A40/A41)**: private repo
   `JacobStephens2/patchyard` is live; local checkout
-  `/srv/orchestration/patchyard`. `SPEC.md` v2.3 and `PLAN.md` v4 define the
+  `/srv/orchestration/patchyard`. `SPEC.md` v2.4 and `PLAN.md` v4 define the
   gated build. GPT 5.6-Sol's 17-finding adversarial critique is dispositioned
   in this repo's `reviews/` (15 conceded, 0 rejected). The spec folds it plus
-  rulings A43-A57:
+  rulings A43-A61:
   local socket-only PostgreSQL + artifact store, a dedicated secret-free
   worker droplet managed by OpenTofu + Ansible with container/microVM
-  execution isolation, and a factory bot identity are now phase-1 scope; the
+  execution isolation and single-allowlisted-provider egress (A61), and a
+  factory bot identity are now phase-1 scope; the
   reviewed plan is ~16
   sessions. Language
   policy (A42): Rust for verify/factoryctl/dashboard. Still: do not
   build until Jacob's go.
+- **Model/harness seat policy ruled 2026-07-18** (A58-A61, R22):
+  ceiling-based seat selection from the Artificial Analysis charts,
+  American-money provenance with one dated Kimi K3 interim exception,
+  cross-family + cross-harness seat diversity, and a 13-provider
+  allowlist with one-provider-per-worker-boot egress. Operative seat
+  orders: `docs/bench.md` § Seat preference orders.
 
 ## GitHub reality (verified 2026-07-16)
 
@@ -158,6 +165,7 @@ wrong thing, not editing it incorrectly.
   when unattended volume exists.
 - Spec Kit / external SDD frameworks for lane-B specs (R20)
 - Agent teams / peer messaging anywhere in the factory (R21)
+- Subscription-gated LLM dependencies - Cursor CLI / Composer 2.5 (R22)
 
 ## Measurement rules
 

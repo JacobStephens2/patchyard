@@ -8,7 +8,9 @@ cites. Floor probe = the muse-smoke exact-instruction check
 Seats are design-time assignments; nothing runs in production until
 phase 1 builds.*
 
-*Last updated: 2026-07-18 (MiniMax/K2.6 A/B: Claude Code preferred for MiniMax, Kimi Code keeps K2.6).*
+*Last updated: 2026-07-18 (seat preference orders graduated from
+`ideas.md` under rulings A58-A61, provider allowlist ruled; MiniMax/K2.6
+A/B: Claude Code preferred for MiniMax, Kimi Code keeps K2.6).*
 
 ## Pairs
 
@@ -40,6 +42,115 @@ phase 1 builds.*
 | Muse Spark 1.1 | xhigh | OpenCode | Meta | ❌ 0/13 | ✅ | US | **Implement seat closed** - stochastic identity-token substitution, dose-dependent, no mitigation reaches zero ([bisection](../research/muse-spark/2026-07-17-muse-spark-envelope-bisection.md)). Candidate for *tool-free* judgment calls only, not yet qualified ([role assessment](../research/muse-spark/2026-07-17-muse-spark-factory-role-assessment.md)). Retest on Meta model update: B2 variant, n=10 |
 | Nemotron 3 Ultra 550B-A55B | default (reasoning unexercised) | OpenCode | Blackbox AI | ✅ 3/3, with stalls | ? | US | On hold - AA speed claim not reproduced (60-87 tok/s here) and intermittent >300 s hangs disqualify it for a speed seat |
 | Qwen3.7 Max | default | OpenCode | Novita | ✅ 3/3, 11-14 s/run (one >300 s stall before the streak) | ? | CN-created; Novita hosting (jurisdiction to confirm) | Floor passes 2026-07-18. Not on Novita's Anthropic surface (per-model gating: `does not support endpoint: anthropic`), so the ideas.md Claude Code preference falls to OpenCode. Speed claim already rejected in the long-spec probe below (real ~54-61 t/s) |
+
+## Seat preference orders (A58-A61)
+
+Graduated 2026-07-18 from `ideas.md`; this section is the operative
+roster (`ideas.md` carries no authority). Method (A58): when task
+quality has a ceiling relative to intelligence in, seat the cheapest
+model that clears it at reliability parity; when there is no ceiling,
+seat max intelligence. Constraints: usage money flows to American
+companies (A59), no two seats share a model family or harness (A60),
+and only allowlisted providers receive fieldbook source + request
+content (A61). Reference charts are Artificial Analysis; they render
+client-side, so refresh via the headless harness (`tools/aa-sweep.py`
+snapshots to `../research/aa-snapshots/`). Reorders within these rules
+are edits here, no new ruling; provider membership changes are A61
+roster changes.
+
+### Triage / cross-family verification seats
+
+No loop on these seats, so the harness matters less (A58).
+
+**No ceiling** ([AA Intelligence Index](https://artificialanalysis.ai/#intelligence-tabs), as of 2026-07-17):
+
+| # | Model | Harness | Provider | Index |
+| :-- | :-- | :-- | :-- | --: |
+| 1 | Claude Fable 5 (with fallback) | Claude Code | Anthropic | 60 |
+| 2 | GPT-5.6 Sol (max) | Codex | OpenAI | 59 |
+| 3 | Kimi K3 | Kimi Code CLI | OpenRouter (A59 interim; K2.6 × Fireworks stands in until K3 gets a US host) | 57 |
+| 4 | Grok 4.5 (high) | Grok Build | xAI | 54 |
+
+**Ceiling** ([AA Cost per Intelligence Index Task](https://artificialanalysis.ai/#cost-tabs), lowest-price American gateway/API per model; as of 2026-07-17):
+
+Text input only:
+
+| # | Model | Harness | Provider | $/task |
+| :-- | :-- | :-- | :-- | --: |
+| 1 | DeepSeek V4 Flash (max) | Claude Code (direct; DeepClaude retired - see Pairs) | DeepInfra (FP4) | $0.02 |
+| 2 | MiMo-V2.5-Pro | Claude Code (direct) | Novita | $0.03 |
+| 3 | gpt-oss-120b (high) | OpenCode | DeepInfra | $0.06 |
+| 4 | MiniMax-M3 | Claude Code (2026-07-18 A/B - see Pairs; ideas listed OpenCode) | Novita | $0.12 |
+
+Text + image input:
+
+| # | Model | Harness | Provider | $/task |
+| :-- | :-- | :-- | :-- | --: |
+| 1 | MiniMax-M3 | Claude Code (2026-07-18 A/B - see Pairs; ideas listed OpenCode) | Novita | $0.12 |
+| 2 | GPT-5.6 Luna (max) | Codex | OpenAI | $0.21 |
+| 3 | Muse Spark 1.1 (xhigh) | harness-free only (implement seat closed - see Pairs) | Meta | $0.26 |
+| 4 | Claude 4.5 Haiku | Claude Code | Amazon Bedrock | $0.27 |
+| 5 | Gemini 3.1 Pro Preview | Gemini CLI | Google (Vertex preferred over AI Studio) | $0.29 |
+
+If Muse Spark needs a fallback, Claude 4.5 Haiku takes slot 3 and the
+provisional slot 5 (Gemini) activates.
+
+### Implement worker seats
+
+Harness pairing matters most here - tool use and loop quality dominate
+(A58). Primary chart: [AA Coding Agent Index](https://artificialanalysis.ai/agents/coding-agents?coding-agents-performance-chart=index#coding-agents-index).
+
+**No ceiling** (as of 2026-07-17):
+
+| # | Model | Harness | Provider | Index |
+| :-- | :-- | :-- | :-- | --: |
+| 1 | GPT-5.6 Sol (max) | Codex | OpenAI | 61 |
+| 2 | Fable 5 (max, with fallback) | Claude Code | Anthropic | 59 |
+| 3 | Grok 4.5 (high) | Grok Build | xAI | 58 |
+| 4 | Kimi K3 | Kimi Code CLI | OpenRouter (A59 interim) | 57 |
+
+Seats 1-3 pass the floor at k=3
+(`../research/floors/2026-07-17-harness-smoke-test.md`); Muse Spark's
+implement seat is closed (see Pairs).
+
+**Ceiling** ([AA coding-agent cost per task](https://artificialanalysis.ai/agents/coding-agents#coding-agents-cost-chart-tabs); as of 2026-07-17):
+
+Text input only:
+
+| # | Model | Harness | Provider | $/task |
+| :-- | :-- | :-- | :-- | --: |
+| 1 | DeepSeek V4 Pro (high) | Claude Code (direct) | DeepInfra | $0.27 |
+| 2 | GPT-5.6 Luna (max) | Codex | OpenAI | $1.57 |
+| 3 | Gemini 3.1 Pro Preview | Gemini CLI | Google (Vertex preferred) | $2.00 |
+| 4 | Grok 4.5 (high) | Grok Build | xAI | $2.59 |
+
+Text + image input:
+
+| # | Model | Harness | Provider | $/task |
+| :-- | :-- | :-- | :-- | --: |
+| 1 | GPT-5.6 Luna (max) | Codex | OpenAI | $1.57 |
+| 2 | Gemini 3.1 Pro Preview | Gemini CLI | Google (Vertex preferred) | $2.00 |
+| 3 | Grok 4.5 (high) | Grok Build | xAI | $2.59 |
+| 4 | Kimi K3 | Kimi Code CLI | OpenRouter (A59 interim) | $3.18 |
+
+### Speed seats
+
+Ranked by end-to-end long-spec harness wall time - headline
+[AA output speed](https://artificialanalysis.ai/#speed-tabs) excludes
+reasoning delay and harness behavior; local visible t/s is retained to
+show raw delivery. Data: § Long-spec speed probe. As of 2026-07-18.
+GLM-5.2 ranks above Luna on the post-A/B Claude Code wall time -
+`ideas.md`'s list predates this re-rank.
+
+| # | Model | Harness | Provider | Visible t/s | Long-spec wall |
+| :-- | :-- | :-- | :-- | :-- | :-- |
+| 1 | gpt-oss-120b (high) | OpenCode | Cerebras | 1,889.8 | 12.651 s |
+| 2 | Command A+ (high requested) | OpenCode | Cohere | 209.7 (thinking disabled) | 22.514 s |
+| 3 | Nemotron 3 Ultra | OpenCode | Blackbox AI | 161.7 | 38.165 s (on hold - stalls; see Pairs) |
+| 4 | GLM-5.2 (default) | Claude Code (switched from OpenCode 2026-07-18 per effort-matched A/B) | Fireworks | 104.8 | 63.5-71.1 s |
+| 5 | GPT-5.6 Luna (max) | Codex | OpenAI | 166.2 after 81.348 s reasoning delay | ~115 s |
+| 6 | Gemini 3.5 Flash (high) | OpenCode | Google AI Studio | 229.3 | timeout at 240 s |
+| 7 | Qwen3.7 Max | OpenCode | Novita | 57.6 | timeout at 240 s |
 
 ## Long-spec speed probe
 
@@ -100,9 +211,12 @@ provider-level corrections, and method are in the
 
 - Cross-family is a verification requirement; cross-harness is an eval
   technique; the verifier's own harness should approach zero.
-- One provider per worker boot; provider allowlist ruling pending
-  (candidates now: Anthropic, OpenAI, xAI, Google, Meta, Fireworks,
-  Cerebras, DeepInfra, Novita, OpenRouter/Moonshot-interim, Blackbox, Cohere).
+- One provider per worker boot; provider allowlist **ruled (A61)**:
+  the full seat-roster union - Anthropic, OpenAI, xAI, Google, Meta,
+  Amazon (Bedrock), Fireworks, Cerebras, DeepInfra, Novita, OpenRouter
+  (Moonshot-interim per A59), Blackbox AI, Cohere. Seating admits,
+  unseating removes; Novita's processing jurisdiction still needs the
+  confirm flagged in Pairs.
 - Floor probes are necessary, never sufficient - admission is the
   fixture gauntlet + shadow mode (D6). Score **rates (n≥10), not
   runs**, on any suspected stochastic behavior.

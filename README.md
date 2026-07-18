@@ -44,7 +44,7 @@ design authority and evidence stay where they are.
   pre-ruling scratch space. Carries no authority; ideas graduate into the
   decision log or die there.
 - **Design record:** [`docs/decision-log.md`](docs/decision-log.md) is the
-  canonical 89-ruling log. The independent proposals, comparison and
+  canonical 94-ruling log. The independent proposals, comparison and
   historical synthesis remain as provenance in the orchestration repo at
   `projects/software-factory/`; the interactive review is at
   https://report.example.com/software-factory-review.html. Repository

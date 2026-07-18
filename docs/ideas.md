@@ -120,15 +120,16 @@ Model, harness, provider, cost per task, as of July 17, 2026
 
 #### Preference order if we find a need for speed
 
-Reference the Artificial Analysis Output Speed table: https://artificialanalysis.ai/#speed-tabs. Test these in our environment though, as the results can really vary - gpt-oss-120b on Cerebras was much higher and Nemotron on Blackbox AI was lower than expected. 
+Reference the Artificial Analysis Output Speed table: https://artificialanalysis.ai/#speed-tabs. Headline output speed excludes reasoning delay and harness behavior, so this preference order uses our end-to-end OpenCode long-spec wall time. The local visible output rate is retained to show the provider's raw delivery speed.
 
-Model, harness, api provider, output tokens per second
-1. gpt-oss-120b (high), OpenCode, Cerebras, 266
-2. Qwen3.7 Max, Claude Code / OpenCode / Qwen Code, Novita, 205
-3. Nemotron 3 Ultra, Hermes Agent / LangGraph, Blackbox AI, 190
-4. Command+, OpenCode, Cohere, 185
-5. GLM-5.2 (max), Claude Code, Fireworks, 171
-6. Gemini 3.5 Flash, Gemini CLI, Vertex > Google AI Studio, 163
+Model, harness, API provider, locally observed visible output tokens per second, OpenCode long-spec wall time, as of July 18, 2026
+
+1. gpt-oss-120b (high), OpenCode, Cerebras, 1,889.8, 12.651 seconds
+2. Command+ (high requested), OpenCode, Cohere, 209.7 with thinking disabled, 22.514 seconds
+3. Nemotron 3 Ultra, OpenCode, Blackbox AI, 161.7, 38.165 seconds
+4. GLM-5.2 (max requested), OpenCode, Fireworks, 104.8, 175.731 seconds
+5. Gemini 3.5 Flash (high), OpenCode, Google AI Studio, 229.3, timed out after 240 seconds
+6. Qwen3.7 Max, OpenCode, Novita, 57.6, timed out after 240 seconds
 
 
 ## Cursor x Composer 2.5

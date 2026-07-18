@@ -8,7 +8,7 @@ cites. Floor probe = the muse-smoke exact-instruction check
 Seats are design-time assignments; nothing runs in production until
 phase 1 builds.*
 
-*Last updated: 2026-07-18 (Kimi K2.6 × Kimi Code CLI added).*
+*Last updated: 2026-07-18 (GLM 5.2 × Claude Code direct via Fireworks added).*
 
 ## Pairs
 
@@ -21,6 +21,7 @@ phase 1 builds.*
 | Fable 5 | max | Claude Code | Anthropic | ✅ 3/3 | ✅ | US | Implement bench #2; **builder incumbent** |
 | Gemini 3.1 Pro (preview) | default (not pinnable via CLI) | Gemini CLI | Google - **Vertex verified** (`example-model-bench`, location `global`; AI Studio also 3/3) | ✅ 3/3 both surfaces | ✅ | US | Judgment-seat candidate. Vertex is the preferred surface per ideas.md - dedicated SA/project provisioned 2026-07-17, ops reference in [`vertex-access.md`](vertex-access.md) |
 | Gemini 3.5 Flash | default | Gemini CLI | Google | ✅ 3/3 | ✅ | US | Fast/cheap generalist; needs `GEMINI_CLI_TRUST_WORKSPACE=true` headless |
+| GLM 5.2 | default | Claude Code | Fireworks | ✅ 3/3, 6-10 s/run | ❌ text-only | US infra (CN-created, allowed) | Direct pairing works (2026-07-18): `ANTHROPIC_BASE_URL=https://api.fireworks.ai/inference` - base **without** `/v1`; the CLI appends its own paths, and the earlier "not runnable" was a double-pathed base URL, not an endpoint limitation. FireConnect (Fireworks' alias-mapping tool) is the maintained route for full sessions with subagent slots; manual env suffices for headless probes |
 | GLM 5.2 | default | OpenCode | Fireworks | ✅ 3/3 | ❌ text-only | US infra (CN-created, allowed) | Implement-capable; excluded from screenshot-reading seats |
 | GLM 5.2 | default (`--thinking` available) | Pi | Fireworks | ✅ 3/3 | ❌ | US infra | Same as above; Pi exposes native thinking levels |
 | GPT-5.6 Sol | xhigh | Codex | OpenAI | ✅ 3/3 | ✅ | US | Implement bench #1 (no-ceiling order); **adversarial reviewer incumbent** (A41) |
@@ -70,6 +71,12 @@ and [Luna addendum](../research/2026-07-18-gpt-5p6-luna-max-speed.md).
   First proof that the CLI's model validation is satisfied by a
   well-shaped third-party endpoint - the proxy requirement is
   per-endpoint, not absolute.
+- **Fireworks works with Claude Code directly too**:
+  `ANTHROPIC_BASE_URL=https://api.fireworks.ai/inference` (base
+  **without** `/v1` - the CLI appends its own paths; the 07-17 "rejects
+  non-Claude names" finding was a double-pathed base URL). DeepInfra's
+  `https://api.deepinfra.com/anthropic` likewise. Direct Anthropic
+  surfaces now verified on three hosts: Novita, Fireworks, DeepInfra.
 - Meta's Anthropic-compatible endpoint does **not** alias Claude model
   names - Claude Code × Muse still needs one of the gateways above.
 

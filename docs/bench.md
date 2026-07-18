@@ -8,31 +8,32 @@ cites. Floor probe = the muse-smoke exact-instruction check
 Seats are design-time assignments; nothing runs in production until
 phase 1 builds.*
 
-*Last updated: 2026-07-18 (DOCX-spec speed comparison).*
+*Last updated: 2026-07-18 (table restructured: model/effort/harness columns; Qwen3.7 Max + DeepSeek-direct results added).*
 
 ## Pairs
 
-| Pair (effort) | Host | Floor | Img-in | Provenance | Current standing |
-| :-- | :-- | :-- | :-- | :-- | :-- |
-| Codex × GPT-5.6 Sol (xhigh) | OpenAI | ✅ 3/3 | ✅ | US | Implement bench #1 (no-ceiling order); **adversarial reviewer incumbent** (A41) |
-| Claude Code × Fable 5 (max) | Anthropic | ✅ 3/3 | ✅ | US | Implement bench #2; **builder incumbent** |
-| Claude Code × DeepClaude × DeepSeek V4 Flash (max) | DeepInfra | ✅ 3/3, 5.8-12.3 s wall/run | ❌ text-only | US infra (CN-created, allowed) | Floor passes; advance to text-only alphabetize fixture gauntlet. Request-level max evidence captured; provider mode still needs fixture validation ([record](../research/2026-07-17-deepseek-v4-deepclaude.md)) |
-| Claude Code × DeepClaude × DeepSeek V4 Pro (max) | DeepInfra | ✅ 3/3, 4.2-6.6 s wall/run | ❌ text-only | US infra (CN-created, allowed) | Floor passes; advance to text-only alphabetize fixture gauntlet. Request-level max evidence captured; provider mode still needs fixture validation ([record](../research/2026-07-17-deepseek-v4-deepclaude.md)) |
-| OpenCode × Command A+ (high requested) | Cohere | ✅ 3/3, ~7 s wall/run; 1.3-1.7 s event span | ❌ OpenCode image adapter | Canada-created; Cohere first-party API (processing region not pinned) | **Use OpenCode, not Terminus-2, for the first Patchyard test.** Native `write` produced the exact 7-byte artifact every run; direct raw streaming reproduced the speed claim at 209.7 tok/s. Advance only to the text gauntlet: OpenCode reports zero reasoning telemetry despite the high request, and both local and server-attached image paths failed while a direct Cohere image control passed. Terminus-2 remains the reference rerun for suspected harness-specific failures ([record](../research/2026-07-18-command-a-plus-opencode.md)) |
-| OpenCode × gpt-oss-120b (high) | DeepInfra | ✅ 3/3, 12.9-16.9 s wall/run | ❌ text-only | US infra; US-created, open weights | **Preferred viable harness** from the ordered search: native `write` tool and exact 7-byte artifact in every run. Harmony Agent missed exact acceptance, Codex + generic adapter was tool-protocol-incompatible, and mini-swe-agent scored 4/10 exact; Cline/Roo were not tested after OpenCode passed ([record](../research/2026-07-17-gpt-oss-120b-deepinfra-harness-selection.md)) |
-| Grok Build × Grok 4.5 (high) | xAI | ✅ 3/3 | ✅ | US | Implement bench #3; tiebreak-verifier candidate |
-| OpenCode × Muse Spark 1.1 (xhigh) | Meta | ❌ 0/13 | ✅ | US | **Implement seat closed** - stochastic identity-token substitution, dose-dependent, no mitigation reaches zero ([bisection](../research/2026-07-17-muse-spark-envelope-bisection.md)). Candidate for *tool-free* judgment calls only, not yet qualified ([role assessment](../research/2026-07-17-muse-spark-factory-role-assessment.md)). Retest on Meta model update: B2 variant, n=10 |
-| OpenCode × GLM 5.2 | Fireworks | ✅ 3/3 | ❌ text-only | US infra (CN-created, allowed) | Implement-capable; excluded from screenshot-reading seats |
-| Pi × GLM 5.2 | Fireworks | ✅ 3/3 | ❌ | US infra | Same as above; Pi has native `--thinking` levels |
-| OpenCode × MiniMax-M3 | Fireworks | ✅ 3/3 | ✅ | US infra | Implement candidate; the multimodal alternative to GLM |
-| Gemini CLI × Gemini 3.5 Flash | Google | ✅ 3/3 | ✅ | US | Fast/cheap generalist; needs `GEMINI_CLI_TRUST_WORKSPACE=true` headless |
-| Gemini CLI × Gemini 3.1 Pro (preview) | Google - **Vertex verified** (`example-model-bench`, location `global`; AI Studio also 3/3) | ✅ 3/3 both surfaces | ✅ | US | Judgment-seat candidate; thinking level not pinnable via CLI yet. Vertex is the preferred surface per ideas.md - dedicated SA/project provisioned 2026-07-17, ops reference in [`vertex-access.md`](vertex-access.md) |
-| OpenHands × Kimi K2.6 | Fireworks | ✅ 3/3 | ✅ | US infra | Implement candidate; V1 SDK-script route (no CLI executable); good cost telemetry |
-| Cline × gpt-oss-120b | **Cerebras** (preferred) / Fireworks | ✅ 3/3, 4-6 s/run | ❌ | US | **Speed-seat lead** - Cerebras ~1,000-1,100 tok/s ±5% vs Fireworks 118-234 ([head-to-head](../research/2026-07-17-harness-smoke-test.md)); effort pin blocked by Cline's provider schema |
-| OpenCode × Nemotron 3 Ultra 550B-A55B | Blackbox AI | ✅ 3/3, with stalls | ? | US | On hold - AA speed claim not reproduced (60-87 tok/s here) and intermittent >300 s hangs disqualify it for a speed seat |
-| Claude Code × MiMo-V2.5-Pro | Novita | ✅ 3/3, 8-10 s/run | ? | CN-created; Novita hosting (jurisdiction to confirm for the allowlist ruling) | Jacob's ideas.md pick; first **direct** Claude Code × non-Anthropic pairing - Novita's Anthropic endpoint passes CLI model validation; intelligence 42 (#18) |
-| Claude Code × Claude Haiku 4.5 (high) | Amazon Bedrock | ✅ 3/3, 3.6 s and $0.0357/run | ✅ content; strict format miss | US | **Qualified floor configuration:** `claude -p --allowedTools Write`; exact 7-byte file every run. A follow-up environment-allowlisted child-process run also passed with only 15-minute STS AWS credentials present; Firecracker/Podman containment and egress are not built. Image labels were all correct, but the requested bare JSON was fenced. A `--bare --tools Write` variant failed 0/3 by claiming success without calling the tool; pin the canonical form ([record](../research/2026-07-17-claude-code-bedrock-haiku.md)) |
-| Kimi Code CLI × Kimi K3 | OpenRouter → Moonshot | ✅ 3/3 | ✅ | ⚠️ **interim exception** (CN money; ruled by Jacob pending open weights + US host, ~weeks) | Prime triage/verify candidate (intelligence #3) once a US host exists; then: fresh floor probe, allowlist entry, fixture gauntlet |
+| Model | Effort | Harness | Host | Floor | Img-in | Provenance | Current standing |
+| :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- |
+| GPT-5.6 Sol | xhigh | Codex | OpenAI | ✅ 3/3 | ✅ | US | Implement bench #1 (no-ceiling order); **adversarial reviewer incumbent** (A41) |
+| Fable 5 | max | Claude Code | Anthropic | ✅ 3/3 | ✅ | US | Implement bench #2; **builder incumbent** |
+| DeepSeek V4 Flash | max (requested) | Claude Code + DeepClaude | DeepInfra | ✅ 3/3, 5.8-12.3 s wall/run | ❌ text-only | US infra (CN-created, allowed) | Floor passes; advance to text-only alphabetize fixture gauntlet. Request-level max evidence captured; provider mode still needs fixture validation ([record](../research/2026-07-17-deepseek-v4-deepclaude.md)). 2026-07-18: also passes 3/3 **direct** on DeepInfra's Anthropic surface, no DeepClaude, 6-8 s/run - simplest wiring for floor purposes |
+| DeepSeek V4 Pro | max (requested) | Claude Code + DeepClaude | DeepInfra | ✅ 3/3, 4.2-6.6 s wall/run | ❌ text-only | US infra (CN-created, allowed) | Floor passes; advance to text-only alphabetize fixture gauntlet. Request-level max evidence captured; provider mode still needs fixture validation ([record](../research/2026-07-17-deepseek-v4-deepclaude.md)). 2026-07-18: also passes 3/3 **direct** on the Anthropic surface, 4-5 s/run - fastest full agentic runs on the bench |
+| Command A+ | high (requested) | OpenCode | Cohere | ✅ 3/3, ~7 s wall/run; 1.3-1.7 s event span | ❌ OpenCode image adapter | Canada-created; Cohere first-party API (processing region not pinned) | **Use OpenCode, not Terminus-2, for the first Patchyard test.** Native `write` produced the exact 7-byte artifact every run; direct raw streaming reproduced the speed claim at 209.7 tok/s. Advance only to the text gauntlet: OpenCode reports zero reasoning telemetry despite the high request, and both local and server-attached image paths failed while a direct Cohere image control passed. Terminus-2 remains the reference rerun for suspected harness-specific failures ([record](../research/2026-07-18-command-a-plus-opencode.md)) |
+| gpt-oss-120b | high | OpenCode | DeepInfra | ✅ 3/3, 12.9-16.9 s wall/run | ❌ text-only | US infra; US-created, open weights | **Preferred viable harness** from the ordered search: native `write` tool and exact 7-byte artifact in every run. Harmony Agent missed exact acceptance, Codex + generic adapter was tool-protocol-incompatible, and mini-swe-agent scored 4/10 exact; Cline/Roo were not tested after OpenCode passed ([record](../research/2026-07-17-gpt-oss-120b-deepinfra-harness-selection.md)) |
+| Grok 4.5 | high | Grok Build | xAI | ✅ 3/3 | ✅ | US | Implement bench #3; tiebreak-verifier candidate |
+| Muse Spark 1.1 | xhigh | OpenCode | Meta | ❌ 0/13 | ✅ | US | **Implement seat closed** - stochastic identity-token substitution, dose-dependent, no mitigation reaches zero ([bisection](../research/2026-07-17-muse-spark-envelope-bisection.md)). Candidate for *tool-free* judgment calls only, not yet qualified ([role assessment](../research/2026-07-17-muse-spark-factory-role-assessment.md)). Retest on Meta model update: B2 variant, n=10 |
+| GLM 5.2 | default | OpenCode | Fireworks | ✅ 3/3 | ❌ text-only | US infra (CN-created, allowed) | Implement-capable; excluded from screenshot-reading seats |
+| GLM 5.2 | default (`--thinking` available) | Pi | Fireworks | ✅ 3/3 | ❌ | US infra | Same as above; Pi exposes native thinking levels |
+| MiniMax-M3 | default | OpenCode | Fireworks | ✅ 3/3 | ✅ | US infra | Implement candidate; the multimodal alternative to GLM |
+| Gemini 3.5 Flash | default | Gemini CLI | Google | ✅ 3/3 | ✅ | US | Fast/cheap generalist; needs `GEMINI_CLI_TRUST_WORKSPACE=true` headless |
+| Gemini 3.1 Pro (preview) | default (not pinnable via CLI) | Gemini CLI | Google - **Vertex verified** (`example-model-bench`, location `global`; AI Studio also 3/3) | ✅ 3/3 both surfaces | ✅ | US | Judgment-seat candidate. Vertex is the preferred surface per ideas.md - dedicated SA/project provisioned 2026-07-17, ops reference in [`vertex-access.md`](vertex-access.md) |
+| Kimi K2.6 | default | OpenHands | Fireworks | ✅ 3/3 | ✅ | US infra | Implement candidate; V1 SDK-script route (no CLI executable); good cost telemetry |
+| gpt-oss-120b | default (pin blocked by Cline schema) | Cline | **Cerebras** (preferred) / Fireworks | ✅ 3/3, 4-6 s/run | ❌ | US | **Speed-seat lead** - Cerebras ~1,000-1,100 tok/s ±5% vs Fireworks 118-234 ([head-to-head](../research/2026-07-17-harness-smoke-test.md)) |
+| Nemotron 3 Ultra 550B-A55B | default (reasoning unexercised) | OpenCode | Blackbox AI | ✅ 3/3, with stalls | ? | US | On hold - AA speed claim not reproduced (60-87 tok/s here) and intermittent >300 s hangs disqualify it for a speed seat |
+| MiMo-V2.5-Pro | default | Claude Code | Novita | ✅ 3/3, 8-10 s/run | ? | CN-created; Novita hosting (jurisdiction to confirm for the allowlist ruling) | Jacob's ideas.md pick; first **direct** Claude Code × non-Anthropic pairing - Novita's Anthropic endpoint passes CLI model validation; intelligence 42 (#18) |
+| Claude Haiku 4.5 | high | Claude Code | Amazon Bedrock | ✅ 3/3, 3.6 s and $0.0357/run | ✅ content; strict format miss | US | **Qualified floor configuration:** `claude -p --allowedTools Write`; exact 7-byte file every run. A follow-up environment-allowlisted child-process run also passed with only 15-minute STS AWS credentials present; Firecracker/Podman containment and egress are not built. Image labels were all correct, but the requested bare JSON was fenced. A `--bare --tools Write` variant failed 0/3 by claiming success without calling the tool; pin the canonical form ([record](../research/2026-07-17-claude-code-bedrock-haiku.md)) |
+| Kimi K3 | default | Kimi Code CLI | OpenRouter → Moonshot | ✅ 3/3 | ✅ | ⚠️ **interim exception** (CN money; ruled by Jacob pending open weights + US host, ~weeks) | Prime triage/verify candidate (intelligence #3) once a US host exists; then: fresh floor probe, allowlist entry, fixture gauntlet |
+| Qwen3.7 Max | default | OpenCode | Novita | ✅ 3/3, 11-14 s/run (one >300 s stall before the streak) | ? | CN-created; Novita hosting (jurisdiction to confirm) | Floor passes 2026-07-18. Not on Novita's Anthropic surface (per-model gating: `does not support endpoint: anthropic`), so the ideas.md Claude Code preference falls to OpenCode. Speed claim already rejected in the long-spec probe below (real ~54-61 t/s) |
 
 ## Long-spec speed probe
 
@@ -75,6 +76,7 @@ API repetitions, provider-level corrections, and method are in the
 | Cursor CLI × Composer 2.5 | Blocked: no Cursor credentials on this VM |
 | MiniMax Code × MiniMax-M3 | N/A: desktop app only (macOS/Windows), no MiniMax platform key; its Agent Teams pattern is R21-rejected anyway |
 | OpenSymphony | Not a harness - an orchestrator (control plane), which R11 says we build, not buy |
+| Hermes Agent (for Nemotron, per ideas.md speed list) | Discovered but not benched: only an *unofficial* npm bridge exists (0.18.2), and its headline design - "self-improving, creates skills from experience" - collides with R19 (no self-editing policy). Needs a deliberate call before any bench time |
 
 ## Standing rules and triggers
 
@@ -82,7 +84,7 @@ API repetitions, provider-level corrections, and method are in the
   technique; the verifier's own harness should approach zero.
 - One provider per worker boot; provider allowlist ruling pending
   (candidates now: Anthropic, OpenAI, xAI, Google, Meta, Fireworks,
-  Cerebras, DeepInfra, OpenRouter/Moonshot-interim, Blackbox, Cohere).
+  Cerebras, DeepInfra, Novita, OpenRouter/Moonshot-interim, Blackbox, Cohere).
 - Floor probes are necessary, never sufficient - admission is the
   fixture gauntlet + shadow mode (D6). Score **rates (n≥10), not
   runs**, on any suspected stochastic behavior.

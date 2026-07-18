@@ -9,9 +9,9 @@ Do not bulk-copy `projects/software-factory/`.
 ### Decision log
 
 `docs/decision-log.md` is now the canonical ruling log. The model contains
-structured references such as `A39` and `A52`; model validation rejects a
-ruling identifier absent from this local log. The synthesis directory keeps a
-pointer for historical links.
+structured references such as `A39`, `A52`, and deployment ruling `A57`;
+model validation rejects a ruling identifier absent from this local log. The
+synthesis directory keeps a pointer for historical links.
 
 ### Factory constitution
 
@@ -38,7 +38,7 @@ artifact store.
 - `comparison.md`, `model-assessments.md` and the research notes: comparative
   analysis, not factory runtime input.
 - `synthesized-solution.md`: historical synthesis superseded for construction
-  by `SPEC.md` v2.2 and the later rulings. Do not create a second authoritative
+  by `SPEC.md` v2.3 and the later rulings. Do not create a second authoritative
   copy.
 - `review.html`: a human projection deployed by the orchestration/reporting
   repository. It should fetch the served canonical JSON and generated assets,

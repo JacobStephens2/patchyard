@@ -10,6 +10,7 @@
     "updated",
     "rulings",
     "topology",
+    "deployment",
     "actorTypes",
     "lanes",
     "stages",
@@ -26,7 +27,7 @@
       "const": "./factory-model.schema.json"
     },
     "schemaVersion": {
-      "const": 2
+      "const": 3
     },
     "modelVersion": {
       "type": "integer",
@@ -56,6 +57,9 @@
           "$ref": "#/definitions/rulings"
         }
       }
+    },
+    "deployment": {
+      "$ref": "#/definitions/deployment"
     },
     "actorTypes": {
       "type": "object",
@@ -206,6 +210,111 @@
     "positiveInteger": {
       "type": "integer",
       "minimum": 1
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "controlHost",
+        "controlComponents",
+        "worker",
+        "management",
+        "rulings"
+      ],
+      "properties": {
+        "phase": {
+          "const": "phase-1"
+        },
+        "controlHost": {
+          "const": "orchestration-vm"
+        },
+        "controlComponents": {
+          "const": [
+            "supervisor",
+            "postgresql",
+            "artifact-store",
+            "dashboard",
+            "publisher"
+          ]
+        },
+        "worker": {
+          "$ref": "#/definitions/workerDeployment"
+        },
+        "management": {
+          "$ref": "#/definitions/deploymentManagement"
+        },
+        "rulings": {
+          "$ref": "#/definitions/rulings"
+        }
+      }
+    },
+    "workerDeployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host",
+        "components",
+        "standingSecrets",
+        "databaseAccess",
+        "fleetCredentials",
+        "executionPrivateNetworkAccess",
+        "runtimeCredential",
+        "executionBoundary"
+      ],
+      "properties": {
+        "host": {
+          "const": "dedicated-droplet"
+        },
+        "components": {
+          "const": [
+            "implement",
+            "verify"
+          ]
+        },
+        "standingSecrets": {
+          "const": false
+        },
+        "databaseAccess": {
+          "const": false
+        },
+        "fleetCredentials": {
+          "const": false
+        },
+        "executionPrivateNetworkAccess": {
+          "const": false
+        },
+        "runtimeCredential": {
+          "const": "short-lived-spend-capped-model-only"
+        },
+        "executionBoundary": {
+          "const": "firecracker-or-rootless-podman"
+        }
+      }
+    },
+    "deploymentManagement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "controller",
+        "provisioner",
+        "configurationManager",
+        "desiredStateRepository"
+      ],
+      "properties": {
+        "controller": {
+          "const": "orchestration-vm"
+        },
+        "provisioner": {
+          "const": "opentofu"
+        },
+        "configurationManager": {
+          "const": "ansible"
+        },
+        "desiredStateRepository": {
+          "const": "factory"
+        }
+      }
     },
     "laneId": {
       "enum": [

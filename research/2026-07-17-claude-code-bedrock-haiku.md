@@ -31,6 +31,50 @@ Their mean was $0.03574352/run. The image run cost $0.01938720 and took 5.4
 seconds. All calls made during the successful retest and configuration
 comparison cost $0.13325475 total.
 
+## Boundary audit - 2026-07-18
+
+The 3/3 floor qualification ran Claude Code directly on the orchestration host.
+Bedrock selected the temporary standard AWS credential triple, but the child
+process also inherited the supervisor's nonstandard `AWS_BEDROCK_*` variables
+and the rest of the wrapper-injected environment. The earlier statement that
+only STS credentials were exposed to that process was too strong. Those runs
+qualified model/harness behavior, not the worker secret boundary.
+
+Two follow-ups separated the concerns:
+
+1. Removing only the `AWS_BEDROCK_*` variables still left unrelated
+   orchestration secrets inherited. The exact-file probe passed, but this was
+   not accepted as a credential-free-worker check. Cost: $0.03540145.
+2. The final launcher built the child environment from an allowlist, gave it a
+   new empty `HOME` and isolated `CLAUDE_CONFIG_DIR`, and then ran the canonical
+   `Write` probe. It passed with the exact seven-byte file in 3.9 seconds for
+   $0.01957815.
+
+The final child contained exactly these environment names:
+
+```text
+ANTHROPIC_MODEL
+AWS_ACCESS_KEY_ID
+AWS_DEFAULT_REGION
+AWS_REGION
+AWS_SECRET_ACCESS_KEY
+AWS_SESSION_TOKEN
+CLAUDE_CODE_USE_BEDROCK
+CLAUDE_CONFIG_DIR
+HOME
+LANG
+LOGNAME
+PATH
+SHELL
+USER
+```
+
+No static Bedrock credential or other orchestration secret was present in that
+child environment. This validates the process-spawn contract only. The factory
+has not yet built or tested Firecracker/Podman isolation, filesystem
+containment, or Bedrock-only egress. Total model spend across the original
+qualification and this audit was $0.18823435.
+
 ## Configuration discriminator
 
 A preliminary minimal-mode variant failed 0/3:
@@ -56,11 +100,14 @@ future isolated retest qualifies it.
 - Static supervisor inputs: the prefixed `AWS_BEDROCK_*` values injected from
   1Password. These were never renamed globally because the orchestration
   process's standard AWS variables belong to the separate Route 53 identity.
-- Worker inputs: one 15-minute STS credential triple under the standard AWS
-  SDK variable names. Anthropic API credentials and `AWS_PROFILE` were unset.
+- Bedrock authentication inputs: one 15-minute STS credential triple under the
+  standard AWS SDK variable names. Anthropic API credentials and `AWS_PROFILE`
+  were unset.
 
 No standing credential was written to disk or included in the captured
-evidence.
+evidence. The final environment-allowlisted child received no standing
+credential; see the boundary audit above for the correction to the initial
+direct-host runs.
 
 Claude Code also attempted `bedrock:ListInferenceProfiles`, which the narrow
 role does not allow. The CLI logged that denial and correctly fell back to its

@@ -21,7 +21,8 @@ host-separation timing; phase 1 provisions a dedicated secret-free worker
 droplet through OpenTofu and Ansible while the control plane stays on the
 orchestration VM. v2.4, 2026-07-18 (later): A58-A61 graduate the
 model/harness seat policy from `ideas.md`; the worker egress clause names
-the A61 provider allowlist (operative roster in `docs/bench.md`). The
+the A61 provider allowlist (operative roster in `docs/bench.md`), and A62
+makes factory PR authorship trigger-independent (§ Identity). The
 session-by-session build plan is
 `PLAN.md`, beside this file.*
 
@@ -162,6 +163,15 @@ machine-user fine-grained PAT. Fieldbook branch protection stays as Jacob
 has it today (1 approval, bypass available to admins, self-approve
 possible); the factory itself never merges, and an admin-bypassed merge
 does not count as a passing factory run.
+
+Authorship is trigger-independent (A62): factory-produced commits and
+PRs carry the factory identity whether the run was unattended or
+human-triggered - console or an engineer's dashboard submission. The
+trigger's human identity lives in the intake row, the ledger's `source`
+field, and the PR body - never in the commit author field. A hand-pushed
+commit on a factory branch keeps its human author and demotes the run's
+ledger row from pure-factory; hand edits are never laundered through the
+bot identity, nor factory output through a human's.
 
 ## State layer (findings 3, 8, 11)
 

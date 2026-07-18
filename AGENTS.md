@@ -14,7 +14,7 @@
 
 | Source | What it is | Where |
 | --- | --- | --- |
-| `docs/decision-log.md` | 94 rulings: 61 accepted, 11 deferred, 22 rejected; a ruling wins over a conflicting spec or model field | this repo |
+| `docs/decision-log.md` | 95 rulings: 62 accepted, 11 deferred, 22 rejected; a ruling wins over a conflicting spec or model field | this repo |
 | `SPEC.md` | Phase-1 build contract | this repo |
 | `model/factory-model.json` | Schema-validated model: stages, actors, edges, lanes, caps, phases and capacity defaults (A51); `model/render-model.py` projects Mermaid (A50) | this repo · https://report.example.com/software-factory-model.json |
 | `AGENTS.md` | This constitution; hard rules carried into every factory prompt | this repo |

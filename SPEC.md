@@ -1,20 +1,26 @@
-# factory - phase 1 build spec, v2.1
+# factory - phase 1 build spec, v2.3
 
 *(GitHub: `JacobStephens2/patchyard`; local checkout on the
 orchestration VM at `/srv/orchestration/patchyard/`.)*
 
-*Status: v2, 2026-07-16 - revised after GPT 5.6-Sol xhigh's adversarial
+*Status: v2.3, 2026-07-18 - revised after GPT 5.6-Sol xhigh's adversarial
 critique (`reviews/2026-07-16-gpt-5.6-sol-spec-critique.md`; dispositions
-in `reviews/2026-07-16-disposition.md`) and Jacob's five rulings on it.
+in `reviews/2026-07-16-disposition.md`) and subsequent rulings through A57.
 Build remains gated on Jacob's "go". Builder: the orchestration agent.
 Merge gate: engineering department + company owner (A33). PR #213 was
 closed by Jacob 2026-07-16 - ALPHABETIZE is now the factory's first live
 test subject with no duplicate-PR conflict.*
 
-*v2.1, 2026-07-16 (later the same day): rulings A53-A55 folded in - the
-dashboard business-logic boundary (§ Dashboard v0), SQLite graduation
+*v2.1, 2026-07-16: rulings A53-A55 folded in - the dashboard
+business-logic boundary (§ Dashboard v0), the original SQLite graduation
 tripwires (§ State layer), and host placement (§ Trust architecture).
-The session-by-session build plan is `PLAN.md`, beside this file.*
+v2.2, 2026-07-18: A56 supersedes the SQLite choice before build; phase 1
+starts on local socket-only PostgreSQL with peer authentication and
+database-enforced service roles. v2.3, 2026-07-18: A57 supersedes A55's
+host-separation timing; phase 1 provisions a dedicated secret-free worker
+droplet through OpenTofu and Ansible while the control plane stays on the
+orchestration VM. The session-by-session build plan is
+`PLAN.md`, beside this file.*
 
 **Job statement:** when a small self-describing Fieldbook request arrives,
 help Patchyard turn it into an evidenced pull request within the hour, so that
@@ -34,8 +40,9 @@ check at build (A50).
 
 ## What changed from v1 (critique verdicts, Jacob's rulings)
 
-1. **SQLite + private artifact store move into phase 1** (was phase-2;
-   amends D4/A40). Live requests and screenshots never enter Git history.
+1. **Durable state + private artifact store move into phase 1** (was
+   phase 2; amends D4/A40). Live requests and screenshots never enter Git
+   history. A56 later chooses local PostgreSQL as the phase-1 engine.
 2. **Full container/microVM isolation for the implement worker moves into
    phase 1** (was phase-2; amends D1). A human trigger vouches for
    provenance, not content - untrusted screenshots get processed in a
@@ -47,14 +54,22 @@ check at build (A50).
    unchecked) is retained for now per Jacob's ruling.
 6. **Acceptance expands** from replay repetition to hidden cases,
    near-misses, injection, and concurrency/crash fixtures.
-7. Estimate revised to component estimates, ~8-11 sessions total.
+7. The original estimate was revised to component estimates, then cut into
+   ~15 reviewable sessions by the adversarial plan review.
+8. **Dedicated worker droplet + desired-state IaC move into phase 1**
+   (A57): OpenTofu provisions it, Ansible configures it, and clean-room
+   replacement is an acceptance criterion.
 
 ## Deliverables
 
 1. The `/factory` skill - the interactive lane-A pipeline.
-2. The isolation substrate - containerized (or microVM) implement worker.
-3. The state layer - SQLite ledger + artifact store under `/var/lib/patchyard/`.
+2. The isolation substrate - a containerized (or microVM) implement and
+   verifier execution plane on a dedicated secret-free worker droplet.
+3. The state layer - local PostgreSQL ledger + artifact store under
+   `/var/lib/patchyard/`.
 4. Dashboard v0 at `factory.example.com` (intake + observability).
+5. OpenTofu + Ansible desired state for reproducible worker provisioning,
+   configuration, drift checks, replacement, and rollback.
 
 Non-goals (phase 2): mailbox intake, automatic reconciliation/polling,
 requester-facing pages and notifications (A34's option b), automated
@@ -66,41 +81,71 @@ The lethal-trifecta rule applies to phase 1: the component that reads
 untrusted request content must hold nothing worth stealing.
 
 - **Supervisor** (the engineer's orchestration session): deterministic
-  steps only - claims the request from SQLite, spawns the worker, applies
+  steps only - claims the request from PostgreSQL, spawns the worker, applies
   the verified patch, publishes. Never feeds raw request content to
   itself as instructions.
 - **Triage** runs as a no-shell subagent (Read/Grep/Glob only - harness-
   enforced; defense-in-depth under the OS boundary, not a substitute).
-- **Implement worker** runs in an isolated environment with: the request
-  mounted read-only; one fresh worktree mounted read-write; **no** SSH
-  material, 1Password token, DB/Fieldbook/GitHub credentials, docker
+- **Implement worker** runs on the dedicated worker droplet inside an isolated
+  environment with: the request mounted read-only; one exact-base-SHA source
+  tree mounted read-write; **no** SSH material, 1Password token,
+  DB/Fieldbook/GitHub credentials, docker
   socket, or private-network access; egress restricted to the model
   endpoint with a short-lived, spend-capped credential (never
   `conductor`'s env). It emits a patch and a rationale, nothing else.
-  - **Runtime decision at build**: `/dev/kvm` is present on this host
-    (verified 2026-07-16), so evaluate **Firecracker microVM** first for
-    kernel-attack-surface isolation (Jacob's preference); fallback is a
+  - **Runtime decision at build**: the orchestration VM's `/dev/kvm` result
+    does not prove the new droplet exposes KVM. Probe it there, then evaluate
+    **Firecracker microVM** first for kernel-attack-surface isolation
+    (Jacob's preference); fallback is a
     rootless-Podman container (install podman; the Docker daemon's root
     socket must never be reachable from the worker). Record the decision
     and its rationale in this repo.
 - **Verifier** runs after the worker is terminated, in a clean
-  environment as the unprivileged `factory-worker` user, against the
-  patch (tree-hash recorded before/after) - never against a live worker.
+  environment on the worker droplet as the unprivileged `factory-worker`
+  user, against the patch (tree-hash recorded before/after) - never against
+  a live worker.
 - **Publisher** (supervisor-side, deterministic): applies the verified
   patch to a fresh worktree at the recorded base SHA, confirms tree hash,
   pushes, opens the draft PR as the **factory bot identity**.
-- **Host placement (A55)**: phase 1 runs on the orchestration VM - the
-  factory is made of this host's parts (claude-orchestrator, the fieldbook
-  checkout, the secrets wiring, the headless harness, the auth stack),
-  and `/dev/kvm` is verified here, so moving would re-risk the
-  Firecracker plan. The isolation budget is spent at the worker boundary
-  above, not on host separation. When unattended mode arrives (phase 2),
-  the worker/publisher split gets its physical expression: a stripped,
-  secret-free worker droplet (no 1Password token, no DB grants, no SSH
-  material - nothing worth escaping to), while supervisor, state, and
-  publisher stay here. Tripwires that advance the timeline: sustained
-  resource contention on this droplet, materially raised caps or run
-  volume, unattended intake arriving early.
+- **Host placement (A57, superseding A55's timing)**: supervisor, PostgreSQL,
+  artifact store, dashboard, preview/headless integration, and publisher stay
+  on the orchestration VM. Phase 1 provisions a separate disposable worker
+  droplet for implementation and untrusted-code verification. The control
+  plane sends read-only request inputs plus an exact-base-SHA source bundle;
+  the worker returns only a patch, rationale, and verification evidence.
+  It never receives repository or database credentials.
+
+## Worker infrastructure and desired state (A57)
+
+- `infra/opentofu/` owns the DigitalOcean droplet, cloud firewall, attached
+  SSH public identity, attachment to existing Patchyard tags, and inventory outputs.
+  OpenTofu runs only from the orchestration controller; the DigitalOcean token
+  never reaches the worker. State is remote in DigitalOcean Spaces, locking is
+  enabled with `use_lockfile`, and backend credentials arrive through the
+  controller's environment rather than source, state configuration, or plan
+  arguments.
+- `infra/ansible/` owns the base OS, `factory-worker` identity, packages,
+  host firewall, runtime substrate, systemd units, logging, temporary paths,
+  per-run cleanup, and management access restricted to orchestration. A
+  second converge must report no changes. No manual host edit is part of the
+  operating procedure.
+- Pull-request CI runs credential-free formatting, validation, lint, and
+  syntax checks. A read-only live OpenTofu plan and Ansible check run from
+  orchestration and their redacted output is attached for human review. After
+  merge, a human-triggered apply from orchestration updates the worker;
+  scheduled drift checks report differences but do not remediate automatically
+  in phase 1.
+- **Secret-free means no standing reusable cross-system authority**: no
+  1Password service token, cloud/provider token, GitHub credential, database
+  identity, Fieldbook secret, or fleet SSH client key at rest or between runs.
+  Unavoidable host identity keys are restricted to managing that droplet. A
+  per-run spend-capped model capability may exist only in memory/tmpfs and is
+  revoked or expires at teardown.
+- Rebuild acceptance starts with a clean droplet and the reviewed Git commit,
+  applies OpenTofu + Ansible with explicit secret references, executes the
+  worker qualification suite, and requires no hand edits or restored worker
+  data. The worker is disposable; PostgreSQL and artifacts remain backed up
+  on the control plane under the state-layer contract.
 
 ## Identity (finding 5 + Jacob's ruling 3)
 
@@ -116,18 +161,18 @@ does not count as a passing factory run.
 
 ## State layer (findings 3, 8, 11)
 
-- `/var/lib/patchyard/factory.sqlite3` (WAL): `requests` (id,
-  fingerprint UNIQUE, source, received_at, status), `runs` (request_id,
-  base_sha, branch UNIQUE, lane, skill, state, timestamps, tokens, turns,
-  eval scores, provenance hashes), `events` (append-only transitions),
-  `artifacts` (path, sha256, kind), `pr_state` (number UNIQUE, head_sha,
-  ci_state, review_state, merged_at, deployed_sha), `leases` (claims with
-  TTL - two engineers cannot claim one request; cap checks and PR
-  creation serialize under the publisher lease).
+- A dedicated local PostgreSQL database, `patchyard`, stores `requests`
+  (id, fingerprint UNIQUE, source, received_at, status), `runs`
+  (request_id, base_sha, branch UNIQUE, lane, skill, state, timestamps,
+  tokens, turns, eval scores, provenance hashes), `events` (append-only
+  transitions), `artifacts` (path, sha256, kind), `pr_state` (number
+  UNIQUE, head_sha, ci_state, review_state, merged_at, deployed_sha), and
+  `leases` (claims with TTL - two engineers cannot claim one request; cap
+  checks and PR creation serialize under the publisher lease).
 - `/var/lib/patchyard/artifacts/<id>/` - raw request text + attachments,
   `factory-web:factory` 0700, 90-day retention after close (configurable).
   Git holds **code, policy, schemas, and sanitized fixtures only**.
-- Dashboard renders from SQLite; GitHub state arrives via a bounded
+- Dashboard renders from PostgreSQL; GitHub state arrives via a bounded
   reconcile call (argument-vector exec, timeout, output cap) triggered by
   `factoryctl reconcile <id>` or a dashboard refresh action - never live
   `gh` per page load. **Fail closed on the 2-open-PR cap when GitHub
@@ -138,21 +183,31 @@ does not count as a passing factory run.
 - The `/api/rulings` intake on the status dashboard repoints from
   `/srv/orchestration/factory/queue/` to the intake spool at build;
   rulings and software requests get separate namespaces.
-- **Engine choice + graduation tripwires (A54)**: SQLite is the phase-1
-  engine on ops + trust cost, not capability - no daemon, no port, no
-  credentials (a networked DB would add exactly the secret class the
-  credential-free worker design eliminates); access control is Unix file
-  permissions, which the `factory-web`/`conductor` split already
-  expresses. Queries go through sqlx (or a thin storage trait) so the
-  choice stays cheap to revisit. The graduation target is **PostgreSQL**,
-  and only when a tripwire fires: a second host needs direct state
-  access; sustained `SQLITE_BUSY` contention in logs; dashboard polling
-  latency becomes a real complaint; leases need cross-machine
-  `SKIP LOCKED` semantics. MySQL is declined both ways: co-tenanting on
-  prod's mysql8 couples factory availability to the prod DB and lands
-  factory chatter in its audit surface; a second local MySQL is daemon
-  ops without the familiarity benefit. The phase-2 worker-host split
-  (A55) does not trigger graduation - workers never touch the DB.
+- **PostgreSQL trust boundary (A56)**: the cluster runs on the orchestration
+  VM with
+  TCP disabled (`listen_addresses=''`), a restricted Unix socket, and
+  peer authentication mapped from the service users. No application
+  carries a database password. Separate owner/migrator, supervisor, and
+  dashboard roles are provisioned declaratively and tested as a grant
+  matrix. `factory-web` receives `SELECT` on the state it renders and
+  `INSERT` only on the request-intake columns; it receives no `UPDATE`,
+  `DELETE`, or `TRUNCATE`, and cannot mutate the append-only event ledger.
+  The supervisor can perform state transitions and append events, but no
+  runtime role can update or delete event rows; schema ownership remains
+  outside runtime roles. The isolated worker has neither a database role nor
+  the host socket mounted.
+- SQLx targets PostgreSQL only. A domain storage boundary keeps core logic
+  testable, but phase 1 does not build or claim a portable dual-engine
+  implementation: migrations, checked queries, locking, and crash semantics
+  are PostgreSQL-specific. Queue claims may use row locks; `SKIP LOCKED` is
+  reserved for genuinely concurrent consumers rather than added by default.
+  The original A54 SQLite choice is superseded. Its MySQL rejection remains:
+  co-tenanting on prod's mysql8 would couple factory availability to the
+  production database and pollute its audit surface, while another local
+  MySQL instance adds daemon cost without PostgreSQL's chosen role model.
+- Backups use a tested `pg_dump` + artifact-tree manifest; restore begins
+  from declarative cluster/role provisioning, applies migrations, restores
+  the dump and artifacts, and verifies row counts plus artifact hashes.
 
 ## Dashboard v0 (findings 2, 6, 7)
 
@@ -160,7 +215,9 @@ does not count as a passing factory run.
   as **`factory-web`** (no shell, no SSH dir, no `op.env`/`env.tpl`
   access, no repo credentials; `NoNewPrivileges`, `ProtectSystem=strict`,
   `ProtectHome`, `PrivateTmp`, explicit `ReadWritePaths=` for spool +
-  artifacts + SQLite only). Unix socket owned `caddy:factory-web` - no
+  artifacts only). The application reaches
+  PostgreSQL through its restricted local socket and peer-mapped dashboard
+  role. The dashboard HTTP Unix socket is owned `caddy:factory-web` - no
   loopback TCP header-spoofing surface.
 - Caddy vhost `factory.example.com` (DNS live) with the standard
   `forward_auth`; Caddy strips client-supplied identity headers before
@@ -221,11 +278,14 @@ ready-for-review with the full contract (A26 quiz, explain-diff, drafted
 reply). CI/preview failures are explicit fail-closed states with
 timeouts.
 
-Worktrees: dedicated bare clone + worktree root under
-`/var/lib/patchyard/worktrees/` (never inside the shared
-`/srv/orchestration/fieldbook` cache); fetch before branch; refuse an
-existing branch unless it belongs to the same request; cleanup on
-failure, close, and merge.
+Worktrees: the credentialed bare clone and publisher worktrees stay under
+`/var/lib/patchyard/worktrees/` on orchestration (never inside the shared
+`/srv/orchestration/fieldbook` cache). Fetch before branch; export the recorded
+base SHA as a source bundle to a fresh per-run worker directory; give the
+worker no Git remote; accept only the bounded result contract; then apply the
+verified patch to a fresh publisher worktree at that SHA. Refuse an existing
+branch unless it belongs to the same request; clean both hosts on failure,
+close, and merge.
 
 ## Verification (findings 13-15, 17)
 
@@ -250,7 +310,7 @@ Every run records provenance: model id, CLI version, constitution hash,
 rubric hash, skill hash, prompt-template hash, verifier binary hash, base
 tree hash. Replays are meaningless without them.
 
-## Acceptance criteria (finding 9; pass^k, k=3)
+## Acceptance criteria (finding 9; behavioral pass^k, k=3)
 
 1. **Smoke (public)**: the sanitized `fixtures/alphabetize/` request → lane A,
    both root-cause files, patch equivalent to the closed PR #213's - 3/3.
@@ -274,6 +334,11 @@ tree hash. Replays are meaningless without them.
 7. **Dashboard**: submit → receipt; admin sees stage transitions through
    a full run; anonymous 302; upload fixtures rejected; evidence route
    authenticated.
+8. **Worker infrastructure** (one clean-room replacement after the repeated
+   behavioral cases): a clean worker is created and configured from
+   the reviewed commit; second Ansible converge is empty; secret and private-
+   network probes pass; replacement reproduces the worker qualification
+   result without manual edits or state copied from the old worker.
 
 ## Language, supply chain (A42 + finding 12)
 
@@ -282,23 +347,28 @@ Rust for `factory-verify`, `factoryctl`, and the dashboard;
 `cargo deny` in CI; reproducible build + checksummed binary install +
 rollback documented. Python stays where the ecosystem owns the job
 (headless harness, status-dashboard touchpoints). One explicit
-threat-model/fuzz session budgeted for upload and path surfaces.
+threat-model/fuzz session budgeted for upload and path surfaces. OpenTofu
+owns DigitalOcean resources and Ansible owns host configuration; both are
+pinned and validated in CI, and neither is a worker runtime dependency.
 
-## Component estimates (finding 12; ~8-11 sessions, re-baselined ~15)
+## Component estimates (finding 12; ~8-11 sessions, re-baselined ~16)
 
 *Re-baseline, 2026-07-16: the adversarial plan review
 (`reviews/2026-07-16-plan-adversarial-review.md`, all findings conceded)
 showed the 8-11 total undercounted by bundling - isolation
 qualification, preview-integrated verification, dashboard hardening,
 and post-cutover acceptance each need their own session and exit. The
-component estimates below stand; the session cutting is `PLAN.md` v2's
-~15 sessions.*
+component estimates below stand; A57 adds a dedicated desired-state and
+clean-room replacement session, making the session cutting `PLAN.md` v4's
+~16 sessions.*
 
-1. Toolchain + scaffold + state layer (SQLite, artifacts, factoryctl): 1.5-2
-2. Isolation substrate (Firecracker eval vs rootless Podman, worker
+1. OpenTofu + Ansible worker desired state and replacement proof: 0.5-1
+2. Toolchain + scaffold + state layer (PostgreSQL, roles, artifacts,
+   factoryctl): 1.5-2
+3. Isolation substrate (Firecracker eval vs rootless Podman, worker
    image, credential plumbing): 2-2.5
-3. `factory-verify` crate + mutation self-tests: 1-1.5
-4. `/factory` skill + subagents + rubric + playbook + replay fixtures: 1.5-2
-5. Dashboard + auth/Caddy/permissions + upload hardening: 1.5-2
-6. Evidence lifecycle (draft PR, preview lease, headless auth, artifact
+4. `factory-verify` crate + mutation self-tests: 1-1.5
+5. `/factory` skill + subagents + rubric + playbook + replay fixtures: 1.5-2
+6. Dashboard + auth/Caddy/permissions + upload hardening: 1.5-2
+7. Evidence lifecycle (draft PR, preview lease, headless auth, artifact
    routes) + acceptance hardening + threat-model session: 1.5-2

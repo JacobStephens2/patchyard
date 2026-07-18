@@ -29,7 +29,8 @@ retest passed text inference, the exact-file floor check 3/3, and image reading.
 ## Current boundary - read before using
 
 The model/provider/harness pair is qualified, but the factory runtime is not
-built. The tests ran on the orchestration VM, not inside Firecracker or Podman.
+built. The tests ran on the orchestration VM, not on A57's dedicated worker
+droplet or inside Firecracker/Podman there.
 
 | Layer | Status |
 |---|---|
@@ -39,6 +40,7 @@ built. The tests ran on the orchestration VM, not inside Firecracker or Podman.
 | Standard Claude Code exact-file floor | PASS 3/3 |
 | Image reading through Claude Code `Read` | Content pass; strict JSON-format miss |
 | Child-process environment allowlist | PASS once on 2026-07-18; only temporary AWS credentials plus runtime basics |
+| OpenTofu + Ansible secret-free worker droplet (A57) | **Phase-1 scope; not built** |
 | Firecracker/Podman isolation and Bedrock-only network egress | **Not built or tested** |
 | Unattended per-run/aggregate spend enforcement | **Not built** |
 | Full fixture gauntlet and shadow mode | **Not run** |
@@ -69,16 +71,16 @@ standing keys; the worker only ever receives short-lived, role-scoped creds.
 
 ## 3. Credential flow (per run)
 
-Target unattended runtime (not built yet):
+Target phase-1 runtime (A57; not built yet):
 
 ```
 factory-supervisor (static keys, 1Password, supervisor env ONLY)
       │  sts:AssumeRole  (DurationSeconds=900)
       ▼
 factory-bedrock-invoke  → temporary {AccessKeyId, SecretAccessKey, SessionToken}
-      │  injected into the worker's env at spawn
+      │  delivered per run to tmpfs/env inside the remote execution boundary
       ▼
-Firecracker/Podman worker → invokes us.anthropic.claude-haiku-4-5-...
+secret-free worker droplet → Firecracker/Podman → invokes Haiku 4.5
 ```
 
 Rules:
@@ -87,9 +89,9 @@ Rules:
 - The launcher mints a new STS triple for every run and constructs the child
   environment from an allowlist; inheriting the supervisor environment is a
   boundary failure.
-- The future worker receives only the short-lived STS triple, never the
+- The phase-1 worker receives only the short-lived STS triple, never the
   prefixed supervisor variables or any other orchestration secret.
-- The future worker's egress must be restricted to
+- The phase-1 worker execution boundary's egress must be restricted to
   `bedrock-runtime.us-east-1.amazonaws.com`. That restriction is not present in
   the current direct-host qualification topology.
 
@@ -263,10 +265,13 @@ printf 'PASS; artifacts: %s; STS expires: %s\n' "$run_dir" "$expiration"
 unset temp_access temp_secret temp_token expiration sts_xml
 ```
 
-For real work, the launcher supplies the task worktree as the child working
-directory and derives tools and `--max-budget-usd` from factory policy. It must
-construct the same minimal environment rather than copying the supervisor's
-environment and deleting a few known secrets.
+For real work, the supervisor exports the recorded base SHA without a Git
+remote, sends it plus the read-only request inputs to a fresh directory on the
+worker droplet, and derives tools and `--max-budget-usd` from factory policy.
+The launcher constructs the same minimal environment inside the selected
+Firecracker/Podman boundary rather than copying the supervisor's environment
+and deleting a few known secrets. The STS triple exists only in memory/tmpfs
+for that run and expires or is revoked at teardown.
 
 **Optional raw API smoke (requires AWS CLI v2, which is not currently installed
 on the orchestration VM):**

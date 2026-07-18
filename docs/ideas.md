@@ -128,7 +128,12 @@ Model, harness, API provider, locally observed visible output tokens per second,
 2. Command+ (high requested), OpenCode, Cohere, 209.7 with thinking disabled, 22.514 seconds
 3. Nemotron 3 Ultra, OpenCode, Blackbox AI, 161.7, 38.165 seconds
 4. GPT-5.6 Luna (max), Codex, OpenAI, 166.2 after an 81.348-second reasoning delay, approximately 115 seconds
-5. GLM-5.2 (max requested), OpenCode, Fireworks, 104.8, 175.731 seconds
+5. GLM-5.2 (default), Claude Code, Fireworks, 104.8, 63.5-71.1 seconds
+  → harness switched from OpenCode 2026-07-18 per the effort-matched A/B
+  (`../research/long-spec-speed/2026-07-18-docx-spec-speed-comparison.md`
+  addendum 2): Claude Code 3/4 full-pass at 63-71 s vs OpenCode 1/3 at
+  ~169 s at identical default effort - the OpenCode figure (175.731 s at
+  max requested) was a harness effect, not a model or effort property
 6. Gemini 3.5 Flash (high), OpenCode, Google AI Studio, 229.3, timed out after 240 seconds
 7. Qwen3.7 Max, OpenCode, Novita, 57.6, timed out after 240 seconds
 

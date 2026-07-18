@@ -81,6 +81,16 @@ class FactoryModelTests(unittest.TestCase):
             )
         )
 
+    def test_worker_deployment_rejects_standing_secrets(self) -> None:
+        model = copy.deepcopy(self.model)
+        model["deployment"]["worker"]["standingSecrets"] = True
+        self.assertTrue(
+            any(
+                "$.deployment.worker.standingSecrets" in error
+                for error in validate_model(model)
+            )
+        )
+
     def test_duplicate_decision_log_ruling_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "decision-log.md"

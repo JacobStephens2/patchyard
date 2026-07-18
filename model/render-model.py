@@ -68,6 +68,9 @@ def projections(model: dict, digest: str) -> tuple[str, str]:
     ]
     mermaid = "\n".join(lines) + "\n"
 
+    deployment = model["deployment"]
+    worker = deployment["worker"]
+    management = deployment["management"]
     document = f"""# Factory model - generated diagram
 
 *Generated from `factory-model.json` schema v{model['schemaVersion']}, model
@@ -77,6 +80,14 @@ and re-run the projector. Hexagons = human; dashed rounded nodes = AI agent;
 rectangles = deterministic software. Dotted edges are decision or feedback
 paths; inspect their labels and endpoints to distinguish human gates from the
 learning loop.*
+
+Phase 1 keeps {", ".join(item.replace("-", " ") for item in deployment["controlComponents"])} on the
+`{deployment["controlHost"]}` and runs {" and ".join(worker["components"])} on a
+`{worker["host"]}` with no standing secrets, database access, fleet
+credentials, or execution access to the private network. The only runtime
+credential is `{worker["runtimeCredential"]}`. The `{management["controller"]}`
+applies `{management["provisioner"]}` and `{management["configurationManager"]}`
+desired state from the `{management["desiredStateRepository"]}` repository.
 
 ```mermaid
 {mermaid}```

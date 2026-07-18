@@ -14,7 +14,7 @@
 
 | Source | What it is | Where |
 | --- | --- | --- |
-| `docs/decision-log.md` | 87 rulings: 55 accepted, 11 deferred, 21 rejected; a ruling wins over a conflicting spec or model field | this repo |
+| `docs/decision-log.md` | 89 rulings: 57 accepted, 11 deferred, 21 rejected; a ruling wins over a conflicting spec or model field | this repo |
 | `SPEC.md` | Phase-1 build contract | this repo |
 | `model/factory-model.json` | Schema-validated model: stages, actors, edges, lanes, caps, phases and capacity defaults (A51); `model/render-model.py` projects Mermaid (A50) | this repo · https://report.example.com/software-factory-model.json |
 | `agents.md` | This constitution; hard rules carried into every factory prompt | this repo |
@@ -24,7 +24,7 @@
 The HTML review page is a projection for humans. Do not treat it as a source;
 do not scrape it.
 
-## Current state (as of 2026-07-16, after Jacob's rulings)
+## Current state (as of 2026-07-18, after Jacob's PostgreSQL + worker rulings)
 
 - Phase 0 complete: pilot ran end to end. Fieldbook PR #213 was **closed
   by Jacob 2026-07-16** (A35 executed); ALPHABETIZE is the factory's
@@ -51,12 +51,15 @@ do not scrape it.
   are running, a human started you.
 - **Phase-1 prep (A40/A41)**: private repo
   `JacobStephens2/patchyard` is live; local checkout
-  `/srv/orchestration/patchyard`. `SPEC.md` v2.1 and `PLAN.md` define the
+  `/srv/orchestration/patchyard`. `SPEC.md` v2.3 and `PLAN.md` v4 define the
   gated build. GPT 5.6-Sol's 17-finding adversarial critique is dispositioned
   in this repo's `reviews/` (15 conceded, 0 rejected). The spec folds it plus
-  rulings A43-A55:
-  SQLite + artifact store, container/microVM worker isolation, and a
-  factory bot identity are now phase-1 scope; ~8-11 sessions. Language
+  rulings A43-A57:
+  local socket-only PostgreSQL + artifact store, a dedicated secret-free
+  worker droplet managed by OpenTofu + Ansible with container/microVM
+  execution isolation, and a factory bot identity are now phase-1 scope; the
+  reviewed plan is ~16
+  sessions. Language
   policy (A42): Rust for verify/factoryctl/dashboard. Still: do not
   build until Jacob's go.
 
@@ -146,7 +149,8 @@ wrong thing, not editing it incorrectly.
 - Auto-merge in any form (R5) · factory-sent email/auto-replies (R6)
 - "Dreaming" / self-revised agent memory or instructions (R19)
 - Cloud intake: Pub/Sub, Cloud Run, Zapier, Postmark, GCS (R1-R3)
-- GitHub Actions as the coding runtime (R4) - execution stays on this VM
+- GitHub Actions as the coding runtime (R4) - execution stays on Patchyard-owned
+  infrastructure; phase 1 uses the secret-free worker droplet (A57)
 - Confidence-threshold classifiers as authorization (R8)
 - Control-group pilots (R15 - no second engineering track exists)
 - SBOM/WORM/MRM compliance apparatus (R17) · 5-file/100-line caps (R14)

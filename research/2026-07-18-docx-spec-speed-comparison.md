@@ -170,3 +170,28 @@ References:
 - [Google: Gemini 3.5 Flash thinking levels](https://ai.google.dev/gemini-api/docs/whats-new-gemini-3.5)
 - [Novita: Qwen3.7 Max route and model ID](https://novita.ai/models/model-detail/qwen-qwen3.7-max)
 - [OpenCode: custom providers](https://opencode.ai/docs/providers)
+
+
+## Addendum (same day): GLM 5.2 through Claude Code on the identical workload
+
+Same `fixtures/docx-spec-speed/request.md` prompt, same acceptance checks,
+240-second cap; Claude Code 2.1.211 direct to Fireworks
+(`ANTHROPIC_BASE_URL=https://api.fireworks.ai/inference`, effort unpinned -
+the env route exposes no variant control). Three runs:
+
+| Run | Wall | Words | Headings | TODO/TBD | Verdict |
+| --: | --: | --: | :-- | :-- | :-- |
+| 1 | 240.1 s (cap) | 1,862 (over by 62) | exact | none | near-miss - file complete but over range, session still open at cap |
+| 2 | **63.5 s** | 1,703 (in range) | exact | none | **full pass** |
+| 3 | **67.1 s** | 1,793 (in range) | exact | none | **full pass** |
+
+Against the OpenCode leg's single run (175.731 s, content pass): the modal
+Claude Code result is **~2.7× faster with the same all-checks-pass content
+quality**. Two confounds keep this a comparison, not a verdict: the OpenCode
+run requested `max` effort while the Claude Code env route runs provider
+default (if the variant request actually raised GLM's reasoning budget, that
+alone could explain much of the gap), and run 1 shows the pair's latency
+variance is real in both harnesses. Consistent finding either way: GLM is the
+only model to pass the full content checks, now in a second harness - its
+word-count discipline hugs the upper bound (1,703-1,862 across runs), so the
+one failure mode is overshoot, not undershoot.

@@ -120,17 +120,17 @@ Model, harness, provider, cost per task, as of July 17, 2026
 
 #### Preference order if we find a need for speed
 
-Reference the Artificial Analysis Output Speed table: https://artificialanalysis.ai/#speed-tabs. Headline output speed excludes reasoning delay and harness behavior, so this preference order uses our end-to-end OpenCode long-spec wall time. The local visible output rate is retained to show the provider's raw delivery speed.
+Reference the Artificial Analysis Output Speed table: https://artificialanalysis.ai/#speed-tabs. Headline output speed excludes reasoning delay and harness behavior, so this preference order uses our end-to-end long-spec harness wall time. The local visible output rate is retained to show the provider's raw delivery speed.
 
-Model, harness, API provider, locally observed visible output tokens per second, OpenCode long-spec wall time, as of July 18, 2026
+Model, harness, API provider, locally observed visible output tokens per second, long-spec harness wall time, as of July 18, 2026
 
 1. gpt-oss-120b (high), OpenCode, Cerebras, 1,889.8, 12.651 seconds
 2. Command+ (high requested), OpenCode, Cohere, 209.7 with thinking disabled, 22.514 seconds
 3. Nemotron 3 Ultra, OpenCode, Blackbox AI, 161.7, 38.165 seconds
-4. GLM-5.2 (max requested), OpenCode, Fireworks, 104.8, 175.731 seconds
-5. Gemini 3.5 Flash (high), OpenCode, Google AI Studio, 229.3, timed out after 240 seconds
-6. Qwen3.7 Max, OpenCode, Novita, 57.6, timed out after 240 seconds
-
+4. GPT-5.6 Luna (max), Codex, OpenAI, 166.2 after an 81.348-second reasoning delay, approximately 115 seconds
+5. GLM-5.2 (max requested), OpenCode, Fireworks, 104.8, 175.731 seconds
+6. Gemini 3.5 Flash (high), OpenCode, Google AI Studio, 229.3, timed out after 240 seconds
+7. Qwen3.7 Max, OpenCode, Novita, 57.6, timed out after 240 seconds
 
 ## Cursor x Composer 2.5
 

@@ -28,6 +28,7 @@ class Target:
     base_url: str
     key_env: str
     reasoning_effort: str | None = None
+    api_kind: str = "chat"
 
 
 TARGETS = {
@@ -75,6 +76,15 @@ TARGETS = {
         model="qwen/qwen3.7-max",
         base_url="https://api.novita.ai/openai",
         key_env="NOVITA_API_KEY",
+    ),
+    "gpt-5p6-luna-max": Target(
+        name="GPT-5.6 Luna (max)",
+        provider="OpenAI",
+        model="gpt-5.6-luna",
+        base_url="https://api.openai.com/v1",
+        key_env="OPENAI_API_KEY",
+        reasoning_effort="max",
+        api_kind="responses",
     ),
 }
 
@@ -166,54 +176,111 @@ def run_once(
             extra_body["reasoning_effort"] = target.reasoning_effort
 
         with hard_timeout(timeout):
-            stream = client.chat.completions.create(
-                model=target.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "Return only the requested file's Markdown content. "
-                            "Do not call tools or add a preamble."
-                        ),
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                max_tokens=max_tokens,
-                stream=True,
-                stream_options={"include_usage": True},
-                extra_body=extra_body or None,
-            )
-
-            for chunk in stream:
-                now = time.perf_counter()
-                if first_event is None:
-                    first_event = now
-                if value(chunk, "usage") is not None:
-                    usage = value(chunk, "usage")
-                choices = value(chunk, "choices", []) or []
-                if not choices:
-                    continue
-                choice = choices[0]
-                if value(choice, "finish_reason"):
-                    finish_reason = value(choice, "finish_reason")
-                delta = value(choice, "delta")
-                content = value(delta, "content") or ""
-                reasoning = (
-                    value(delta, "reasoning")
-                    or value(delta, "reasoning_content")
-                    or value(value(delta, "model_extra", {}), "reasoning")
-                    or value(value(delta, "model_extra", {}), "reasoning_content")
-                    or ""
+            if target.api_kind == "responses":
+                response_stream = client.responses.create(
+                    model=target.model,
+                    input=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "Return only the requested file's Markdown content. "
+                                "Do not call tools or add a preamble."
+                            ),
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    reasoning={"effort": target.reasoning_effort},
+                    max_output_tokens=max_tokens,
+                    stream=True,
                 )
-                if reasoning:
-                    if first_reasoning is None:
-                        first_reasoning = now
-                    reasoning_parts.append(reasoning)
-                if content:
-                    if first_content is None:
-                        first_content = now
-                    last_content = now
-                    content_parts.append(content)
+                for event in response_stream:
+                    now = time.perf_counter()
+                    if first_event is None:
+                        first_event = now
+                    event_type = value(event, "type", "")
+                    if event_type == "response.output_text.delta":
+                        content = value(event, "delta", "")
+                        if content:
+                            if first_content is None:
+                                first_content = now
+                            last_content = now
+                            content_parts.append(content)
+                    elif event_type == "response.reasoning_summary_text.delta":
+                        reasoning = value(event, "delta", "")
+                        if reasoning:
+                            if first_reasoning is None:
+                                first_reasoning = now
+                            reasoning_parts.append(reasoning)
+                    elif event_type in {
+                        "response.completed",
+                        "response.incomplete",
+                        "response.failed",
+                    }:
+                        response = value(event, "response")
+                        finish_reason = value(response, "status")
+                        response_usage = value(response, "usage")
+                        output_details = value(response_usage, "output_tokens_details")
+                        usage = {
+                            "prompt_tokens": value(response_usage, "input_tokens"),
+                            "completion_tokens": value(response_usage, "output_tokens"),
+                            "total_tokens": value(response_usage, "total_tokens"),
+                            "completion_tokens_details": {
+                                "reasoning_tokens": value(
+                                    output_details, "reasoning_tokens"
+                                )
+                            },
+                        }
+            else:
+                request: dict[str, Any] = {
+                    "model": target.model,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "Return only the requested file's Markdown content. "
+                                "Do not call tools or add a preamble."
+                            ),
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    "stream": True,
+                    "stream_options": {"include_usage": True},
+                    "extra_body": extra_body or None,
+                }
+                request["max_tokens"] = max_tokens
+
+                stream = client.chat.completions.create(**request)
+
+                for chunk in stream:
+                    now = time.perf_counter()
+                    if first_event is None:
+                        first_event = now
+                    if value(chunk, "usage") is not None:
+                        usage = value(chunk, "usage")
+                    choices = value(chunk, "choices", []) or []
+                    if not choices:
+                        continue
+                    choice = choices[0]
+                    if value(choice, "finish_reason"):
+                        finish_reason = value(choice, "finish_reason")
+                    delta = value(choice, "delta")
+                    content = value(delta, "content") or ""
+                    reasoning = (
+                        value(delta, "reasoning")
+                        or value(delta, "reasoning_content")
+                        or value(value(delta, "model_extra", {}), "reasoning")
+                        or value(value(delta, "model_extra", {}), "reasoning_content")
+                        or ""
+                    )
+                    if reasoning:
+                        if first_reasoning is None:
+                            first_reasoning = now
+                        reasoning_parts.append(reasoning)
+                    if content:
+                        if first_content is None:
+                            first_content = now
+                        last_content = now
+                        content_parts.append(content)
 
         ended = time.perf_counter()
         text = "".join(content_parts)

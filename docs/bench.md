@@ -37,17 +37,20 @@ phase 1 builds.*
 
 ## Long-spec speed probe
 
-One diagnostic OpenCode run per pair on the same synthetic 1,400-1,800-word
-`docx/specs.md` request, with a 240-second hard cap. This compares long-form
-wall time; it does not replace pass^k floors or fixture admission. Full direct
-API repetitions, provider-level corrections, and method are in the
-[research record](../research/2026-07-18-docx-spec-speed-comparison.md).
+One diagnostic harness run per pair on the same synthetic 1,400-1,800-word
+`docx/specs.md` request, with a 240-second hard cap. OpenCode is the common
+harness for the six original pairs; Luna uses its intended Codex harness. This
+compares long-form wall time; it does not replace pass^k floors or fixture
+admission. Full direct API repetitions, provider-level corrections, and method
+are in the [six-pair research record](../research/2026-07-18-docx-spec-speed-comparison.md)
+and [Luna addendum](../research/2026-07-18-gpt-5p6-luna-max-speed.md).
 
-| Pair | OpenCode wall | Content check | Speed standing |
+| Pair | Harness wall | Content check | Speed standing |
 | :-- | --: | :-- | :-- |
 | gpt-oss-120b high × Cerebras | **12.651 s** | Miss: 2,372 words, over range | **Lead** - direct median 3.586 s and 1,889.8 visible common t/s |
 | Command A+ high requested × Cohere | **22.514 s** | Miss: 1,290 words, under range | Runner-up; retain OpenCode, but high remains requested rather than verified |
 | Nemotron 3 Ultra × Blackbox | 38.165 s | Miss: over range and one heading | Hold; local direct 161.7 visible t/s and prior stalls |
+| GPT-5.6 Luna max × OpenAI, Codex | **~115 s** | **Pass**, 1,536 words | Fourth on wall; direct 166.2 visible t/s came only after 81.348 s to first answer |
 | GLM 5.2 max requested × Fireworks | 175.731 s | **Pass**, 1,747 words | Exact but about 14× slower than Cerebras; not the speed seat |
 | Gemini 3.5 Flash high × Google | **240.069 s, timeout** | File existed; over range; agent kept looping | Pair fails this workload; Gemini CLI would be a separate configuration |
 | Qwen3.7 Max × Novita | **240.115 s, timeout** | File existed at 1,802 words; agent kept looping | Do not advance for speed - the supplied 205 t/s was not Novita; live provider result and local direct runs are about 54-61 t/s |

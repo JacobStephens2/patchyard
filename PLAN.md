@@ -5,7 +5,7 @@ plan says in what order, cut into sessions, each with a verifiable exit.
 Build remains gated on Jacob's explicit "go" - this document is prep,
 not build.)*
 
-*Status: v2, 2026-07-16 - re-planned after the adversarial review
+*Status: v3, 2026-07-18 - v2 re-planned after the adversarial review
 (`reviews/2026-07-16-plan-adversarial-review.md`; dispositions in
 `reviews/2026-07-16-plan-review-disposition.md`; all findings conceded).
 v1's ~10+1 sessions re-baselined to ~15: same components, honest cuts -
@@ -13,7 +13,9 @@ isolation qualification, preview-integrated verification, dashboard
 hardening, and post-cutover acceptance each get their own exit instead
 of hiding inside another session's. Builder: the orchestration agent.
 Cross-family reviewer: GPT 5.6-Sol xhigh in Codex on each build PR (A41). Merge
-gate: engineering + owner (A33).*
+gate: engineering + owner (A33). v3 applies A56: phase 1 starts on local,
+socket-only PostgreSQL with peer authentication and role-enforced service
+boundaries; no SQLite or dual-engine implementation is built.*
 
 The factory's own macro-shape is Plan → Implement → Verify (A47), and
 lane B demands a plan before implementation. Phase 1's build is itself a
@@ -75,22 +77,33 @@ an overrun instead of compressing the security and failure testing.
 - Exit: `cargo test` green on the skeleton; CI green on a PR; identity/
   ownership assertions pass; README gains build/run instructions.
 
-### Session 2 - state layer behind a storage boundary
+### Session 2 - PostgreSQL state layer behind a domain boundary
 
-- **Storage trait/sqlx boundary explicitly owned here** (A54: Postgres
-  graduation stays cheap): SQLite is an implementation behind it, not
-  the API.
-- Schema + migrations for `requests`, `runs`, `events`, `artifacts`,
-  `pr_state`, `leases` (SPEC § State layer) - `runs` includes **all
-  eight provenance hash columns** from day one; WAL; artifact directory
+- Install and initialize the supported PostgreSQL package on this VM;
+  disable TCP; place the Unix socket in a restricted directory; configure
+  peer mappings for the service identities created in session 1. No
+  database passwords or application secrets.
+- Provision owner/migrator, supervisor, and dashboard roles declaratively.
+  The dashboard grant contract is executable acceptance: read factory
+  state, insert only request-intake columns, and fail on state updates,
+  deletes, truncation, event mutation, or DDL. The worker receives no role
+  and no socket access.
+- Use PostgreSQL SQLx only behind a domain repository boundary - no SQLite
+  implementation and no engine-neutral SQL claim. Schema + migrations for
+  `requests`, `runs`, `events`, `artifacts`, `pr_state`, `leases` (SPEC §
+  State layer); `runs` includes **all eight provenance hash columns** from
+  day one. Commit SQLx offline metadata or give CI a disposable PostgreSQL
+  service so checked queries are reproducible. Add artifact-directory
   lifecycle (0700, retention sweep).
 - `factoryctl` v0: `request new` (through the single core parse
   function - A53), `status`, `claim` (lease TTL), `close`,
   `retention-sweep`; `reconcile` stubbed, lands in session 10.
 - Exit: automated crash tests at **named state boundaries** (kill
-  before/after each transition; reopen; `PRAGMA integrity_check`;
-  idempotent retry converges); lease claim/expiry, double-claim
-  rejection, and request/run/event/lease invariants asserted as tests.
+  before/after each transition; drop connections and restart the test
+  server at declared points; idempotent retry converges); lease
+  claim/expiry, double-claim rejection, transaction rollback,
+  request/run/event/lease invariants, and the complete role/grant matrix
+  asserted as tests.
 
 ### Session 3 - isolation spike: Firecracker vs rootless Podman
 
@@ -218,9 +231,11 @@ an overrun instead of compressing the security and failure testing.
   the members store.
 - **Scribe-only boundary enforced and tested** (A53): the submit
   handler calls the same `factory-core` constructor as `factoryctl`;
-  tests prove the dashboard cannot perform state transitions, cap
-  checks, triage, or verification. Form constraints template-injected
-  from core constants. Refresh action triggers the bounded reconcile.
+  application tests prove the dashboard has no transition, cap, triage,
+  or verification path, while PostgreSQL integration tests prove its role
+  cannot update/delete state or mutate events even through direct SQL.
+  Form constraints are template-injected from core constants. Refresh
+  action triggers the bounded reconcile.
 - Exit: a **route-by-role matrix** (anonymous/submitter/admin × every
   route, exact 302/200/403 outcomes) green against seeded state;
   systemd/Caddy/socket hardening asserted. Full-run stage-transition
@@ -263,8 +278,11 @@ an overrun instead of compressing the security and failure testing.
   before/after row and artifact counts + hashes; repoint `/api/rulings`
   to the intake spool with **distinct ruling and software-request
   namespaces, tested** - including old-path write rejection.
-- Runbook v0: operate, back up, restore, roll back, kill - with the
-  restore and rollback actually drilled, not described.
+- Runbook v0: operate, back up, restore, roll back, kill. The backup is a
+  `pg_dump` plus artifact manifest; restore starts from declarative
+  PostgreSQL/role provisioning, reapplies migrations, restores database +
+  artifacts, and verifies row counts and hashes. Restore and rollback are
+  actually drilled, not described.
 - Exit: the installed topology is live; a request filed via the
   dashboard reaches the same spool the skill consumes; the orchestration
   repo carries pointers only; post-cutover smoke passes.
@@ -296,6 +314,11 @@ an overrun instead of compressing the security and failure testing.
 
 ## Known risks
 
+- **PostgreSQL is a new local daemon** - this VM does not currently have
+  PostgreSQL installed. Session 2 must make socket-only exposure, peer-role
+  mappings, upgrades, health checks, backup, and restore testable operating
+  contracts; a running server without those exits does not count as state
+  layer completion.
 - **Firecracker on a DO droplet** - `/dev/kvm` is present, but jailer +
   networking under the service-user split is the real test; the Podman
   fallback is pre-approved (A44), so the spike cannot dead-end.

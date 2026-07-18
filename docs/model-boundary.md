@@ -32,8 +32,8 @@ in `PLAN.md`; critique records belong in `reviews/`; measurement and research
 records (harness/provider evidence, external research) in `research/`; rulings belong in the
 local `docs/decision-log.md`. The founding synthesis remains historical
 provenance in the orchestration repository at
-`projects/software-factory/synthesis/`. Runtime state will live in SQLite and
-the private artifact store described by the spec.
+`projects/software-factory/synthesis/`. Runtime state will live in PostgreSQL
+and the private artifact store described by the spec.
 
 ## Authority and identity
 
@@ -43,7 +43,7 @@ The authorities answer different questions:
 2. `SPEC.md` says **what must be built** in phase 1.
 3. `model/factory-model.json` says **what the stable architecture is** in a
    form projectors and other software can query.
-4. SQLite will say **what is happening now** after the runtime exists.
+4. PostgreSQL will say **what is happening now** after the runtime exists.
 
 `model/factory-model.sha256` is the SHA-256 of the model's stable canonical
 JSON serialization: UTF-8, sorted object keys, no insignificant whitespace. A

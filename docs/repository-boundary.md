@@ -36,7 +36,7 @@ artifact store.
 - `comparison.md`, `model-assessments.md` and the research notes: comparative
   analysis, not factory runtime input.
 - `synthesized-solution.md`: historical synthesis superseded for construction
-  by `SPEC.md` v2.1 and the later rulings. Do not create a second authoritative
+  by `SPEC.md` v2.2 and the later rulings. Do not create a second authoritative
   copy.
 - `review.html`: a human projection deployed by the orchestration/reporting
   repository. It should fetch the served canonical JSON and generated assets,

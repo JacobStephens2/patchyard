@@ -1,20 +1,23 @@
-# factory - phase 1 build spec, v2.1
+# factory - phase 1 build spec, v2.2
 
 *(GitHub: `JacobStephens2/patchyard`; local checkout on the
 orchestration VM at `/srv/orchestration/patchyard/`.)*
 
-*Status: v2, 2026-07-16 - revised after GPT 5.6-Sol xhigh's adversarial
+*Status: v2.2, 2026-07-18 - revised after GPT 5.6-Sol xhigh's adversarial
 critique (`reviews/2026-07-16-gpt-5.6-sol-spec-critique.md`; dispositions
-in `reviews/2026-07-16-disposition.md`) and Jacob's five rulings on it.
+in `reviews/2026-07-16-disposition.md`) and subsequent rulings through A56.
 Build remains gated on Jacob's "go". Builder: the orchestration agent.
 Merge gate: engineering department + company owner (A33). PR #213 was
 closed by Jacob 2026-07-16 - ALPHABETIZE is now the factory's first live
 test subject with no duplicate-PR conflict.*
 
-*v2.1, 2026-07-16 (later the same day): rulings A53-A55 folded in - the
-dashboard business-logic boundary (§ Dashboard v0), SQLite graduation
+*v2.1, 2026-07-16: rulings A53-A55 folded in - the dashboard
+business-logic boundary (§ Dashboard v0), the original SQLite graduation
 tripwires (§ State layer), and host placement (§ Trust architecture).
-The session-by-session build plan is `PLAN.md`, beside this file.*
+v2.2, 2026-07-18: A56 supersedes the SQLite choice before build; phase 1
+starts on local socket-only PostgreSQL with peer authentication and
+database-enforced service roles. The session-by-session build plan is
+`PLAN.md`, beside this file.*
 
 **Job statement:** when a small self-describing Fieldbook request arrives,
 help Patchyard turn it into an evidenced pull request within the hour, so that
@@ -34,8 +37,9 @@ check at build (A50).
 
 ## What changed from v1 (critique verdicts, Jacob's rulings)
 
-1. **SQLite + private artifact store move into phase 1** (was phase-2;
-   amends D4/A40). Live requests and screenshots never enter Git history.
+1. **Durable state + private artifact store move into phase 1** (was
+   phase 2; amends D4/A40). Live requests and screenshots never enter Git
+   history. A56 later chooses local PostgreSQL as the phase-1 engine.
 2. **Full container/microVM isolation for the implement worker moves into
    phase 1** (was phase-2; amends D1). A human trigger vouches for
    provenance, not content - untrusted screenshots get processed in a
@@ -53,7 +57,8 @@ check at build (A50).
 
 1. The `/factory` skill - the interactive lane-A pipeline.
 2. The isolation substrate - containerized (or microVM) implement worker.
-3. The state layer - SQLite ledger + artifact store under `/var/lib/patchyard/`.
+3. The state layer - local PostgreSQL ledger + artifact store under
+   `/var/lib/patchyard/`.
 4. Dashboard v0 at `factory.example.com` (intake + observability).
 
 Non-goals (phase 2): mailbox intake, automatic reconciliation/polling,
@@ -66,7 +71,7 @@ The lethal-trifecta rule applies to phase 1: the component that reads
 untrusted request content must hold nothing worth stealing.
 
 - **Supervisor** (the engineer's orchestration session): deterministic
-  steps only - claims the request from SQLite, spawns the worker, applies
+  steps only - claims the request from PostgreSQL, spawns the worker, applies
   the verified patch, publishes. Never feeds raw request content to
   itself as instructions.
 - **Triage** runs as a no-shell subagent (Read/Grep/Glob only - harness-
@@ -116,18 +121,18 @@ does not count as a passing factory run.
 
 ## State layer (findings 3, 8, 11)
 
-- `/var/lib/patchyard/factory.sqlite3` (WAL): `requests` (id,
-  fingerprint UNIQUE, source, received_at, status), `runs` (request_id,
-  base_sha, branch UNIQUE, lane, skill, state, timestamps, tokens, turns,
-  eval scores, provenance hashes), `events` (append-only transitions),
-  `artifacts` (path, sha256, kind), `pr_state` (number UNIQUE, head_sha,
-  ci_state, review_state, merged_at, deployed_sha), `leases` (claims with
-  TTL - two engineers cannot claim one request; cap checks and PR
-  creation serialize under the publisher lease).
+- A dedicated local PostgreSQL database, `patchyard`, stores `requests`
+  (id, fingerprint UNIQUE, source, received_at, status), `runs`
+  (request_id, base_sha, branch UNIQUE, lane, skill, state, timestamps,
+  tokens, turns, eval scores, provenance hashes), `events` (append-only
+  transitions), `artifacts` (path, sha256, kind), `pr_state` (number
+  UNIQUE, head_sha, ci_state, review_state, merged_at, deployed_sha), and
+  `leases` (claims with TTL - two engineers cannot claim one request; cap
+  checks and PR creation serialize under the publisher lease).
 - `/var/lib/patchyard/artifacts/<id>/` - raw request text + attachments,
   `factory-web:factory` 0700, 90-day retention after close (configurable).
   Git holds **code, policy, schemas, and sanitized fixtures only**.
-- Dashboard renders from SQLite; GitHub state arrives via a bounded
+- Dashboard renders from PostgreSQL; GitHub state arrives via a bounded
   reconcile call (argument-vector exec, timeout, output cap) triggered by
   `factoryctl reconcile <id>` or a dashboard refresh action - never live
   `gh` per page load. **Fail closed on the 2-open-PR cap when GitHub
@@ -138,21 +143,30 @@ does not count as a passing factory run.
 - The `/api/rulings` intake on the status dashboard repoints from
   `/srv/orchestration/factory/queue/` to the intake spool at build;
   rulings and software requests get separate namespaces.
-- **Engine choice + graduation tripwires (A54)**: SQLite is the phase-1
-  engine on ops + trust cost, not capability - no daemon, no port, no
-  credentials (a networked DB would add exactly the secret class the
-  credential-free worker design eliminates); access control is Unix file
-  permissions, which the `factory-web`/`conductor` split already
-  expresses. Queries go through sqlx (or a thin storage trait) so the
-  choice stays cheap to revisit. The graduation target is **PostgreSQL**,
-  and only when a tripwire fires: a second host needs direct state
-  access; sustained `SQLITE_BUSY` contention in logs; dashboard polling
-  latency becomes a real complaint; leases need cross-machine
-  `SKIP LOCKED` semantics. MySQL is declined both ways: co-tenanting on
-  prod's mysql8 couples factory availability to the prod DB and lands
-  factory chatter in its audit surface; a second local MySQL is daemon
-  ops without the familiarity benefit. The phase-2 worker-host split
-  (A55) does not trigger graduation - workers never touch the DB.
+- **PostgreSQL trust boundary (A56)**: the cluster runs on this VM with
+  TCP disabled (`listen_addresses=''`), a restricted Unix socket, and
+  peer authentication mapped from the service users. No application
+  carries a database password. Separate owner/migrator, supervisor, and
+  dashboard roles are provisioned declaratively and tested as a grant
+  matrix. `factory-web` receives `SELECT` on the state it renders and
+  `INSERT` only on the request-intake columns; it receives no `UPDATE`,
+  `DELETE`, or `TRUNCATE`, and cannot mutate the append-only event ledger.
+  The supervisor can perform state transitions and append events, but no
+  runtime role can update or delete event rows; schema ownership remains
+  outside runtime roles. The isolated worker has neither a database role nor
+  the host socket mounted.
+- SQLx targets PostgreSQL only. A domain storage boundary keeps core logic
+  testable, but phase 1 does not build or claim a portable dual-engine
+  implementation: migrations, checked queries, locking, and crash semantics
+  are PostgreSQL-specific. Queue claims may use row locks; `SKIP LOCKED` is
+  reserved for genuinely concurrent consumers rather than added by default.
+  The original A54 SQLite choice is superseded. Its MySQL rejection remains:
+  co-tenanting on prod's mysql8 would couple factory availability to the
+  production database and pollute its audit surface, while another local
+  MySQL instance adds daemon cost without PostgreSQL's chosen role model.
+- Backups use a tested `pg_dump` + artifact-tree manifest; restore begins
+  from declarative cluster/role provisioning, applies migrations, restores
+  the dump and artifacts, and verifies row counts plus artifact hashes.
 
 ## Dashboard v0 (findings 2, 6, 7)
 
@@ -160,7 +174,9 @@ does not count as a passing factory run.
   as **`factory-web`** (no shell, no SSH dir, no `op.env`/`env.tpl`
   access, no repo credentials; `NoNewPrivileges`, `ProtectSystem=strict`,
   `ProtectHome`, `PrivateTmp`, explicit `ReadWritePaths=` for spool +
-  artifacts + SQLite only). Unix socket owned `caddy:factory-web` - no
+  artifacts only). The application reaches
+  PostgreSQL through its restricted local socket and peer-mapped dashboard
+  role. The dashboard HTTP Unix socket is owned `caddy:factory-web` - no
   loopback TCP header-spoofing surface.
 - Caddy vhost `factory.example.com` (DNS live) with the standard
   `forward_auth`; Caddy strips client-supplied identity headers before
@@ -291,10 +307,11 @@ threat-model/fuzz session budgeted for upload and path surfaces.
 showed the 8-11 total undercounted by bundling - isolation
 qualification, preview-integrated verification, dashboard hardening,
 and post-cutover acceptance each need their own session and exit. The
-component estimates below stand; the session cutting is `PLAN.md` v2's
+component estimates below stand; the session cutting is `PLAN.md` v3's
 ~15 sessions.*
 
-1. Toolchain + scaffold + state layer (SQLite, artifacts, factoryctl): 1.5-2
+1. Toolchain + scaffold + state layer (PostgreSQL, roles, artifacts,
+   factoryctl): 1.5-2
 2. Isolation substrate (Firecracker eval vs rootless Podman, worker
    image, credential plumbing): 2-2.5
 3. `factory-verify` crate + mutation self-tests: 1-1.5

@@ -195,3 +195,34 @@ variance is real in both harnesses. Consistent finding either way: GLM is the
 only model to pass the full content checks, now in a second harness - its
 word-count discipline hugs the upper bound (1,703-1,862 across runs), so the
 one failure mode is overshoot, not undershoot.
+
+
+## Addendum 2: effort-matched A/B - the gap is the harness, not the effort
+
+Both harnesses at provider-default effort (the Claude Code env route pins
+nothing; OpenCode run without `--variant`), same fixture, same checks,
+250-second cap, runs interleaved against the same Fireworks backend:
+
+| Harness (default effort) | Runs | Completed | Full pass | Completed wall |
+| :-- | --: | --: | --: | :-- |
+| Claude Code | 4 | 3 | 3 | 63.5 s / 67.1 s / 71.1 s (one 240 s cap near-miss, file over range) |
+| OpenCode (`--pure`) | 3 | 1 | 1 | ~169 s (two 250 s caps with **no file at all**) |
+
+Findings:
+
+1. **The effort confound is dead.** OpenCode at requested-max completed in
+   175.7 s; OpenCode at default completed in ~169 s - effectively identical.
+   The ~2.5× gap to Claude Code (~65-71 s) is a harness effect, not a
+   reasoning-budget effect.
+2. **Reliability under the cap also favors Claude Code** in this sample: 3/4
+   completions vs 1/3. The OpenCode diagnostic showed its first model call
+   alone taking 114 s (step 0 → step 1) before any tool use - the envelope
+   OpenCode sends GLM appears to trigger much longer first-turn generation
+   than Claude Code's.
+3. GLM's content quality held wherever a run completed: every finished file
+   had exact headings and no TODO/TBD, with the word count hugging the upper
+   bound (1,593-1,862 across both harnesses).
+
+Caveat: n is small and Fireworks-side variance is visibly large; treat the
+completion-rate split as indicative, the ~2.5× completed-wall gap as solid
+(it reproduced across every completed pair of runs).

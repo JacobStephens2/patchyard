@@ -8,7 +8,7 @@ cites. Floor probe = the muse-smoke exact-instruction check
 Seats are design-time assignments; nothing runs in production until
 phase 1 builds.*
 
-*Last updated: 2026-07-18 (table restructured: model/effort/harness columns; Qwen3.7 Max + DeepSeek-direct results added).*
+*Last updated: 2026-07-18 (Kimi K2.6 × Kimi Code CLI added).*
 
 ## Pairs
 
@@ -27,6 +27,7 @@ phase 1 builds.*
 | gpt-oss-120b | default (pin blocked by Cline schema) | Cline | **Cerebras** (preferred) / Fireworks | ✅ 3/3, 4-6 s/run | ❌ | US | **Speed-seat lead** - Cerebras ~1,000-1,100 tok/s ±5% vs Fireworks 118-234 ([head-to-head](../research/2026-07-17-harness-smoke-test.md)) |
 | gpt-oss-120b | high | OpenCode | DeepInfra | ✅ 3/3, 12.9-16.9 s wall/run | ❌ text-only | US infra; US-created, open weights | **Preferred viable harness** from the ordered search: native `write` tool and exact 7-byte artifact in every run. Harmony Agent missed exact acceptance, Codex + generic adapter was tool-protocol-incompatible, and mini-swe-agent scored 4/10 exact; Cline/Roo were not tested after OpenCode passed ([record](../research/2026-07-17-gpt-oss-120b-deepinfra-harness-selection.md)) |
 | Grok 4.5 | high | Grok Build | xAI | ✅ 3/3 | ✅ | US | Implement bench #3; tiebreak-verifier candidate |
+| Kimi K2.6 | default | Kimi Code CLI | Fireworks | ✅ 3/3, 7-14 s/run | ✅ | US infra | Native-family harness on US hosting - the clean-provenance Kimi pairing (no K3-style exception needed). Wired via a second provider block in `~/.kimi-code/config.toml`; K2.6 becomes the natural stand-in for the Kimi Code seat until K3 gets a US host |
 | Kimi K2.6 | default | OpenHands | Fireworks | ✅ 3/3 | ✅ | US infra | Implement candidate; V1 SDK-script route (no CLI executable); good cost telemetry |
 | Kimi K3 | default | Kimi Code CLI | OpenRouter → Moonshot | ✅ 3/3 | ✅ | ⚠️ **interim exception** (CN money; ruled by Jacob pending open weights + US host, ~weeks) | Prime triage/verify candidate (intelligence #3) once a US host exists; then: fresh floor probe, allowlist entry, fixture gauntlet |
 | MiMo-V2.5-Pro | default | Claude Code | Novita | ✅ 3/3, 8-10 s/run | ? | CN-created; Novita hosting (jurisdiction to confirm for the allowlist ruling) | Jacob's ideas.md pick; first **direct** Claude Code × non-Anthropic pairing - Novita's Anthropic endpoint passes CLI model validation; intelligence 42 (#18) |

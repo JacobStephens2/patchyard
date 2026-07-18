@@ -16,7 +16,6 @@ is tier-agnostic - a Pro key widens coverage with no code change.
 
 import json
 import os
-import sys
 import urllib.request
 from pathlib import Path
 

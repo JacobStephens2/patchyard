@@ -137,7 +137,8 @@ instead of compressing the security and failure testing.
   contract (A44).
 - **Probe manifest predeclared before running**: read-only request
   mount, read-write worktree mount, host-write attempts, egress beyond
-  the model endpoint (IPv4, IPv6, DNS), credential absence, startup and
+  the boot's single allowlisted provider endpoint (A61; IPv4, IPv6,
+  DNS), credential absence, startup and
   teardown overhead - with must-pass selection criteria written down
   first.
 - Exit: **a decision recorded in this repo** - runtime, rationale, raw
@@ -148,7 +149,8 @@ instead of compressing the security and failure testing.
 ### Session 4 - worker runtime build-out
 
 - The chosen runtime becomes the production worker shape: image
-  construction, mount wiring, egress enforcement, short-lived
+  construction, mount wiring, egress enforcement (one allowlisted
+  provider per boot, A61), short-lived
   spend-capped model credential in memory/tmpfs (never `conductor`'s env),
   exact-SHA source/input transfer, worker I/O contract (a patch + a rationale
   and bounded verification evidence out, nothing else), guaranteed teardown.

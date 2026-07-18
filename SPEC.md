@@ -1,11 +1,11 @@
-# factory - phase 1 build spec, v2.3
+# factory - phase 1 build spec, v2.4
 
 *(GitHub: `JacobStephens2/patchyard`; local checkout on the
 orchestration VM at `/srv/orchestration/patchyard/`.)*
 
-*Status: v2.3, 2026-07-18 - revised after GPT 5.6-Sol xhigh's adversarial
+*Status: v2.4, 2026-07-18 - revised after GPT 5.6-Sol xhigh's adversarial
 critique (`reviews/2026-07-16-gpt-5.6-sol-spec-critique.md`; dispositions
-in `reviews/2026-07-16-disposition.md`) and subsequent rulings through A57.
+in `reviews/2026-07-16-disposition.md`) and subsequent rulings through A61.
 Build remains gated on Jacob's "go". Builder: the orchestration agent.
 Merge gate: engineering department + company owner (A33). PR #213 was
 closed by Jacob 2026-07-16 - ALPHABETIZE is now the factory's first live
@@ -19,7 +19,11 @@ starts on local socket-only PostgreSQL with peer authentication and
 database-enforced service roles. v2.3, 2026-07-18: A57 supersedes A55's
 host-separation timing; phase 1 provisions a dedicated secret-free worker
 droplet through OpenTofu and Ansible while the control plane stays on the
-orchestration VM. The session-by-session build plan is
+orchestration VM. v2.4, 2026-07-18 (later): A58-A61 graduate the
+model/harness seat policy from `ideas.md`; the worker egress clause names
+the A61 provider allowlist (operative roster in `docs/bench.md`), and A62
+makes factory PR authorship trigger-independent (§ Identity). The
+session-by-session build plan is
 `PLAN.md`, beside this file.*
 
 **Job statement:** when a small self-describing Fieldbook request arrives,
@@ -90,8 +94,9 @@ untrusted request content must hold nothing worth stealing.
   environment with: the request mounted read-only; one exact-base-SHA source
   tree mounted read-write; **no** SSH material, 1Password token,
   DB/Fieldbook/GitHub credentials, docker
-  socket, or private-network access; egress restricted to the model
-  endpoint with a short-lived, spend-capped credential (never
+  socket, or private-network access; egress restricted to exactly one
+  allowlisted model provider per boot (A61; seat roster in
+  `docs/bench.md`) with a short-lived, spend-capped credential (never
   `conductor`'s env). It emits a patch and a rationale, nothing else.
   - **Runtime decision at build**: the orchestration VM's `/dev/kvm` result
     does not prove the new droplet exposes KVM. Probe it there, then evaluate
@@ -158,6 +163,15 @@ machine-user fine-grained PAT. Fieldbook branch protection stays as Jacob
 has it today (1 approval, bypass available to admins, self-approve
 possible); the factory itself never merges, and an admin-bypassed merge
 does not count as a passing factory run.
+
+Authorship is trigger-independent (A62): factory-produced commits and
+PRs carry the factory identity whether the run was unattended or
+human-triggered - console or an engineer's dashboard submission. The
+trigger's human identity lives in the intake row, the ledger's `source`
+field, and the PR body - never in the commit author field. A hand-pushed
+commit on a factory branch keeps its human author and demotes the run's
+ledger row from pure-factory; hand edits are never laundered through the
+bot identity, nor factory output through a human's.
 
 ## State layer (findings 3, 8, 11)
 

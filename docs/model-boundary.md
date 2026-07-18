@@ -7,6 +7,8 @@ model. It is deliberately narrower than the factory's complete design record.
 
 - Stable identifiers and relationships: lanes, stages, entities, edges and
   macro-stage membership.
+- Stable deployment and credential boundaries: control-plane placement,
+  worker placement, execution isolation, and the desired-state toolchain.
 - Actor classifications and intake-source classifications.
 - Safety limits and the immutable human-approval boundary.
 - Structured phase states and measurable evidence thresholds.
@@ -23,7 +25,7 @@ model ruling reference resolves to one unique row in `docs/decision-log.md`.
 - Design rationale, examples, implementation notes and prose restatements of
   graph transitions.
 - Named people, availability notes or current approver rosters.
-- Repository, pull-request, deployment or branch-protection status.
+- Repository, pull-request, deployment-status or branch-protection status.
 - Dated demand evidence, review dispositions or build-progress narration.
 - Runtime requests, runs, artifacts, leases or current pipeline state.
 

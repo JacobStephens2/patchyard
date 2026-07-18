@@ -5,7 +5,7 @@ plan says in what order, cut into sessions, each with a verifiable exit.
 Build remains gated on Jacob's explicit "go" - this document is prep,
 not build.)*
 
-*Status: v3, 2026-07-18 - v2 re-planned after the adversarial review
+*Status: v4, 2026-07-18 - v2 re-planned after the adversarial review
 (`reviews/2026-07-16-plan-adversarial-review.md`; dispositions in
 `reviews/2026-07-16-plan-review-disposition.md`; all findings conceded).
 v1's ~10+1 sessions re-baselined to ~15: same components, honest cuts -
@@ -15,7 +15,9 @@ of hiding inside another session's. Builder: the orchestration agent.
 Cross-family reviewer: GPT 5.6-Sol xhigh in Codex on each build PR (A41). Merge
 gate: engineering + owner (A33). v3 applies A56: phase 1 starts on local,
 socket-only PostgreSQL with peer authentication and role-enforced service
-boundaries; no SQLite or dual-engine implementation is built.*
+boundaries; no SQLite or dual-engine implementation is built. v4 applies
+A57: phase 1 adds a dedicated secret-free worker droplet, OpenTofu + Ansible
+desired state, and a clean-room replacement exit, for ~16 sessions total.*
 
 The factory's own macro-shape is Plan → Implement → Verify (A47), and
 lane B demands a plan before implementation. Phase 1's build is itself a
@@ -31,8 +33,9 @@ are its human-approved budget.
 - **Spikes end on decisions, not implementations.** A spike session's
   deliverable is a recorded decision (in `research/` or `docs/`), even if
   its code is thrown away.
-- **The factory repo gets CI in session 1** (fmt, clippy, test,
-  `cargo audit`, `cargo deny`, `./model/check-model.sh`). This does not
+- **The factory repo gets infrastructure CI in session 0** (OpenTofu format/
+  validate and Ansible lint/syntax) and application CI in session 1 (fmt,
+  clippy, test, `cargo audit`, `cargo deny`, `./model/check-model.sh`). This does not
   conflict with R4: Actions is rejected as the *coding runtime for
   fieldbook changes*; the factory repo running its own test suite in CI is
   ordinary hygiene.
@@ -50,11 +53,30 @@ are its human-approved budget.
 
 ## Session sequence
 
-Sessions 1-2 cover SPEC component 1; 3-5 component 2; 6-7 component 3
-plus verifier-runtime integration; 8-9 component 4; 10 the publisher;
-11-12 component 5; 13 component 6's evidence lifecycle; 14 cutover;
-15 final acceptance. There is no padded buffer - an overrun surfaces as
-an overrun instead of compressing the security and failure testing.
+Session 0 covers the worker desired-state component; sessions 1-2 cover the
+control-plane scaffold and state layer; 3-5 cover worker isolation; 6-7 the
+verifier plus remote-runtime integration; 8-9 the skill; 10 the publisher;
+11-12 the dashboard; 13 the evidence lifecycle; 14 cutover; 15 final
+acceptance. There is no padded buffer - an overrun surfaces as an overrun
+instead of compressing the security and failure testing.
+
+### Session 0 - desired-state foundation and worker droplet
+
+- Entry: Jacob's "go". Pin OpenTofu and the Ansible runtime/collections on
+  the orchestration controller; add `infra/opentofu/` and `infra/ansible/`
+  with one documented plan, apply, check, replace, and rollback path.
+- Configure DigitalOcean Spaces remote state with `use_lockfile`; backend and
+  provider credentials come only from the controller environment. OpenTofu
+  owns the worker droplet, cloud firewall, SSH public-key attachment,
+  attachment to existing Patchyard tags, and inventory outputs. The worker receives
+  no DigitalOcean credential.
+- Ansible provisions the base OS, `factory-worker` user, packages, host
+  firewall, management access restricted to orchestration, tmpfs/transient
+  run paths, logging, and cleanup. No application/provider secret is copied.
+- Exit: a human-reviewed plan is applied from orchestration; inventory feeds
+  Ansible without hand transcription; the second converge reports no changes;
+  a disposable clean-room replacement reaches the same state from Git; and
+  secret scans find no standing Patchyard/provider credentials on either worker.
 
 ### Session 1 - toolchain, scaffold, service identities, CI
 
@@ -68,10 +90,11 @@ an overrun instead of compressing the security and failure testing.
 - Cargo workspace: `factory-core` (types, the parse-don't-validate
   intake constructor, shared constants), `factory-verify`, `factoryctl`,
   `factory-web` - empty shells beyond core.
-- **Provision all service identities now**: `factory-worker` and
-  `factory-web` users, `factory` group; `/var/lib/patchyard/` skeleton
+- **Provision all control-plane service identities now**: `factory-web` user
+  and `factory` group; `/var/lib/patchyard/` skeleton
   with asserted ownership and modes recorded as tests, before anything
-  depends on them implicitly.
+  depends on them implicitly. The worker identity is Ansible-owned from
+  session 0 and its contract is asserted here rather than duplicated locally.
 - Verify the in-repo constitution (`agents.md`, canonical here since
   dee992d) is wired into CI as a checked artifact.
 - Exit: `cargo test` green on the skeleton; CI green on a PR; identity/
@@ -79,7 +102,8 @@ an overrun instead of compressing the security and failure testing.
 
 ### Session 2 - PostgreSQL state layer behind a domain boundary
 
-- Install and initialize the supported PostgreSQL package on this VM;
+- Install and initialize the supported PostgreSQL package on the orchestration
+  VM;
   disable TCP; place the Unix socket in a restricted directory; configure
   peer mappings for the service identities created in session 1. No
   database passwords or application secrets.
@@ -107,7 +131,8 @@ an overrun instead of compressing the security and failure testing.
 
 ### Session 3 - isolation spike: Firecracker vs rootless Podman
 
-- Evaluate Firecracker first (`/dev/kvm` verified present 2026-07-16);
+- Probe `/dev/kvm` on the new worker droplet - the orchestration VM's verified
+  KVM result does not transfer - then evaluate Firecracker first;
   fallback candidate rootless Podman under the same mount/egress
   contract (A44).
 - **Probe manifest predeclared before running**: read-only request
@@ -117,17 +142,17 @@ an overrun instead of compressing the security and failure testing.
   first.
 - Exit: **a decision recorded in this repo** - runtime, rationale, raw
   probe results against the predeclared criteria, and the credential
-  plumbing shape under the `conductor`/`factory-worker` split.
+  plumbing shape across the physical `conductor`/`factory-worker` split.
   Implementation may be partial; the probes may not be.
 
 ### Session 4 - worker runtime build-out
 
 - The chosen runtime becomes the production worker shape: image
   construction, mount wiring, egress enforcement, short-lived
-  spend-capped model credential (never `conductor`'s env), worker I/O
-  contract (a patch + a rationale out, nothing else), guaranteed
-  teardown.
-- Exit: a toy request yields a patch through the real boundary; egress
+  spend-capped model credential in memory/tmpfs (never `conductor`'s env),
+  exact-SHA source/input transfer, worker I/O contract (a patch + a rationale
+  and bounded verification evidence out, nothing else), guaranteed teardown.
+- Exit: a toy request yields a patch through the real inter-host boundary; egress
   and mount contracts hold under the probe scripts from session 3;
   teardown leaves no residue (asserted).
 
@@ -139,7 +164,8 @@ an overrun instead of compressing the security and failure testing.
   writes, and alternate output channels beyond the patch+rationale
   contract.
 - Exit: every manifest entry passes (canary secret unread, private
-  network unreachable, no out-of-contract output); the manifest and
+  network unreachable, no out-of-contract output, no credential or request
+  residue after teardown); the manifest and
   results are committed - they become regression fixtures for
   acceptance.
 
@@ -162,9 +188,10 @@ an overrun instead of compressing the security and failure testing.
   request-id, expected SHA, TTL, guaranteed cleanup), in-preview
   `git rev-parse HEAD` verification, headless bearer-header extension,
   baseline-DOM capture at the base SHA.
-- **Verifier runtime harness**: worker terminated before verify
-  (asserted, not assumed); verification runs as `factory-worker` in a
-  clean environment; before/after tree-hash equality; **targeted
+- **Verifier runtime harness**: agent worker terminated before verify
+  (asserted, not assumed); verification runs on the worker droplet as
+  `factory-worker` in a clean environment; before/after tree-hash equality;
+  **targeted
   PHPUnit selection and execution as `factory-worker`**.
 - Exit: the sort postcondition runs against a real preview baseline on
   a fixture branch; PHPUnit runs under the verifier identity; lease
@@ -190,7 +217,8 @@ an overrun instead of compressing the security and failure testing.
   request content flows exclusively into the isolated triage/worker
   path - never into the supervisor's own instructions (SPEC trust
   architecture).
-- Worker invocation, verify integration, one repair loop (A9) with
+- Exact-SHA bundle transfer, remote worker invocation, bounded result intake,
+  verify integration, one repair loop (A9) with
   exhaustion escalating, **provenance fields populated on every run**
   (model id, CLI version, constitution/rubric/skill/prompt-template/
   verifier-binary hashes, base tree hash).
@@ -206,10 +234,11 @@ an overrun instead of compressing the security and failure testing.
   session 1); the fallback, if needed, is a **dedicated machine-user
   fine-grained PAT, never Jacob's** (A45) - and "PR author is the
   machine identity" is part of the exit either way.
-- **Full worktree lifecycle per SPEC**: dedicated bare clone under
-  `/var/lib/patchyard/worktrees/`, fetch-before-branch, refuse an
-  existing branch unless it belongs to the same request, cleanup on
-  failure, close, and merge.
+- **Full worktree lifecycle per SPEC**: credentialed bare clone and publisher
+  worktrees stay under `/var/lib/patchyard/worktrees/` on orchestration;
+  fetch-before-branch, export the exact base SHA without a Git remote, accept
+  only the bounded worker result, refuse an existing branch unless it belongs
+  to the same request, and clean both hosts on failure, close, and merge.
 - Publisher state machine: apply verified patch at recorded base SHA,
   tree-hash confirm, push, draft PR; crash points tested (crash before/
   after branch push resumes to one branch + one PR, no orphans); PR-cap
@@ -278,7 +307,9 @@ an overrun instead of compressing the security and failure testing.
   before/after row and artifact counts + hashes; repoint `/api/rulings`
   to the intake spool with **distinct ruling and software-request
   namespaces, tested** - including old-path write rejection.
-- Runbook v0: operate, back up, restore, roll back, kill. The backup is a
+- Runbook v0: operate, converge, replace, back up, restore, roll back, kill.
+  Worker replacement begins from OpenTofu + Ansible and restores no worker
+  data. The control-plane backup is a
   `pg_dump` plus artifact manifest; restore starts from declarative
   PostgreSQL/role provisioning, reapplies migrations, restores database +
   artifacts, and verifies row counts and hashes. Restore and rollback are
@@ -289,21 +320,23 @@ an overrun instead of compressing the security and failure testing.
 
 ### Session 15 - final acceptance against the installed topology
 
-- **Frozen, versioned case manifest first**: every SPEC § Acceptance
-  case (smoke, hidden positives, near-miss negatives, injection,
+- **Frozen, versioned case manifest first**: the seven behavioral SPEC §
+  Acceptance cases (smoke, hidden positives, near-miss negatives, injection,
   concurrency/crash, gate self-tests, dashboard incl. the full-run
-  stage-transition display) × 3 repetitions, each with expected lane,
-  end state, and publication count; fixture hashes recorded.
+  stage-transition display) × 3 repetitions, each with expected lane, end
+  state, and publication count; fixture hashes recorded. The infrastructure
+  case runs once afterward as a clean-room worker replacement.
 - Run at pass^k, k=3, **against the cut-over topology from session 14**
   - the accepted artifact is the installed system, not a pre-cutover
   approximation. Discovered failures: fix, then rerun the affected
   criteria from a clean base; zero unresolved failures.
-- Exit: all seven criteria pass on the installed topology; results
-  recorded in the ledger and `research/`.
+- Exit: all eight criteria pass on the installed topology, including one
+  clean-room worker replacement with no manual edits or copied worker state;
+  results recorded in the ledger and `research/`.
 
 ## Jacob-side dependencies (surfaced early)
 
-1. The "go" itself - gates session 1.
+1. The "go" itself - gates session 0.
 2. GitHub App creation + installation on the fieldbook repo - **starts at
    session 1** (needs org admin - the PAT lacks it); only the smoke
    test blocks on it early, the publisher (session 10) blocks on it
@@ -311,23 +344,32 @@ an overrun instead of compressing the security and failure testing.
    the App path stalls.
 3. Optional: factory repo description/topics via the GitHub UI (text
    already provided), or grant the PAT Administration permission.
+4. A DigitalOcean Spaces access key for locked remote OpenTofu state if the
+   existing state-backend bootstrap task is not complete when session 0 starts.
 
 ## Known risks
 
-- **PostgreSQL is a new local daemon** - this VM does not currently have
-  PostgreSQL installed. Session 2 must make socket-only exposure, peer-role
+- **PostgreSQL is a new local daemon** - the orchestration VM does not
+  currently have PostgreSQL installed. Session 2 must make socket-only
+  exposure, peer-role
   mappings, upgrades, health checks, backup, and restore testable operating
   contracts; a running server without those exits does not count as state
   layer completion.
-- **Firecracker on a DO droplet** - `/dev/kvm` is present, but jailer +
-  networking under the service-user split is the real test; the Podman
+- **Firecracker on the new DO droplet** - KVM availability must be re-probed;
+  jailer + networking under the service-user split is the real test; the Podman
   fallback is pre-approved (A44), so the spike cannot dead-end.
+- **Remote-state bootstrap** - the Spaces bucket/key live outside the state
+  they protect. Session 0 must verify locking and recovery before creating the
+  durable worker resource; local state is not an accepted fallback.
+- **Inter-host result contract** - a remote boundary is useful only if source
+  input and patch/evidence output stay bounded and authenticated. Sessions 4,
+  5, 7, and 9 test transport tampering, replay, cleanup, and fail-closed loss.
 - **GitHub App friction** - now opened at session 1 precisely so
   permission iteration burns calendar time, not session time.
 - **Preview-fleet coupling** - the evidence lifecycle leases shared
   mutable previews; sessions 7 and 13 must fail closed on lease
   conflicts, never queue silently.
-- **No buffer session** - the 15-session baseline is honest rather than
+- **No buffer session** - the 16-session baseline is honest rather than
   padded; if a session overruns, the overrun is reported in that build
   PR rather than absorbed silently (the ground rules forbid compressing
   the security and failure testing to stay on schedule).

@@ -15,7 +15,7 @@ department + the company owner. The production deploy path is never touched.
 | :-- | :-- |
 | `SPEC.md` / `PLAN.md` | Phase-1 build contract and session plan |
 | `agents.md` | Constitution - hard rules that ride every factory agent prompt |
-| `model/` | Canonical architecture model + validators, projectors, tests |
+| `model/` | Canonical architecture/deployment model + validators, projectors, tests |
 | `docs/` | Decision log, boundaries, living ops (bench, runbooks), ideas inbox |
 | `research/` | Dated world-facing evidence, grouped by topic |
 | `reviews/` | Critiques of our own artifacts plus dispositions |
@@ -44,7 +44,7 @@ design authority and evidence stay where they are.
   pre-ruling scratch space. Carries no authority; ideas graduate into the
   decision log or die there.
 - **Design record:** [`docs/decision-log.md`](docs/decision-log.md) is the
-  canonical 87-ruling log. The independent proposals, comparison and
+  canonical 89-ruling log. The independent proposals, comparison and
   historical synthesis remain as provenance in the orchestration repo at
   `projects/software-factory/`; the interactive review is at
   https://report.example.com/software-factory-review.html. Repository
@@ -93,4 +93,6 @@ and never reseat production policy.
 
 Build status: **approved in scope, not yet started** - console ruling
 2026-07-16, "don't build it yet." Nothing in this repo executes factory
-runtime until Jacob's go.
+runtime until Jacob's go. Phase 1 includes a dedicated secret-free worker
+droplet whose OpenTofu + Ansible desired state will live under `infra/` when
+the gated build starts (A57).

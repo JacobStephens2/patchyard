@@ -1,19 +1,53 @@
 {
   "$schema": "./factory-model.schema.json",
-  "schemaVersion": 2,
-  "modelVersion": 6,
-  "updated": "2026-07-16",
+  "schemaVersion": 3,
+  "modelVersion": 7,
+  "updated": "2026-07-18",
   "rulings": [
     "A39",
     "A47",
     "A49",
     "A50",
-    "A52"
+    "A52",
+    "A57"
   ],
   "topology": {
     "kind": "hierarchical-pipeline",
     "rulings": [
       "A39"
+    ]
+  },
+  "deployment": {
+    "phase": "phase-1",
+    "controlHost": "orchestration-vm",
+    "controlComponents": [
+      "supervisor",
+      "postgresql",
+      "artifact-store",
+      "dashboard",
+      "publisher"
+    ],
+    "worker": {
+      "host": "dedicated-droplet",
+      "components": [
+        "implement",
+        "verify"
+      ],
+      "standingSecrets": false,
+      "databaseAccess": false,
+      "fleetCredentials": false,
+      "executionPrivateNetworkAccess": false,
+      "runtimeCredential": "short-lived-spend-capped-model-only",
+      "executionBoundary": "firecracker-or-rootless-podman"
+    },
+    "management": {
+      "controller": "orchestration-vm",
+      "provisioner": "opentofu",
+      "configurationManager": "ansible",
+      "desiredStateRepository": "factory"
+    },
+    "rulings": [
+      "A57"
     ]
   },
   "actorTypes": {
@@ -94,7 +128,7 @@
       "num": 2,
       "id": "implement",
       "name": "Implement",
-      "summary": "Produce the smallest coherent diff in an isolated, credential-free worker",
+      "summary": "Produce the smallest coherent diff on the dedicated, credential-free worker droplet",
       "actor": "agent",
       "lanes": [
         "A"

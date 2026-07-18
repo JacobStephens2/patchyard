@@ -1,16 +1,24 @@
 # Factory model - generated diagram
 
-*Generated from `factory-model.json` schema v2, model
-v6 (2026-07-16), canonical identity
-`sha256:f4a097356ca4f43e6bfe4fd8eb9413878c2da46e4c6fdf359c63b798865bfcfc`. Do not edit by hand - edit the model, update its identity,
+*Generated from `factory-model.json` schema v3, model
+v7 (2026-07-18), canonical identity
+`sha256:f418bed962765389e4ffa08557132a07197c1ed93e41f6fe58fa21aae88c4d8e`. Do not edit by hand - edit the model, update its identity,
 and re-run the projector. Hexagons = human; dashed rounded nodes = AI agent;
 rectangles = deterministic software. Dotted edges are decision or feedback
 paths; inspect their labels and endpoints to distinguish human gates from the
 learning loop.*
 
+Phase 1 keeps supervisor, postgresql, artifact store, dashboard, publisher on the
+`orchestration-vm` and runs implement and verify on a
+`dedicated-droplet` with no standing secrets, database access, fleet
+credentials, or execution access to the private network. The only runtime
+credential is `short-lived-spend-capped-model-only`. The `orchestration-vm`
+applies `opentofu` and `ansible`
+desired state from the `factory` repository.
+
 ```mermaid
-%% factory-model schema v2, model v6
-%% canonical sha256:f4a097356ca4f43e6bfe4fd8eb9413878c2da46e4c6fdf359c63b798865bfcfc
+%% factory-model schema v3, model v7
+%% canonical sha256:f418bed962765389e4ffa08557132a07197c1ed93e41f6fe58fa21aae88c4d8e
 flowchart LR
   intake["Intake<br/><i>deterministic</i>"]:::det
   triage(["Triage<br/><i>agent</i>"]):::agent

@@ -29,7 +29,7 @@ Credential-free structured evidence is in
 ## Common treatment
 
 Every scored run used the unchanged smoke prompt from
-`2026-07-17-harness-smoke-test.md`:
+`../floors/2026-07-17-harness-smoke-test.md`:
 
 ```text
 Create a file named muse-smoke.txt in the current directory containing exactly the word: factory

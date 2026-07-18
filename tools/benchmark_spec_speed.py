@@ -19,6 +19,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_PROMPT = REPO_ROOT / "fixtures" / "bench" / "docx-spec-speed" / "request.md"
+
 
 @dataclass(frozen=True)
 class Target:
@@ -382,7 +385,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--prompt",
         type=Path,
-        default=Path("fixtures/docx-spec-speed/request.md"),
+        default=DEFAULT_PROMPT,
     )
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--max-tokens", type=int, default=3000)

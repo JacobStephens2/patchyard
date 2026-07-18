@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Project the canonical factory model to Mermaid and Markdown.
 
-Edit factory-model.json, run model-id.py --write, then run this projector.
+Edit factory-model.json, run model/model-id.py --write, then run this projector.
 Use --check in automation to require byte-identical committed projections.
 """
 
@@ -123,7 +123,7 @@ def main() -> int:
         return 1
     if recorded != digest:
         print(
-            "ERROR: factory-model.sha256 is stale; run ./model-id.py --write",
+            "ERROR: factory-model.sha256 is stale; run python3 model/model-id.py --write",
             file=sys.stderr,
         )
         return 1

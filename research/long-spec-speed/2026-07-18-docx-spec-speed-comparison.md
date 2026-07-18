@@ -31,7 +31,7 @@ fit must be scored separately from throughput.
 No `docx/specs.md` exists in this worktree, repository history, or the other
 checked `/srv/orchestration` working trees. The probe therefore used the
 sanitized synthetic request in
-[`fixtures/docx-spec-speed/request.md`](../fixtures/docx-spec-speed/request.md):
+[`fixtures/bench/docx-spec-speed/request.md`](../../fixtures/bench/docx-spec-speed/request.md):
 a production specification for a deterministic Markdown-to-DOCX service,
 1,400-1,800 words, with eight exact level-two sections.
 
@@ -56,10 +56,10 @@ single harness run is diagnostic only - it is not pass^k or an admission gate.
 Reproduction tools:
 
 ```bash
-uv run --with openai --with tiktoken benchmark_spec_speed.py \
+uv run --with openai --with tiktoken tools/benchmark_spec_speed.py \
   --rounds 3 --max-tokens 6000 --timeout 180
 
-python3 benchmark-harness-speed.py \
+python3 tools/benchmark_harness_speed.py \
   --output-dir /tmp/patchyard-docx-spec-speed --timeout 240
 ```
 
@@ -174,7 +174,7 @@ References:
 
 ## Addendum (same day): GLM 5.2 through Claude Code on the identical workload
 
-Same `fixtures/docx-spec-speed/request.md` prompt, same acceptance checks,
+Same `fixtures/bench/docx-spec-speed/request.md` prompt, same acceptance checks,
 240-second cap; Claude Code 2.1.211 direct to Fireworks
 (`ANTHROPIC_BASE_URL=https://api.fireworks.ai/inference`, effort unpinned -
 the env route exposes no variant control). Three runs:

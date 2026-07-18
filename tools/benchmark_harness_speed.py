@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from benchmark_spec_speed import REQUIRED_HEADINGS, acceptance
+from benchmark_spec_speed import DEFAULT_PROMPT, REQUIRED_HEADINGS, acceptance
 
 
 @dataclass(frozen=True)
@@ -199,7 +199,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--prompt",
         type=Path,
-        default=Path("fixtures/docx-spec-speed/request.md"),
+        default=DEFAULT_PROMPT,
     )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=240)

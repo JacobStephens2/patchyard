@@ -41,7 +41,7 @@ That would not require Claude Code, OpenCode, or a general agent harness. It wou
 - validates the response against a strict schema; and
 - fails closed on malformed, incomplete, or unrecognized output.
 
-If Muse must explore the repository through `Read`, `Grep`, or `Glob`, it is back inside a tool-using agent envelope, and today's research does not establish that as safe. The existing specification currently expects tool-assisted, read-only triage in [`SPEC.md`](../SPEC.md). Adopting Muse without a harness would therefore require separating triage into two stages:
+If Muse must explore the repository through `Read`, `Grep`, or `Glob`, it is back inside a tool-using agent envelope, and today's research does not establish that as safe. The existing specification currently expects tool-assisted, read-only triage in [`SPEC.md`](../../SPEC.md). Adopting Muse without a harness would therefore require separating triage into two stages:
 
 1. Deterministic evidence collection.
 2. Tool-free model classification.
@@ -50,7 +50,7 @@ Muse remains a candidate for that narrow classification role, not a qualified tr
 
 ## Verification and supplementary review
 
-Muse should not replace `factory-verify`, PHPUnit, patch validation, or policy gates. Those remain deterministic and authoritative under the verification pipeline defined in [`SPEC.md`](../SPEC.md).
+Muse should not replace `factory-verify`, PHPUnit, patch validation, or policy gates. Those remain deterministic and authoritative under the verification pipeline defined in [`SPEC.md`](../../SPEC.md).
 
 Muse could instead serve as an independent cross-family reviewer in a later phase. It could examine a bounded packet containing the proposed patch, acceptance criteria, and deterministic verification evidence, looking for semantic mistakes that tests might miss.
 

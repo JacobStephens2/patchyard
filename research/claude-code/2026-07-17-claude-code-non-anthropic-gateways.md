@@ -6,7 +6,8 @@ Patchyard already has the necessary gateway infrastructure.
 
 - The preview environment runs LiteLLM v1.87.0 at `10.132.0.7:4000`. It
   has been healthy for 11 days and is configured in
-  [`preview-fieldbooks/litellm/config.yaml`](../../preview-fieldbooks/litellm/config.yaml).
+  [`preview-fieldbooks/litellm/config.yaml`](../../../preview-fieldbooks/litellm/config.yaml)
+  (orchestration checkout sibling, not this repo).
   It exposes GPT, Claude, Gemini, GLM and Grok aliases.
 - Tribunal runs a second LiteLLM v1.87.0 deployment with PostgreSQL spend
   logging and OpenTelemetry.
@@ -18,7 +19,7 @@ Patchyard already has the necessary gateway infrastructure.
   - The combined test cost was approximately $0.0047.
 - Therefore, the statement that Claude Code with GLM needs a name-translating
   proxy in
-  [`2026-07-17-harness-smoke-test.md`](2026-07-17-harness-smoke-test.md)
+  [`2026-07-17-harness-smoke-test.md`](../floors/2026-07-17-harness-smoke-test.md)
   is correct, but its "not runnable" status is now stale because Patchyard already
   has that proxy.
 - `OPENROUTER_API_KEY` was not available in the process that performed this

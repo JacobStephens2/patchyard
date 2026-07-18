@@ -3,7 +3,7 @@
 *2026-07-17, evening. Operator: the orchestration agent. Mandate from
 Jacob: retry Muse Spark 1.1 informed by the council response
 (`2026-07-17-muse-spark-council-response.md`), the harness-compatibility
-research (`2026-07-17-Which harnesses work with Muse Spark 1.1_.md`),
+research (`2026-07-17-muse-spark-harnesses.md`),
 and GPT 5.6-Sol's raw probe + captured envelope - test multiple
 harnesses, none, and a custom one. This runs the bisection both prior
 documents called for.*

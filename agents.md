@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | `docs/decision-log.md` | 87 rulings: 55 accepted, 11 deferred, 21 rejected; a ruling wins over a conflicting spec or model field | this repo |
 | `SPEC.md` | Phase-1 build contract | this repo |
-| `factory-model.json` | Schema-validated model: stages, actors, edges, lanes, caps, phases and capacity defaults (A51); `render-model.py` projects Mermaid (A50) | this repo · https://report.example.com/software-factory-model.json |
+| `model/factory-model.json` | Schema-validated model: stages, actors, edges, lanes, caps, phases and capacity defaults (A51); `model/render-model.py` projects Mermaid (A50) | this repo · https://report.example.com/software-factory-model.json |
 | `agents.md` | This constitution; hard rules carried into every factory prompt | this repo |
 | `synthesized-solution.md`, `comparison.md`, `model-assessments.md` | Historical synthesis and provenance for how five inputs merged | orchestration repo: `projects/software-factory/synthesis/` |
 | `factory/queue/` | Jacob's filed rulings land here as `rulings-*.md` | `/srv/orchestration/factory/queue/` |
@@ -164,7 +164,7 @@ first-pass approval >98% is a drift alarm to surface, not a win to report.
 
 ## Updating this project
 
-Edit `factory-model.json` first, then update its identity and regenerate its
+Edit `model/factory-model.json` first, then update its identity and regenerate its
 projections using the workflow in `README.md`. The spec, constitution,
 decision log, model and reviews live in this repo; historical synthesis stays
 under `/srv/orchestration/projects/software-factory/synthesis/`. Hosted copies

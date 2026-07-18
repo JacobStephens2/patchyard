@@ -14,9 +14,9 @@ comparison. This is a factory evaluation, not an interactive developer setup.
 
 ## Current state
 
-- The benchmark matrix now lives at [`../docs/bench.md`](../docs/bench.md).
+- The benchmark matrix now lives at [`../../docs/bench.md`](../../docs/bench.md).
 - The supplied DeepSeek harness research is
-  [`2026-07-17-which harness is best for DeepSeek V4 Flash (Reaso.md`](2026-07-17-which%20harness%20is%20best%20for%20DeepSeek%20V4%20Flash%20%28Reaso.md).
+  [`2026-07-17-deepseek-v4-flash-harness-survey.md`](2026-07-17-deepseek-v4-flash-harness-survey.md).
 - Claude Code `2.1.212` is installed.
 - [`aattaran/deepclaude`](https://github.com/aattaran/deepclaude) exists,
   is MIT-licensed, and is a shell-script installation rather than an npm
@@ -161,8 +161,8 @@ pair directly to a factory seat.
 
 ### 5. Update canonical Patchyard Factory records
 
-Write the complete method and evidence to a new dated file in `research/`.
-Then add separate rows to [`../docs/bench.md`](../docs/bench.md) for:
+Write the complete method and evidence to a new dated file under `research/deepseek-v4/`.
+Then add separate rows to [`../../docs/bench.md`](../../docs/bench.md) for:
 
 - Claude Code x DeepClaude x DeepSeek V4 Flash (max) via DeepInfra
 - Claude Code x DeepClaude x DeepSeek V4 Pro (max) via DeepInfra

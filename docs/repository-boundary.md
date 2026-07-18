@@ -23,9 +23,11 @@ skill work because the constitution is prompt input, not a cutover artifact.
 
 `fixtures/alphabetize/` contains the minimum synthetic request text, expected
 classification, postconditions and scrubbed images needed by the smoke test.
-Raw email attachments and proposal directories remain outside this repo; the
-spec allows only sanitized fixtures in Git, while live artifacts belong in the
-private artifact store.
+Bench-only prompts live under `fixtures/bench/`. The canonical model package
+lives under `model/` (JSON, schema, identity, projectors, tests). Raw email
+attachments and proposal directories remain outside this repo; the spec allows
+only sanitized fixtures in Git, while live artifacts belong in the private
+artifact store.
 
 ## Keep in the orchestration repository
 

@@ -3,7 +3,7 @@
 *2026-07-17. Operator: the orchestration agent, on the orchestration VM.
 Model: `muse-spark-1.1` through Meta's public-preview Model API. This is
 the missing harness-free control for
-[`2026-07-17-harness-smoke-test.md`](2026-07-17-harness-smoke-test.md).*
+[`2026-07-17-harness-smoke-test.md`](../floors/2026-07-17-harness-smoke-test.md).*
 
 ## Result
 

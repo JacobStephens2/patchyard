@@ -26,7 +26,8 @@ phase 1 builds.*
 | GLM 5.2 | default (`--thinking` available) | Pi | Fireworks | ✅ 3/3 | ❌ | US infra | Same as above; Pi exposes native thinking levels |
 | GPT-5.6 Sol | xhigh | Codex | OpenAI | ✅ 3/3 | ✅ | US | Implement bench #1 (no-ceiling order); **adversarial reviewer incumbent** (A41) |
 | gpt-oss-120b | default (pin blocked by Cline schema) | Cline | **Cerebras** (preferred) / Fireworks | ✅ 3/3, 4-6 s/run | ❌ | US | **Speed-seat lead** - Cerebras ~1,000-1,100 tok/s ±5% vs Fireworks 118-234 ([head-to-head](../research/2026-07-17-harness-smoke-test.md)) |
-| gpt-oss-120b | high | OpenCode | DeepInfra | ✅ 3/3, 12.9-16.9 s wall/run | ❌ text-only | US infra; US-created, open weights | **Preferred viable harness** from the ordered search: native `write` tool and exact 7-byte artifact in every run. Harmony Agent missed exact acceptance, Codex + generic adapter was tool-protocol-incompatible, and mini-swe-agent scored 4/10 exact; Cline/Roo were not tested after OpenCode passed ([record](../research/2026-07-17-gpt-oss-120b-deepinfra-harness-selection.md)) |
+| gpt-oss-120b | high | Harmony Agent + Cerebras transport | Cerebras | ❌ **5/10 strict**, 6.103 s median; target bytes exact 10/10 | ❌ text-only | US infra; US-created, open weights | Native Harmony works and the long spec passed in 18.412 s, but default instructions created `.pytest_cache` or `.git` in half the floor runs. Keep as a diagnostic reference, not a factory runner. Upstream also hardcodes local vLLM, so Cerebras needs the recorded transport adapter ([record](../research/2026-07-18-gpt-oss-cerebras-harmonyagent.md)) |
+| gpt-oss-120b | high | OpenCode | DeepInfra | ✅ 3/3, 12.9-16.9 s wall/run | ❌ text-only | US infra; US-created, open weights | **Preferred viable harness** from the ordered search: native `write` tool and exact 7-byte artifact in every run. Harmony Agent's earlier DeepInfra treatment missed exact acceptance, Codex + generic adapter was tool-protocol-incompatible, and mini-swe-agent scored 4/10 exact; Cline/Roo were not tested after OpenCode passed ([record](../research/2026-07-17-gpt-oss-120b-deepinfra-harness-selection.md)) |
 | Grok 4.5 | high | Grok Build | xAI | ✅ 3/3 | ✅ | US | Implement bench #3; tiebreak-verifier candidate |
 | Kimi K2.6 | default | Kimi Code CLI | Fireworks | ✅ 3/3, 7-14 s/run | ✅ | US infra | Native-family harness on US hosting - the clean-provenance Kimi pairing (no K3-style exception needed). Wired via a second provider block in `~/.kimi-code/config.toml`; K2.6 becomes the natural stand-in for the Kimi Code seat until K3 gets a US host |
 | Kimi K2.6 | default | OpenHands | Fireworks | ✅ 3/3 | ✅ | US infra | Implement candidate; V1 SDK-script route (no CLI executable); good cost telemetry |
@@ -41,15 +42,18 @@ phase 1 builds.*
 
 One diagnostic harness run per pair on the same synthetic 1,400-1,800-word
 `docx/specs.md` request, with a 240-second hard cap. OpenCode is the common
-harness for the six original pairs; Luna uses its intended Codex harness. This
-compares long-form wall time; it does not replace pass^k floors or fixture
-admission. Full direct API repetitions, provider-level corrections, and method
-are in the [six-pair research record](../research/2026-07-18-docx-spec-speed-comparison.md)
-and [Luna addendum](../research/2026-07-18-gpt-5p6-luna-max-speed.md).
+harness for the six original pairs; Luna uses Codex, and the later native
+gpt-oss control uses Harmony Agent. This compares long-form wall time; it does
+not replace pass^k floors or fixture admission. Full direct API repetitions,
+provider-level corrections, and method are in the
+[six-pair research record](../research/2026-07-18-docx-spec-speed-comparison.md),
+[Luna addendum](../research/2026-07-18-gpt-5p6-luna-max-speed.md), and
+[Harmony Agent addendum](../research/2026-07-18-gpt-oss-cerebras-harmonyagent.md).
 
 | Pair | Harness wall | Content check | Speed standing |
 | :-- | --: | :-- | :-- |
-| gpt-oss-120b high × Cerebras | **12.651 s** | Miss: 2,372 words, over range | **Lead** - direct median 3.586 s and 1,889.8 visible common t/s |
+| gpt-oss-120b high × Cerebras, OpenCode | **12.651 s** | Miss: 2,372 words, over range | **Lead** - direct median 3.586 s and 1,889.8 visible common t/s |
+| gpt-oss-120b high × Cerebras, Harmony Agent | **18.412 s** | **Pass**, 1,621 words | Fastest exact long-spec result, but floor reliability is only 5/10 |
 | Command A+ high requested × Cohere | **22.514 s** | Miss: 1,290 words, under range | Runner-up; retain OpenCode, but high remains requested rather than verified |
 | Nemotron 3 Ultra × Blackbox | 38.165 s | Miss: over range and one heading | Hold; local direct 161.7 visible t/s and prior stalls |
 | GPT-5.6 Luna max × OpenAI, Codex | **~115 s** | **Pass**, 1,536 words | Fourth on wall; direct 166.2 visible t/s came only after 81.348 s to first answer |

@@ -4,7 +4,7 @@
 Example:
     uv run --with \
       'harmonyagent @ git+https://github.com/borislavmavrin/harmonyagent.git@175dda4a212193b79e5d860186c5043fd9cdc8e1' \
-      benchmark-harmonyagent-cerebras.py WORKDIR PROMPT_FILE
+      tools/benchmark_harmonyagent_cerebras.py WORKDIR PROMPT_FILE
 
 The upstream VllmRawModel is hardcoded to localhost and sends vLLM-only request
 fields. This transport keeps HarmonyAgent's prompt, parser, tools, and stop-token

@@ -96,7 +96,7 @@ Rules:
 Qualification topology: the supervisor minted STS credentials and launched
 Claude Code as a child process on this VM. The final boundary audit used a new
 empty `HOME`, an isolated `CLAUDE_CONFIG_DIR`, and an explicit environment-name
-allowlist. See the [dated evidence](../research/2026-07-17-claude-code-bedrock-haiku.md).
+allowlist. See the [dated evidence](../research/claude-code/2026-07-17-claude-code-bedrock-haiku.md).
 
 ## 4. Environment / config
 

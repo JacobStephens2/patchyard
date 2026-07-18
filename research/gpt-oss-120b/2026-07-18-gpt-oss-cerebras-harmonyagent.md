@@ -56,7 +56,7 @@ remove: skip_special_tokens, min_p, top_k
 ```
 
 The reusable adapter is
-[`benchmark-harmonyagent-cerebras.py`](../benchmark-harmonyagent-cerebras.py).
+[`tools/benchmark_harmonyagent_cerebras.py`](../../tools/benchmark_harmonyagent_cerebras.py).
 
 ## Exact-file floor
 
@@ -84,7 +84,7 @@ rather than measure upstream defaults.
 
 ## Long-spec speed result
 
-The unchanged [`docx/specs.md` request](../fixtures/docx-spec-speed/request.md)
+The unchanged [`docx/specs.md` request](../../fixtures/bench/docx-spec-speed/request.md)
 ran once with the same treatment:
 
 | Measure | Result |

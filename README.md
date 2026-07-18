@@ -9,6 +9,25 @@ Patchyard's software factory: small, self-describing staff requests in, evidence
 pull requests out. One human gate - the PR - held by the engineering
 department + the company owner. The production deploy path is never touched.
 
+## Layout
+
+| Path | Role |
+| :-- | :-- |
+| `SPEC.md` / `PLAN.md` | Phase-1 build contract and session plan |
+| `agents.md` | Constitution - hard rules that ride every factory agent prompt |
+| `model/` | Canonical architecture model + validators, projectors, tests |
+| `docs/` | Decision log, boundaries, living ops (bench, runbooks), ideas inbox |
+| `research/` | Dated world-facing evidence, grouped by topic |
+| `reviews/` | Critiques of our own artifacts plus dispositions |
+| `fixtures/` | Sanitized acceptance fixtures (`alphabetize/`) and bench prompts (`bench/`) |
+| `tools/` | Bench and measurement scripts (not factory runtime) |
+
+Root stays thin so the upcoming Cargo workspace can land without fighting a
+pile of Python helpers. Runtime code will live beside this tree at build;
+design authority and evidence stay where they are.
+
+## Key documents
+
 - **Spec:** [SPEC.md](SPEC.md) - the phase-1 build contract.
 - **Bench status:** [`docs/bench.md`](docs/bench.md) - living at-a-glance
   status of every (model × harness) pair: floor result, seat eligibility,
@@ -20,7 +39,7 @@ department + the company owner. The production deploy path is never touched.
 - **Dated records:** [`reviews/`](reviews/) holds critiques of our own
   artifacts plus their dispositions; [`research/`](research/) holds
   world-facing evidence - harness and provider measurements, external
-  research briefs and their responses.
+  research briefs and their responses. See [`research/README.md`](research/README.md).
 - **Ideas inbox:** [`docs/ideas.md`](docs/ideas.md) - hand-written,
   pre-ruling scratch space. Carries no authority; ideas graduate into the
   decision log or die there.
@@ -33,38 +52,45 @@ department + the company owner. The production deploy path is never touched.
   [`docs/repository-boundary.md`](docs/repository-boundary.md).
 - **Constitution:** [`agents.md`](agents.md). Its hard rules ride every factory
   agent prompt and change only through a human-reviewed pull request.
-- **Acceptance fixtures:** sanitized replay inputs live under `fixtures/`;
-  raw requests and screenshots never enter Git.
-- **Canonical model:** `factory-model.json`, governed by
-  `factory-model.schema.json` and the boundary in
+- **Acceptance fixtures:** sanitized replay inputs live under
+  `fixtures/alphabetize/`; raw requests and screenshots never enter Git.
+  Bench-only prompts live under `fixtures/bench/`.
+- **Canonical model:** `model/factory-model.json`, governed by
+  `model/factory-model.schema.json` and the boundary in
   [`docs/model-boundary.md`](docs/model-boundary.md). Its canonical JSON
-  SHA-256 is committed in `factory-model.sha256`. The model contains stable,
-  queryable architecture and limits; prose, people, status, evidence and
-  runtime state live elsewhere.
+  SHA-256 is committed in `model/factory-model.sha256`. The model contains
+  stable, queryable architecture and limits; prose, people, status, evidence
+  and runtime state live elsewhere.
 
 ## Model workflow
 
 Install the model-validation dependency into the development environment:
 
 ```bash
-python3 -m pip install -r requirements-model.txt
+python3 -m pip install -r model/requirements-model.txt
 ```
 
 After a semantic model edit, increment `modelVersion`, then run:
 
 ```bash
-python3 model-id.py --write
-python3 render-model.py
-./render-model-assets.sh
-./check-model.sh
+python3 model/model-id.py --write
+python3 model/render-model.py
+./model/render-model-assets.sh
+./model/check-model.sh
 ```
 
-`check-model.sh` rejects schema violations, duplicate JSON keys, broken graph
-references and invariants, a stale canonical identity, stale text projections,
-or failing validator tests. Web deployments copy the JSON, schema, identity,
-Mermaid, SVG and PNG as generated artifacts; the factory-repo copies remain
-canonical.
+`model/check-model.sh` rejects schema violations, duplicate JSON keys, broken
+graph references and invariants, a stale canonical identity, stale text
+projections, or failing validator tests. Web deployments copy the JSON,
+schema, identity, Mermaid, SVG and PNG as generated artifacts; the
+`model/` copies remain canonical.
+
+## Bench tools
+
+Measurement scripts live under [`tools/`](tools/) (see
+[`tools/README.md`](tools/README.md)). They write evidence into `research/`
+and never reseat production policy.
 
 Build status: **approved in scope, not yet started** - console ruling
-2026-07-16, "don't build it yet." Nothing in this repo executes anything
-until Jacob's go.
+2026-07-16, "don't build it yet." Nothing in this repo executes factory
+runtime until Jacob's go.

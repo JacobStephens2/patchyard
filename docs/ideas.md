@@ -85,13 +85,13 @@ Model, harness, provider, Index, as of July 17, 2026
 
 Note on Kimi K3, I'm accepting it initially before fully available on American infrastructure, because it is set to be released as open weights around July 27 2026, and then American infrastructure will probably serve it soon after that.
 
-→ smoke-tested 2026-07-17, see `../research/2026-07-17-harness-smoke-test.md`:
+→ smoke-tested 2026-07-17, see `../research/floors/2026-07-17-harness-smoke-test.md`:
 pairs 1-3 pass k=3; pair 4 **fails 0/13 in the tested OpenCode and
 OpenHands loops** (rewrites `muse-*` names to `claude-*` through both
 wirings and past an explicit identity rule) - but the harness-free
 control passes **80/80** raw tool calls on both Meta endpoints
-(`../research/2026-07-17-muse-spark-raw-tool-probe.md`), localized by envelope
-bisection (`../research/2026-07-17-muse-spark-envelope-bisection.md`):
+(`../research/muse-spark/2026-07-17-muse-spark-raw-tool-probe.md`), localized by envelope
+bisection (`../research/muse-spark/2026-07-17-muse-spark-envelope-bisection.md`):
 stochastic model-side identity-token substitution, dose-dependent on
 agentic-envelope richness (100% rich / ~50% minimal / 0% synthetic),
 no "claude" token needed, also emits `cursor-*`; no mitigation reaches

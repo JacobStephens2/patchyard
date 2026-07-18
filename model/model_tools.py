@@ -12,10 +12,11 @@ from typing import Any, Iterable
 
 
 HERE = Path(__file__).resolve().parent
+REPO_ROOT = HERE.parent
 MODEL_PATH = HERE / "factory-model.json"
 SCHEMA_PATH = HERE / "factory-model.schema.json"
 IDENTITY_PATH = HERE / "factory-model.sha256"
-DECISION_LOG_PATH = HERE / "docs" / "decision-log.md"
+DECISION_LOG_PATH = REPO_ROOT / "docs" / "decision-log.md"
 
 SUPPORTED_EDGE_KINDS = {"belt", "exit", "human-gated", "learning"}
 RULING_ROW = re.compile(r"^\|\s*([ADR]\d+)\s*\|")
@@ -89,7 +90,7 @@ def schema_errors(
         from jsonschema import Draft7Validator, FormatChecker
     except ImportError as exc:  # pragma: no cover - depends on host packaging
         raise RuntimeError(
-            "jsonschema is required; install requirements-model.txt"
+            "jsonschema is required; install model/requirements-model.txt"
         ) from exc
 
     version = tuple(int(part) for part in jsonschema.__version__.split(".")[:2])

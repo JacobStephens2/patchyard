@@ -26,7 +26,7 @@ does not predict Patchyard factory wall time.
 - Reasoning: `max`
 - Direct surface: Responses API, streamed
 - Harness: Codex CLI 0.144.5, `codex exec --json --ephemeral`
-- Fixture: [`fixtures/docx-spec-speed/request.md`](../fixtures/docx-spec-speed/request.md)
+- Fixture: [`fixtures/bench/docx-spec-speed/request.md`](../../fixtures/bench/docx-spec-speed/request.md)
 - Common direct cap: 6,000 output tokens, three runs
 - Supplemental throughput cap: 30,000 output tokens, one run
 - Harness cap: 240 seconds

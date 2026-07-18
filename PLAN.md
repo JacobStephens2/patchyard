@@ -30,16 +30,17 @@ are its human-approved budget.
   deliverable is a recorded decision (in `research/` or `docs/`), even if
   its code is thrown away.
 - **The factory repo gets CI in session 1** (fmt, clippy, test,
-  `cargo audit`, `cargo deny`, `./check-model.sh`). This does not
+  `cargo audit`, `cargo deny`, `./model/check-model.sh`). This does not
   conflict with R4: Actions is rejected as the *coding runtime for
   fieldbook changes*; the factory repo running its own test suite in CI is
   ordinary hygiene.
 - **Nothing touches fieldbook prod.** All live-fire runs target scratch
   branches and the preview fleet until the acceptance matrix passes.
 - **Model edits follow `docs/model-boundary.md`'s workflow** (bump
-  `modelVersion`, `model-id.py --write`, `render-model.py`,
-  `./check-model.sh`) and the generated json/schema/identity/mmd/svg/png
-  get copied to the orchestration VM's `hosted/` in the same change.
+  `modelVersion`, `python3 model/model-id.py --write`,
+  `python3 model/render-model.py`, `./model/check-model.sh`) and the
+  generated json/schema/identity/mmd/svg/png under `model/` get copied to
+  the orchestration VM's `hosted/` in the same change.
 - **Nothing is called end-to-end before its dependencies exist.** An
   exit may use fixtures and seeded state when the real mechanism lands
   later, but must say so; the full-pipeline claims live only in the

@@ -10,7 +10,7 @@ gauntlet + shadow mode (D6).*
 **Final Muse attribution update:** the later harness-free tool-call
 control passed 80/80 across Meta's Responses and Chat Completions APIs.
 That result supersedes this report's interim "model-level" conclusion;
-see [the raw tool probe](2026-07-17-muse-spark-raw-tool-probe.md) and
+see [the raw tool probe](../muse-spark/2026-07-17-muse-spark-raw-tool-probe.md) and
 the final Muse addendum below.
 An external research council (three cross-family models) reviewed the
 published brief the same day: consensus favors distillation-induced
@@ -19,10 +19,10 @@ OpenCode's `system.ts` has no `muse`/`meta` branch, so the model
 receives the default Claude-heritage prompt - with concrete mitigations
 proposed (non-Claude-style custom agent prompt; the
 `experimental.chat.system.transform` hook). See
-[the council response](2026-07-17-muse-spark-council-response.md).
+[the council response](../muse-spark/2026-07-17-muse-spark-council-response.md).
 Attribution formally remains open until the envelope bisection runs.
 **Bisection run same evening** - see
-[`2026-07-17-muse-spark-envelope-bisection.md`](2026-07-17-muse-spark-envelope-bisection.md):
+[`2026-07-17-muse-spark-envelope-bisection.md`](../muse-spark/2026-07-17-muse-spark-envelope-bisection.md):
 the substitution is stochastic and dose-dependent (100% under the full
 harness prompt, ~40-50% under minimal agentic envelopes, 0% in the
 fully synthetic probe), needs no "claude" token (the captured envelope
@@ -210,7 +210,7 @@ out an unconditional Muse/Meta filename substitution and overturns the
 interim model-level claim. It does not exonerate the model in the richer
 multi-turn context or prove a harness adapter bug. Full method, raw
 credential-free evidence, specimens, and limitations are in
-[`2026-07-17-muse-spark-raw-tool-probe.md`](2026-07-17-muse-spark-raw-tool-probe.md).
+[`2026-07-17-muse-spark-raw-tool-probe.md`](../muse-spark/2026-07-17-muse-spark-raw-tool-probe.md).
 
 Factory decision: Muse remains out of an implementation seat under the
 current OpenCode and OpenHands configurations. The raw 80/80 pass is a

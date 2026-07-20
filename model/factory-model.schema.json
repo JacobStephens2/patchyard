@@ -27,7 +27,7 @@
       "const": "./factory-model.schema.json"
     },
     "schemaVersion": {
-      "const": 3
+      "const": 4
     },
     "modelVersion": {
       "type": "integer",
@@ -220,14 +220,15 @@
         "controlComponents",
         "worker",
         "management",
-        "rulings"
+        "rulings",
+        "supervisorRuntime"
       ],
       "properties": {
         "phase": {
           "const": "phase-1"
         },
         "controlHost": {
-          "const": "orchestration-vm"
+          "const": "control-plane-vm"
         },
         "controlComponents": {
           "const": [
@@ -246,6 +247,9 @@
         },
         "rulings": {
           "$ref": "#/definitions/rulings"
+        },
+        "supervisorRuntime": {
+          "const": "rust-daemon"
         }
       }
     },

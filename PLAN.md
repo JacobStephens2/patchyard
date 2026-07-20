@@ -19,8 +19,9 @@ The factory's own macro-shape is Plan → Implement → Verify (A47), and lane B
 
 Session 0 covers the worker desired-state component; sessions 1-2 cover the control-plane scaffold and state layer; 3-5 cover worker isolation; 6-7 the verifier plus remote-runtime integration; 8-9 the skill; 10 the publisher; 11-12 the dashboard; 13 the evidence lifecycle; 14 cutover; 15 final acceptance. There is no padded buffer - an overrun surfaces as an overrun instead of compressing the security and failure testing.
 
-### Session 0 - desired-state foundation and worker droplet
+### Session 0 - desired-state foundation, control-plane VM, and worker droplet
 
+- **A68**: session 0 provisions two hosts from one desired state - the control-plane VM (supervisor daemon, PostgreSQL, artifact store, dashboard, Caddy with remote forward_auth, headless Chromium) and the secret-free worker droplet. `factory.example.com` DNS re-points to the control-plane VM as part of this session's exit.
 - Entry: Jacob's "go". Pin OpenTofu and the Ansible runtime/collections on the orchestration controller; add `infra/opentofu/` and `infra/ansible/` with one documented plan, apply, check, replace, and rollback path.
 - Configure DigitalOcean Spaces remote state with `use_lockfile`; backend and provider credentials come only from the controller environment. OpenTofu owns the worker droplet, cloud firewall, SSH public-key attachment, attachment to existing Patchyard tags, and inventory outputs. The worker receives no DigitalOcean credential.
 - Ansible provisions the base OS, `factory-worker` user, packages, host firewall, management access restricted to orchestration, tmpfs/transient run paths, logging, and cleanup. No application/provider secret is copied.
@@ -78,7 +79,7 @@ Session 0 covers the worker desired-state component; sessions 1-2 cover the cont
 
 ### Session 9 - /factory skill part 2: pipeline orchestration
 
-- **Resident supervisor listener (A65)**: a long-running claim loop (`LISTEN` on the intake channel under systemd) that picks up dashboard-queued requests and drives the same pipeline the console path uses; `factoryctl pause`/`resume` gate claiming; per-submitter and global daily run limits enforced at claim time.
+- **Supervisor daemon (A65/A67)**: `factory-supervisor` - the claim loop (`LISTEN` under systemd) and the full pipeline orchestration as one Rust program; agentic stages exec as bounded headless subprocesses; the skill playbook lands as prompt/policy files the daemon consumes; `factoryctl run <id>` drives the same code path in foreground; `factoryctl pause`/`resume` gate claiming; per-submitter and global daily run limits enforced at claim time.
 
 - Supervisor as deterministic steps only, with a test proving raw request content flows exclusively into the isolated triage/worker path - never into the supervisor's own instructions (SPEC trust architecture).
 - Exact-SHA bundle transfer, remote worker invocation, bounded result intake, verify integration, one repair loop (A9) with exhaustion escalating, **provenance fields populated on every run** (model id, CLI version, constitution/rubric/skill/prompt-template/verifier-binary hashes, base tree hash).

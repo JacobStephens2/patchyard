@@ -1,7 +1,7 @@
 {
   "$schema": "./factory-model.schema.json",
-  "schemaVersion": 3,
-  "modelVersion": 8,
+  "schemaVersion": 4,
+  "modelVersion": 9,
   "updated": "2026-07-18",
   "rulings": [
     "A39",
@@ -19,7 +19,7 @@
   },
   "deployment": {
     "phase": "phase-1",
-    "controlHost": "orchestration-vm",
+    "controlHost": "control-plane-vm",
     "controlComponents": [
       "supervisor",
       "postgresql",
@@ -47,8 +47,11 @@
       "desiredStateRepository": "factory"
     },
     "rulings": [
-      "A57"
-    ]
+      "A57",
+      "A67",
+      "A68"
+    ],
+    "supervisorRuntime": "rust-daemon"
   },
   "actorTypes": {
     "human": "Human judgment - the accountable decision",

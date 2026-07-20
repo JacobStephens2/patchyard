@@ -5,9 +5,16 @@
   "description": "Structured source of truth for the (model x harness) Pairs table in docs/bench.md. Narrative sections of bench.md (seat orders, probes, rules) stay prose; evidence stays in research/. Edit this file, then run `python3 tools/check-bench.py --write`.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["last_updated", "aa_index_version", "pairs"],
+  "required": [
+    "last_updated",
+    "aa_index_version",
+    "pairs",
+    "aa_snapshot_date"
+  ],
   "properties": {
-    "$schema": { "type": "string" },
+    "$schema": {
+      "type": "string"
+    },
     "last_updated": {
       "type": "string",
       "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
@@ -28,19 +35,36 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "model", "effort", "harness", "preferred_harness", "host",
-          "floor", "image_input", "provenance", "standing",
-          "visible_tps", "long_spec_wall", "aa_intelligence",
-          "aa_cost_per_task_usd"
+          "model",
+          "effort",
+          "harness",
+          "preferred_harness",
+          "host",
+          "floor",
+          "image_input",
+          "provenance",
+          "standing",
+          "visible_tps",
+          "long_spec_wall",
+          "aa_intelligence",
+          "aa_cost_per_task_usd",
+          "aa_coding_index",
+          "aa_agentic_index"
         ],
         "properties": {
-          "model": { "type": "string", "minLength": 1 },
+          "model": {
+            "type": "string",
+            "minLength": 1
+          },
           "effort": {
             "type": "string",
             "minLength": 1,
             "description": "Reasoning-effort variant, with qualifiers, e.g. 'max (requested)'"
           },
-          "harness": { "type": "string", "minLength": 1 },
+          "harness": {
+            "type": "string",
+            "minLength": 1
+          },
           "preferred_harness": {
             "type": "boolean",
             "description": "True only on rows using the current model-specific harness choice"
@@ -53,9 +77,18 @@
           "floor": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["status", "detail"],
+            "required": [
+              "status",
+              "detail"
+            ],
             "properties": {
-              "status": { "enum": ["pass", "fail", "untested"] },
+              "status": {
+                "enum": [
+                  "pass",
+                  "fail",
+                  "untested"
+                ]
+              },
               "detail": {
                 "type": "string",
                 "description": "Score, timing, cost; inline markdown allowed; empty when untested"
@@ -65,10 +98,21 @@
           "image_input": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["status", "detail"],
+            "required": [
+              "status",
+              "detail"
+            ],
             "properties": {
-              "status": { "enum": ["yes", "no", "unknown"] },
-              "detail": { "type": "string" }
+              "status": {
+                "enum": [
+                  "yes",
+                  "no",
+                  "unknown"
+                ]
+              },
+              "detail": {
+                "type": "string"
+              }
             }
           },
           "provenance": {
@@ -90,18 +134,47 @@
             "description": "End-to-end long-spec wall time for this exact row; display string, empty when unmeasured"
           },
           "aa_intelligence": {
-            "type": ["integer", "null"],
+            "type": [
+              "number",
+              "null"
+            ],
             "minimum": 0,
             "maximum": 100,
             "description": "AA Intelligence Index score for the tracked model/effort variant; null when AA has no row"
           },
           "aa_cost_per_task_usd": {
-            "type": ["number", "null"],
+            "type": [
+              "number",
+              "null"
+            ],
             "minimum": 0,
             "description": "Artificial Analysis provider-page Cost per Task USD for this model/provider pair; null when AA shows --, has no matching provider row, or the row names multiple providers"
+          },
+          "aa_coding_index": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100,
+            "description": "AA Coding Index for the tracked model/effort variant; null when AA has no matching-effort row"
+          },
+          "aa_agentic_index": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100,
+            "description": "AA Agentic Index for the tracked model/effort variant; null when AA has no matching-effort row"
           }
         }
       }
+    },
+    "aa_snapshot_date": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "Date of the AA data snapshots the aa_* fields were last reconciled against (index snapshot + providers leaderboard)"
     }
   }
 }

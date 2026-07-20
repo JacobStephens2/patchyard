@@ -1,7 +1,7 @@
 {
   "$schema": "bench.schema.json",
   "last_updated": "2026-07-20",
-  "update_note": "`Preferred Harness` projection and A58-A61 seat orders retained; Tencent Hy3 x Pi added with observed cost; pair-level speed evidence and Artificial Analysis provider Cost per Task USD values projected into the pairs data",
+  "update_note": "AA columns enriched: coding + agentic indexes (effort-matched from the 2026-07-17 free snapshot; null where no matching-effort row) and aa_snapshot_date provenance.",
   "aa_index_version": "4.1",
   "pairs": [
     {
@@ -23,7 +23,9 @@
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 60,
-      "aa_cost_per_task_usd": 2.75
+      "aa_cost_per_task_usd": 2.75,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "Claude Haiku 4.5",
@@ -44,7 +46,9 @@
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 30,
-      "aa_cost_per_task_usd": null
+      "aa_cost_per_task_usd": null,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "Command A+",
@@ -65,7 +69,9 @@
       "visible_tps": "209.7 (thinking-disabled control)",
       "long_spec_wall": "22.514 s",
       "aa_intelligence": 23,
-      "aa_cost_per_task_usd": 0
+      "aa_cost_per_task_usd": 0,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "DeepSeek V4 Flash",
@@ -86,7 +92,9 @@
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 40,
-      "aa_cost_per_task_usd": null
+      "aa_cost_per_task_usd": null,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "DeepSeek V4 Flash",
@@ -107,7 +115,9 @@
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 40,
-      "aa_cost_per_task_usd": null
+      "aa_cost_per_task_usd": null,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "DeepSeek V4 Pro",
@@ -128,7 +138,9 @@
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 44,
-      "aa_cost_per_task_usd": 1.07
+      "aa_cost_per_task_usd": 1.07,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "DeepSeek V4 Pro",
@@ -149,7 +161,9 @@
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 44,
-      "aa_cost_per_task_usd": 1.07
+      "aa_cost_per_task_usd": 1.07,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "Gemini 3.1 Pro (preview)",
@@ -170,7 +184,9 @@
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 46,
-      "aa_cost_per_task_usd": 0.36
+      "aa_cost_per_task_usd": 0.36,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "Gemini 3.5 Flash",
@@ -191,7 +207,9 @@
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 50,
-      "aa_cost_per_task_usd": 0.59
+      "aa_cost_per_task_usd": 0.59,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "Gemini 3.5 Flash",
@@ -212,7 +230,9 @@
       "visible_tps": "229.3",
       "long_spec_wall": "240.069 s timeout",
       "aa_intelligence": 50,
-      "aa_cost_per_task_usd": 0.59
+      "aa_cost_per_task_usd": 0.59,
+      "aa_coding_index": 70.1,
+      "aa_agentic_index": 37.4
     },
     {
       "model": "GLM 5.2",
@@ -233,7 +253,9 @@
       "visible_tps": "104.8 (max control)",
       "long_spec_wall": "63.5-71.1 s",
       "aa_intelligence": 51,
-      "aa_cost_per_task_usd": null
+      "aa_cost_per_task_usd": null,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "GLM 5.2",
@@ -254,7 +276,9 @@
       "visible_tps": "104.8 (max control)",
       "long_spec_wall": "~169 s default; 175.731 s max",
       "aa_intelligence": 51,
-      "aa_cost_per_task_usd": null
+      "aa_cost_per_task_usd": null,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "GLM 5.2",
@@ -275,7 +299,9 @@
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 51,
-      "aa_cost_per_task_usd": null
+      "aa_cost_per_task_usd": null,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "GPT-5.6 Sol",
@@ -296,7 +322,9 @@
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 58,
-      "aa_cost_per_task_usd": 0.68
+      "aa_cost_per_task_usd": 0.68,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "GPT-5.6 Luna",
@@ -317,7 +345,9 @@
       "visible_tps": "166.2 after 81.348 s delay",
       "long_spec_wall": "~115 s",
       "aa_intelligence": 51,
-      "aa_cost_per_task_usd": null
+      "aa_cost_per_task_usd": null,
+      "aa_coding_index": 71.4,
+      "aa_agentic_index": 45.6
     },
     {
       "model": "gpt-oss-120b",
@@ -334,11 +364,13 @@
         "detail": ""
       },
       "provenance": "US",
-      "standing": "**Speed-seat lead** - Cerebras ~1,000-1,100 tok/s ±5% vs Fireworks 118-234 ([head-to-head](../research/floors/2026-07-17-harness-smoke-test.md))",
+      "standing": "**Speed-seat lead** - Cerebras ~1,000-1,100 tok/s \u00b15% vs Fireworks 118-234 ([head-to-head](../research/floors/2026-07-17-harness-smoke-test.md))",
       "visible_tps": "Cerebras 1,000-1,100; Fireworks 118-234",
       "long_spec_wall": "",
       "aa_intelligence": 24,
-      "aa_cost_per_task_usd": null
+      "aa_cost_per_task_usd": null,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "gpt-oss-120b",
@@ -359,7 +391,9 @@
       "visible_tps": "2,584.9 provider-reported",
       "long_spec_wall": "18.412 s",
       "aa_intelligence": 24,
-      "aa_cost_per_task_usd": 0.12
+      "aa_cost_per_task_usd": 0.12,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "gpt-oss-120b",
@@ -380,7 +414,9 @@
       "visible_tps": "1,889.8",
       "long_spec_wall": "12.651 s",
       "aa_intelligence": 24,
-      "aa_cost_per_task_usd": 0.12
+      "aa_cost_per_task_usd": 0.12,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "gpt-oss-120b",
@@ -401,7 +437,9 @@
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 24,
-      "aa_cost_per_task_usd": 0.02
+      "aa_cost_per_task_usd": 0.02,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "Grok 4.5",
@@ -422,7 +460,9 @@
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 54,
-      "aa_cost_per_task_usd": 0.31
+      "aa_cost_per_task_usd": 0.31,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "Hy3 (Tencent)",
@@ -443,7 +483,9 @@
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 41,
-      "aa_cost_per_task_usd": 0
+      "aa_cost_per_task_usd": 0,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "Kimi K2.6",
@@ -464,7 +506,9 @@
       "visible_tps": "",
       "long_spec_wall": "103.6 / 225.8 s (+1 timeout)",
       "aa_intelligence": 44,
-      "aa_cost_per_task_usd": 0.28
+      "aa_cost_per_task_usd": 0.28,
+      "aa_coding_index": 61.8,
+      "aa_agentic_index": 30.3
     },
     {
       "model": "Kimi K2.6",
@@ -485,7 +529,9 @@
       "visible_tps": "",
       "long_spec_wall": "50.3 / 92.5 s (+1 timeout)",
       "aa_intelligence": 44,
-      "aa_cost_per_task_usd": 0.28
+      "aa_cost_per_task_usd": 0.28,
+      "aa_coding_index": 61.8,
+      "aa_agentic_index": 30.3
     },
     {
       "model": "Kimi K2.6",
@@ -506,14 +552,16 @@
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 44,
-      "aa_cost_per_task_usd": 0.28
+      "aa_cost_per_task_usd": 0.28,
+      "aa_coding_index": 61.8,
+      "aa_agentic_index": 30.3
     },
     {
       "model": "Kimi K3",
       "effort": "default",
       "harness": "Kimi Code CLI",
       "preferred_harness": true,
-      "host": "OpenRouter → Moonshot",
+      "host": "OpenRouter \u2192 Moonshot",
       "floor": {
         "status": "pass",
         "detail": "3/3"
@@ -522,12 +570,14 @@
         "status": "yes",
         "detail": ""
       },
-      "provenance": "⚠️ **interim exception** (CN money; ruled by Jacob pending open weights + US host, ~weeks)",
+      "provenance": "\u26a0\ufe0f **interim exception** (CN money; ruled by Jacob pending open weights + US host, ~weeks)",
       "standing": "Prime triage/verify candidate (intelligence #3) once a US host exists; then: fresh floor probe, allowlist entry, fixture gauntlet",
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 57,
-      "aa_cost_per_task_usd": null
+      "aa_cost_per_task_usd": null,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "MiMo-V2.5-Pro",
@@ -544,11 +594,13 @@
         "detail": ""
       },
       "provenance": "CN-created; Novita hosting (jurisdiction to confirm for the allowlist ruling)",
-      "standing": "Jacob's ideas.md pick; first **direct** Claude Code × non-Anthropic pairing - Novita's Anthropic endpoint passes CLI model validation; intelligence 42 (#18)",
+      "standing": "Jacob's ideas.md pick; first **direct** Claude Code \u00d7 non-Anthropic pairing - Novita's Anthropic endpoint passes CLI model validation; intelligence 42 (#18)",
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 42,
-      "aa_cost_per_task_usd": null
+      "aa_cost_per_task_usd": null,
+      "aa_coding_index": 60.2,
+      "aa_agentic_index": 29.1
     },
     {
       "model": "MiniMax-M3",
@@ -569,7 +621,9 @@
       "visible_tps": "",
       "long_spec_wall": "50.7-92.0 s",
       "aa_intelligence": 44,
-      "aa_cost_per_task_usd": null
+      "aa_cost_per_task_usd": null,
+      "aa_coding_index": 58.6,
+      "aa_agentic_index": 35.4
     },
     {
       "model": "MiniMax-M3",
@@ -590,7 +644,9 @@
       "visible_tps": "",
       "long_spec_wall": "250 s timeout x3",
       "aa_intelligence": 44,
-      "aa_cost_per_task_usd": null
+      "aa_cost_per_task_usd": null,
+      "aa_coding_index": 58.6,
+      "aa_agentic_index": 35.4
     },
     {
       "model": "Muse Spark 1.1",
@@ -611,7 +667,9 @@
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 51,
-      "aa_cost_per_task_usd": 0.26
+      "aa_cost_per_task_usd": 0.26,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "Nemotron 3 Ultra 550B-A55B",
@@ -632,7 +690,9 @@
       "visible_tps": "161.7",
       "long_spec_wall": "38.165 s",
       "aa_intelligence": 38,
-      "aa_cost_per_task_usd": 0.20
+      "aa_cost_per_task_usd": 0.2,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     },
     {
       "model": "Qwen3.7 Max",
@@ -653,7 +713,10 @@
       "visible_tps": "57.6",
       "long_spec_wall": "240.115 s timeout",
       "aa_intelligence": 46,
-      "aa_cost_per_task_usd": 0.52
+      "aa_cost_per_task_usd": 0.52,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
     }
-  ]
+  ],
+  "aa_snapshot_date": "2026-07-17"
 }

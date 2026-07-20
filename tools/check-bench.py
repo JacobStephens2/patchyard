@@ -73,6 +73,7 @@ def render_table(data):
         "Model", "Effort", "Harness", "Preferred Harness", "Host", "Floor",
         "Img-in", "Provenance", "Current standing", "Visible t/s",
         "Long-spec wall", f"AA Intelligence (v{data['aa_index_version']})",
+        "AA Coding", "AA Agentic",
     ]
     lines = [
         "| " + " | ".join(headers) + " |",
@@ -92,6 +93,8 @@ def render_table(data):
             pair["visible_tps"],
             pair["long_spec_wall"],
             "" if pair["aa_intelligence"] is None else str(pair["aa_intelligence"]),
+            "" if pair.get("aa_coding_index") is None else str(pair["aa_coding_index"]),
+            "" if pair.get("aa_agentic_index") is None else str(pair["aa_agentic_index"]),
         ]
         lines.append("| " + " | ".join(escape_cell(c) for c in cells) + " |")
     return lines

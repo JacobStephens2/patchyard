@@ -26,6 +26,10 @@ makes factory PR authorship trigger-independent (§ Identity). The
 session-by-session build plan is
 `PLAN.md`, beside this file.*
 
+*v2.3, 2026-07-20: A63 - live task visibility ships in phase 1 (SSE on
+PostgreSQL LISTEN/NOTIFY, § Dashboard v0); graduates the ideas.md
+dashboard-visibility question.*
+
 **Job statement:** when a small self-describing Fieldbook request arrives,
 help Patchyard turn it into an evidenced pull request within the hour, so that
 staff requests stop dying in inboxes and review is the only human cost.
@@ -244,7 +248,8 @@ bot identity, nor factory output through a human's.
   (admin: verbatim request, stage, drafts, evidence), `GET/POST /new`
   (submit), `GET /evidence/<run>/<name>` (admin: authenticated artifact
   serving - PR bodies link here; no images committed to fieldbook),
-  `GET /healthz`.
+  `GET /request/<id>/events` (admin: SSE stream of that request's
+  event-ledger transitions - A63), `GET /healthz`.
 - **Business-logic boundary (A53)**: the dashboard is a scribe and a
   window - it writes exactly one thing (an intake row) and reads
   everything else; no state transitions, no triage, no caps enforcement,
@@ -260,6 +265,22 @@ bot identity, nor factory output through a human's.
   validation is a quality gate, not a security boundary: the threat
   model assumes well-formed-but-malicious content passes it, and the
   downstream gates re-enforce regardless.
+- **Live visibility (A63)**: the request detail page renders the events
+  ledger as an SSR timeline (stage, actor tag from the model's A49
+  metadata, timestamps, durations, evidence links; current stage
+  highlighted with elapsed time). While the run is non-terminal, a small
+  inline vanilla-JS `EventSource` fragment subscribes to
+  `GET /request/<id>/events` and appends transitions as they happen -
+  the supervisor's event append fires `NOTIFY`, the dashboard's
+  restricted role `LISTEN`s, frames push with no polling at any layer.
+  This is presentation-only JS, inside A53's boundary (validation JS
+  remains zero; no WASM/npm/TS; WebSockets and front-end frameworks
+  remain out - one-directional push suffices). Fallback when JS or the
+  stream is unavailable: the page emits a conditional `Refresh` header
+  while non-terminal, so the zero-JS path still shows progress. Caddy
+  must pass the events route unbuffered with long-lived connections
+  permitted; the stream authenticates through the same forward_auth
+  session as every other admin route.
 - **Upload hardening acceptance criteria**: canonical server-generated
   IDs and filenames (user filename never a path); create-new + atomic
   rename; magic-byte sniffing + decoder pixel limits + re-encode to clean
@@ -346,7 +367,9 @@ tree hash. Replays are meaningless without them.
 6. **Gates**: every `factory-verify` subcommand fails its enumerated
    mutations (cargo test); eval rubric (A38) scored on every replay.
 7. **Dashboard**: submit → receipt; admin sees stage transitions through
-   a full run; anonymous 302; upload fixtures rejected; evidence route
+   a full run **live on the SSE stream** (event appended → frame received,
+   no reload) and on the conditional-refresh fallback; anonymous 302 on
+   pages and stream alike; upload fixtures rejected; evidence route
    authenticated.
 8. **Worker infrastructure** (one clean-room replacement after the repeated
    behavioral cases): a clean worker is created and configured from

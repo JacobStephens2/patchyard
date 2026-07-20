@@ -23,6 +23,5 @@ Two rules only:
 
 ---
 
-## 2026-07-18
-
-How will the dashboard user be able to view the state of a task as it proceeds through the factory? through the pipeline? Does having visibility like this on the dashboard warrant more front end than the minimal SSR html and possibly very slight javascript we've thus far imagined?
+*(Inbox empty - last entry, the 2026-07-18 dashboard-visibility
+question, graduated 2026-07-20 as A63 and swept.)*

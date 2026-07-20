@@ -267,8 +267,17 @@ instead of compressing the security and failure testing.
   cannot update/delete state or mutate events even through direct SQL.
   Form constraints are template-injected from core constants. Refresh
   action triggers the bounded reconcile.
+- **Live visibility (A63)**: SSR event-ledger timeline on the detail
+  page; `GET /request/<id>/events` SSE endpoint driven by PostgreSQL
+  `LISTEN/NOTIFY` (no polling at any layer); inline vanilla `EventSource`
+  fragment (presentation-only, within A53); conditional `Refresh`-header
+  fallback while non-terminal; Caddy configured unbuffered/long-lived on
+  the events route.
 - Exit: a **route-by-role matrix** (anonymous/submitter/admin × every
-  route, exact 302/200/403 outcomes) green against seeded state;
+  route, exact 302/200/403 outcomes - the SSE route included) green
+  against seeded state; an integration test proves a seeded event
+  insert reaches a connected `EventSource` client as a frame within a
+  second, and the non-terminal fallback header renders;
   systemd/Caddy/socket hardening asserted. Full-run stage-transition
   display is explicitly *not* claimed here - it lands in session 15.
 

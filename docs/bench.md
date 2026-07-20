@@ -88,12 +88,11 @@ Text + image input:
 | :-- | :-- | :-- | :-- | --: |
 | 1 | MiniMax-M3 | Claude Code (2026-07-18 A/B - see Pairs; ideas listed OpenCode) | Novita | $0.12 |
 | 2 | GPT-5.6 Luna (max) | Codex | OpenAI | $0.21 |
-| 3 | Muse Spark 1.1 (xhigh) | harness-free only (implement seat closed - see Pairs) | Meta | $0.26 |
-| 4 | Claude 4.5 Haiku | Claude Code | Amazon Bedrock | $0.27 |
+| 3 | Claude 4.5 Haiku | Claude Code | Amazon Bedrock | $0.27 |
+| 4 | Nemotron 3 Ultra | OpenCode | Blackbox | $0.27 |
 | 5 | Gemini 3.1 Pro Preview | Gemini CLI | Google (Vertex preferred over AI Studio) | $0.29 |
 
-If Muse Spark needs a fallback, Claude 4.5 Haiku takes slot 3 and the
-provisional slot 5 (Gemini) activates.
+Muse Spark 1.1 (xhigh) is worth reconsidering for seat 5 eventually, but it was not reliable with any given harness as of July 17 2026 testing.
 
 ### Implement worker seats
 

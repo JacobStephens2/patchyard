@@ -1,0 +1,3 @@
+body {
+    --file-line-width: 100ch;  /* or 1000px, or 100% */
+}

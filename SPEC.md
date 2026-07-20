@@ -30,6 +30,10 @@ session-by-session build plan is
 PostgreSQL LISTEN/NOTIFY, § Dashboard v0); graduates the ideas.md
 dashboard-visibility question.*
 
+*v2.4, 2026-07-20: A65 - dashboard submission starts a run (queue +
+resident supervisor listener; scribe boundary preserved); A64 visual
+identity.*
+
 **Job statement:** when a small self-describing Fieldbook request arrives,
 help Patchyard turn it into an evidenced pull request within the hour, so that
 staff requests stop dying in inboxes and review is the only human cost.
@@ -88,10 +92,19 @@ cross-family verify, kill-switch UI.
 The lethal-trifecta rule applies to phase 1: the component that reads
 untrusted request content must hold nothing worth stealing.
 
-- **Supervisor** (the engineer's orchestration session): deterministic
-  steps only - claims the request from PostgreSQL, spawns the worker, applies
-  the verified patch, publishes. Never feeds raw request content to
-  itself as instructions.
+- **Supervisor**: deterministic steps only - claims the request from
+  PostgreSQL, spawns the worker, applies the verified patch, publishes.
+  Never feeds raw request content to itself as instructions. Two entry
+  points in phase 1 (A65): a **resident listener** (`LISTEN` on the
+  intake channel) that claims dashboard-queued requests as they arrive,
+  and the engineer console path (`/factory <id>`) for out-of-band runs.
+  Dashboard-triggered runs are attended-by-submitter: a known
+  `factory_submit` human vouched by submitting, and a human still
+  merges; A18's automated cross-family verifier remains phase 2
+  (it attaches to unvouched intake, not staff submissions).
+  Guardrails on the queue path: the 2-open-PR cap throttles drain,
+  per-submitter and global daily run limits apply, and
+  `factoryctl pause` halts claiming without touching in-flight runs.
 - **Triage** runs as a no-shell subagent (Read/Grep/Glob only - harness-
   enforced; defense-in-depth under the OS boundary, not a substitute).
 - **Implement worker** runs on the dedicated worker droplet inside an isolated
@@ -243,7 +256,10 @@ bot identity, nor factory output through a human's.
 - **Authorization**: new `factory_submit` and `factory_admin` permissions
   in the members store - `reports` is not reused. Request lists,
   detail pages, evidence, and operational state are `factory_admin`-only
-  in phase 1; a bare submitter sees a success receipt.
+  in phase 1; a bare submitter sees a success receipt - which for a
+  lane-A-classified request includes its live run status (A65: submission
+  starts the run via the queue; the dashboard writes the intake row and
+  `NOTIFY`s, the supervisor listener does everything else).
 - Routes: `GET /` (admin: list + stage badges), `GET /request/<id>`
   (admin: verbatim request, stage, drafts, evidence), `GET/POST /new`
   (submit), `GET /evidence/<run>/<name>` (admin: authenticated artifact
@@ -376,8 +392,10 @@ tree hash. Replays are meaningless without them.
    loop exhaustion escalates.
 6. **Gates**: every `factory-verify` subcommand fails its enumerated
    mutations (cargo test); eval rubric (A38) scored on every replay.
-7. **Dashboard**: submit → receipt; admin sees stage transitions through
-   a full run **live on the SSE stream** (event appended → frame received,
+7. **Dashboard**: submit → receipt **→ run starts without console
+   intervention** (A65: queued row claimed by the listener; pause switch
+   verifiably halts claiming; daily limits enforced); admin sees stage
+   transitions through a full run **live on the SSE stream** (event appended → frame received,
    no reload) and on the conditional-refresh fallback; anonymous 302 on
    pages and stream alike; upload fixtures rejected; evidence route
    authenticated.

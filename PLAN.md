@@ -215,6 +215,12 @@ instead of compressing the security and failure testing.
 
 ### Session 9 - /factory skill part 2: pipeline orchestration
 
+- **Resident supervisor listener (A65)**: a long-running claim loop
+  (`LISTEN` on the intake channel under systemd) that picks up
+  dashboard-queued requests and drives the same pipeline the console
+  path uses; `factoryctl pause`/`resume` gate claiming; per-submitter
+  and global daily run limits enforced at claim time.
+
 - Supervisor as deterministic steps only, with a test proving raw
   request content flows exclusively into the isolated triage/worker
   path - never into the supervisor's own instructions (SPEC trust
@@ -282,6 +288,9 @@ instead of compressing the security and failure testing.
   against seeded state; an integration test proves a seeded event
   insert reaches a connected `EventSource` client as a frame within a
   second, and the non-terminal fallback header renders;
+  a submitted form yields a queued row that the (session-9) listener
+  claims end-to-end in the integration environment - submit → run with
+  no console step - and `factoryctl pause` verifiably stops claiming;
   systemd/Caddy/socket hardening asserted. Full-run stage-transition
   display is explicitly *not* claimed here - it lands in session 15.
 

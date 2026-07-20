@@ -7,3 +7,4 @@ venv/
 target/
 *.egg-info/
 .mypy_cache/
+.obsidian/workspace.json

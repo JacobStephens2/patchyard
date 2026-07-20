@@ -100,6 +100,29 @@
             padding: 4px 10px
         }
 
+        .tools {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 12px
+        }
+
+        .preferred-filter {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--muted);
+            font-size: 12px;
+            white-space: nowrap
+        }
+
+        .preferred-filter input {
+            width: auto;
+            margin: 0;
+            padding: 0;
+            accent-color: var(--accent)
+        }
+
         .table-wrap {
             border: 1px solid var(--line);
             background: var(--panel);
@@ -227,7 +250,10 @@
                     seat orders: <a href="bench.md">bench.md</a></div>
             </div><label>Filter<input id="filter" type="search" autocomplete="off"
                     placeholder="Model, harness, host, status"></label>
-            <div class="pill" id="count">Loading</div>
+            <div class="tools"><label class="preferred-filter"><input id="preferredOnly" type="checkbox"> Preferred
+                    only</label>
+                <div class="pill" id="count">Loading</div>
+            </div>
         </div>
     </header>
     <main>
@@ -237,12 +263,13 @@
         </div>
     </main>
     <script>
-        const source = "bench.json", table = document.querySelector("#pairs"), count = document.querySelector("#count"), meta = document.querySelector("#meta"), filter = document.querySelector("#filter");
+        const source = "bench.json", table = document.querySelector("#pairs"), count = document.querySelector("#count"), meta = document.querySelector("#meta"), filter = document.querySelector("#filter"), preferredOnly = document.querySelector("#preferredOnly");
         const FLOOR = { pass: { icon: "✅", cls: "ok", rank: 2 }, fail: { icon: "❌", cls: "bad", rank: 0 }, untested: { icon: "-", cls: "", rank: -1 } };
         const IMAGE = { yes: { icon: "✅", cls: "ok", rank: 2 }, unknown: { icon: "?", cls: "unknown", rank: 1 }, no: { icon: "❌", cls: "bad", rank: 0 } };
         let columns = [], rows = [], sortCol = -1, sortDir = 1;
         fetch(source, { cache: "no-store" }).then(r => { if (!r.ok) throw Error(`${source}: ${r.status}`); return r.json() }).then(init).catch(showError);
         filter.addEventListener("input", render);
+        preferredOnly.addEventListener("change", render);
         table.addEventListener("click", event => { const button = event.target.closest("button[data-col]"); if (!button) return; const col = Number(button.dataset.col); sortDir = sortCol === col ? -sortDir : columns[col].descFirst ? -1 : 1; sortCol = col; render() });
         function iconCell(field, icons) { const spec = icons[field.status]; const text = field.detail ? `${spec.icon} ${field.detail}` : spec.icon; return { html: inlineMarkdown(text), text: plain(text), sort: spec.rank, cls: spec.cls } }
         function textCell(value) { return { html: escapeHtml(value), text: value, sort: value.toLowerCase() } }
@@ -263,8 +290,8 @@
                 { label: `AA Intelligence (v${aaVersion})`, descFirst: true, cell: p => ({ html: p.aa_intelligence === null ? "" : String(p.aa_intelligence), text: p.aa_intelligence === null ? "" : String(p.aa_intelligence), sort: p.aa_intelligence === null ? Number.NEGATIVE_INFINITY : p.aa_intelligence }) }
             ]
         }
-        function init(data) { columns = makeColumns(data.aa_index_version); rows = data.pairs.map((pair, index) => ({ index, cells: columns.map(column => column.cell(pair)) })); meta.innerHTML = `<span class="pill">${rows.length} pairs from ${source}</span><span>Pairs data as of ${escapeHtml(data.last_updated)}${data.update_note ? ` (${escapeHtml(data.update_note)})` : ""}.</span>`; render() }
-        function render() { const term = filter.value.trim().toLowerCase(); let visible = rows.filter(row => row.cells.map(cell => cell.text).join(" ").toLowerCase().includes(term)); if (sortCol >= 0) visible = [...visible].sort(compareRows); count.textContent = `${visible.length} / ${rows.length}`; table.innerHTML = `<thead><tr>${columns.map((column, index) => `<th aria-sort="${ariaSort(index)}"><button type="button" data-col="${index}"><span>${escapeHtml(column.label)}</span><span>${sortMark(index)}</span></button></th>`).join("")}</tr></thead><tbody>${visible.map(row => `<tr>${row.cells.map(cell => `<td class="${cell.cls || ""}">${cell.html}</td>`).join("")}</tr>`).join("")}</tbody>` }
+        function init(data) { columns = makeColumns(data.aa_index_version); rows = data.pairs.map((pair, index) => ({ index, preferred: pair.preferred_harness, cells: columns.map(column => column.cell(pair)) })); meta.innerHTML = `<span class="pill">${rows.length} pairs from ${source}</span><span>Pairs data as of ${escapeHtml(data.last_updated)}${data.update_note ? ` (${escapeHtml(data.update_note)})` : ""}.</span>`; render() }
+        function render() { const term = filter.value.trim().toLowerCase(); let visible = rows.filter(row => (!preferredOnly.checked || row.preferred) && row.cells.map(cell => cell.text).join(" ").toLowerCase().includes(term)); if (sortCol >= 0) visible = [...visible].sort(compareRows); count.textContent = `${visible.length} / ${rows.length}`; table.innerHTML = `<thead><tr>${columns.map((column, index) => `<th aria-sort="${ariaSort(index)}"><button type="button" data-col="${index}"><span>${escapeHtml(column.label)}</span><span>${sortMark(index)}</span></button></th>`).join("")}</tr></thead><tbody>${visible.map(row => `<tr>${row.cells.map(cell => `<td class="${cell.cls || ""}">${cell.html}</td>`).join("")}</tr>`).join("")}</tbody>` }
         function compareRows(a, b) { const left = a.cells[sortCol].sort, right = b.cells[sortCol].sort; const result = typeof left === "number" && typeof right === "number" ? left - right : String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" }); return result ? result * sortDir : a.index - b.index }
         function maxNumber(value) { const numbers = value.replace(/,/g, "").match(/\d+(?:\.\d+)?/g); return numbers ? Math.max(...numbers.map(Number)) : Number.NEGATIVE_INFINITY }
         function inlineMarkdown(value) { return escapeHtml(value).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => `<a href="${safeHref(url)}">${text}</a>`).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/\*([^*]+)\*/g, "<em>$1</em>") }

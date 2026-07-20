@@ -1,41 +1,28 @@
 # Factory model boundary
 
-`model/factory-model.json` is the canonical machine-readable architecture
-model. It is deliberately narrower than the factory's complete design record.
+`model/factory-model.json` is the canonical machine-readable architecture model. It is deliberately narrower than the factory's complete design record.
 
 ## What belongs in the model
 
-- Stable identifiers and relationships: lanes, stages, entities, edges and
-  macro-stage membership.
-- Stable deployment and credential boundaries: control-plane placement,
-  worker placement, execution isolation, and the desired-state toolchain.
+- Stable identifiers and relationships: lanes, stages, entities, edges and macro-stage membership.
+- Stable deployment and credential boundaries: control-plane placement, worker placement, execution isolation, and the desired-state toolchain.
 - Actor classifications and intake-source classifications.
 - Safety limits and the immutable human-approval boundary.
 - Structured phase states and measurable evidence thresholds.
 - Capacity-simulator inputs.
 - Ruling identifiers needed to trace structural choices.
 
-These fields have consumers or invariants that code can validate. The JSON
-Schema defines their shape; `model/validate-model.py` checks cross-references
-and graph properties that JSON Schema cannot express, including that every
-model ruling reference resolves to one unique row in `docs/decision-log.md`.
+These fields have consumers or invariants that code can validate. The JSON Schema defines their shape; `model/validate-model.py` checks cross-references and graph properties that JSON Schema cannot express, including that every model ruling reference resolves to one unique row in `docs/decision-log.md`.
 
 ## What does not belong in the model
 
-- Design rationale, examples, implementation notes and prose restatements of
-  graph transitions.
+- Design rationale, examples, implementation notes and prose restatements of graph transitions.
 - Named people, availability notes or current approver rosters.
 - Repository, pull-request, deployment-status or branch-protection status.
 - Dated demand evidence, review dispositions or build-progress narration.
 - Runtime requests, runs, artifacts, leases or current pipeline state.
 
-The phase-1 build contract belongs in `SPEC.md`; its session ordering belongs
-in `PLAN.md`; critique records belong in `reviews/`; measurement and research
-records (harness/provider evidence, external research) in `research/`; rulings belong in the
-local `docs/decision-log.md`. The founding synthesis remains historical
-provenance in the orchestration repository at
-`projects/software-factory/synthesis/`. Runtime state will live in PostgreSQL
-and the private artifact store described by the spec.
+The phase-1 build contract belongs in `SPEC.md`; its session ordering belongs in `PLAN.md`; critique records belong in `reviews/`; measurement and research records (harness/provider evidence, external research) in `research/`; rulings belong in the local `docs/decision-log.md`. The founding synthesis remains historical provenance in the orchestration repository at `projects/software-factory/synthesis/`. Runtime state will live in PostgreSQL and the private artifact store described by the spec.
 
 ## Authority and identity
 
@@ -43,24 +30,17 @@ The authorities answer different questions:
 
 1. Human rulings and the decision log say **why** a choice was made.
 2. `SPEC.md` says **what must be built** in phase 1.
-3. `model/factory-model.json` says **what the stable architecture is** in a
-   form projectors and other software can query.
+3. `model/factory-model.json` says **what the stable architecture is** in a form projectors and other software can query.
 4. PostgreSQL will say **what is happening now** after the runtime exists.
 
-`model/factory-model.sha256` is the SHA-256 of the model's stable canonical
-JSON serialization: UTF-8, sorted object keys, no insignificant whitespace. A
-run must record this identity together with the factory repository commit. The
-hash identifies model content; the commit identifies its reviewed history.
+`model/factory-model.sha256` is the SHA-256 of the model's stable canonical JSON serialization: UTF-8, sorted object keys, no insignificant whitespace. A run must record this identity together with the factory repository commit. The hash identifies model content; the commit identifies its reviewed history.
 
 ## Editing workflow
 
-1. Edit `model/factory-model.json` and increment `modelVersion` for a semantic
-   change. Increment `schemaVersion` only for a schema-contract change.
+1. Edit `model/factory-model.json` and increment `modelVersion` for a semantic change. Increment `schemaVersion` only for a schema-contract change.
 2. Run `python3 model/model-id.py --write`.
 3. Run `python3 model/render-model.py`.
 4. Run `./model/render-model-assets.sh` when the rendered web assets are needed.
 5. Run `./model/check-model.sh` before committing.
 
-Generated projections are never edited by hand. The model package lives under
-`model/` so the upcoming Cargo workspace can occupy the repository root without
-colliding with validators and projections.
+Generated projections are never edited by hand. The model package lives under `model/` so the upcoming Cargo workspace can occupy the repository root without colliding with validators and projections.

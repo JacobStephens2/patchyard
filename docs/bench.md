@@ -1,32 +1,18 @@
 # Bench status
 
-*Living document - the at-a-glance answer to "what's the current status
-of each (model × harness) pair?" Edited in place as statuses change; the
-evidence stays in `../research/`'s dated records, which this file only
-cites. Floor probe = the muse-smoke exact-instruction check
-(`../research/floors/2026-07-17-harness-smoke-test.md`), k=3 unless noted.
-Seats are design-time assignments; nothing runs in production until
-phase 1 builds.*
+*Living document - the at-a-glance answer to "what's the current status of each (model × harness) pair?" Edited in place as statuses change; the evidence stays in `../research/`'s dated records, which this file only cites. Floor probe = the muse-smoke exact-instruction check (`../research/floors/2026-07-17-harness-smoke-test.md`), k=3 unless noted. Seats are design-time assignments; nothing runs in production until phase 1 builds.*
 
-*Last updated: 2026-07-20 (`Preferred Harness` projection and A58-A61 seat
-orders retained; Tencent Hy3 x Pi added with observed cost; pair-level speed
-evidence projected into the Pairs table).*
+*Last updated: 2026-07-20 (`Preferred Harness` projection and A58-A61 seat orders retained; Tencent Hy3 x Pi added with observed cost; pair-level speed evidence projected into the Pairs table).*
 
 *AA Intelligence (v4.1) is the [Artificial Analysis Intelligence Index](https://artificialanalysis.ai/methodology/intelligence-benchmarking) score for the corresponding tracked model/effort variant, using AA's canonical tracked variant where this bench's `default` has no separate AA row. Scores are rounded as displayed and checked 2026-07-20; they are model-level, not provider-level.*
 
 ## Pairs
 
-`Preferred Harness` is `Yes` only when the row uses the current
-model-specific harness choice. `No` includes alternate or retired treatments
-and models whose only reliable preference is harness-free.
+`Preferred Harness` is `Yes` only when the row uses the current model-specific harness choice. `No` includes alternate or retired treatments and models whose only reliable preference is harness-free.
 
-`Visible t/s` is raw provider delivery after visible text begins, so it omits
-reasoning delay and harness work. `Long-spec wall` is end-to-end for the exact
-model x harness row. Blank cells mean that treatment was not measured.
+`Visible t/s` is raw provider delivery after visible text begins, so it omits reasoning delay and harness work. `Long-spec wall` is end-to-end for the exact model x harness row. Blank cells mean that treatment was not measured.
 
-This table is generated from [`bench.json`](bench.json) (schema:
-[`bench.schema.json`](bench.schema.json)) - edit the JSON, then run
-`python3 tools/check-bench.py --write`. Do not hand-edit the table rows.
+This table is generated from [`bench.json`](bench.json) (schema: [`bench.schema.json`](bench.schema.json)) - edit the JSON, then run `python3 tools/check-bench.py --write`. Do not hand-edit the table rows.
 
 <!-- BEGIN GENERATED pairs table: edit docs/bench.json, then run `python3 tools/check-bench.py --write` -->
 | Model | Effort | Harness | Preferred Harness | Host | Floor | Img-in | Provenance | Current standing | Visible t/s | Long-spec wall | AA Intelligence (v4.1) |
@@ -66,22 +52,7 @@ This table is generated from [`bench.json`](bench.json) (schema:
 
 ## Seat preference orders (A58-A61)
 
-Graduated 2026-07-18 from `ideas.md`; this section is the operative
-roster (`ideas.md` carries no authority). Method (A58): when task
-quality has a ceiling relative to intelligence in / when it is verifiable / more easily verifiable, seat the cheapest
-model that clears it at reliability parity; when there is no ceiling (especially non-verifiable tasks),
-seat max intelligence. Constraints: usage money flows to American
-companies (A59), no two seats share a model family or harness (A60),
-and only allowlisted providers receive fieldbook source + request
-content (A61). Reference charts are Artificial Analysis; they render
-client-side, so refresh via the headless harness (`tools/aa-sweep.py`
-snapshots to `../research/aa-snapshots/`). Reorders within these rules
-are edits here, no new ruling; provider membership changes are A61
-roster changes. `tools/check-seats.py` cross-checks these tables
-against `bench.json` and the A61 allowlist (model/pair membership,
-preferred harness, floors, rank ordering, speed values) - run it after
-editing this section. Chart-sourced Index and $/task values get
-ordering checks only; they refresh via `tools/aa-sweep.py`.
+Graduated 2026-07-18 from `ideas.md`; this section is the operative roster (`ideas.md` carries no authority). Method (A58): when task quality has a ceiling relative to intelligence in / when it is verifiable / more easily verifiable, seat the cheapest model that clears it at reliability parity; when there is no ceiling (especially non-verifiable tasks), seat max intelligence. Constraints: usage money flows to American companies (A59), no two seats share a model family or harness (A60), and only allowlisted providers receive fieldbook source + request content (A61). Reference charts are Artificial Analysis; they render client-side, so refresh via the headless harness (`tools/aa-sweep.py` snapshots to `../research/aa-snapshots/`). Reorders within these rules are edits here, no new ruling; provider membership changes are A61 roster changes. `tools/check-seats.py` cross-checks these tables against `bench.json` and the A61 allowlist (model/pair membership, preferred harness, floors, rank ordering, speed values) - run it after editing this section. Chart-sourced Index and $/task values get ordering checks only; they refresh via `tools/aa-sweep.py`.
 
 ### Triage / cross-family verification seats
 
@@ -121,8 +92,7 @@ Muse Spark 1.1 (xhigh) is worth reconsidering for seat 5 eventually, but it was 
 
 ### Implement worker seats
 
-Harness pairing matters most here - tool use and loop quality dominate
-(A58). Primary chart: [AA Coding Agent Index](https://artificialanalysis.ai/agents/coding-agents?coding-agents-performance-chart=index#coding-agents-index).
+Harness pairing matters most here - tool use and loop quality dominate (A58). Primary chart: [AA Coding Agent Index](https://artificialanalysis.ai/agents/coding-agents?coding-agents-performance-chart=index#coding-agents-index).
 
 **No ceiling** (as of 2026-07-17):
 
@@ -133,9 +103,7 @@ Harness pairing matters most here - tool use and loop quality dominate
 | 3 | Grok 4.5 (high) | Grok Build | xAI | 58 |
 | 4 | Kimi K3 | Kimi Code CLI | OpenRouter (A59 interim) | 57 |
 
-Seats 1-3 pass the floor at k=3
-(`../research/floors/2026-07-17-harness-smoke-test.md`); Muse Spark's
-implement seat is closed (see Pairs).
+Seats 1-3 pass the floor at k=3 (`../research/floors/2026-07-17-harness-smoke-test.md`); Muse Spark's implement seat is closed (see Pairs).
 
 **Ceiling** ([AA coding-agent cost per task](https://artificialanalysis.ai/agents/coding-agents#coding-agents-cost-chart-tabs); as of 2026-07-17):
 
@@ -159,12 +127,7 @@ Text + image input:
 
 ### Speed seats
 
-Ranked by end-to-end long-spec harness wall time - headline
-[AA output speed](https://artificialanalysis.ai/#speed-tabs) excludes
-reasoning delay and harness behavior; local visible t/s is retained to
-show raw delivery. Data: § Long-spec speed probe. As of 2026-07-18.
-GLM-5.2 ranks above Luna on the post-A/B Claude Code wall time -
-`ideas.md`'s list predates this re-rank.
+Ranked by end-to-end long-spec harness wall time - headline [AA output speed](https://artificialanalysis.ai/#speed-tabs) excludes reasoning delay and harness behavior; local visible t/s is retained to show raw delivery. Data: § Long-spec speed probe. As of 2026-07-18. GLM-5.2 ranks above Luna on the post-A/B Claude Code wall time - `ideas.md`'s list predates this re-rank.
 
 | # | Model | Harness | Provider | Visible t/s | Long-spec wall |
 | :-- | :-- | :-- | :-- | :-- | :-- |
@@ -178,15 +141,7 @@ GLM-5.2 ranks above Luna on the post-A/B Claude Code wall time -
 
 ## Long-spec speed probe
 
-One diagnostic harness run per pair on the same synthetic 1,400-1,800-word
-`docx/specs.md` request, with a 240-second hard cap. OpenCode is the common
-harness for the six original pairs; Luna uses Codex, and the later native
-gpt-oss control uses Harmony Agent. This compares long-form wall time; it does
-not replace pass^k floors or fixture admission. Full direct API repetitions,
-provider-level corrections, and method are in the
-[six-pair research record](../research/long-spec-speed/2026-07-18-docx-spec-speed-comparison.md),
-[Luna addendum](../research/long-spec-speed/2026-07-18-gpt-5p6-luna-max-speed.md), and
-[Harmony Agent addendum](../research/gpt-oss-120b/2026-07-18-gpt-oss-cerebras-harmonyagent.md).
+One diagnostic harness run per pair on the same synthetic 1,400-1,800-word `docx/specs.md` request, with a 240-second hard cap. OpenCode is the common harness for the six original pairs; Luna uses Codex, and the later native gpt-oss control uses Harmony Agent. This compares long-form wall time; it does not replace pass^k floors or fixture admission. Full direct API repetitions, provider-level corrections, and method are in the [six-pair research record](../research/long-spec-speed/2026-07-18-docx-spec-speed-comparison.md), [Luna addendum](../research/long-spec-speed/2026-07-18-gpt-5p6-luna-max-speed.md), and [Harmony Agent addendum](../research/gpt-oss-120b/2026-07-18-gpt-oss-cerebras-harmonyagent.md).
 
 | Pair | Harness wall | Content check | Speed standing |
 | :-- | --: | :-- | :-- |
@@ -201,26 +156,11 @@ provider-level corrections, and method are in the
 
 ## Gateway routes (change what's runnable)
 
-- **Claude Code × non-Anthropic models is now viable**: verified through
-  Patchyard's existing preview LiteLLM gateway (GLM `Write` call produced the
-  exact requested file), and OpenRouter's Anthropic-compatible endpoint
-  supports Claude Code directly
-  ([gateways note](../research/claude-code/2026-07-17-claude-code-non-anthropic-gateways.md)).
-  The smoke-test report's "not runnable" for Claude Code × GLM is stale.
-- **Novita's Anthropic-compatible endpoint works with Claude Code
-  directly** (no gateway): `ANTHROPIC_BASE_URL=https://api.novita.ai/anthropic`
-  + the Novita model id as `--model`, in an isolated `CLAUDE_CONFIG_DIR`.
-  First proof that the CLI's model validation is satisfied by a
-  well-shaped third-party endpoint - the proxy requirement is
-  per-endpoint, not absolute.
-- **Fireworks works with Claude Code directly too**:
-  `ANTHROPIC_BASE_URL=https://api.fireworks.ai/inference` (base
-  **without** `/v1` - the CLI appends its own paths; the 07-17 "rejects
-  non-Claude names" finding was a double-pathed base URL). DeepInfra's
-  `https://api.deepinfra.com/anthropic` likewise. Direct Anthropic
-  surfaces now verified on three hosts: Novita, Fireworks, DeepInfra.
-- Meta's Anthropic-compatible endpoint does **not** alias Claude model
-  names - Claude Code × Muse still needs one of the gateways above.
+- **Claude Code × non-Anthropic models is now viable**: verified through Patchyard's existing preview LiteLLM gateway (GLM `Write` call produced the exact requested file), and OpenRouter's Anthropic-compatible endpoint supports Claude Code directly ([gateways note](../research/claude-code/2026-07-17-claude-code-non-anthropic-gateways.md)). The smoke-test report's "not runnable" for Claude Code × GLM is stale.
+- **Novita's Anthropic-compatible endpoint works with Claude Code directly** (no gateway): `ANTHROPIC_BASE_URL=https://api.novita.ai/anthropic`
+  + the Novita model id as `--model`, in an isolated `CLAUDE_CONFIG_DIR`. First proof that the CLI's model validation is satisfied by a well-shaped third-party endpoint - the proxy requirement is per-endpoint, not absolute.
+- **Fireworks works with Claude Code directly too**: `ANTHROPIC_BASE_URL=https://api.fireworks.ai/inference` (base **without** `/v1` - the CLI appends its own paths; the 07-17 "rejects non-Claude names" finding was a double-pathed base URL). DeepInfra's `https://api.deepinfra.com/anthropic` likewise. Direct Anthropic surfaces now verified on three hosts: Novita, Fireworks, DeepInfra.
+- Meta's Anthropic-compatible endpoint does **not** alias Claude model names - Claude Code × Muse still needs one of the gateways above.
 
 ## Still blocked / not applicable
 
@@ -233,18 +173,7 @@ provider-level corrections, and method are in the
 
 ## Standing rules and triggers
 
-- Cross-family is a verification requirement; cross-harness is an eval
-  technique; the verifier's own harness should approach zero.
-- One provider per worker boot; provider allowlist **ruled (A61)**:
-  the full seat-roster union - Anthropic, OpenAI, xAI, Google, Meta,
-  Amazon (Bedrock), Fireworks, Cerebras, DeepInfra, Novita, OpenRouter
-  (Moonshot-interim per A59), Blackbox AI, Cohere. Seating admits,
-  unseating removes; Novita's processing jurisdiction still needs the
-  confirm flagged in Pairs.
-- Floor probes are necessary, never sufficient - admission is the
-  fixture gauntlet + shadow mode (D6). Score **rates (n≥10), not
-  runs**, on any suspected stochastic behavior.
-- Retest triggers: harness upgrades (versions pinned in the smoke-test
-  report), Meta model updates (Muse), K3's US host arriving,
-  `tools/aa-sweep.py` threshold hits (snapshots in
-  `../research/aa-snapshots/`).
+- Cross-family is a verification requirement; cross-harness is an eval technique; the verifier's own harness should approach zero.
+- One provider per worker boot; provider allowlist **ruled (A61)**: the full seat-roster union - Anthropic, OpenAI, xAI, Google, Meta, Amazon (Bedrock), Fireworks, Cerebras, DeepInfra, Novita, OpenRouter (Moonshot-interim per A59), Blackbox AI, Cohere. Seating admits, unseating removes; Novita's processing jurisdiction still needs the confirm flagged in Pairs.
+- Floor probes are necessary, never sufficient - admission is the fixture gauntlet + shadow mode (D6). Score **rates (n≥10), not runs**, on any suspected stochastic behavior.
+- Retest triggers: harness upgrades (versions pinned in the smoke-test report), Meta model updates (Muse), K3's US host arriving, `tools/aa-sweep.py` threshold hits (snapshots in `../research/aa-snapshots/`).

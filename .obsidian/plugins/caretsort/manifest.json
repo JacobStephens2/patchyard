@@ -1,0 +1,10 @@
+{
+	"id": "caretsort",
+	"name": "Caretsort",
+	"version": "0.1.2",
+	"minAppVersion": "1.4.0",
+	"description": "Minimalist table sort. Click the caret in any column header to sort rows A→Z, Z→A, or numerically.",
+	"author": "Simrat Bains",
+	"authorUrl": "https://github.com/Simratt",
+	"isDesktopOnly": false
+}

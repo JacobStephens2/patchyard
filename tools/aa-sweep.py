@@ -6,7 +6,7 @@ confirm -> the ledger decides. This tool is the first rung: it detects
 *changes worth probing*, it never reseats anything.
 
 Usage: ARTIFICIAL_ANALYSIS_API_KEY=... python3 tools/aa-sweep.py
-Snapshots land in research/aa-snapshots/ (dated, committed like any other
+Snapshots land in research/artificial-analysis/aa-snapshots/ (dated, committed like any other
 world-facing evidence); the report diffs the two most recent snapshots.
 
 Tier note: with a free-tier key the API returns the trailing catalog only
@@ -22,7 +22,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BASE = os.environ.get("ARTIFICIAL_ANALYSIS_BASE_URL", "https://artificialanalysis.ai")
 KEY = os.environ["ARTIFICIAL_ANALYSIS_API_KEY"]
-SNAP_DIR = REPO_ROOT / "research" / "aa-snapshots"
+SNAP_DIR = REPO_ROOT / "research" / "artificial-analysis" / "aa-snapshots"
 
 # Trigger thresholds - a report line appears only when a move could change
 # a seat assignment. Tune deliberately; noise here costs attention.

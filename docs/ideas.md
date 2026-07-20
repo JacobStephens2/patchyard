@@ -9,4 +9,6 @@ Two rules only:
 
 ---
 
-*(Inbox empty - last entry, the 2026-07-18 dashboard-visibility question, graduated 2026-07-20 as A63 and swept.)*
+## 2026-07-20
+
+Task-time model selection for phase 2: use the Artificial Analysis LLM API Providers Leaderboard snapshots (`../research/artificial-analysis/artificial-analysis-llm-api-providers-leaderboard/` - 523 provider × model endpoint rows: intelligence, cost/task, tok/s, first-chunk latency, function-calling/JSON-mode flags, API IDs) as (a) a discovery source for new models and providers worth probing, and (b) the data behind deterministic per-task selection rules - e.g., "for this task, use the cheapest endpoint with Intelligence Index >= 40" - with the candidate set always restricted to (model, harness, provider) pairs already tested in our environment (bench floor + gauntlet) and on the A61 allowlist. This is A58's ceiling branch made computable at run time: a rule picks the seat, not a model's judgment (A4-consistent), and the chosen snapshot date should land in run provenance.

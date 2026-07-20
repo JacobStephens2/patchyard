@@ -1,0 +1,630 @@
+{
+ "snapshot": "artificial-analysis-llm-api-providers-leaderboard-2026-07-20 - Sheet1.tsv",
+ "generated_from_bench": "2026-07-20",
+ "matches": [
+  {
+   "bench": {
+    "model": "DeepSeek V4 Flash",
+    "effort": "max (requested)",
+    "harness": "Claude Code (direct)",
+    "host": "DeepInfra"
+   },
+   "floor": "pass",
+   "endpoint": {
+    "provider": "DeepInfra",
+    "provider_c": "deepinfra",
+    "surface": null,
+    "model_base": "DeepSeek V4 Flash",
+    "model_c": "deepseekv4flash",
+    "effort": "max",
+    "precision": "fp4",
+    "intelligence": 40.0,
+    "cost_per_task": null,
+    "tok_s": "31",
+    "first_chunk_s": "1.2",
+    "function_calling": "",
+    "json_mode": "",
+    "api_id": "",
+    "effort_match": "requested"
+   }
+  },
+  {
+   "bench": {
+    "model": "DeepSeek V4 Flash",
+    "effort": "max (requested)",
+    "harness": "Claude Code + DeepClaude",
+    "host": "DeepInfra"
+   },
+   "floor": "pass",
+   "endpoint": {
+    "provider": "DeepInfra",
+    "provider_c": "deepinfra",
+    "surface": null,
+    "model_base": "DeepSeek V4 Flash",
+    "model_c": "deepseekv4flash",
+    "effort": "max",
+    "precision": "fp4",
+    "intelligence": 40.0,
+    "cost_per_task": null,
+    "tok_s": "31",
+    "first_chunk_s": "1.2",
+    "function_calling": "",
+    "json_mode": "",
+    "api_id": "",
+    "effort_match": "requested"
+   }
+  },
+  {
+   "bench": {
+    "model": "DeepSeek V4 Pro",
+    "effort": "max (requested)",
+    "harness": "Claude Code (direct)",
+    "host": "DeepInfra"
+   },
+   "floor": "pass",
+   "endpoint": {
+    "provider": "DeepInfra",
+    "provider_c": "deepinfra",
+    "surface": null,
+    "model_base": "DeepSeek V4 Pro",
+    "model_c": "deepseekv4pro",
+    "effort": "max",
+    "precision": "fp4",
+    "intelligence": 44.0,
+    "cost_per_task": null,
+    "tok_s": "58",
+    "first_chunk_s": "1.15",
+    "function_calling": "Yes",
+    "json_mode": "Yes",
+    "api_id": "deepseek-ai/DeepSeek-V4-Pro",
+    "effort_match": "requested"
+   }
+  },
+  {
+   "bench": {
+    "model": "DeepSeek V4 Pro",
+    "effort": "max (requested)",
+    "harness": "Claude Code + DeepClaude",
+    "host": "DeepInfra"
+   },
+   "floor": "pass",
+   "endpoint": {
+    "provider": "DeepInfra",
+    "provider_c": "deepinfra",
+    "surface": null,
+    "model_base": "DeepSeek V4 Pro",
+    "model_c": "deepseekv4pro",
+    "effort": "max",
+    "precision": "fp4",
+    "intelligence": 44.0,
+    "cost_per_task": null,
+    "tok_s": "58",
+    "first_chunk_s": "1.15",
+    "function_calling": "Yes",
+    "json_mode": "Yes",
+    "api_id": "deepseek-ai/DeepSeek-V4-Pro",
+    "effort_match": "requested"
+   }
+  },
+  {
+   "bench": {
+    "model": "Gemini 3.1 Pro (preview)",
+    "effort": "default (not pinnable via CLI)",
+    "harness": "Gemini CLI",
+    "host": "Google - **Vertex verified** (`example-model-bench`, location `global`; AI Studio also 3/3)"
+   },
+   "floor": "pass",
+   "endpoint": {
+    "provider": "Google (ai studio)",
+    "provider_c": "googleaistudio",
+    "surface": "ai studio",
+    "model_base": "Gemini 3.1 Pro Preview",
+    "model_c": "gemini31propreview",
+    "effort": null,
+    "precision": null,
+    "intelligence": 46.0,
+    "cost_per_task": 0.29,
+    "tok_s": "129",
+    "first_chunk_s": "25.93",
+    "function_calling": "Yes",
+    "json_mode": "Yes",
+    "api_id": "gemini-3.1-pro-preview",
+    "effort_match": "exact"
+   }
+  },
+  {
+   "bench": {
+    "model": "Gemini 3.1 Pro (preview)",
+    "effort": "default (not pinnable via CLI)",
+    "harness": "Gemini CLI",
+    "host": "Google - **Vertex verified** (`example-model-bench`, location `global`; AI Studio also 3/3)"
+   },
+   "floor": "pass",
+   "endpoint": {
+    "provider": "Google (vertex)",
+    "provider_c": "googlevertex",
+    "surface": "vertex",
+    "model_base": "Gemini 3.1 Pro Preview",
+    "model_c": "gemini31propreview",
+    "effort": null,
+    "precision": null,
+    "intelligence": 46.0,
+    "cost_per_task": 0.36,
+    "tok_s": "139",
+    "first_chunk_s": "25.29",
+    "function_calling": "Yes",
+    "json_mode": "Yes",
+    "api_id": "google/gemini-3.1-pro-preview",
+    "effort_match": "exact"
+   }
+  },
+  {
+   "bench": {
+    "model": "GPT-5.6 Sol",
+    "effort": "xhigh",
+    "harness": "Codex",
+    "host": "OpenAI"
+   },
+   "floor": "pass",
+   "endpoint": {
+    "provider": "OpenAI",
+    "provider_c": "openai",
+    "surface": null,
+    "model_base": "GPT-5.6 Sol",
+    "model_c": "gpt56sol",
+    "effort": "xhigh",
+    "precision": null,
+    "intelligence": 58.0,
+    "cost_per_task": 0.68,
+    "tok_s": "60",
+    "first_chunk_s": "52.18",
+    "function_calling": "Yes",
+    "json_mode": "Yes",
+    "api_id": "gpt-5.6-sol",
+    "effort_match": "exact"
+   }
+  },
+  {
+   "bench": {
+    "model": "GPT-5.6 Luna",
+    "effort": "max",
+    "harness": "Codex",
+    "host": "OpenAI"
+   },
+   "floor": "untested",
+   "endpoint": {
+    "provider": "OpenAI",
+    "provider_c": "openai",
+    "surface": null,
+    "model_base": "GPT-5.6 Luna",
+    "model_c": "gpt56luna",
+    "effort": "max",
+    "precision": null,
+    "intelligence": 51.0,
+    "cost_per_task": 0.21,
+    "tok_s": "197",
+    "first_chunk_s": "82.77",
+    "function_calling": "Yes",
+    "json_mode": "Yes",
+    "api_id": "gpt-5.6-luna",
+    "effort_match": "exact"
+   }
+  },
+  {
+   "bench": {
+    "model": "gpt-oss-120b",
+    "effort": "high",
+    "harness": "Harmony Agent + Cerebras transport",
+    "host": "Cerebras"
+   },
+   "floor": "fail",
+   "endpoint": {
+    "provider": "Cerebras",
+    "provider_c": "cerebras",
+    "surface": null,
+    "model_base": "gpt-oss-120b",
+    "model_c": "gptoss120b",
+    "effort": "high",
+    "precision": null,
+    "intelligence": 24.0,
+    "cost_per_task": 0.12,
+    "tok_s": "",
+    "first_chunk_s": "",
+    "function_calling": "",
+    "json_mode": "",
+    "api_id": "",
+    "effort_match": "exact"
+   }
+  },
+  {
+   "bench": {
+    "model": "gpt-oss-120b",
+    "effort": "high",
+    "harness": "OpenCode",
+    "host": "Cerebras"
+   },
+   "floor": "untested",
+   "endpoint": {
+    "provider": "Cerebras",
+    "provider_c": "cerebras",
+    "surface": null,
+    "model_base": "gpt-oss-120b",
+    "model_c": "gptoss120b",
+    "effort": "high",
+    "precision": null,
+    "intelligence": 24.0,
+    "cost_per_task": 0.12,
+    "tok_s": "",
+    "first_chunk_s": "",
+    "function_calling": "",
+    "json_mode": "",
+    "api_id": "",
+    "effort_match": "exact"
+   }
+  },
+  {
+   "bench": {
+    "model": "gpt-oss-120b",
+    "effort": "high",
+    "harness": "OpenCode",
+    "host": "DeepInfra"
+   },
+   "floor": "pass",
+   "endpoint": {
+    "provider": "DeepInfra",
+    "provider_c": "deepinfra",
+    "surface": null,
+    "model_base": "gpt-oss-120b",
+    "model_c": "gptoss120b",
+    "effort": "high",
+    "precision": null,
+    "intelligence": 24.0,
+    "cost_per_task": 0.02,
+    "tok_s": "",
+    "first_chunk_s": "",
+    "function_calling": "",
+    "json_mode": "",
+    "api_id": "",
+    "effort_match": "exact"
+   }
+  },
+  {
+   "bench": {
+    "model": "Kimi K2.6",
+    "effort": "default",
+    "harness": "Kimi Code CLI",
+    "host": "Fireworks"
+   },
+   "floor": "pass",
+   "endpoint": {
+    "provider": "Fireworks",
+    "provider_c": "fireworks",
+    "surface": null,
+    "model_base": "Kimi K2.6",
+    "model_c": "kimik26",
+    "effort": null,
+    "precision": null,
+    "intelligence": 44.0,
+    "cost_per_task": 0.28,
+    "tok_s": "405",
+    "first_chunk_s": "0.67",
+    "function_calling": "Yes",
+    "json_mode": "Yes",
+    "api_id": "accounts/fireworks/models/kimi-k2p6",
+    "effort_match": "exact"
+   }
+  },
+  {
+   "bench": {
+    "model": "Kimi K2.6",
+    "effort": "default",
+    "harness": "Kimi Code CLI",
+    "host": "Fireworks"
+   },
+   "floor": "pass",
+   "endpoint": {
+    "provider": "Fireworks",
+    "provider_c": "fireworks",
+    "surface": null,
+    "model_base": "Kimi K2.6",
+    "model_c": "kimik26",
+    "effort": null,
+    "precision": null,
+    "intelligence": 35.0,
+    "cost_per_task": null,
+    "tok_s": "352",
+    "first_chunk_s": "0.67",
+    "function_calling": "Yes",
+    "json_mode": "Yes",
+    "api_id": "accounts/fireworks/models/kimi-k2p6",
+    "effort_match": "exact"
+   }
+  },
+  {
+   "bench": {
+    "model": "Kimi K2.6",
+    "effort": "default",
+    "harness": "Claude Code",
+    "host": "Fireworks"
+   },
+   "floor": "untested",
+   "endpoint": {
+    "provider": "Fireworks",
+    "provider_c": "fireworks",
+    "surface": null,
+    "model_base": "Kimi K2.6",
+    "model_c": "kimik26",
+    "effort": null,
+    "precision": null,
+    "intelligence": 44.0,
+    "cost_per_task": 0.28,
+    "tok_s": "405",
+    "first_chunk_s": "0.67",
+    "function_calling": "Yes",
+    "json_mode": "Yes",
+    "api_id": "accounts/fireworks/models/kimi-k2p6",
+    "effort_match": "exact"
+   }
+  },
+  {
+   "bench": {
+    "model": "Kimi K2.6",
+    "effort": "default",
+    "harness": "Claude Code",
+    "host": "Fireworks"
+   },
+   "floor": "untested",
+   "endpoint": {
+    "provider": "Fireworks",
+    "provider_c": "fireworks",
+    "surface": null,
+    "model_base": "Kimi K2.6",
+    "model_c": "kimik26",
+    "effort": null,
+    "precision": null,
+    "intelligence": 35.0,
+    "cost_per_task": null,
+    "tok_s": "352",
+    "first_chunk_s": "0.67",
+    "function_calling": "Yes",
+    "json_mode": "Yes",
+    "api_id": "accounts/fireworks/models/kimi-k2p6",
+    "effort_match": "exact"
+   }
+  },
+  {
+   "bench": {
+    "model": "Kimi K2.6",
+    "effort": "default",
+    "harness": "OpenHands",
+    "host": "Fireworks"
+   },
+   "floor": "pass",
+   "endpoint": {
+    "provider": "Fireworks",
+    "provider_c": "fireworks",
+    "surface": null,
+    "model_base": "Kimi K2.6",
+    "model_c": "kimik26",
+    "effort": null,
+    "precision": null,
+    "intelligence": 44.0,
+    "cost_per_task": 0.28,
+    "tok_s": "405",
+    "first_chunk_s": "0.67",
+    "function_calling": "Yes",
+    "json_mode": "Yes",
+    "api_id": "accounts/fireworks/models/kimi-k2p6",
+    "effort_match": "exact"
+   }
+  },
+  {
+   "bench": {
+    "model": "Kimi K2.6",
+    "effort": "default",
+    "harness": "OpenHands",
+    "host": "Fireworks"
+   },
+   "floor": "pass",
+   "endpoint": {
+    "provider": "Fireworks",
+    "provider_c": "fireworks",
+    "surface": null,
+    "model_base": "Kimi K2.6",
+    "model_c": "kimik26",
+    "effort": null,
+    "precision": null,
+    "intelligence": 35.0,
+    "cost_per_task": null,
+    "tok_s": "352",
+    "first_chunk_s": "0.67",
+    "function_calling": "Yes",
+    "json_mode": "Yes",
+    "api_id": "accounts/fireworks/models/kimi-k2p6",
+    "effort_match": "exact"
+   }
+  },
+  {
+   "bench": {
+    "model": "MiMo-V2.5-Pro",
+    "effort": "default",
+    "harness": "Claude Code",
+    "host": "Novita"
+   },
+   "floor": "pass",
+   "endpoint": {
+    "provider": "Novita",
+    "provider_c": "novita",
+    "surface": null,
+    "model_base": "MiMo-V2.5-Pro",
+    "model_c": "mimov25pro",
+    "effort": null,
+    "precision": null,
+    "intelligence": 42.0,
+    "cost_per_task": 0.04,
+    "tok_s": "58",
+    "first_chunk_s": "2.37",
+    "function_calling": "Yes",
+    "json_mode": "Yes",
+    "api_id": "xiaomimimo/mimo-v2.5-pro",
+    "effort_match": "exact"
+   }
+  },
+  {
+   "bench": {
+    "model": "MiMo-V2.5-Pro",
+    "effort": "default",
+    "harness": "Claude Code",
+    "host": "Novita"
+   },
+   "floor": "pass",
+   "endpoint": {
+    "provider": "Novita",
+    "provider_c": "novita",
+    "surface": null,
+    "model_base": "MiMo-V2.5-Pro",
+    "model_c": "mimov25pro",
+    "effort": null,
+    "precision": null,
+    "intelligence": 28.0,
+    "cost_per_task": null,
+    "tok_s": "56",
+    "first_chunk_s": "",
+    "function_calling": "Yes",
+    "json_mode": "Yes",
+    "api_id": "xiaomimimo/mimo-v2.5-pro",
+    "effort_match": "exact"
+   }
+  },
+  {
+   "bench": {
+    "model": "Muse Spark 1.1",
+    "effort": "xhigh",
+    "harness": "OpenCode",
+    "host": "Meta"
+   },
+   "floor": "fail",
+   "endpoint": {
+    "provider": "Meta",
+    "provider_c": "meta",
+    "surface": null,
+    "model_base": "Muse Spark 1.1",
+    "model_c": "musespark11",
+    "effort": "xhigh",
+    "precision": null,
+    "intelligence": 51.0,
+    "cost_per_task": 0.26,
+    "tok_s": "121",
+    "first_chunk_s": "1.27",
+    "function_calling": "Yes",
+    "json_mode": "Yes",
+    "api_id": "muse-spark-1.1",
+    "effort_match": "exact"
+   }
+  },
+  {
+   "bench": {
+    "model": "Nemotron 3 Ultra 550B-A55B",
+    "effort": "default (reasoning unexercised)",
+    "harness": "OpenCode",
+    "host": "Blackbox AI"
+   },
+   "floor": "pass",
+   "endpoint": {
+    "provider": "Blackbox AI",
+    "provider_c": "blackboxai",
+    "surface": null,
+    "model_base": "Nemotron 3 Ultra",
+    "model_c": "nemotron3ultra",
+    "effort": null,
+    "precision": null,
+    "intelligence": 38.0,
+    "cost_per_task": 0.2,
+    "tok_s": "446",
+    "first_chunk_s": "1.12",
+    "function_calling": "",
+    "json_mode": "",
+    "api_id": "",
+    "effort_match": "exact"
+   }
+  },
+  {
+   "bench": {
+    "model": "Qwen3.7 Max",
+    "effort": "default",
+    "harness": "OpenCode",
+    "host": "Novita"
+   },
+   "floor": "pass",
+   "endpoint": {
+    "provider": "Novita",
+    "provider_c": "novita",
+    "surface": null,
+    "model_base": "Qwen3.7 Max",
+    "model_c": "qwen37max",
+    "effort": null,
+    "precision": null,
+    "intelligence": 46.0,
+    "cost_per_task": 0.52,
+    "tok_s": "53",
+    "first_chunk_s": "1.9",
+    "function_calling": "Yes",
+    "json_mode": "Yes",
+    "api_id": "qwen/qwen3.7-max",
+    "effort_match": "exact"
+   }
+  }
+ ],
+ "unpriced_bench_pairs": [
+  "Claude Fable 5 (max) \u00d7 Claude Code @ Anthropic",
+  "Claude Haiku 4.5 (high) \u00d7 Claude Code @ Amazon Bedrock",
+  "Command A+ (high (requested)) \u00d7 OpenCode @ Cohere",
+  "Gemini 3.5 Flash (default) \u00d7 Gemini CLI @ Google",
+  "Gemini 3.5 Flash (high) \u00d7 OpenCode @ Google AI Studio",
+  "GLM 5.2 (default) \u00d7 Claude Code @ Fireworks",
+  "GLM 5.2 (default) \u00d7 OpenCode @ Fireworks",
+  "GLM 5.2 (default (`--thinking` available)) \u00d7 Pi @ Fireworks",
+  "gpt-oss-120b (default (pin blocked by Cline schema)) \u00d7 Cline @ **Cerebras** (preferred) / Fireworks",
+  "Grok 4.5 (high) \u00d7 Grok Build @ xAI",
+  "Hy3 (Tencent) (high) \u00d7 Pi @ Novita",
+  "Kimi K3 (default) \u00d7 Kimi Code CLI @ OpenRouter \u2192 Moonshot",
+  "MiniMax-M3 (default) \u00d7 Claude Code @ Fireworks",
+  "MiniMax-M3 (default) \u00d7 OpenCode @ Fireworks"
+ ],
+ "probe_candidates_intel40": [
+  "Amazon Bedrock | Claude Opus 4.7 (max) intel=54.0",
+  "Amazon Bedrock | Claude Opus 4.8 (max) intel=56.0",
+  "Amazon Bedrock | Claude Sonnet 5 (max) intel=53.0",
+  "Amazon Bedrock | GPT-5.5 (high) intel=53.0",
+  "Amazon Bedrock | GPT-5.5 (low) intel=43.0",
+  "Amazon Bedrock | GPT-5.5 (medium) intel=50.0",
+  "Amazon Bedrock | GPT-5.5 (xhigh) intel=55.0",
+  "Anthropic | Claude Fable 5 (with fallback) (default) intel=60.0",
+  "Anthropic | Claude Opus 4.7 (max) intel=54.0",
+  "Anthropic | Claude Opus 4.8 (max) intel=56.0",
+  "Anthropic | Claude Sonnet 5 (max) intel=53.0",
+  "Anthropic | Claude Sonnet 5 (non-reasoning) intel=42.0",
+  "DeepInfra | GLM-5.1 (default) intel=40.0",
+  "DeepInfra | Kimi K2.7 Code (default) intel=42.0",
+  "Fireworks | GLM-5.1 (default) intel=40.0",
+  "Google | Claude Fable 5 (with fallback) (default) intel=60.0",
+  "Google | Claude Opus 4.7 (max) intel=54.0",
+  "Google | Claude Opus 4.8 (max) intel=56.0",
+  "Google | Claude Sonnet 5 (max) intel=53.0",
+  "Google | Gemini 3.5 Flash AI Studio (default) intel=50.0",
+  "Novita | GLM-5.1 (default) intel=40.0",
+  "Novita | Hy3 (default) intel=41.0",
+  "Novita | Kimi K2.7 Code (default) intel=42.0",
+  "OpenAI | GPT-5.4 mini (xhigh) intel=40.0",
+  "OpenAI | GPT-5.5 (high) intel=53.0",
+  "OpenAI | GPT-5.5 (low) intel=43.0",
+  "OpenAI | GPT-5.5 (medium) intel=50.0",
+  "OpenAI | GPT-5.5 (xhigh) intel=55.0",
+  "OpenAI | GPT-5.6 Terra (high) intel=49.0",
+  "OpenAI | GPT-5.6 Terra (low) intel=40.0",
+  "OpenAI | GPT-5.6 Terra (max) intel=55.0",
+  "OpenAI | GPT-5.6 Terra (medium) intel=46.0",
+  "OpenAI | GPT-5.6 Terra (xhigh) intel=52.0"
+ ],
+ "unknown_tags": []
+}

@@ -28,7 +28,7 @@ Root stays thin so the upcoming Cargo workspace can land without fighting a pile
 - **Ideas inbox:** [`docs/ideas.md`](docs/ideas.md) - hand-written, pre-ruling scratch space. Carries no authority; ideas graduate into the decision log or die there.
 - **Design record:** [`docs/decision-log.md`](docs/decision-log.md) is the canonical 95-ruling log. The independent proposals, comparison and historical synthesis remain as provenance in the orchestration repo at `projects/software-factory/`; the interactive review is at https://report.example.com/software-factory-review.html. Repository ownership is documented in [`docs/repository-boundary.md`](docs/repository-boundary.md).
 - **Constitution:** [`AGENTS.md`](AGENTS.md). Its hard rules ride every factory agent prompt and change only through a human-reviewed pull request.
-- **Acceptance fixtures:** sanitized replay inputs live under `fixtures/alphabetize/`; raw requests and screenshots never enter Git. Bench-only prompts live under `fixtures/bench/`.
+- **Acceptance fixtures:** sanitized replay inputs live under `fixtures/acceptance/alphabetize/`; raw requests and screenshots never enter Git. Bench-only prompts live under `fixtures/bench/`.
 - **Canonical model:** `model/factory-model.json`, governed by `model/factory-model.schema.json` and the boundary in [`docs/model-boundary.md`](docs/model-boundary.md). Its canonical JSON SHA-256 is committed in `model/factory-model.sha256`. The model contains stable, queryable architecture and limits; prose, people, status, evidence and runtime state live elsewhere.
 
 ## Model workflow

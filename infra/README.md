@@ -1,0 +1,3 @@
+# Infrastructure as code (A69, session 0)
+
+Everything encodable, `infra/<provider>` per the nightloch pattern: `digitalocean/` (both droplets, firewalls), `aws/` (Route 53 - factory.example.com is born as code, no console import), `github/` (repo settings + branch protection as code), `ansible/` (all host configuration: Caddy, systemd units + hardening, Postgres roles/peer auth, headless Chromium, bootstrap accounts). OpenTofu state goes to the encrypted backend chosen in session 0 - never plaintext in git. Bootstrap runs from the orchestration host's agents; the control-plane VM carries its own checkout and re-applies its own desired state thereafter (A68).

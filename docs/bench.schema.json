@@ -30,7 +30,8 @@
         "required": [
           "model", "effort", "harness", "preferred_harness", "host",
           "floor", "image_input", "provenance", "standing",
-          "visible_tps", "long_spec_wall", "aa_intelligence"
+          "visible_tps", "long_spec_wall", "aa_intelligence",
+          "aa_cost_per_task_usd"
         ],
         "properties": {
           "model": { "type": "string", "minLength": 1 },
@@ -93,6 +94,11 @@
             "minimum": 0,
             "maximum": 100,
             "description": "AA Intelligence Index score for the tracked model/effort variant; null when AA has no row"
+          },
+          "aa_cost_per_task_usd": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "description": "Artificial Analysis provider-page Cost per Task USD for this model/provider pair; null when AA shows --, has no matching provider row, or the row names multiple providers"
           }
         }
       }

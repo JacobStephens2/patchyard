@@ -1,0 +1,524 @@
+API Provider	Model	Context Window	License	Intelligence Index	Cost per Task (USD)	Median Tokens/s	Median First Chunk (s)	Total Response (s)	Reasoning Time (s)	Function Calling	JSON Mode	OpenAI Compatible	API ID	Footnotes
+Anthropic	Claude Fable 5 (with fallback)	1M	Proprietary	60	$2.75	65	100.91	108.61	--	Yes	Yes		claude-fable-5	
+Google	Claude Fable 5 (with fallback)	1M	Proprietary	60	$2.90	65	62.79	70.43	--	Yes	Yes		claude-fable-5	
+Microsoft Azure	Claude Fable 5 (with fallback)	1M	Proprietary	60	$7.96	64	95.58	103.38	--	Yes	Yes		claude-fable-5	
+OpenAI	GPT-5.6 Sol (max)	1M	Proprietary	59	$1.04	63	128.22	136.13	--	Yes	Yes	Yes	gpt-5.6-sol	
+OpenAI	GPT-5.6 Sol (xhigh)	1M	Proprietary	58	$0.68	60	52.18	60.57	--	Yes	Yes	Yes	gpt-5.6-sol	
+Kimi	Kimi K3	1.05M	Proprietary	57	$0.95	--	--	--	--	Yes	Yes	Yes	kimi-k3	
+OpenAI	GPT-5.6 Sol (high)	1M	Proprietary	56	$0.45	60	12.82	21.17	--	Yes	Yes	Yes	gpt-5.6-sol	
+Anthropic	Claude Opus 4.8 (max)	1M	Proprietary	56	$1.80	60	25.24	33.59	--	Yes	Yes	Yes	claude-opus-4-8	
+Amazon Bedrock	Claude Opus 4.8 (max)	1M	Proprietary	56	$1.78	67	35.4	42.91	--	Yes			global.anthropic.claude-opus-4-8	
+Google	Claude Opus 4.8 (max)	1M	Proprietary	56	$2.39	64	18.44	26.23	--	Yes	Yes		claude-opus-4-8	
+OpenAI	GPT-5.6 Terra (max)	1M	Proprietary	55	$0.82	136	134.32	138.01	--	Yes	Yes	Yes	gpt-5.6-terra	
+Amazon Bedrock	GPT-5.5 (xhigh)	272k	Proprietary	55	--	127	43.07	46.99	--	Yes	Yes		openai.gpt-5.5	
+OpenAI	GPT-5.5 (xhigh)	1.05M	Proprietary	55	$0.99	77	77.07	83.58	--	Yes	Yes	Yes	gpt-5.5	
+SpaceXAI	Grok 4.5 (high)	500k	Proprietary	54	$0.31	79	11.6	17.93	--	Yes	Yes	Yes	grok-4.5	
+OpenAI	GPT-5.6 Sol (medium)	1M	Proprietary	54	$0.31	52	9.63	19.23	--	Yes	Yes	Yes	gpt-5.6-sol	
+Google	Claude Opus 4.7 (max)	1M	Proprietary	54	$3.37	70	10.15	17.32	--	Yes	Yes		claude-opus-4-7	
+Microsoft Azure	Claude Opus 4.7 (max)	1M	Proprietary	54	$1.79	53	17.76	27.18	--	Yes	Yes		claude-opus-4-7	
+Amazon Bedrock	Claude Opus 4.7 (max)	1M	Proprietary	54	$3.68	66	1.94	9.52	--	Yes			global.anthropic.claude-opus-4-7	
+Anthropic	Claude Opus 4.7 (max)	1M	Proprietary	54	$1.97	53	20.46	29.86	--	Yes	Yes		claude-opus-4-7	
+Google	Claude Sonnet 5 (max)	1M	Proprietary	53	$2.92	83	148.27	154.28	--	Yes	Yes		claude-sonnet-5	
+Microsoft Azure	Claude Sonnet 5 (max)	1M	Proprietary	53	$2.19	86	140.35	146.19	--	Yes	Yes		claude-sonnet-5	
+Anthropic	Claude Sonnet 5 (max)	1M	Proprietary	53	$1.53	84	182.27	188.19	--	Yes	Yes		claude-sonnet-5	
+Amazon Bedrock	Claude Sonnet 5 (max)	1M	Proprietary	53	$2.60	94	161.57	166.89	--	Yes			global.anthropic.claude-sonnet-5	
+Amazon Bedrock	GPT-5.5 (high)	272k	Proprietary	53	--	127	20.92	24.86	--	Yes	Yes		openai.gpt-5.5	
+OpenAI	GPT-5.5 (high)	1.05M	Proprietary	53	$0.67	79	30.93	37.3	--	Yes	Yes	Yes	gpt-5.5	
+OpenAI	GPT-5.6 Terra (xhigh)	1M	Proprietary	52	$0.48	133	10.85	14.61	--	Yes	Yes	Yes	gpt-5.6-terra	
+OpenAI	GPT-5.6 Luna (max)	1M	Proprietary	51	$0.21	197	82.77	85.3	--	Yes	Yes	Yes	gpt-5.6-luna	
+Wafer	GLM-5.2 (max)	205k	Open	51	$0.32	243	3.5	13.81	8.25	Yes	Yes	Yes	GLM-5.2	
+FriendliAI	GLM-5.2 (max)	1M	Open	51	$0.37	247	1.46	11.58	8.1	Yes	Yes	Yes	zai-org/GLM-5.2	
+Makora	GLM-5.2 (max) (NVFP4)	1M	Open	51	$0.44	212	0.86	12.65	9.44	Yes	Yes	Yes	zai-org/GLM-5.2-NVFP4	
+Novita	GLM-5.2 (max) (FP8)	1.05M	Open	51	--	46	2.27	56.15	43.11	Yes	Yes	Yes	zai-org/glm-5.2	
+GMI	GLM-5.2 (max) (FP8)	1.05M	Open	51	--	--	--	--	--	Yes	Yes	Yes	zai-org/GLM-5.2-FP8	
+Parasail	GLM-5.2 (max) (NVFP4)	1M	Open	51	--	140	1.08	18.88	14.25	Yes	Yes	Yes	zai-org/GLM-5.2	
+CoreWeave	GLM-5.2 (max)	262k	Open	51	--	151	1.31	17.86	13.24	Yes	Yes	Yes	zai-org/GLM-5.2	
+Baseten	GLM-5.2 (max)	261k	Open	51	--	400	1.39	7.64	5	Yes	Yes	Yes	zai-org/GLM-5.2	
+Together AI	GLM-5.2 (max)	262k	Open	51	--	478	1.1	6.33	4.18	Yes	Yes	Yes	zai-org/GLM-5.2	
+DeepInfra	GLM-5.2 (max) (FP4)	1.05M	Open	51	--	70	0.89	36.76	28.69	Yes	Yes	Yes	zai-org/GLM-5.2	
+Nebius	GLM-5.2 (max) (FP4)	432k	Open	51	--	185	0.96	14.49	10.82	Yes	Yes	Yes	zai-org/GLM-5.2	
+Blackbox AI	GLM-5.2 (max)	1.05M	Open	51	--	472	1.71	7.01	4.24	Yes	Yes	Yes	blackboxai/z-ai/glm-5.2	
+Databricks	GLM-5.2 (max)	1M	Open	51	--	333	0.9	8.41	6.01	Yes	Yes		databricks-glm-5-2	
+Scaleway	GLM-5.2 (max)	262k	Open	51	--	94	1.56	28.08	21.22	Yes	Yes	Yes	glm-5.2	
+Fireworks	GLM-5.2 (max)	1M	Open	51	--	381	1.32	7.89	5.25	Yes	Yes	Yes	accounts/fireworks/models/glm-5p2	
+SiliconFlow	GLM-5.2 (max) (FP8)	1.05M	Open	51	$0.57	55	1.35	47.14	36.63	Yes	Yes		zai-org/GLM-5.2	
+Meta	Muse Spark 1.1 (xhigh)	1.05M	Proprietary	51	$0.26	121	1.27	21.9	16.5	Yes	Yes	Yes	muse-spark-1.1	
+Amazon Bedrock	GPT-5.5 (medium)	272k	Proprietary	50	--	125	6.9	10.9	--	Yes	Yes		openai.gpt-5.5	
+OpenAI	GPT-5.5 (medium)	1.05M	Proprietary	50	$0.41	78	4.94	11.34	--	Yes	Yes	Yes	gpt-5.5	
+Google	Gemini 3.5 Flash AI Studio	1M	Proprietary	50	$0.59	165	19.1	22.12	--	Yes	Yes	Yes	models/gemini-3.5-flash	
+OpenAI	GPT-5.6 Sol (low)	1M	Proprietary	49	$0.20	53	3.06	12.55	--	Yes	Yes	Yes	gpt-5.6-sol	
+OpenAI	GPT-5.6 Luna (xhigh)	1M	Proprietary	49	$0.14	209	30.82	33.22	--	Yes	Yes	Yes	gpt-5.6-luna	
+OpenAI	GPT-5.6 Terra (high)	1M	Proprietary	49	$0.34	127	2.39	6.33	--	Yes	Yes	Yes	gpt-5.6-terra	
+Google	Gemini 3.1 Pro Preview (AI Studio)	1M	Proprietary	46	$0.29	129	25.93	29.8	--	Yes	Yes	Yes	gemini-3.1-pro-preview	
+Google	Gemini 3.1 Pro Preview (Vertex)	1M	Proprietary	46	$0.36	139	25.29	28.89	--	Yes	Yes	Yes	google/gemini-3.1-pro-preview	
+OpenAI	GPT-5.6 Luna (high)	1M	Proprietary	46	$0.09	188	7.66	10.33	--	Yes	Yes	Yes	gpt-5.6-luna	
+Alibaba Cloud	Qwen3.7 Max	991k	Proprietary	46	$1.03	203	2.42	16.78	11.89	Yes	Yes	Yes	qwen3.7-max	
+GMI	Qwen3.7 Max (FP8)	262k	Proprietary	46	--	--	--	--	--	Yes	Yes	Yes	Qwen/Qwen3.7-Max	
+Novita	Qwen3.7 Max	1M	Proprietary	46	$0.52	53	1.9	57.15	45.75	Yes	Yes	Yes	qwen/qwen3.7-max	
+OpenAI	GPT-5.6 Terra (medium)	1M	Proprietary	46	$0.18	131	1.34	5.16	--	Yes	Yes	Yes	gpt-5.6-terra	
+Google	Gemini 3.5 Flash (medium)	1M	Proprietary	45*	--	174	15.77	18.64	--	Yes	Yes	Yes	models/gemini-3.5-flash	
+Parasail	MiniMax-M3 (MXFP8)	1M	Open	44	$0.17	66	1.22	39.29	30.45	Yes	Yes	Yes	MiniMaxAI/MiniMax-M3	
+Together AI	MiniMax-M3	1M	Open	44	$0.18	95	0.79	27	20.97	Yes	Yes	Yes	MiniMaxAI/MiniMax-M3	
+Novita	MiniMax-M3	1M	Open	44	$0.13	114	1.37	23.37	17.6	Yes	Yes	Yes	minimax/minimax-m3	
+SiliconFlow	MiniMax-M3	1M	Open	44	$0.22	93	1.64	28.62	21.58	Yes	Yes	Yes	MiniMaxAI/MiniMax-M3	
+MiniMax	MiniMax-M3	512k	Open	44	$0.12	108	1.55	24.68	18.5	Yes	Yes	Yes	MiniMax-M3	
+GMI	MiniMax-M3	1.05M	Open	44	--	--	--	--	--	Yes	Yes	Yes	MiniMaxAI/MiniMax-M3	
+DeepInfra	DeepSeek V4 Pro (max) (FP4)	1.05M	Open	44	--	58	1.15	85.15	75.38	Yes	Yes	Yes	deepseek-ai/DeepSeek-V4-Pro	
+Microsoft Azure	DeepSeek V4 Pro (max)	1M	Open	44	--	65	1.62	76.61	67.31	Yes	Yes	Yes	DeepSeek-V4-Pro	
+SiliconFlow	DeepSeek V4 Pro (max)	1.05M	Open	44	$0.31	48	2.99	105.06	91.6	Yes	Yes	Yes	deepseek-ai/DeepSeek-V4-Pro	
+Novita	DeepSeek V4 Pro (max)	1.05M	Open	44	--	65	1.76	76.38	66.97	Yes	Yes	Yes	deepseek/deepseek-v4-pro	
+Makora	DeepSeek V4 Pro (max)	1M	Open	44	$0.65	156	0.84	32.11	28.06	Yes	Yes	Yes	deepseek-ai/DeepSeek-V4-Pro	
+GMI	DeepSeek V4 Pro (max)	1.05M	Open	44	--	--	--	--	--	Yes	Yes	Yes	deepseek-ai/DeepSeek-V4-Pro	
+Nebius	DeepSeek V4 Pro (max)	1M	Open	44	$0.77	45	2.29	110.14	96.78	Yes	Yes	Yes	deepseek-ai/DeepSeek-V4-Pro	
+Together AI	DeepSeek V4 Pro (max)	512k	Open	44	$0.29	355	1	14.75	12.34	Yes	Yes	Yes	deepseek-ai/DeepSeek-V4-Pro	
+Fireworks	DeepSeek V4 Pro (max)	1.05M	Open	44	$0.76	172	1.97	30.3	25.42	Yes	Yes	Yes	accounts/fireworks/models/deepseek-v4-pro	
+DeepSeek	DeepSeek V4 Pro (max)	1M	Open	44	$0.04	67	1.65	74.65	65.51	Yes	Yes	Yes	deepseek-v4-pro	
+OpenAI	GPT-5.3 Codex (xhigh)	400k	Proprietary	44*	--	132	64.32	68.12	--	Yes	Yes	Yes	gpt-5.3-codex	
+Clarifai	Kimi K2.6	262k	Open	44	--	--	--	--	--	Yes	Yes	Yes	Kimi-K2_6	
+Databricks	Kimi K2.6	262k	Open	44	--	199	1.12	26.04	22.4	Yes	Yes	Yes	databricks-kimi-k2-6	
+Crusoe	Kimi K2.6 (NVFP4)	262k	Open	44	$0.34	453	0.64	11.56	9.82	Yes	Yes	Yes	moonshotai/Kimi-K2.6	
+CoreWeave	Kimi K2.6	262k	Open	44	--	304	1.11	17.38	14.63	Yes	Yes	Yes	moonshotai/Kimi-K2.6	
+Novita	Kimi K2.6	262k	Open	44	--	54	2.27	94.62	83.03	Yes	Yes	Yes	moonshotai/kimi-k2.6	
+GMI	Kimi K2.6 FP8	262k	Open	44	--	--	--	--	--	Yes	Yes	Yes	moonshotai/Kimi-K2.6	
+Together AI	Kimi K2.6 (FP4)	262k	Open	44	$0.33	422	0.6	12.33	10.55	Yes	Yes	Yes	moonshotai/Kimi-K2.6	
+Fireworks	Kimi K2.6	262k	Open	44	$0.28	405	0.67	12.88	10.98	Yes	Yes	Yes	accounts/fireworks/models/kimi-k2p6	
+SiliconFlow	Kimi K2.6 (FP8)	262k	Open	44	$0.46	52	1.7	97	85.68	Yes	Yes	Yes	moonshotai/Kimi-K2.6	
+DeepInfra	Kimi K2.6 (FP4)	262k	Open	44	$0.28	76	0.78	65.52	58.2	Yes	Yes	Yes	moonshotai/Kimi-K2.6	
+Parasail	Kimi K2.6	262k	Open	44	$0.30	49	1.83	102.53	90.53	Yes	Yes	Yes	moonshotai/Kimi-K2.6	
+Nebius	Kimi K2.6	262k	Open	44	--	223	1.93	24.18	20	Yes	Yes	Yes	moonshotai/Kimi-K2.6	
+Cloudflare	Kimi K2.6	262k	Open	44	$0.28	51	1.16	98.21	87.25	Yes	Yes	Yes	@cf/moonshotai/kimi-k2.6	
+Microsoft Azure	Kimi K2.6	262k	Open	44	--	215	1.45	24.43	20.66	Yes	Yes	Yes	Kimi-K2.6	
+Kimi	Kimi K2.6	256k	Open	44	$0.33	60	2.9	85.03	73.84	Yes	Yes	Yes	kimi-k2.6	
+Amazon Bedrock	GPT-5.5 (low)	272k	Proprietary	43	--	111	1.36	5.87	--	Yes	Yes		openai.gpt-5.5	
+OpenAI	GPT-5.5 (low)	1.05M	Proprietary	43	$0.21	79	1.5	7.81	--	Yes	Yes	Yes	gpt-5.5	
+Anthropic	Claude Opus 4.7 (Non-reasoning, high)	1M	Proprietary	43*	--	47	1.62	12.28	--	Yes	Yes	Yes	claude-opus-4-7	
+Amazon Bedrock	Claude Opus 4.7 (Non-reasoning, high)	1M	Proprietary	43*	--	64	1.82	9.66	--	Yes			global.anthropic.claude-opus-4-7	
+Novita	MiMo-V2.5-Pro	1.05M	Open	42	$0.04	58	2.37	45.53	34.53	Yes	Yes	Yes	xiaomimimo/mimo-v2.5-pro	
+GMI	MiMo-V2.5-Pro	1.05M	Open	42	--	--	--	--	--	Yes	Yes	Yes	XiaomiMiMo/MiMo-V2.5-Pro	
+DeepInfra	MiMo-V2.5-Pro	65.5k	Open	42	$0.28	81	0.68	31.67	24.79	Yes	Yes	Yes	XiaomiMiMo/MiMo-V2.5-Pro	
+Xiaomi	MiMo-V2.5-Pro	1M	Open	42	$0.03	60	3.08	45.05	33.58	Yes	Yes	Yes	mimo-v2.5-pro	
+Nebius	Kimi K2.7 Code (FP4)	256k	Open	42	--	27	1.87	103.66	83.15	Yes	Yes	Yes	moonshotai/Kimi-K2.7-Code	
+GMI	Kimi K2.7 Code (FP8)	65.5k	Open	42	--	66	4.55	46.12	33.95	Yes	Yes	Yes	moonshotai/kimi-k2.7-code	
+CoreWeave	Kimi K2.7 Code	262k	Open	42	--	219	1.15	13.61	10.18	Yes	Yes	Yes	moonshotai/Kimi-K2.7-Code	
+Parasail	Kimi K2.7 Code	262k	Open	42	$0.16	45	1.64	62.88	50.02	Yes	Yes	Yes	moonshotai/Kimi-K2.7-Code	
+Together AI	Kimi K2.7 Code	262k	Open	42	$0.27	276	0.54	10.45	8.09	Yes	Yes	Yes	moonshotai/Kimi-K2.7-Code	
+Novita	Kimi K2.7 Code	262k	Open	42	--	49	3.44	59.64	45.91	Yes	Yes	Yes	moonshotai/kimi-k2.7-code	
+Crusoe	Kimi K2.7 Code (NVFP4)	262k	Open	42	$0.19	469	0.61	6.43	4.75	Yes	Yes	Yes	moonshotai/Kimi-K2.7-Code	
+Databricks	Kimi K2.7 Code	262k	Open	42	--	158	1	18.3	14.13	Yes	Yes	Yes	databricks-kimi-k2-7-code	
+DeepInfra	Kimi K2.7 Code	262k	Open	42	--	81	0.8	34.31	27.38	Yes	Yes	Yes	moonshotai/Kimi-K2.7-Code	
+Makora	Kimi K2.7 Code	262k	Open	42	$0.45	328	0.55	8.86	6.79	Yes	Yes	Yes	moonshotai/Kimi-K2.7-Code	
+Kimi	Kimi K2.7 Code	256k	Open	42	--	48	2.91	59.88	46.53	Yes	Yes	Yes	kimi-k2.7-code	
+Anthropic	Claude Sonnet 5 (Non-reasoning)	1M	Proprietary	42	$0.37	67	1.16	8.63	--	Yes	Yes	Yes	claude-sonnet-5	
+Novita	Hy3	262k	Open	41	$0.00	59	2.48	44.7	33.78	Yes	Yes	Yes	tencent/hy3	
+OpenAI	GPT-5.6 Sol (Non-reasoning)	1M	Proprietary	41	$0.20	64	0.94	8.71	--	Yes	Yes	Yes	gpt-5.6-sol	
+SiliconFlow	Nex-N2-Pro (FP8)	262k	Open	41	--	142	1.72	19.31	14.07	Yes	Yes	Yes	nex-agi/Nex-N2-Pro	
+DeepInfra	DeepSeek V4 Pro (high) (FP4)	65.5k	Open	41*	--	60	1.07	42.88	33.42	Yes	Yes	Yes	deepseek-ai/DeepSeek-V4-Pro	
+Fireworks	DeepSeek V4 Pro (high)	1.05M	Open	41*	--	174	2.56	16.85	11.42	Yes	Yes	Yes	accounts/fireworks/models/deepseek-v4-pro	
+Microsoft Azure	DeepSeek V4 Pro (high)	1M	Open	41*	--	70	1.53	37.12	28.45	Yes	Yes	Yes	DeepSeek-V4-Pro	
+DeepSeek	DeepSeek V4 Pro (high)	1M	Open	41*	--	68	1.71	38.53	29.44	Yes	Yes	Yes	deepseek-v4-pro	
+SiliconFlow	DeepSeek V4 Pro (high) (FP8)	1.05M	Open	41*	--	48	3.09	54.91	41.42	Yes	Yes	Yes	deepseek-ai/DeepSeek-V4-Pro	
+Nebius	DeepSeek V4 Pro (high)	1M	Open	41*	--	45	1.88	56.97	44.03	Yes	Yes	Yes	deepseek-ai/DeepSeek-V4-Pro	
+Together AI	DeepSeek V4 Pro (high)	512k	Open	41*	--	340	0.98	8.3	5.85	Yes	Yes	Yes	deepseek-ai/DeepSeek-V4-Pro	
+Makora	DeepSeek V4 Pro (high)	1M	Open	41*	--	158	0.81	16.59	12.62	Yes	Yes	Yes	deepseek-ai/DeepSeek-V4-Pro	
+Novita	DeepSeek V4 Pro (high)	1.05M	Open	41*	--	69	1.86	37.95	28.84	Yes	Yes	Yes	deepseek/deepseek-v4-pro	
+Baseten	DeepSeek V4 Pro (high)	131k	Open	41*	--	143	0.81	18.25	13.94	Yes	Yes	Yes	deepseek-ai/DeepSeek-V4-Pro	
+Thinking Machines	Inkling	262k	Open	41	--	--	--	--	--					
+OpenAI	GPT-5.6 Terra (low)	1M	Proprietary	40	$0.15	132	1.28	5.06	--					
+GMI	DeepSeek V4 Flash (max)	1.05M	Open	40	--	--	--	--	--					
+Makora	DeepSeek V4 Flash (max)	1M	Open	40	--	231	0.68	27.17	24.33					
+DeepInfra	DeepSeek V4 Flash (max) (FP4)	1.05M	Open	40	--	31	1.2	196.2	179.04					
+SiliconFlow	DeepSeek V4 Flash (max) (FP8)	1.05M	Open	40	$0.08	57	1.85	108.78	98.19					
+Parasail	DeepSeek V4 Flash (max) (FP8)	1.05M	Open	40	--	54	1.65	114.17	103.32					
+Novita	DeepSeek V4 Flash (max)	1.05M	Open	40	$0.06	111	1.91	57.07	50.65					
+DeepSeek	DeepSeek V4 Flash (max)	1M	Open	40	$0.02	121	1.27	51.7	46.3					
+GMI	GLM-5.1 (FP8)	203k	Open	40	--	--	--	--	--					
+Wafer	GLM-5.1	203k	Open	40	$0.13	63	5.82	73.85	60.1					
+DeepInfra	GLM-5.1 (FP4)	203k	Open	40	$0.18	91	0.73	48.12	41.87					
+Fireworks	GLM-5.1	203k	Open	40	$0.21	180	1.15	24.96	21.04					
+Parasail	GLM-5.1 (FP8)	203k	Open	40	--	91	1.56	48.79	41.72					
+Novita	GLM-5.1 (FP8)	205k	Open	40	$0.26	56	3.36	80.56	68.2					
+CoreWeave	GLM-5.1	203k	Open	40	--	181	1.22	24.96	20.97					
+Nebius	GLM-5.1 (FP8, Base)	200k	Open	40	$0.49	31	1.84	141.17	123.1					
+SiliconFlow	GLM-5.1	205k	Open	40	$0.33	56	1.3	77.85	67.63					
+FriendliAI	GLM-5.1	203k	Open	40	$0.22	146	0.94	30.4	26.03					
+Microsoft Azure	GPT-5.4 mini (xhigh)	400k	Proprietary	40	--	258	126.33	128.27	--					
+OpenAI	GPT-5.4 mini (xhigh)	400k	Proprietary	40	$0.45	165	7.08	10.11	--					
+SpaceXAI	Grok Build 0.1 0616	256k	Proprietary	40	$0.21	79	0.54	32.16	25.3					
+Alibaba Cloud	Qwen3.6 Plus	1M	Proprietary	40	$0.31	53	2.58	117.5	105.42					
+Alibaba Cloud	Qwen3.7 Plus	1M	Proprietary	39	$0.21	53	2.85	49.83	37.58					
+OpenAI	GPT-5.4 nano (xhigh)	400k	Proprietary	38	$0.13	171	4.12	7.04	--					
+Together AI	MiniMax-M2.7	197k	Open	38	$0.08	173	0.54	17.67	14.24					
+GMI	MiniMax-M2.7 (FP8)	197k	Open	38	--	--	--	--	--					
+Fireworks	MiniMax-M2.7	197k	Open	38	$0.08	82	1.19	37.52	30.19					
+MiniMax	MiniMax-M2.7	205k	Open	38	--	73	1.65	42.44	33.9					
+Novita	MiniMax-M2.7 (FP8)	205k	Open	38	--	65	1.77	47.42	37.94					
+SambaNova	MiniMax-M2.7	197k	Open	38	$0.33	403	1.91	9.26	6.11					
+OpenAI	GPT-5.6 Luna (medium)	1M	Proprietary	38	$0.05	186	1.64	4.33	--					
+CoreWeave	Nemotron 3 Ultra	262k	Open	38	$0.15	248	1.07	12.24	9.16					
+GMI	Nemotron 3 Ultra	262k	Open	38	--	--	--	--	--					
+Together AI	Nemotron 3 Ultra	512k	Open	38	--	160	0.74	18.11	14.24					
+DeepInfra	Nemotron 3 Ultra	262k	Open	38	$0.14	139	4.12	24.08	16.36					
+DeepInfra	Nemotron 3 Ultra BF16	262k	Open	38	--	--	--	--	--					
+Nebius	Nemotron 3 Ultra	256k	Open	38	$0.54	343	2.35	10.44	6.64					
+Lightning AI	Nemotron 3 Ultra	262k	Open	38	$0.22	78	1.14	36.85	29.27					
+Blackbox AI	Nemotron 3 Ultra	262k	Open	38	$0.20	446	1.12	7.34	5.1					
+SpaceXAI	Grok 4.3 (high)	1M	Proprietary	38	$0.14	126	26.01	29.98	--					
+Amazon Bedrock	Grok 4.3 (high)	524k	Proprietary	38	$0.37	239	10.06	12.16	--					
+Microsoft Azure	Grok 4.3 (high)	200k	Proprietary	38	$0.46	106	22.85	27.58	--					
+CoreWeave	DeepSeek V4 Flash (high)	1M	Open	37	--	45	1.55	39.99	27.4					
+DeepInfra	DeepSeek V4 Flash (high) (FP4)	1.05M	Open	37	--	32	1.02	55.64	38.92					
+GMI	DeepSeek V4 Flash (high)	1.05M	Open	37	--	--	--	--	--					
+Makora	DeepSeek V4 Flash (high)	1M	Open	37	--	230	0.7	8.28	5.4					
+Parasail	DeepSeek V4 Flash (high) (FP8)	1.05M	Open	37	--	52	1.78	35.1	23.74					
+SiliconFlow	DeepSeek V4 Flash (high) (FP8)	1.05M	Open	37	--	49	2.1	37.87	25.49					
+Novita	DeepSeek V4 Flash (high)	1.05M	Open	37	--	111	1.62	17.36	11.22					
+DeepSeek	DeepSeek V4 Flash (high)	1M	Open	37	--	112	1.24	16.78	11.07					
+Novita	MiMo-V2.5	1.05M	Open	37	--	64	2.73	42.02	31.43					
+Parasail	MiMo-V2.5	1M	Open	37	--	71	1.5	36.71	28.17					
+DeepInfra	MiMo-V2.5	262k	Open	37	--	77	0.61	33.07	25.96					
+GMI	MiMo-V2.5	1.05M	Open	37	$0.08	--	--	--	--					
+Xiaomi	MiMo-V2.5	1M	Open	37	$0.01	63	4.09	43.52	31.54					
+Groq	Qwen3.6 27B	131k	Open	37	--	464	1.06	14.36	12.22					
+SiliconFlow	Qwen3.6 27B (FP8)	262k	Open	37	$0.17	44	3.6	144.04	129.07					
+DeepInfra	Qwen3.6 27B FP8	262k	Open	37	--	54	1.07	115.56	105.22					
+Makora	Qwen3.6 27B FP4	256k	Open	37	--	43	2.98	148.05	133.33					
+Novita	Qwen3.6 27B	262k	Open	37	$0.27	54	2.79	116.3	104.32					
+Alibaba Cloud	Qwen3.6 27B	262k	Open	37	$0.27	56	3.71	113.82	101.19					
+Amazon Bedrock	Grok 4.3 (medium)	524k	Proprietary	36	--	222	5.93	8.19	--					
+Microsoft Azure	Grok 4.3 (medium)	200k	Proprietary	36	--	99	14.08	19.12	--					
+SpaceXAI	Grok 4.3 (medium)	1M	Proprietary	36	--	117	9.57	13.85	--					
+Amazon Bedrock	Grok 4.3 (low)	524k	Proprietary	35	--	199	3.3	5.81	--					
+Microsoft Azure	Grok 4.3 (low)	200k	Proprietary	35	--	111	6.81	11.32	--					
+SpaceXAI	Grok 4.3 (low)	1M	Proprietary	35	--	110	4.66	9.21	--					
+OpenAI	GPT-5.5 (Non-reasoning)	1.05M	Proprietary	35	$0.17	74	0.8	7.55	--					
+Amazon Bedrock	GPT-5.5 (Non-reasoning)	272k	Proprietary	35	--	107	0.83	5.48	--					
+Wafer	GLM-5.1	203k	Open	35	--	86	5.55	11.38	--					
+Parasail	GLM-5.1	203k	Open	35	--	100	1.61	6.63	--					
+DeepInfra	GLM-5.1 (FP4)	203k	Open	35	--	80	0.84	7.12	--					
+Novita	GLM-5.1 (FP8)	205k	Open	35	--	53	3.29	12.64	--					
+FriendliAI	GLM-5.1	203k	Open	35	--	146	0.96	4.39	--					
+SiliconFlow	GLM-5.1 (FP8)	205k	Open	35	--	57	1.37	10.13	--					
+Nebius	GLM-5.1 (FP8, Base)	200k	Open	35	--	32	1.88	17.66	--					
+Google	Gemini 3.5 Flash (minimal) AI Studio	1M	Proprietary	35	--	162	0.85	3.93	--					
+Clarifai	Kimi K2.6	262k	Open	35	--	--	--	--	--	Yes	Yes	Yes	Kimi-K2_6	
+Databricks	Kimi K2.6	262k	Open	35	--	167	1.25	4.24	--	Yes	Yes	Yes	databricks-kimi-k2-6	
+Together AI	Kimi K2.6 (FP4)	262k	Open	35	--	409	0.55	1.78	--	Yes	Yes	Yes	moonshotai/Kimi-K2.6	
+SiliconFlow	Kimi K2.6 (FP8)	262k	Open	35	--	51	1.78	11.58	--	Yes	Yes	Yes	moonshotai/Kimi-K2.6	
+Fireworks	Kimi K2.6	262k	Open	35	--	352	0.67	2.09	--	Yes	Yes	Yes	accounts/fireworks/models/kimi-k2p6	
+Parasail	Kimi K2.6 (INT4)	262k	Open	35	--	50	1.98	12.04	--	Yes	Yes	Yes	moonshotai/Kimi-K2.6	
+DeepInfra	Kimi K2.6 (FP4)	262k	Open	35	--	74	0.86	7.61	--	Yes	Yes	Yes	moonshotai/Kimi-K2.6	
+CoreWeave	Kimi K2.6	262k	Open	35	--	264	1.09	2.98	--	Yes	Yes	Yes	moonshotai/Kimi-K2.6	
+Microsoft Azure	Kimi K2.6	262k	Open	35	--	205	1.5	3.94	--	Yes	Yes	Yes	Kimi-K2.6	
+Crusoe	Kimi K2.6 (NVFP4)	262k	Open	35	--	359	0.66	2.06	--	Yes	Yes	Yes	moonshotai/Kimi-K2.6	
+Kimi	Kimi K2.6	256k	Open	35	--	56	2.7	11.55	--	Yes	Yes	Yes	kimi-k2.6	
+Nebius	Kimi K2.6	262k	Open	35	--	204	1.93	4.38	--	Yes	Yes	Yes	moonshotai/Kimi-K2.6	
+Novita	Kimi K2.6	262k	Open	35	--	44	2.2	13.55	--	Yes	Yes	Yes	moonshotai/kimi-k2.6	
+Anthropic	Claude Sonnet 4.6 (Non-reasoning, Low Effort)	1M	Proprietary	34	--	44	1.4	12.86	--					
+Scaleway	GLM-5.2	262k	Open	34	--	93	1.55	6.93	--					
+OpenAI	GPT-5.6 Terra (Non-reasoning)	1M	Proprietary	34	$0.18	124	0.67	4.71	--					
+Clarifai	Qwen3.5 397B A17B	256k	Open	34	$0.33	--	--	--	--					
+Wafer	Qwen3.5 397B A17B	262k	Open	34	$0.24	62	2.32	61.53	51.17					
+Parasail	Qwen3.5 397B A17B	262k	Open	34	$0.23	78	0.97	47.94	40.6					
+SiliconFlow	Qwen3.5 397B A17B (FP8)	262k	Open	34	$0.22	104	2.3	37.73	30.62					
+DeepInfra	Qwen3.5 397B A17B (FP8)	262k	Open	34	$0.18	53	1.18	71.28	60.59					
+DigitalOcean	Qwen3.5 397B A17B	262k	Open	34	--	15	1.46	244.88	210.4					
+GMI	Qwen3.5 397B A17B (FP8)	262k	Open	34	$0.33	--	--	--	--					
+Nebius	Qwen3.5 397B A17B (Base, FP4)	262k	Open	34	$0.33	100	2.01	38.81	31.81					
+Alibaba Cloud	Qwen3.5 397B A17B	262k	Open	34	$0.33	62	2.62	61.67	51.04					
+Novita	Qwen3.5 397B A17B	262k	Open	34	$0.33	62	1.53	60.97	51.38					
+GMI	Hy3-preview	262k	Open	34	--	--	--	--	--					
+SiliconFlow	Hy3-preview	256k	Open	34	--	157	3.09	18.99	12.71					
+OpenAI	GPT-5.6 Luna (low)	1M	Proprietary	33	$0.04	181	1.3	4.06	--					
+SiliconFlow	Qwen3.5 122B A10B (FP8)	262k	Open	32	$0.16	50	1.98	51.5	39.62					
+DeepInfra	Qwen3.5 122B A10B (FP4)	262k	Open	32	$0.11	108	5.44	28.67	18.58					
+Alibaba Cloud	Qwen3.5 122B A10B	262k	Open	32	$0.24	135	2.34	20.88	14.83					
+GMI	Qwen3.5 122B A10B (FP8)	262k	Open	32	$0.24	--	--	--	--					
+Novita	Qwen3.5 122B A10B	262k	Open	32	$0.24	110	1.9	24.73	18.26					
+Wafer	Qwen3.5 397B A17B	262k	Open	32	--	64	2.38	10.14	--					
+DeepInfra	Qwen3.5 397B A17B (FP8)	262k	Open	32	--	52	1.2	10.73	--					
+Alibaba Cloud	Qwen3.5 397B A17B	262k	Open	32	--	63	2.49	10.42	--					
+Nebius	Qwen3.5 397B A17B (Base, FP4)	262k	Open	32	--	93	2.01	7.37	--					
+DigitalOcean	Qwen3.5 397B A17B	262k	Open	32	--	25	61.66	82.01	--					
+Novita	Qwen3.5 397B A17B	262k	Open	32	--	64	1.58	9.42	--					
+Alibaba Cloud	Qwen3.6 35B A3B	229k	Open	32	$0.18	154	2.29	40.48	34.96					
+SiliconFlow	Qwen3.6 35B A3B (FP8)	262k	Open	32	$0.16	81	2.18	74.99	66.64					
+Scaleway	Qwen3.6 35B A3B	262k	Open	32	--	181	0.99	33.47	29.73					
+DeepInfra	Qwen3.6 35B A3B (FP8)	262k	Open	32	$0.11	70	0.48	84.11	76.53					
+Makora	Qwen3.6 35B A3B FP4	1M	Open	32	$0.11	36	1.07	165.77	150.73					
+Clarifai	Qwen3.6 35B A3B (FP8)	262k	Open	32	--	--	--	--	--					
+GMI	Qwen3.6 35B A3B FP8	262k	Open	32	$0.18	--	--	--	--					
+Parasail	Qwen3.6 35B A3B	262k	Open	32	$0.19	129	0.91	46.62	41.84					
+Novita	Qwen3.6 35B A3B	205k	Open	32	$0.18	153	1.5	39.91	35.15					
+Microsoft Azure	DeepSeek V4 Pro	1M	Open	31	--	75	1.7	8.34	--					
+Nebius	DeepSeek V4 Pro	1.05M	Open	31	--	30	1.81	18.66	--					
+Makora	DeepSeek V4 Pro	1M	Open	31	--	149	0.82	4.17	--					
+DeepSeek	DeepSeek V4 Pro	1M	Open	31	--	71	1.72	8.72	--					
+Alibaba Cloud	Qwen3.5 Omni Plus	256k	Proprietary	31	--	54	2.35	11.68	--					
+InclusionAI	Ring-2.6-1T	262k	Open	31	$0.35	134	3.22	21.82	14.88					
+Groq	Qwen3.6 27B	131k	Open	30	--	451	1.21	2.32	--					
+Makora	Qwen3.6 27B FP4	256k	Open	30	--	46	2.99	13.81	--					
+DeepInfra	Qwen3.6 27B FP8	262k	Open	30	--	47	1.29	11.91	--					
+Alibaba Cloud	Qwen3.6 27B	262k	Open	30	$0.36									
+Novita	Qwen3.6 27B	262k	Open	30	$0.36									
+Microsoft Azure	o3	200k	Proprietary	30										
+OpenAI	o3	200k	Proprietary	30										
+OpenAI	o3	200k	Proprietary	30										
+StepFun	Step 3.7 Flash	256k	Open	30										
+DeepInfra	Step 3.7 Flash	256k	Open	30										
+OpenAI	GPT-5.4 nano	400k	Proprietary	30										
+Mistral	Mistral Medium 3.5	262k	Open	30	$0.56									
+Microsoft Azure	GPT-5.4 mini (medium)	400k	Proprietary	30										
+OpenAI	GPT-5.4 mini (medium)	272k	Proprietary	30										
+Amazon Bedrock	Claude 4.5 Haiku	200k	Proprietary	30	$0.25									
+Google	Claude 4.5 Haiku Vertex	200k	Proprietary	30	$0.23									
+Anthropic	Claude 4.5 Haiku	200k	Proprietary	30	$0.24									
+Microsoft Azure	Claude 4.5 Haiku	200k	Proprietary	30	$0.51									
+CoreWeave	Gemma 4 31B	262k	Open	29		38								
+GMI	Gemma 4 31B (FP8)	262k	Open	29										
+Novita	Gemma 4 31B	262k	Open	29										
+Cerebras	Gemma 4 31B	131k	Open	29	$0.21	1593								
+Parasail	Gemma 4 31B	262k	Open	29	$0.02	52								
+DeepInfra	Gemma 4 31B	262k	Open	29	$0.01	16								
+SiliconFlow	Gemma 4 31B (FP8)	262k	Open	29		55								
+SambaNova	Gemma 4 31B	131k	Open	29		195								
+FriendliAI	Gemma 4 31B	256k	Open	29		193								
+Lightning AI	Gemma 4 31B	131k	Open	29		99								
+Together AI	Gemma 4 31B	262k	Open	29		59								
+Google	Gemma 4 31B (AI Studio)	262k	Open	29		35								
+OpenAI	GPT-5.5 Instant (June 2026)	400k	Proprietary	29	$0.54									
+DeepSeek	DeepSeek V4 Flash	1M	Open	29		114								
+GMI	DeepSeek V4 Flash	1.05M	Open	29										
+Makora	DeepSeek V4 Flash	1M	Open	29		226								
+CoreWeave	DeepSeek V4 Flash	1M	Open	29		44								
+GMI	MiMo-V2.5-Pro	1.05M	Open	28						Yes	Yes	Yes	XiaomiMiMo/MiMo-V2.5-Pro	
+DeepInfra	MiMo-V2.5-Pro	65.5k	Open	28		70				Yes	Yes	Yes	XiaomiMiMo/MiMo-V2.5-Pro	
+Xiaomi	MiMo-V2.5-Pro	131k	Open	28		54				Yes	Yes	Yes	mimo-v2.5-pro	
+Novita	MiMo-V2.5-Pro	1.05M	Open	28		56				Yes	Yes	Yes	xiaomimimo/mimo-v2.5-pro	
+DeepInfra	Qwen3.5 122B A10B (FP4)	262k	Open	28	$0.09	92								
+Alibaba Cloud	Qwen3.5 122B A10B	262k	Open	28	$0.18	149								
+OpenAI	GPT-5.6 Luna (Non-reasoning)	1M	Proprietary	27	$0.05	196								
+GMI	Hy3-preview	262k	Open	26										
+SiliconFlow	Hy3-preview	328k	Open	26		138								
+InclusionAI	Ling-2.6-1T	262k	Open	26										
+StepFun	Step 3.5 Flash 2603	256k	Open	26		283								
+Google	Gemini 2.5 Pro Vertex	1M	Proprietary	26	$0.20	117								
+Google	Gemini 2.5 Pro (AI Studio)	1M	Proprietary	26	$0.20	143								
+Makora	Gemma 4 26B A4B	1M	Open	26		210								
+Cloudflare	Gemma 4 26B A4B	256k	Open	26		83								
+DeepInfra	Gemma 4 26B A4B	262k	Open	26	$0.02	22								
+Parasail	Gemma 4 26B A4B	256k	Open	26	$0.02	24								
+Clarifai	Gemma 4 26B A4B	256k	Open	26										
+Novita	Gemma 4 26B A4B	262k	Open	26	$0.04	24								
+Google	Gemma 4 26B A4B AI Studio	262k	Open	26		47								
+GMI	Gemma 4 26B A4B (FP8)	1.05M	Open	26	$0.04									
+Baseten	Nemotron 3 Super	203k	Open	25	$0.20	436								
+CoreWeave	Nemotron 3 Super	262k	Open	25	$0.20	141								
+Nebius	Nemotron 3 Super	256k	Open	25	$0.29	391								
+DeepInfra	Nemotron 3 Super	262k	Open	25										
+Inception	Mercury 2	128k	Proprietary	25		1106								
+Google	Gemini 3.1 Flash-Lite (AI Studio)	1M	Proprietary	25	$0.04	331								
+Amazon Bedrock	Grok 4.3 (Non-reasoning)	524k	Proprietary	25	$0.99	193								
+SpaceXAI	Grok 4.3 (Non-reasoning)	1M	Proprietary	25	$0.29	105								
+Parasail	Trinity Large Thinking (FP8)	262k	Open	24		193								
+Arcee AI	Trinity Large Thinking	262k	Open	24		269								
+Clarifai	Qwen3.6 35B A3B (FP8)	262k	Open	24										
+Scaleway	Qwen3.6 35B A3B	262k	Open	24		176								
+Makora	Qwen3.6 35B A3B FP4	1M	Open	24	$0.24	30								
+DeepInfra	Qwen3.6 35B A3B (FP8)	262k	Open	24	$0.30	71								
+Novita	Qwen3.6 35B A3B	205k	Open	24	$0.40	177								
+GMI	Qwen3.6 35B A3B FP8	262k	Open	24	$0.40									
+Parasail	Qwen3.6 35B A3B (FP8)	262k	Open	24	$0.41	136								
+Alibaba Cloud	Qwen3.6 35B A3B	262k	Open	24	$0.60	189								
+Groq	gpt-oss-120b (high)	131k	Open	24	$0.05									
+Scaleway	gpt-oss-120b (high)	128k	Open	24	$0.07									
+Cloudflare	gpt-oss-120b (high)	116k	Open	24										
+DeepInfra	gpt-oss-120b (high)	131k	Open	24	$0.02									
+Microsoft Azure	gpt-oss-120b (high)	131k	Open	24	$0.06									
+CoreWeave	gpt-oss-120b (high)	131k	Open	24										
+DeepInfra	gpt-oss-120b (high) (Turbo)	131k	Open	24										
+Makora	gpt-oss-120b (high)	128k	Open	24										
+Cerebras	gpt-oss-120b (high)	131k	Open	24	$0.12									
+Google	gpt-oss-120b (high) Vertex	131k	Open	24										
+Clarifai	gpt-oss-120b (high)	131k	Open	24										
+Baseten	gpt-oss-120b (high)	128k	Open	24	$0.04									
+SambaNova	gpt-oss-120b (high)	131k	Open	24										
+Parasail	gpt-oss-120b (high)	131k	Open	24										
+CompactifAI	gpt-oss-120b (high)	131k	Open	24	$0.02									
+Fireworks	gpt-oss-120b (high)	131k	Open	24										
+Nebius	gpt-oss-120b (high) (Base)	128k	Open	24										
+Hyperbolic	gpt-oss-120b (high)	131k	Open	24										
+Databricks	gpt-oss-120b (high)	128k	Open	24	$0.06									
+Amazon Bedrock	gpt-oss-120b (high)	131k	Open	24	$0.06									
+Together AI	gpt-oss-120b (high)	131k	Open	24										
+Novita	gpt-oss-120b (high)	131k	Open	24	$0.02									
+Amazon Bedrock	Claude 4.5 Haiku	200k	Proprietary	24										
+Anthropic	Claude 4.5 Haiku	200k	Proprietary	24										
+Microsoft Azure	Claude 4.5 Haiku	200k	Proprietary	24										
+Google	Claude 4.5 Haiku Vertex	200k	Proprietary	24										
+Cohere	Command A+	200k	Open	23	$0.00	184	0.41	14						
+SiliconFlow	Gemma 4 12B	262k	Open	22		113	2.38	24.6						
+Parasail	Gemma 4 31B (Non-reasoning)	262k	Open	22	$0.03	45	2.76	13.99						
+Cerebras	Gemma 4 31B (Non-reasoning)	131k	Open	22	$0.24	1526	0.69	1.02						
+FriendliAI	Gemma 4 31B (Non-reasoning)	262k	Open	22		222	1.21	3.46						
+Together AI	Gemma 4 31B (FP8) (Non-reasoning)	262k	Open	22		59	1.16	9.68						
+SiliconFlow	Gemma 4 31B (FP8) (Non-reasoning)	262k	Open	22		47	3.84	14.56						
+DeepInfra	Gemma 4 31B (FP8) (Non-reasoning)	262k	Open	22	$0.03	16	1.21	32.05						
+SambaNova	Gemma 4 31B (Non-reasoning)	131k	Open	22		196	2.35	4.9						
+Novita	Gemma 4 31B (Non-reasoning)	262k	Open	22		14	1.47	36.71						
+Amazon Bedrock	Amazon Nova 2.0 Pro Preview (medium)	256k	Proprietary	22	$0.17	136	13.29	31.71						
+SiliconFlow	Qwen3.5 9B	262k	Open	21	$0.16	38								
+Together AI	Qwen3.5 9B	262k	Open	21	$0.16	71								
+Parasail	Qwen3 Coder Next		Open	21	$0.11	91								
+Together AI	Qwen3 Coder Next		Open	21										
+Novita	Qwen3 Coder Next		Open	21	$0.20	158								
+Amazon Bedrock	Qwen3 Coder Next		Open	21	$0.46	136								
+Amazon Bedrock	Amazon Nova 2.0 Omni (medium)	256k	Proprietary	21										
+Makora	Gemma 4 26B A4B	1M	Open	20		226								
+Parasail	Gemma 4 26B A4B	256k	Open	20		26								
+GMI	Gemma 4 26B A4B	1.05M	Open	20										
+SiliconFlow	Gemma 4 26B A4B	262k	Open	20		115								
+Clarifai	Gemma 4 26B A4B	256k	Open	20										
+Scaleway	Gemma 4 26B A4B	262k	Open	20		127								
+DeepInfra	Gemma 4 26B A4B	262k	Open	20		20								
+Novita	Gemma 4 26B A4B	262k	Open	20		25								
+DeepInfra	Qwen3.5 4B	262k	Open	20		24								
+Cohere	North Mini Code		Open	20	$0.00	119								
+Amazon Bedrock	Amazon Nova 2.0 Pro Preview (low)	256k	Proprietary	20	$0.21	130								
+Mistral	Mistral Small 4		Open	20	$0.10	168								
+Mistral	Mistral Devstral 2	262k	Open	19	$0.00	77								
+Amazon Bedrock	Amazon Nova 2.0 Lite (medium)	1M	Proprietary	19		177								
+Alibaba Cloud	Qwen3.5 Omni Flash	256k	Proprietary	19		243								
+Amazon Bedrock	Amazon Nova 2.0 Lite (high)	1M	Proprietary	18										
+Amazon Bedrock	Amazon Nova 2.0 Lite (high)	1M	Proprietary	18	$0.25	167								
+Mistral	Mistral Magistral Medium 1.2	131k	Proprietary	18	$0.75	42								
+Amazon Bedrock	Amazon Nova 2.0 Lite (low)	1M	Proprietary	18		168								
+CompactifAI	Multiverse HyperNova 60B	131k	Open	18	$0.02	362								
+OpenAI	GPT-5.4 nano	400k	Proprietary	18		174								
+Mistral	Mistral Devstral Small 2	256k	Open	17	$0.00	78								
+GMI	Qwen3 Next 80B A3B	262k	Open	17	$0.04									
+Alibaba Cloud	Qwen3 Next 80B A3B	262k	Open	17	$0.17	176								
+Nebius	Qwen3 Next 80B A3B (FP8)	262k	Open	17	$0.04	105								
+Hyperbolic	Qwen3 Next 80B A3B	262k	Open	17										
+Google	Qwen3 Next 80B A3B Vertex	262k	Open	17		135								
+Microsoft Azure	GPT-5.4 mini	400k	Proprietary	17		195								
+OpenAI	GPT-5.4 mini	272k	Proprietary	17		182								
+Amazon Bedrock	Amazon Nova 2.0 Omni (low)	1M	Proprietary	17										
+DeepInfra	Qwen3.5 4B FP8	262k	Open	16		24								
+Amazon Bedrock	Mistral Large 3	256k	Open	16	$0.06	199								
+Microsoft Azure	Mistral Large 3	256k	Open	16		67								
+Mistral	Mistral Large 3	262k	Open	16	$0.06	52								
+Clarifai	Nemotron 3 Nano Omni 30B	262k	Open	15										
+Nebius	Nemotron 3 Nano Omni 30B (FP8)	65.5k	Open	15		319								
+Hyperbolic	gpt-oss-120b (low)	131k	Open	15										
+Nebius	gpt-oss-120b (low) Base	128k	Open	15		343								
+Makora	gpt-oss-120b (low)	128k	Open	15		158								
+SambaNova	gpt-oss-120b (low)	131k	Open	15		738								
+Google	gpt-oss-120b (low) Vertex	131k	Open	15		421								
+Fireworks	gpt-oss-120b (low)	131k	Open	15		659								
+CoreWeave	gpt-oss-120b (low)	131k	Open	15		85								
+Cerebras	gpt-oss-120b (low)	131k	Open	15	$0.04	1904								
+Microsoft Azure	gpt-oss-120b (low)	131k	Open	15	$0.02	370								
+Cloudflare	gpt-oss-120b (low)	128k	Open	15		122								
+CompactifAI	gpt-oss-120b (low)	131k	Open	15	$0.01									
+Baseten	gpt-oss-120b (low)	128k	Open	15	$0.01	314								
+Amazon Bedrock	gpt-oss-120b (low)	131k	Open	15	$0.02	119								
+Parasail	gpt-oss-120b (low)	131k	Open	15		169								
+Databricks	gpt-oss-120b (low)	128k	Open	15	$0.02	343								
+Together AI	gpt-oss-120b (low)	131k	Open	15		590								
+Groq	gpt-oss-120b (low)	131k	Open	15	$0.02	478								
+Clarifai	gpt-oss-120b (low)	131k	Open	15										
+Novita	gpt-oss-120b (low)	131k	Open	15	$0.01	100								
+Snowflake	gpt-oss-120b (low)	131k	Open	15										
+CoreWeave	gpt-oss-20b (high)	131k	Open	15		169								
+DeepInfra	gpt-oss-20b (high)	131k	Open	15		110								
+Together AI	gpt-oss-20b (high)	131k	Open	15		445								
+Hyperbolic	gpt-oss-20b (high)	131k	Open	15										
+Lightning AI	gpt-oss-20b (high)	128k	Open	15		273								
+CompactifAI	gpt-oss-20b (high)	131k	Open	15										
+Cloudflare	gpt-oss-20b (high)	128k	Open	15		166								
+Novita	gpt-oss-20b (high)	131k	Open	15		135								
+Google	gpt-oss-20b (high) Vertex	131k	Open	15		282								
+Amazon Bedrock	gpt-oss-20b (high)	131k	Open	15		248								
+Databricks	gpt-oss-20b (high)	131k	Open	15	$0.03	290								
+Groq	gpt-oss-20b (high)	131k	Open	15		927								
+Clarifai	gpt-oss-20b (high)	131k	Open	15	$0.02									
+Amazon Bedrock	Nova 2.0 Pro Preview	256k	Proprietary	14	$0.25	119								
+Clarifai	gpt-oss-20b (low)	131k	Open	14										
+Together AI	gpt-oss-20b (low)	131k	Open	14		446								
+Lightning AI	gpt-oss-20b (low)	128k	Open	14		275								
+Hyperbolic	gpt-oss-20b (low)	131k	Open	14										
+CoreWeave	gpt-oss-20b (low)	131k	Open	14		188								
+Cloudflare	gpt-oss-20b (low)	128k	Open	14		161								
+CompactifAI	gpt-oss-20b (low)	131k	Open	14										
+Amazon Bedrock	gpt-oss-20b (low)	131k	Open	14		315								
+Novita	gpt-oss-20b (low)	131k	Open	14		153								
+Databricks	gpt-oss-20b (low)	131k	Open	14		305								
+Groq	gpt-oss-20b (low)	131k	Open	14		949								
+Google	gpt-oss-20b (low) Vertex	131k	Open	14		255								
+Microsoft Azure	Llama 4 Maverick (FP8)	128k	Open	14	$0.04	116								
+Amazon Bedrock	Llama 4 Maverick	128k	Open	14		231								
+Snowflake	Llama 4 Maverick	131k	Open	14		124								
+Together AI	Llama 4 Maverick	1.05M	Open	14										
+DeepInfra	Llama 4 Maverick (FP8)	1.05M	Open	14		45								
+Databricks	Llama 4 Maverick	131k	Open	14	$0.05	85								
+SambaNova	Llama 4 Maverick	131k	Open	14	$0.07									
+Novita	Llama 4 Maverick (FP8)	1.05M	Open	14	$0.03	41								
+Parasail	Llama 4 Maverick (FP8)	1.05M	Open	14	$0.02	124								
+Nebius	Nemotron 3 Nano	262k	Open	14	$0.02	184								
+Novita	Nemotron 3 Nano (FP4)	262k	Open	14		216								
+DeepInfra	Nemotron 3 Nano	262k	Open	14	$0.02	86								
+Novita	Ling 2.6 Flash	262k	Open	14		178								
+SiliconFlow	Gemma 4 12B (Non-reasoning)	262k	Open	13		106								
+Amazon Bedrock	Nova Premier	1M	Proprietary	13		27								
+DeepInfra	Llama Nemotron Super 49B v1.5	131k	Open	12		105								
+Mistral	Mistral Small 4	262k	Open	12		159								
+Sarvam	Sarvam 105B (high)	128k	Open	12		96								
+Amazon Bedrock	Nova 2.0 Lite	1M	Proprietary	12		159								
+Amazon Bedrock	Magistral Small 1.2	128k	Open	11		74								
+Mistral	Magistral Small 1.2	131k	Open	11	$0.25	81								
+Mistral	Ministral 3 14B	262k	Open	11	$0.15	60								
+Amazon Bedrock	Ministral 3 14B	256k	Open	11	$0.15	236								
+DeepInfra	Llama 4 Scout	328k	Open	10	$0.00	54								
+CompactifAI	Llama 4 Scout	131k	Open	10	$0.00									
+Cloudflare	Llama 4 Scout	131k	Open	10	$0.01	43								
+Amazon Bedrock	Llama 4 Scout	128k	Open	10		189								
+Novita	Llama 4 Scout	131k	Open	10	$0.01	57								
+Google	Llama 4 Scout Vertex	1.31M	Open	10	$0.01	144								
+Groq	Llama 4 Scout	131k	Open	10	$0.01	447								
+Groq	Llama 3.3 70B	131k	Open	9	$0.08	328								
+Parasail	Llama 3.3 70B (FP8)	131k	Open	9	$0.02	56								
+SambaNova	Llama 3.3 70B	128k	Open	9	$0.08	288								
+Makora	Llama 3.3 70B FP8	128k	Open	9		292								
+CoreWeave	Llama 3.3 70B	128k	Open	9		84								
+CompactifAI	Llama 3.3 70B	128k	Open	9	$0.02									
+Together AI	Llama 3.3 70B Turbo	131k	Open	9	$0.12	89								
+Microsoft Azure	Llama 3.3 70B	128k	Open	9	$0.10	99								
+DeepInfra	Llama 3.3 70B (Turbo, FP8)	131k	Open	9	$0.01	17								
+Cloudflare	Llama 3.3 70B	24k	Open	9	$0.04	50								
+Amazon Bedrock	Llama 3.3 70B	128k	Open	9	$0.10	151								
+Google	Llama 3.3 70B Vertex	128k	Open	9	$0.10	174								
+Databricks	Llama 3.3 70B	128k	Open	9	$0.07	73								
+Scaleway	Llama 3.3 70B	100k	Open	9	$0.14	88								
+Novita	Llama 3.3 70B	131k	Open	9	$0.02									
+Amazon Bedrock	Ministral 3 8B	256k	Open	9	$0.18	261								
+Mistral	Ministral 3 8B	262k	Open	9	$0.18	113								
+Liquid AI	LFM2.5-8B-A1B	32.8k	Open	8		337								
+Microsoft Azure	Command A	256k	Open	8		41								
+Cohere	Command A	288k	Open	8		62								
+DeepInfra	Llama 3.1 Nemotron 70B	131k	Open	8		111								
+Mistral	Ministral 3 3B	131k	Open	7	$0.13	164								
+Amazon Bedrock	Ministral 3 3B	256k	Open	7	$12.62	409								
+Microsoft Azure	Phi-4 Mini	128k	Open	6	$0.00	44								
+AI21 Labs	Jamba 1.7 Large	256k	Open	5		58								
+DeepInfra	Phi-4	16.4k	Open	5		79								
+Amazon Bedrock	Nova Micro	130k	Proprietary	5		301								
+Reka AI	Reka Flash 3	54k	Open	4										
+DeepInfra	Llama 3.2 11B (Vision)	131k	Open	3		25								
+Liquid AI	LFM2.5-VL-1.6B	32.8k	Open	1		420								
+Cohere	Tiny Aya Global	8.19k	Open	1										
+Public AI	Apertus 8B Instruct	64k	Open	1										
+Anthropic	Claude Sonnet 5 (low)	1M	Proprietary			63								
+Anthropic	Claude Sonnet 5 (xhigh)	1M	Proprietary			74								
+Anthropic	Claude Sonnet 5 (high)	1M	Proprietary			72								
+Together AI	Cogito v2.1	164k	Open											
+Anthropic	Claude Sonnet 5 (medium)	1M	Proprietary			65								

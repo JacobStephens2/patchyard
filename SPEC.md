@@ -105,6 +105,10 @@ untrusted request content must hold nothing worth stealing.
   Guardrails on the queue path: the 2-open-PR cap throttles drain,
   per-submitter and global daily run limits apply, and
   `factoryctl pause` halts claiming without touching in-flight runs.
+  **Invariant (A65)**: for a request triaged lane A, no human action
+  exists between completing the intake form and the ready-for-review
+  draft PR. Guardrails may delay the run (queued, throttled), never
+  require a person to advance it; the next human touch is PR review.
 - **Triage** runs as a no-shell subagent (Read/Grep/Glob only - harness-
   enforced; defense-in-depth under the OS boundary, not a substitute).
 - **Implement worker** runs on the dedicated worker droplet inside an isolated

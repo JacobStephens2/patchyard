@@ -281,6 +281,16 @@ bot identity, nor factory output through a human's.
   must pass the events route unbuffered with long-lived connections
   permitted; the stream authenticates through the same forward_auth
   session as every other admin route.
+- **Visual style (A64)**: matrix boxy terminal aesthetic - vendored
+  `terminal.css` (MIT, single static file, `assets/dashboard/`) with the
+  Patchyard palette applied through its custom properties in
+  `assets/dashboard/patchyard-theme.css`: brand green `#00A651`
+  (example.com) as the terminal accent on a dark green-cast ground,
+  fieldbook's `#f44336` for errors, amber for stuck-stage badges; system
+  mono stack, no webfonts. Every asset self-hosted (no CDN, no npm -
+  A53 and the strict CSP hold); the theme file owns the factory widgets
+  (stage badges, event timeline, live indicator with
+  `prefers-reduced-motion` respected).
 - **Upload hardening acceptance criteria**: canonical server-generated
   IDs and filenames (user filename never a path); create-new + atomic
   rename; magic-byte sniffing + decoder pixel limits + re-encode to clean

@@ -267,6 +267,10 @@ instead of compressing the security and failure testing.
   cannot update/delete state or mutate events even through direct SQL.
   Form constraints are template-injected from core constants. Refresh
   action triggers the bounded reconcile.
+- **Visual style (A64)**: templates ship on the vendored
+  `assets/dashboard/terminal.css` + `patchyard-theme.css` (matrix boxy
+  terminal, Patchyard green accent); assets served by the dashboard binary,
+  none fetched externally.
 - **Live visibility (A63)**: SSR event-ledger timeline on the detail
   page; `GET /request/<id>/events` SSE endpoint driven by PostgreSQL
   `LISTEN/NOTIFY` (no polling at any layer); inline vanilla `EventSource`

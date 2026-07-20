@@ -1,7 +1,7 @@
 {
   "$schema": "./factory-model.schema.json",
-  "schemaVersion": 4,
-  "modelVersion": 9,
+  "schemaVersion": 5,
+  "modelVersion": 10,
   "updated": "2026-07-18",
   "rulings": [
     "A39",
@@ -41,7 +41,8 @@
       "executionBoundary": "firecracker-or-rootless-podman"
     },
     "management": {
-      "controller": "orchestration-vm",
+      "bootstrapController": "orchestration-vm-agents",
+      "runtimeController": "self",
       "provisioner": "opentofu",
       "configurationManager": "ansible",
       "desiredStateRepository": "factory"
@@ -51,7 +52,8 @@
       "A67",
       "A68"
     ],
-    "supervisorRuntime": "rust-daemon"
+    "supervisorRuntime": "rust-daemon",
+    "independence": "no-runtime-dependency-on-orchestration-host"
   },
   "actorTypes": {
     "human": "Human judgment - the accountable decision",

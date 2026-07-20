@@ -1,8 +1,8 @@
 # Factory model - generated diagram
 
-*Generated from `factory-model.json` schema v4, model
-v9 (2026-07-18), canonical identity
-`sha256:df9926a86803c55b18ab04ca9d719a064ac88a4e2cf080dfbef900ea105652cb`. Do not edit by hand - edit the model, update its identity,
+*Generated from `factory-model.json` schema v5, model
+v10 (2026-07-18), canonical identity
+`sha256:24dcda9ca3a8649a1e2b78056d27915f7c3a2a5b1bdb34b6d4f420ff0b4ed391`. Do not edit by hand - edit the model, update its identity,
 and re-run the projector. Hexagons = human; dashed rounded nodes = AI agent;
 rectangles = deterministic software. Dotted edges are decision or feedback
 paths; inspect their labels and endpoints to distinguish human gates from the
@@ -12,13 +12,16 @@ Phase 1 keeps supervisor, postgresql, artifact store, dashboard, publisher on th
 `control-plane-vm` and runs implement and verify on a
 `dedicated-droplet` with no standing secrets, database access, fleet
 credentials, or execution access to the private network. The only runtime
-credential is `short-lived-spend-capped-model-only`. The `orchestration-vm`
-applies `opentofu` and `ansible`
-desired state from the `factory` repository.
+credential is `short-lived-spend-capped-model-only`. Bootstrap is performed by
+`orchestration-vm-agents` applying `opentofu` and
+`ansible` desired state from the
+`factory` repository; at runtime the control
+plane manages itself (`self`,
+no runtime dependency on orchestration host).
 
 ```mermaid
-%% factory-model schema v4, model v9
-%% canonical sha256:df9926a86803c55b18ab04ca9d719a064ac88a4e2cf080dfbef900ea105652cb
+%% factory-model schema v5, model v10
+%% canonical sha256:24dcda9ca3a8649a1e2b78056d27915f7c3a2a5b1bdb34b6d4f420ff0b4ed391
 flowchart LR
   intake["Intake<br/><i>deterministic</i>"]:::det
   triage(["Triage<br/><i>agent</i>"]):::agent

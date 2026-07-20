@@ -27,7 +27,7 @@
       "const": "./factory-model.schema.json"
     },
     "schemaVersion": {
-      "const": 4
+      "const": 5
     },
     "modelVersion": {
       "type": "integer",
@@ -221,7 +221,8 @@
         "worker",
         "management",
         "rulings",
-        "supervisorRuntime"
+        "supervisorRuntime",
+        "independence"
       ],
       "properties": {
         "phase": {
@@ -243,13 +244,41 @@
           "$ref": "#/definitions/workerDeployment"
         },
         "management": {
-          "$ref": "#/definitions/deploymentManagement"
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "bootstrapController",
+            "runtimeController",
+            "provisioner",
+            "configurationManager",
+            "desiredStateRepository"
+          ],
+          "properties": {
+            "bootstrapController": {
+              "const": "orchestration-vm-agents"
+            },
+            "runtimeController": {
+              "const": "self"
+            },
+            "provisioner": {
+              "const": "opentofu"
+            },
+            "configurationManager": {
+              "const": "ansible"
+            },
+            "desiredStateRepository": {
+              "const": "factory"
+            }
+          }
         },
         "rulings": {
           "$ref": "#/definitions/rulings"
         },
         "supervisorRuntime": {
           "const": "rust-daemon"
+        },
+        "independence": {
+          "const": "no-runtime-dependency-on-orchestration-host"
         }
       }
     },

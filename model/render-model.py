@@ -85,9 +85,12 @@ Phase 1 keeps {", ".join(item.replace("-", " ") for item in deployment["controlC
 `{deployment["controlHost"]}` and runs {" and ".join(worker["components"])} on a
 `{worker["host"]}` with no standing secrets, database access, fleet
 credentials, or execution access to the private network. The only runtime
-credential is `{worker["runtimeCredential"]}`. The `{management["controller"]}`
-applies `{management["provisioner"]}` and `{management["configurationManager"]}`
-desired state from the `{management["desiredStateRepository"]}` repository.
+credential is `{worker["runtimeCredential"]}`. Bootstrap is performed by
+`{management["bootstrapController"]}` applying `{management["provisioner"]}` and
+`{management["configurationManager"]}` desired state from the
+`{management["desiredStateRepository"]}` repository; at runtime the control
+plane manages itself (`{management["runtimeController"]}`,
+{deployment["independence"].replace("-", " ")}).
 
 ```mermaid
 {mermaid}```

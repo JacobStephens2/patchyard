@@ -21,6 +21,7 @@ Session 0 covers the worker desired-state component; sessions 1-2 cover the cont
 
 ### Session 0 - desired-state foundation, control-plane VM, and worker droplet
 
+- **A69**: the session's deliverable layout is `infra/<provider>` (nightloch pattern) - OpenTofu for droplets, Route 53 DNS, firewalls, and GitHub repo settings/branch protection; Ansible for all host config; encrypted state backend chosen and documented. Nothing about the factory is console-clicked from here on.
 - **A68**: session 0 is the bootstrap act - orchestration agents create/initialize two hosts from one desired state: the control-plane VM (supervisor daemon, PostgreSQL, artifact store, dashboard, Caddy, headless Chromium, its own factory-repo checkout and secret injection) and the secret-free worker droplet. Exit includes the independence check: with the orchestration VM unreachable, the factory still serves, authenticates, and runs. `factory.example.com` DNS points at the control-plane VM.
 - Entry: Jacob's "go". Pin OpenTofu and the Ansible runtime/collections on the orchestration controller; add `infra/opentofu/` and `infra/ansible/` with one documented plan, apply, check, replace, and rollback path.
 - Configure DigitalOcean Spaces remote state with `use_lockfile`; backend and provider credentials come only from the controller environment. OpenTofu owns the worker droplet, cloud firewall, SSH public-key attachment, attachment to existing Patchyard tags, and inventory outputs. The worker receives no DigitalOcean credential.

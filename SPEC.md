@@ -260,7 +260,10 @@ bot identity, nor factory output through a human's.
 - **Authorization**: new `factory_submit` and `factory_admin` permissions
   in the members store - `reports` is not reused. Request lists,
   detail pages, evidence, and operational state are `factory_admin`-only
-  in phase 1; a bare submitter sees a success receipt - which for a
+  in phase 1. **The form is phase 1's only intake surface (A66)** -
+  out-of-band requests enter by whoever holds them submitting the form;
+  `factoryctl request new` is ops/test tooling, not staff intake. A bare
+  submitter sees a success receipt - which for a
   lane-A-classified request includes its live run status (A65: submission
   starts the run via the queue; the dashboard writes the intake row and
   `NOTIFY`s, the supervisor listener does everything else).

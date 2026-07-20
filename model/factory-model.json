@@ -1,7 +1,7 @@
 {
   "$schema": "./factory-model.schema.json",
   "schemaVersion": 3,
-  "modelVersion": 7,
+  "modelVersion": 8,
   "updated": "2026-07-18",
   "rulings": [
     "A39",
@@ -90,16 +90,13 @@
       "actor": "deterministic",
       "sources": [
         {
-          "id": "human-forward",
-          "actor": "human",
-          "availability": "phase-1"
-        },
-        {
           "id": "dashboard",
           "actor": "human",
           "availability": "phase-1",
           "rulings": [
-            "A32"
+            "A32",
+            "A65",
+            "A66"
           ]
         },
         {

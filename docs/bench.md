@@ -77,7 +77,11 @@ content (A61). Reference charts are Artificial Analysis; they render
 client-side, so refresh via the headless harness (`tools/aa-sweep.py`
 snapshots to `../research/aa-snapshots/`). Reorders within these rules
 are edits here, no new ruling; provider membership changes are A61
-roster changes.
+roster changes. `tools/check-seats.py` cross-checks these tables
+against `bench.json` and the A61 allowlist (model/pair membership,
+preferred harness, floors, rank ordering, speed values) - run it after
+editing this section. Chart-sourced Index and $/task values get
+ordering checks only; they refresh via `tools/aa-sweep.py`.
 
 ### Triage / cross-family verification seats
 
@@ -109,7 +113,7 @@ Text + image input:
 | :-- | :-- | :-- | :-- | --: |
 | 1 | MiniMax-M3 | Claude Code (2026-07-18 A/B - see Pairs; ideas listed OpenCode) | Novita | $0.12 |
 | 2 | GPT-5.6 Luna (max) | Codex | OpenAI | $0.21 |
-| 3 | Claude 4.5 Haiku | Claude Code | Amazon Bedrock | $0.27 |
+| 3 | Claude Haiku 4.5 | Claude Code | Amazon Bedrock | $0.27 |
 | 4 | Nemotron 3 Ultra | OpenCode | Blackbox | $0.27 |
 | 5 | Gemini 3.1 Pro Preview | Gemini CLI | Google (Vertex preferred over AI Studio) | $0.29 |
 

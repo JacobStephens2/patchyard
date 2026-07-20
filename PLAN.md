@@ -283,6 +283,13 @@ instead of compressing the security and failure testing.
   fragment (presentation-only, within A53); conditional `Refresh`-header
   fallback while non-terminal; Caddy configured unbuffered/long-lived on
   the events route.
+- **Not built in phase 1: a model-roster page.** The seat roster
+  already has a read-only gated projection (`docs/bench.html` +
+  `bench.json`, published on report.example.com behind the
+  existing sign-in); folding a roster page into this dashboard is a
+  phase-2 decision. It is A53-compatible (read-only, no intake write),
+  so if Jacob rules it into phase 1 it lands here as one SSR route
+  rendering `bench.json` - but it is not in this session's exit.
 - Exit: a **route-by-role matrix** (anonymous/submitter/admin × every
   route, exact 302/200/403 outcomes - the SSE route included) green
   against seeded state; an integration test proves a seeded event

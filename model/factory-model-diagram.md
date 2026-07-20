@@ -1,8 +1,8 @@
 # Factory model - generated diagram
 
 *Generated from `factory-model.json` schema v3, model
-v7 (2026-07-18), canonical identity
-`sha256:f418bed962765389e4ffa08557132a07197c1ed93e41f6fe58fa21aae88c4d8e`. Do not edit by hand - edit the model, update its identity,
+v8 (2026-07-18), canonical identity
+`sha256:cdf6841ae2417dda47ce36b7ee8ba0c39f253e71b4066730e6cc0bcb8831732b`. Do not edit by hand - edit the model, update its identity,
 and re-run the projector. Hexagons = human; dashed rounded nodes = AI agent;
 rectangles = deterministic software. Dotted edges are decision or feedback
 paths; inspect their labels and endpoints to distinguish human gates from the
@@ -17,8 +17,8 @@ applies `opentofu` and `ansible`
 desired state from the `factory` repository.
 
 ```mermaid
-%% factory-model schema v3, model v7
-%% canonical sha256:f418bed962765389e4ffa08557132a07197c1ed93e41f6fe58fa21aae88c4d8e
+%% factory-model schema v3, model v8
+%% canonical sha256:cdf6841ae2417dda47ce36b7ee8ba0c39f253e71b4066730e6cc0bcb8831732b
 flowchart LR
   intake["Intake<br/><i>deterministic</i>"]:::det
   triage(["Triage<br/><i>agent</i>"]):::agent

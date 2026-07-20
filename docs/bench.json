@@ -1,0 +1,628 @@
+{
+  "$schema": "bench.schema.json",
+  "last_updated": "2026-07-20",
+  "update_note": "`Preferred Harness` projection and A58-A61 seat orders retained; Tencent Hy3 x Pi added with observed cost; pair-level speed evidence projected into the Pairs table",
+  "aa_index_version": "4.1",
+  "pairs": [
+    {
+      "model": "Claude Fable 5",
+      "effort": "max",
+      "harness": "Claude Code",
+      "preferred_harness": true,
+      "host": "Anthropic",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3"
+      },
+      "image_input": {
+        "status": "yes",
+        "detail": ""
+      },
+      "provenance": "US",
+      "standing": "Implement bench #2; **builder incumbent**",
+      "visible_tps": "",
+      "long_spec_wall": "",
+      "aa_intelligence": 60
+    },
+    {
+      "model": "Claude Haiku 4.5",
+      "effort": "high",
+      "harness": "Claude Code",
+      "preferred_harness": true,
+      "host": "Amazon Bedrock",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3, 3.6 s and $0.0357/run"
+      },
+      "image_input": {
+        "status": "yes",
+        "detail": "content; strict format miss"
+      },
+      "provenance": "US",
+      "standing": "**Qualified floor configuration:** `claude -p --allowedTools Write`; exact 7-byte file every run. A follow-up environment-allowlisted child-process run also passed with only 15-minute STS AWS credentials present; Firecracker/Podman containment and egress are not built. Image labels were all correct, but the requested bare JSON was fenced. A `--bare --tools Write` variant failed 0/3 by claiming success without calling the tool; pin the canonical form ([record](../research/claude-code/2026-07-17-claude-code-bedrock-haiku.md))",
+      "visible_tps": "",
+      "long_spec_wall": "",
+      "aa_intelligence": 30
+    },
+    {
+      "model": "Command A+",
+      "effort": "high (requested)",
+      "harness": "OpenCode",
+      "preferred_harness": true,
+      "host": "Cohere",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3, ~7 s wall/run; 1.3-1.7 s event span"
+      },
+      "image_input": {
+        "status": "no",
+        "detail": "OpenCode image adapter"
+      },
+      "provenance": "Canada-created; Cohere first-party API (processing region not pinned)",
+      "standing": "**Use OpenCode, not Terminus-2, for the first Patchyard test.** Native `write` produced the exact 7-byte artifact every run; direct raw streaming reproduced the speed claim at 209.7 tok/s. Advance only to the text gauntlet: OpenCode reports zero reasoning telemetry despite the high request, and both local and server-attached image paths failed while a direct Cohere image control passed. Terminus-2 remains the reference rerun for suspected harness-specific failures ([record](../research/command-a-plus/2026-07-18-command-a-plus-opencode.md))",
+      "visible_tps": "209.7 (thinking-disabled control)",
+      "long_spec_wall": "22.514 s",
+      "aa_intelligence": 23
+    },
+    {
+      "model": "DeepSeek V4 Flash",
+      "effort": "max (requested)",
+      "harness": "Claude Code (direct)",
+      "preferred_harness": true,
+      "host": "DeepInfra",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3, 6-8 s/run"
+      },
+      "image_input": {
+        "status": "no",
+        "detail": "text-only"
+      },
+      "provenance": "US infra (CN-created, allowed)",
+      "standing": "**Preferred Flash wiring:** DeepInfra's Anthropic-compatible surface works directly; DeepClaude is unnecessary. Advance to the text-only alphabetize fixture gauntlet; provider mode still needs fixture validation ([floor record](../research/floors/2026-07-17-harness-smoke-test.md))",
+      "visible_tps": "",
+      "long_spec_wall": "",
+      "aa_intelligence": 40
+    },
+    {
+      "model": "DeepSeek V4 Flash",
+      "effort": "max (requested)",
+      "harness": "Claude Code + DeepClaude",
+      "preferred_harness": false,
+      "host": "DeepInfra",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3, 5.8-12.3 s wall/run"
+      },
+      "image_input": {
+        "status": "no",
+        "detail": "text-only"
+      },
+      "provenance": "US infra (CN-created, allowed)",
+      "standing": "Earlier patched-launcher treatment. Request-level max evidence captured, but retain only as historical comparison now that the direct route passes ([record](../research/deepseek-v4/2026-07-17-deepseek-v4-deepclaude.md))",
+      "visible_tps": "",
+      "long_spec_wall": "",
+      "aa_intelligence": 40
+    },
+    {
+      "model": "DeepSeek V4 Pro",
+      "effort": "max (requested)",
+      "harness": "Claude Code (direct)",
+      "preferred_harness": true,
+      "host": "DeepInfra",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3, 4-5 s/run"
+      },
+      "image_input": {
+        "status": "no",
+        "detail": "text-only"
+      },
+      "provenance": "US infra (CN-created, allowed)",
+      "standing": "**Preferred Pro wiring and fastest full agentic floor runs on the bench:** direct DeepInfra Anthropic-compatible surface, no DeepClaude. Advance to the text-only alphabetize fixture gauntlet ([floor record](../research/floors/2026-07-17-harness-smoke-test.md))",
+      "visible_tps": "",
+      "long_spec_wall": "",
+      "aa_intelligence": 44
+    },
+    {
+      "model": "DeepSeek V4 Pro",
+      "effort": "max (requested)",
+      "harness": "Claude Code + DeepClaude",
+      "preferred_harness": false,
+      "host": "DeepInfra",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3, 4.2-6.6 s wall/run"
+      },
+      "image_input": {
+        "status": "no",
+        "detail": "text-only"
+      },
+      "provenance": "US infra (CN-created, allowed)",
+      "standing": "Earlier patched-launcher treatment. Request-level max evidence captured, but retain only as historical comparison now that the direct route passes ([record](../research/deepseek-v4/2026-07-17-deepseek-v4-deepclaude.md))",
+      "visible_tps": "",
+      "long_spec_wall": "",
+      "aa_intelligence": 44
+    },
+    {
+      "model": "Gemini 3.1 Pro (preview)",
+      "effort": "default (not pinnable via CLI)",
+      "harness": "Gemini CLI",
+      "preferred_harness": true,
+      "host": "Google - **Vertex verified** (`example-model-bench`, location `global`; AI Studio also 3/3)",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3 both surfaces"
+      },
+      "image_input": {
+        "status": "yes",
+        "detail": ""
+      },
+      "provenance": "US",
+      "standing": "Judgment-seat candidate. Vertex is the preferred surface per ideas.md - dedicated SA/project provisioned 2026-07-17, ops reference in [`vertex-access.md`](vertex-access.md)",
+      "visible_tps": "",
+      "long_spec_wall": "",
+      "aa_intelligence": 46
+    },
+    {
+      "model": "Gemini 3.5 Flash",
+      "effort": "default",
+      "harness": "Gemini CLI",
+      "preferred_harness": true,
+      "host": "Google",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3"
+      },
+      "image_input": {
+        "status": "yes",
+        "detail": ""
+      },
+      "provenance": "US",
+      "standing": "Fast/cheap generalist; needs `GEMINI_CLI_TRUST_WORKSPACE=true` headless",
+      "visible_tps": "",
+      "long_spec_wall": "",
+      "aa_intelligence": 50
+    },
+    {
+      "model": "Gemini 3.5 Flash",
+      "effort": "high",
+      "harness": "OpenCode",
+      "preferred_harness": false,
+      "host": "Google AI Studio",
+      "floor": {
+        "status": "untested",
+        "detail": ""
+      },
+      "image_input": {
+        "status": "unknown",
+        "detail": ""
+      },
+      "provenance": "US",
+      "standing": "Long-spec speed-only treatment; it timed out while still looping, so this does not replace the Gemini CLI floor.",
+      "visible_tps": "229.3",
+      "long_spec_wall": "240.069 s timeout",
+      "aa_intelligence": 50
+    },
+    {
+      "model": "GLM 5.2",
+      "effort": "default",
+      "harness": "Claude Code",
+      "preferred_harness": true,
+      "host": "Fireworks",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3, 6-10 s/run"
+      },
+      "image_input": {
+        "status": "no",
+        "detail": "text-only"
+      },
+      "provenance": "US infra (CN-created, allowed)",
+      "standing": "Direct pairing works (2026-07-18): `ANTHROPIC_BASE_URL=https://api.fireworks.ai/inference` - base **without** `/v1`; the CLI appends its own paths, and the earlier \"not runnable\" was a double-pathed base URL, not an endpoint limitation. FireConnect (Fireworks' alias-mapping tool) is the maintained route for full sessions with subagent slots; manual env suffices for headless probes **Preferred GLM 5.2 harness** (2026-07-18). Long-spec A/B (effort-matched, default): Claude Code 3/4 full pass at 63-71 s vs OpenCode 1/3 at ~169 s - harness effect confirmed ([record](../research/long-spec-speed/2026-07-18-docx-spec-speed-comparison.md))",
+      "visible_tps": "104.8 (max control)",
+      "long_spec_wall": "63.5-71.1 s",
+      "aa_intelligence": 51
+    },
+    {
+      "model": "GLM 5.2",
+      "effort": "default",
+      "harness": "OpenCode",
+      "preferred_harness": false,
+      "host": "Fireworks",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3"
+      },
+      "image_input": {
+        "status": "no",
+        "detail": "text-only"
+      },
+      "provenance": "US infra (CN-created, allowed)",
+      "standing": "Floor passes, but **no longer the preferred GLM harness**: the effort-matched long-spec A/B showed ~169 s completions and 2/3 cap-outs vs Claude Code's 63-71 s - OpenCode's envelope triggers long first-turn generation on GLM. Kept as the eval-grid alternate",
+      "visible_tps": "104.8 (max control)",
+      "long_spec_wall": "~169 s default; 175.731 s max",
+      "aa_intelligence": 51
+    },
+    {
+      "model": "GLM 5.2",
+      "effort": "default (`--thinking` available)",
+      "harness": "Pi",
+      "preferred_harness": false,
+      "host": "Fireworks",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3"
+      },
+      "image_input": {
+        "status": "no",
+        "detail": ""
+      },
+      "provenance": "US infra",
+      "standing": "Floor passes; Pi exposes native thinking levels. Eval-grid alternate - Claude Code is the preferred GLM harness",
+      "visible_tps": "",
+      "long_spec_wall": "",
+      "aa_intelligence": 51
+    },
+    {
+      "model": "GPT-5.6 Sol",
+      "effort": "xhigh",
+      "harness": "Codex",
+      "preferred_harness": true,
+      "host": "OpenAI",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3"
+      },
+      "image_input": {
+        "status": "yes",
+        "detail": ""
+      },
+      "provenance": "US",
+      "standing": "Implement bench #1 (no-ceiling order); **adversarial reviewer incumbent** (A41)",
+      "visible_tps": "",
+      "long_spec_wall": "",
+      "aa_intelligence": 58
+    },
+    {
+      "model": "GPT-5.6 Luna",
+      "effort": "max",
+      "harness": "Codex",
+      "preferred_harness": true,
+      "host": "OpenAI",
+      "floor": {
+        "status": "untested",
+        "detail": ""
+      },
+      "image_input": {
+        "status": "yes",
+        "detail": ""
+      },
+      "provenance": "US",
+      "standing": "Long-spec speed-only treatment. The final document passed, but max reasoning delayed first visible text by 81.348 s ([record](../research/long-spec-speed/2026-07-18-gpt-5p6-luna-max-speed.md)).",
+      "visible_tps": "166.2 after 81.348 s delay",
+      "long_spec_wall": "~115 s",
+      "aa_intelligence": 51
+    },
+    {
+      "model": "gpt-oss-120b",
+      "effort": "default (pin blocked by Cline schema)",
+      "harness": "Cline",
+      "preferred_harness": false,
+      "host": "**Cerebras** (preferred) / Fireworks",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3, 4-6 s/run"
+      },
+      "image_input": {
+        "status": "no",
+        "detail": ""
+      },
+      "provenance": "US",
+      "standing": "**Speed-seat lead** - Cerebras ~1,000-1,100 tok/s ±5% vs Fireworks 118-234 ([head-to-head](../research/floors/2026-07-17-harness-smoke-test.md))",
+      "visible_tps": "Cerebras 1,000-1,100; Fireworks 118-234",
+      "long_spec_wall": "",
+      "aa_intelligence": 24
+    },
+    {
+      "model": "gpt-oss-120b",
+      "effort": "high",
+      "harness": "Harmony Agent + Cerebras transport",
+      "preferred_harness": false,
+      "host": "Cerebras",
+      "floor": {
+        "status": "fail",
+        "detail": "**5/10 strict**, 6.103 s median; target bytes exact 10/10"
+      },
+      "image_input": {
+        "status": "no",
+        "detail": "text-only"
+      },
+      "provenance": "US infra; US-created, open weights",
+      "standing": "Native Harmony works and the long spec passed in 18.412 s, but default instructions created `.pytest_cache` or `.git` in half the floor runs. Keep as a diagnostic reference, not a factory runner. Upstream also hardcodes local vLLM, so Cerebras needs the recorded transport adapter ([record](../research/gpt-oss-120b/2026-07-18-gpt-oss-cerebras-harmonyagent.md))",
+      "visible_tps": "2,584.9 provider-reported",
+      "long_spec_wall": "18.412 s",
+      "aa_intelligence": 24
+    },
+    {
+      "model": "gpt-oss-120b",
+      "effort": "high",
+      "harness": "OpenCode",
+      "preferred_harness": true,
+      "host": "Cerebras",
+      "floor": {
+        "status": "untested",
+        "detail": ""
+      },
+      "image_input": {
+        "status": "no",
+        "detail": "text-only"
+      },
+      "provenance": "US infra; US-created, open weights",
+      "standing": "Long-spec speed-only treatment; fastest wall, but its 2,372-word document missed the requested range. DeepInfra remains the floor-qualified preferred host treatment.",
+      "visible_tps": "1,889.8",
+      "long_spec_wall": "12.651 s",
+      "aa_intelligence": 24
+    },
+    {
+      "model": "gpt-oss-120b",
+      "effort": "high",
+      "harness": "OpenCode",
+      "preferred_harness": true,
+      "host": "DeepInfra",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3, 12.9-16.9 s wall/run"
+      },
+      "image_input": {
+        "status": "no",
+        "detail": "text-only"
+      },
+      "provenance": "US infra; US-created, open weights",
+      "standing": "**Preferred viable harness** from the ordered search: native `write` tool and exact 7-byte artifact in every run. Harmony Agent's earlier DeepInfra treatment missed exact acceptance, Codex + generic adapter was tool-protocol-incompatible, and mini-swe-agent scored 4/10 exact; Cline/Roo were not tested after OpenCode passed ([record](../research/gpt-oss-120b/2026-07-17-gpt-oss-120b-deepinfra-harness-selection.md))",
+      "visible_tps": "",
+      "long_spec_wall": "",
+      "aa_intelligence": 24
+    },
+    {
+      "model": "Grok 4.5",
+      "effort": "high",
+      "harness": "Grok Build",
+      "preferred_harness": true,
+      "host": "xAI",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3"
+      },
+      "image_input": {
+        "status": "yes",
+        "detail": ""
+      },
+      "provenance": "US",
+      "standing": "Implement bench #3; tiebreak-verifier candidate",
+      "visible_tps": "",
+      "long_spec_wall": "",
+      "aa_intelligence": 54
+    },
+    {
+      "model": "Hy3 (Tencent)",
+      "effort": "high",
+      "harness": "Pi",
+      "preferred_harness": true,
+      "host": "Novita",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3, 7.137-8.048 s (7.810 s median)"
+      },
+      "image_input": {
+        "status": "no",
+        "detail": "text-only"
+      },
+      "provenance": "CN-created; Novita hosting (jurisdiction to confirm)",
+      "standing": "Pi 0.73.1 needs `supportsDeveloperRole: false`; then native `write` produced the exact seven-byte artifact with no extras. Novita's live model API says $0/M input and output, and the scored run's balance delta was $0.0000 at $0.0001 resolution. This is dated launch pricing, not an assumed permanent rate ([record](../research/hy3/2026-07-20-hy3-pi-novita.md)).",
+      "visible_tps": "",
+      "long_spec_wall": "",
+      "aa_intelligence": 41
+    },
+    {
+      "model": "Kimi K2.6",
+      "effort": "default",
+      "harness": "Kimi Code CLI",
+      "preferred_harness": true,
+      "host": "Fireworks",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3, 7-14 s/run"
+      },
+      "image_input": {
+        "status": "yes",
+        "detail": ""
+      },
+      "provenance": "US infra",
+      "standing": "Native-family harness on US hosting - the clean-provenance Kimi pairing. **Keeps the K2.6 seat after the long-spec A/B** (2/3 full pass vs Claude Code 0/3 - CC runs were faster but always overshot the word range; K2.6 verbosity is model-flavored and the native envelope reins it in). Natural stand-in for the Kimi Code seat until K3 gets a US host",
+      "visible_tps": "",
+      "long_spec_wall": "103.6 / 225.8 s (+1 timeout)",
+      "aa_intelligence": 44
+    },
+    {
+      "model": "Kimi K2.6",
+      "effort": "default",
+      "harness": "Claude Code",
+      "preferred_harness": false,
+      "host": "Fireworks",
+      "floor": {
+        "status": "untested",
+        "detail": ""
+      },
+      "image_input": {
+        "status": "yes",
+        "detail": ""
+      },
+      "provenance": "US infra",
+      "standing": "Long-spec A/B alternate: faster than Kimi Code but 0/3 content pass because every run exceeded the requested word range.",
+      "visible_tps": "",
+      "long_spec_wall": "50.3 / 92.5 s (+1 timeout)",
+      "aa_intelligence": 44
+    },
+    {
+      "model": "Kimi K2.6",
+      "effort": "default",
+      "harness": "OpenHands",
+      "preferred_harness": false,
+      "host": "Fireworks",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3"
+      },
+      "image_input": {
+        "status": "yes",
+        "detail": ""
+      },
+      "provenance": "US infra",
+      "standing": "Implement candidate; V1 SDK-script route (no CLI executable); good cost telemetry",
+      "visible_tps": "",
+      "long_spec_wall": "",
+      "aa_intelligence": 44
+    },
+    {
+      "model": "Kimi K3",
+      "effort": "default",
+      "harness": "Kimi Code CLI",
+      "preferred_harness": true,
+      "host": "OpenRouter → Moonshot",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3"
+      },
+      "image_input": {
+        "status": "yes",
+        "detail": ""
+      },
+      "provenance": "⚠️ **interim exception** (CN money; ruled by Jacob pending open weights + US host, ~weeks)",
+      "standing": "Prime triage/verify candidate (intelligence #3) once a US host exists; then: fresh floor probe, allowlist entry, fixture gauntlet",
+      "visible_tps": "",
+      "long_spec_wall": "",
+      "aa_intelligence": 57
+    },
+    {
+      "model": "MiMo-V2.5-Pro",
+      "effort": "default",
+      "harness": "Claude Code",
+      "preferred_harness": true,
+      "host": "Novita",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3, 8-10 s/run"
+      },
+      "image_input": {
+        "status": "unknown",
+        "detail": ""
+      },
+      "provenance": "CN-created; Novita hosting (jurisdiction to confirm for the allowlist ruling)",
+      "standing": "Jacob's ideas.md pick; first **direct** Claude Code × non-Anthropic pairing - Novita's Anthropic endpoint passes CLI model validation; intelligence 42 (#18)",
+      "visible_tps": "",
+      "long_spec_wall": "",
+      "aa_intelligence": 42
+    },
+    {
+      "model": "MiniMax-M3",
+      "effort": "default",
+      "harness": "Claude Code",
+      "preferred_harness": true,
+      "host": "Fireworks",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3, 4-9 s/run"
+      },
+      "image_input": {
+        "status": "yes",
+        "detail": ""
+      },
+      "provenance": "US infra",
+      "standing": "**Preferred MiniMax harness** (2026-07-18): long-spec A/B 3/3 full pass at 51-92 s while OpenCode capped out 0/3 with no file ([record](../research/long-spec-speed/2026-07-18-docx-spec-speed-comparison.md) addendum 3)",
+      "visible_tps": "",
+      "long_spec_wall": "50.7-92.0 s",
+      "aa_intelligence": 44
+    },
+    {
+      "model": "MiniMax-M3",
+      "effort": "default",
+      "harness": "OpenCode",
+      "preferred_harness": false,
+      "host": "Fireworks",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3"
+      },
+      "image_input": {
+        "status": "yes",
+        "detail": ""
+      },
+      "provenance": "US infra",
+      "standing": "Short-probe floor passes, but 0/3 on the long-spec A/B (250 s cap-outs, no file) - the OpenCode long-form penalty on Fireworks models now reproduces across GLM and MiniMax. Eval-grid alternate; Claude Code preferred",
+      "visible_tps": "",
+      "long_spec_wall": "250 s timeout x3",
+      "aa_intelligence": 44
+    },
+    {
+      "model": "Muse Spark 1.1",
+      "effort": "xhigh",
+      "harness": "OpenCode",
+      "preferred_harness": false,
+      "host": "Meta",
+      "floor": {
+        "status": "fail",
+        "detail": "0/13"
+      },
+      "image_input": {
+        "status": "yes",
+        "detail": ""
+      },
+      "provenance": "US",
+      "standing": "**Implement seat closed** - stochastic identity-token substitution, dose-dependent, no mitigation reaches zero ([bisection](../research/muse-spark/2026-07-17-muse-spark-envelope-bisection.md)). Candidate for *tool-free* judgment calls only, not yet qualified ([role assessment](../research/muse-spark/2026-07-17-muse-spark-factory-role-assessment.md)). Retest on Meta model update: B2 variant, n=10",
+      "visible_tps": "",
+      "long_spec_wall": "",
+      "aa_intelligence": 51
+    },
+    {
+      "model": "Nemotron 3 Ultra 550B-A55B",
+      "effort": "default (reasoning unexercised)",
+      "harness": "OpenCode",
+      "preferred_harness": true,
+      "host": "Blackbox AI",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3, with stalls"
+      },
+      "image_input": {
+        "status": "unknown",
+        "detail": ""
+      },
+      "provenance": "US",
+      "standing": "On hold - AA speed claim not reproduced (60-87 tok/s here) and intermittent >300 s hangs disqualify it for a speed seat",
+      "visible_tps": "161.7",
+      "long_spec_wall": "38.165 s",
+      "aa_intelligence": 38
+    },
+    {
+      "model": "Qwen3.7 Max",
+      "effort": "default",
+      "harness": "OpenCode",
+      "preferred_harness": true,
+      "host": "Novita",
+      "floor": {
+        "status": "pass",
+        "detail": "3/3, 11-14 s/run (one >300 s stall before the streak)"
+      },
+      "image_input": {
+        "status": "unknown",
+        "detail": ""
+      },
+      "provenance": "CN-created; Novita hosting (jurisdiction to confirm)",
+      "standing": "Floor passes 2026-07-18. Not on Novita's Anthropic surface (per-model gating: `does not support endpoint: anthropic`), so the ideas.md Claude Code preference falls to OpenCode. Speed claim already rejected in the long-spec probe below (real ~54-61 t/s)",
+      "visible_tps": "57.6",
+      "long_spec_wall": "240.115 s timeout",
+      "aa_intelligence": 46
+    }
+  ]
+}

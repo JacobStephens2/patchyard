@@ -7,6 +7,7 @@ or reseat models on their own.
 | Script | Purpose |
 | :-- | :-- |
 | `aa-sweep.py` | Artificial Analysis catalog snapshot + move report |
+| `check-bench.py` | Validate `docs/bench.json` (schema + invariants) and sync the generated Pairs table in `docs/bench.md` (`--write` to regenerate; no flag = drift check) |
 | `benchmark_spec_speed.py` | Direct-API long-spec speed probe |
 | `benchmark_harness_speed.py` | OpenCode wall-time long-spec probe |
 | `benchmark_harmonyagent_cerebras.py` | Harmony Agent × Cerebras diagnostic |

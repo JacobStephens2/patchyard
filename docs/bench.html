@@ -246,10 +246,12 @@
         <div class="bar">
             <div>
                 <h1>Bench pairs</h1>
-                <div class="source">Live projection from <a href="bench.md">docs/bench.md</a></div>
+                <div class="source">Live projection from <a href="bench.json">docs/bench.json</a> &middot; prose and
+                    seat orders: <a href="bench.md">bench.md</a></div>
             </div><label>Filter<input id="filter" type="search" autocomplete="off"
                     placeholder="Model, harness, host, status"></label>
-            <div class="tools"><label class="preferred-filter"><input id="preferredOnly" type="checkbox"> Preferred only</label>
+            <div class="tools"><label class="preferred-filter"><input id="preferredOnly" type="checkbox"> Preferred
+                    only</label>
                 <div class="pill" id="count">Loading</div>
             </div>
         </div>
@@ -261,24 +263,40 @@
         </div>
     </main>
     <script>
-        const source = "bench.md", table = document.querySelector("#pairs"), count = document.querySelector("#count"), meta = document.querySelector("#meta"), filter = document.querySelector("#filter"), preferredOnly = document.querySelector("#preferredOnly");
-        let headers = [], rows = [], sortCol = -1, sortDir = 1;
-        fetch(source, { cache: "no-store" }).then(r => { if (!r.ok) throw Error(`${source}: ${r.status}`); return r.text() }).then(init).catch(showError);
+        const source = "bench.json", table = document.querySelector("#pairs"), count = document.querySelector("#count"), meta = document.querySelector("#meta"), filter = document.querySelector("#filter"), preferredOnly = document.querySelector("#preferredOnly");
+        const FLOOR = { pass: { icon: "✅", cls: "ok", rank: 2 }, fail: { icon: "❌", cls: "bad", rank: 0 }, untested: { icon: "-", cls: "", rank: -1 } };
+        const IMAGE = { yes: { icon: "✅", cls: "ok", rank: 2 }, unknown: { icon: "?", cls: "unknown", rank: 1 }, no: { icon: "❌", cls: "bad", rank: 0 } };
+        let columns = [], rows = [], sortCol = -1, sortDir = 1;
+        fetch(source, { cache: "no-store" }).then(r => { if (!r.ok) throw Error(`${source}: ${r.status}`); return r.json() }).then(init).catch(showError);
         filter.addEventListener("input", render);
         preferredOnly.addEventListener("change", render);
-        table.addEventListener("click", event => { const button = event.target.closest("button[data-col]"); if (!button) return; const col = Number(button.dataset.col); sortDir = sortCol === col ? -sortDir : headers[col] === "Visible t/s" ? -1 : 1; sortCol = col; render() });
-        function init(markdown) { const block = pairsBlock(markdown); headers = splitRow(block[0]); rows = block.slice(2).map((line, index) => ({ index, cells: splitRow(line) })).filter(row => row.cells.length === headers.length); const updated = markdown.match(/\*Last updated:\s*([\s\S]*?)\.\*/); meta.innerHTML = `<span class="pill">${rows.length} rows from ${source}</span>${updated ? `<span>${escapeHtml(updated[1].replace(/\s+/g, " ").trim())}.</span>` : ""}`; render() }
-        function pairsBlock(markdown) { const lines = markdown.split(/\r?\n/), heading = lines.findIndex(line => /^##\s+Pairs\s*$/.test(line)); const first = lines.findIndex((line, index) => index > heading && /^\s*\|/.test(line)); const block = []; for (let i = first; i < lines.length && /^\s*\|/.test(lines[i]); i++)block.push(lines[i]); if (heading < 0 || first < 0 || block.length < 3) throw Error("Could not find the Pairs table in docs/bench.md"); return block }
-        function splitRow(line) { const cells = []; let cell = "", escaped = false; for (const char of line.trim()) { if (escaped) { cell += char; escaped = false } else if (char === "\\") { escaped = true } else if (char === "|") { cells.push(cell.trim()); cell = "" } else cell += char } cells.push(cell.trim()); if (cells[0] === "") cells.shift(); if (cells.at(-1) === "") cells.pop(); return cells }
-        function render() { const term = filter.value.trim().toLowerCase(); let visible = rows.filter(row => (!preferredOnly.checked || preferredValue(row)) && row.cells.join(" ").toLowerCase().includes(term)); if (sortCol >= 0) visible = [...visible].sort(compareRows); count.textContent = `${visible.length} / ${rows.length}`; table.innerHTML = `<thead><tr>${headers.map((heading, index) => `<th aria-sort="${ariaSort(index)}"><button type="button" data-col="${index}"><span>${escapeHtml(heading)}</span><span>${sortMark(index)}</span></button></th>`).join("")}</tr></thead><tbody>${visible.map(row => `<tr>${row.cells.map(cell => `<td class="${statusClass(cell)}">${inlineMarkdown(cell)}</td>`).join("")}</tr>`).join("")}</tbody>` }
-        function preferredValue(row) { const index = headers.indexOf("Preferred Harness"); return index >= 0 && row.cells[index].trim().toLowerCase() === "yes" }
-        function compareRows(a, b) { const left = sortValue(a.cells[sortCol], headers[sortCol]), right = sortValue(b.cells[sortCol], headers[sortCol]); const result = typeof left === "number" && typeof right === "number" ? left - right : String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" }); return result ? result * sortDir : a.index - b.index }
-        function sortValue(cell, heading) { const text = plain(cell).toLowerCase(); if (heading === "Preferred Harness") return text === "yes" ? 1 : 0; if (["Floor", "Img-in"].includes(heading)) return text.includes("✅") ? 2 : text.includes("?") ? 1 : text.includes("❌") ? 0 : -1; if (heading === "Visible t/s") return visibleThroughputValue(text); return text }
-        function visibleThroughputValue(value) { const numbers = value.replace(/,/g, "").match(/\d+(?:\.\d+)?/g); return numbers ? Math.max(...numbers.map(Number)) : Number.NEGATIVE_INFINITY }
+        table.addEventListener("click", event => { const button = event.target.closest("button[data-col]"); if (!button) return; const col = Number(button.dataset.col); sortDir = sortCol === col ? -sortDir : columns[col].descFirst ? -1 : 1; sortCol = col; render() });
+        function iconCell(field, icons) { const spec = icons[field.status]; const text = field.detail ? `${spec.icon} ${field.detail}` : spec.icon; return { html: inlineMarkdown(text), text: plain(text), sort: spec.rank, cls: spec.cls } }
+        function textCell(value) { return { html: escapeHtml(value), text: value, sort: value.toLowerCase() } }
+        function markdownCell(value) { return { html: inlineMarkdown(value), text: plain(value), sort: plain(value).toLowerCase() } }
+        function makeColumns(aaVersion) {
+            return [
+                { label: "Model", cell: p => textCell(p.model) },
+                { label: "Effort", cell: p => textCell(p.effort) },
+                { label: "Harness", cell: p => textCell(p.harness) },
+                { label: "Preferred Harness", cell: p => ({ html: p.preferred_harness ? "Yes" : "No", text: p.preferred_harness ? "Yes" : "No", sort: p.preferred_harness ? 1 : 0 }) },
+                { label: "Host", cell: p => markdownCell(p.host) },
+                { label: "Floor", cell: p => iconCell(p.floor, FLOOR) },
+                { label: "Img-in", cell: p => iconCell(p.image_input, IMAGE) },
+                { label: "Provenance", cell: p => markdownCell(p.provenance) },
+                { label: "Current standing", cell: p => markdownCell(p.standing) },
+                { label: "Visible t/s", descFirst: true, cell: p => ({ html: escapeHtml(p.visible_tps), text: p.visible_tps, sort: maxNumber(p.visible_tps) }) },
+                { label: "Long-spec wall", cell: p => textCell(p.long_spec_wall) },
+                { label: `AA Intelligence (v${aaVersion})`, descFirst: true, cell: p => ({ html: p.aa_intelligence === null ? "" : String(p.aa_intelligence), text: p.aa_intelligence === null ? "" : String(p.aa_intelligence), sort: p.aa_intelligence === null ? Number.NEGATIVE_INFINITY : p.aa_intelligence }) }
+            ]
+        }
+        function init(data) { columns = makeColumns(data.aa_index_version); rows = data.pairs.map((pair, index) => ({ index, preferred: pair.preferred_harness, cells: columns.map(column => column.cell(pair)) })); meta.innerHTML = `<span class="pill">${rows.length} pairs from ${source}</span><span>Pairs data as of ${escapeHtml(data.last_updated)}${data.update_note ? ` (${escapeHtml(data.update_note)})` : ""}.</span>`; render() }
+        function render() { const term = filter.value.trim().toLowerCase(); let visible = rows.filter(row => (!preferredOnly.checked || row.preferred) && row.cells.map(cell => cell.text).join(" ").toLowerCase().includes(term)); if (sortCol >= 0) visible = [...visible].sort(compareRows); count.textContent = `${visible.length} / ${rows.length}`; table.innerHTML = `<thead><tr>${columns.map((column, index) => `<th aria-sort="${ariaSort(index)}"><button type="button" data-col="${index}"><span>${escapeHtml(column.label)}</span><span>${sortMark(index)}</span></button></th>`).join("")}</tr></thead><tbody>${visible.map(row => `<tr>${row.cells.map(cell => `<td class="${cell.cls || ""}">${cell.html}</td>`).join("")}</tr>`).join("")}</tbody>` }
+        function compareRows(a, b) { const left = a.cells[sortCol].sort, right = b.cells[sortCol].sort; const result = typeof left === "number" && typeof right === "number" ? left - right : String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" }); return result ? result * sortDir : a.index - b.index }
+        function maxNumber(value) { const numbers = value.replace(/,/g, "").match(/\d+(?:\.\d+)?/g); return numbers ? Math.max(...numbers.map(Number)) : Number.NEGATIVE_INFINITY }
         function inlineMarkdown(value) { return escapeHtml(value).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => `<a href="${safeHref(url)}">${text}</a>`).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/\*([^*]+)\*/g, "<em>$1</em>") }
         function safeHref(url) { const href = url.trim(); return /^(https?:\/\/|\.{0,2}\/|[A-Za-z0-9_.-]+\/?|#)/.test(href) ? escapeAttr(href) : "#" }
         function plain(value) { return value.replace(/[`*_]/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") }
-        function statusClass(value) { return value.includes("✅") ? "ok" : value.includes("❌") ? "bad" : value.trim() === "?" ? "unknown" : "" }
         function ariaSort(index) { return sortCol === index ? (sortDir > 0 ? "ascending" : "descending") : "none" }
         function sortMark(index) { return sortCol === index ? (sortDir > 0 ? "^" : "v") : "" }
         function escapeHtml(value) { return value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char])) }

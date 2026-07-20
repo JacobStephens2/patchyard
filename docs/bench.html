@@ -1,49 +1,262 @@
 <!doctype html>
 <html lang="en">
+
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bench pairs</title>
-<style>
-:root{color-scheme:light;--ink:#171717;--muted:#5f646b;--line:#d9d7cf;--paper:#fbfaf6;--panel:#fff;--accent:#206b6f;--accent-2:#8a4f1d;--bad:#9c2d25;--ok:#247247}
-*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-header{position:sticky;top:0;z-index:3;border-bottom:1px solid var(--line);background:rgba(251,250,246,.96);backdrop-filter:blur(10px)}
-.bar{display:grid;grid-template-columns:minmax(180px,1fr) minmax(260px,520px) auto;gap:16px;align-items:center;padding:16px 22px}
-h1{margin:0;font-size:20px;letter-spacing:0;font-weight:700}.source{color:var(--muted);font-size:12px}.source a{color:var(--accent)}
-label{display:grid;gap:4px;color:var(--muted);font-size:12px}input{width:100%;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);padding:10px 12px;font:inherit}
-main{padding:18px 22px 28px}.meta{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;margin-bottom:12px;color:var(--muted)}.pill{border:1px solid var(--line);border-radius:999px;background:#fff;padding:4px 10px}
-.table-wrap{border:1px solid var(--line);background:var(--panel);overflow:auto;max-height:calc(100vh - 150px)}
-table{width:100%;min-width:1360px;border-collapse:separate;border-spacing:0}th,td{border-bottom:1px solid var(--line);border-right:1px solid var(--line);vertical-align:top;text-align:left}
-th{position:sticky;top:0;z-index:2;background:#ece8dc;color:#2b2b2b;font-size:12px;text-transform:uppercase}th button{all:unset;display:flex;gap:7px;align-items:center;width:100%;min-height:42px;padding:9px 10px;cursor:pointer}th button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
-td{padding:10px;overflow-wrap:anywhere}td:nth-child(1){font-weight:700;min-width:190px}td:nth-child(9){min-width:470px}a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:2px}code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#f2efe6;border:1px solid #e0dbcc;border-radius:4px;padding:1px 4px}
-.ok{color:var(--ok);font-weight:650}.bad{color:var(--bad);font-weight:650}.unknown{color:var(--accent-2);font-weight:650}.error{border-left:4px solid var(--bad);background:#fff2ef;padding:12px 14px}
-@media (max-width:760px){.bar{grid-template-columns:1fr;padding:13px}main{padding:13px}.table-wrap{max-height:none}h1{font-size:18px}}
-</style>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bench pairs</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --ink: #171717;
+            --muted: #5f646b;
+            --line: #d9d7cf;
+            --paper: #fbfaf6;
+            --panel: #fff;
+            --accent: #206b6f;
+            --accent-2: #8a4f1d;
+            --bad: #9c2d25;
+            --ok: #247247
+        }
+
+        * {
+            box-sizing: border-box
+        }
+
+        body {
+            margin: 0;
+            background: var(--paper);
+            color: var(--ink);
+            font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif
+        }
+
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 3;
+            border-bottom: 1px solid var(--line);
+            background: rgba(251, 250, 246, .96);
+            backdrop-filter: blur(10px)
+        }
+
+        .bar {
+            display: grid;
+            grid-template-columns: minmax(180px, 1fr) minmax(260px, 520px) auto;
+            gap: 16px;
+            align-items: center;
+            padding: 16px 22px
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 20px;
+            letter-spacing: 0;
+            font-weight: 700
+        }
+
+        .source {
+            color: var(--muted);
+            font-size: 12px
+        }
+
+        .source a {
+            color: var(--accent)
+        }
+
+        label {
+            display: grid;
+            gap: 4px;
+            color: var(--muted);
+            font-size: 12px
+        }
+
+        input {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #fff;
+            color: var(--ink);
+            padding: 10px 12px;
+            font: inherit
+        }
+
+        main {
+            padding: 18px 22px 28px
+        }
+
+        .meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px 18px;
+            align-items: center;
+            margin-bottom: 12px;
+            color: var(--muted)
+        }
+
+        .pill {
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            background: #fff;
+            padding: 4px 10px
+        }
+
+        .table-wrap {
+            border: 1px solid var(--line);
+            background: var(--panel);
+            overflow: auto;
+            max-height: calc(100vh - 150px)
+        }
+
+        table {
+            width: 100%;
+            min-width: 1360px;
+            border-collapse: separate;
+            border-spacing: 0
+        }
+
+        th,
+        td {
+            border-bottom: 1px solid var(--line);
+            border-right: 1px solid var(--line);
+            vertical-align: top;
+            text-align: left
+        }
+
+        th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #ece8dc;
+            color: #2b2b2b;
+            font-size: 12px;
+            text-transform: uppercase
+        }
+
+        th button {
+            all: unset;
+            display: flex;
+            gap: 7px;
+            align-items: center;
+            width: 100%;
+            min-height: 42px;
+            padding: 9px 10px;
+            cursor: pointer
+        }
+
+        th button:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: -2px
+        }
+
+        td {
+            padding: 10px;
+            overflow-wrap: anywhere
+        }
+
+        td:nth-child(1) {
+            font-weight: 700;
+            min-width: 190px
+        }
+
+        td:nth-child(9) {
+            min-width: 470px
+        }
+
+        a {
+            color: var(--accent);
+            text-decoration-thickness: 1px;
+            text-underline-offset: 2px
+        }
+
+        code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            background: #f2efe6;
+            border: 1px solid #e0dbcc;
+            border-radius: 4px;
+            padding: 1px 4px
+        }
+
+        .ok {
+            color: var(--ok);
+            font-weight: 650
+        }
+
+        .bad {
+            color: var(--bad);
+            font-weight: 650
+        }
+
+        .unknown {
+            color: var(--accent-2);
+            font-weight: 650
+        }
+
+        .error {
+            border-left: 4px solid var(--bad);
+            background: #fff2ef;
+            padding: 12px 14px
+        }
+
+        @media (max-width:760px) {
+            .bar {
+                grid-template-columns: 1fr;
+                padding: 13px
+            }
+
+            main {
+                padding: 13px
+            }
+
+            .table-wrap {
+                max-height: none
+            }
+
+            h1 {
+                font-size: 18px
+            }
+        }
+    </style>
 </head>
+
 <body>
-<header><div class="bar"><div><h1>Bench pairs</h1><div class="source">Live projection from <a href="bench.md">docs/bench.md</a></div></div><label>Filter<input id="filter" type="search" autocomplete="off" placeholder="Model, harness, host, status"></label><div class="pill" id="count">Loading</div></div></header>
-<main><div class="meta" id="meta"></div><div class="table-wrap"><table id="pairs"></table></div></main>
-<script>
-const source="bench.md", table=document.querySelector("#pairs"), count=document.querySelector("#count"), meta=document.querySelector("#meta"), filter=document.querySelector("#filter");
-let headers=[], rows=[], sortCol=-1, sortDir=1;
-fetch(source,{cache:"no-store"}).then(r=>{if(!r.ok)throw Error(`${source}: ${r.status}`);return r.text()}).then(init).catch(showError);
-filter.addEventListener("input",render);
-table.addEventListener("click",event=>{const button=event.target.closest("button[data-col]");if(!button)return;const col=Number(button.dataset.col);sortDir=sortCol===col?-sortDir:1;sortCol=col;render()});
-function init(markdown){const block=pairsBlock(markdown);headers=splitRow(block[0]);rows=block.slice(2).map((line,index)=>({index,cells:splitRow(line)})).filter(row=>row.cells.length===headers.length);const updated=markdown.match(/\*Last updated:\s*([\s\S]*?)\.\*/);meta.innerHTML=`<span class="pill">${rows.length} rows from ${source}</span>${updated?`<span>${escapeHtml(updated[1].replace(/\s+/g," ").trim())}.</span>`:""}`;render()}
-function pairsBlock(markdown){const lines=markdown.split(/\r?\n/), heading=lines.findIndex(line=>/^##\s+Pairs\s*$/.test(line));const first=lines.findIndex((line,index)=>index>heading&&/^\s*\|/.test(line));const block=[];for(let i=first;i<lines.length&&/^\s*\|/.test(lines[i]);i++)block.push(lines[i]);if(heading<0||first<0||block.length<3)throw Error("Could not find the Pairs table in docs/bench.md");return block}
-function splitRow(line){const cells=[];let cell="", escaped=false;for(const char of line.trim()){if(escaped){cell+=char;escaped=false}else if(char==="\\"){escaped=true}else if(char==="|"){cells.push(cell.trim());cell=""}else cell+=char}cells.push(cell.trim());if(cells[0]==="")cells.shift();if(cells.at(-1)==="")cells.pop();return cells}
-function render(){const term=filter.value.trim().toLowerCase();let visible=rows.filter(row=>row.cells.join(" ").toLowerCase().includes(term));if(sortCol>=0)visible=[...visible].sort(compareRows);count.textContent=`${visible.length} / ${rows.length}`;table.innerHTML=`<thead><tr>${headers.map((heading,index)=>`<th aria-sort="${ariaSort(index)}"><button type="button" data-col="${index}"><span>${escapeHtml(heading)}</span><span>${sortMark(index)}</span></button></th>`).join("")}</tr></thead><tbody>${visible.map(row=>`<tr>${row.cells.map(cell=>`<td class="${statusClass(cell)}">${inlineMarkdown(cell)}</td>`).join("")}</tr>`).join("")}</tbody>`}
-function compareRows(a,b){const left=sortValue(a.cells[sortCol],headers[sortCol]), right=sortValue(b.cells[sortCol],headers[sortCol]);const result=typeof left==="number"&&typeof right==="number"?left-right:String(left).localeCompare(String(right),undefined,{numeric:true,sensitivity:"base"});return result?result*sortDir:a.index-b.index}
-function sortValue(cell,heading){const text=plain(cell).toLowerCase();if(heading==="Preferred Harness")return text==="yes"?1:0;if(["Floor","Img-in"].includes(heading))return text.includes("✅")?2:text.includes("?")?1:text.includes("❌")?0:-1;return text}
-function inlineMarkdown(value){return escapeHtml(value).replace(/`([^`]+)`/g,"<code>$1</code>").replace(/\[([^\]]+)\]\(([^)]+)\)/g,(_,text,url)=>`<a href="${safeHref(url)}">${text}</a>`).replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>").replace(/\*([^*]+)\*/g,"<em>$1</em>")}
-function safeHref(url){const href=url.trim();return /^(https?:\/\/|\.{0,2}\/|[A-Za-z0-9_.-]+\/?|#)/.test(href)?escapeAttr(href):"#"}
-function plain(value){return value.replace(/[`*_]/g,"").replace(/\[([^\]]+)\]\([^)]+\)/g,"$1")}
-function statusClass(value){return value.includes("✅")?"ok":value.includes("❌")?"bad":value.trim()==="?"?"unknown":""}
-function ariaSort(index){return sortCol===index?(sortDir>0?"ascending":"descending"):"none"}
-function sortMark(index){return sortCol===index?(sortDir>0?"^":"v"):""}
-function escapeHtml(value){return value.replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]))}
-function escapeAttr(value){return escapeHtml(value).replace(/`/g,"&#96;")}
-function showError(error){count.textContent="Error";meta.innerHTML=`<div class="error">Could not load ${source}. Serve docs over HTTP, then refresh. ${escapeHtml(error.message)}</div>`}
-</script>
+    <header>
+        <div class="bar">
+            <div>
+                <h1>Bench pairs</h1>
+                <div class="source">Live projection from <a href="bench.md">docs/bench.md</a></div>
+            </div><label>Filter<input id="filter" type="search" autocomplete="off"
+                    placeholder="Model, harness, host, status"></label>
+            <div class="pill" id="count">Loading</div>
+        </div>
+    </header>
+    <main>
+        <div class="meta" id="meta"></div>
+        <div class="table-wrap">
+            <table id="pairs"></table>
+        </div>
+    </main>
+    <script>
+        const source = "bench.md", table = document.querySelector("#pairs"), count = document.querySelector("#count"), meta = document.querySelector("#meta"), filter = document.querySelector("#filter");
+        let headers = [], rows = [], sortCol = -1, sortDir = 1;
+        fetch(source, { cache: "no-store" }).then(r => { if (!r.ok) throw Error(`${source}: ${r.status}`); return r.text() }).then(init).catch(showError);
+        filter.addEventListener("input", render);
+        table.addEventListener("click", event => { const button = event.target.closest("button[data-col]"); if (!button) return; const col = Number(button.dataset.col); sortDir = sortCol === col ? -sortDir : 1; sortCol = col; render() });
+        function init(markdown) { const block = pairsBlock(markdown); headers = splitRow(block[0]); rows = block.slice(2).map((line, index) => ({ index, cells: splitRow(line) })).filter(row => row.cells.length === headers.length); const updated = markdown.match(/\*Last updated:\s*([\s\S]*?)\.\*/); meta.innerHTML = `<span class="pill">${rows.length} rows from ${source}</span>${updated ? `<span>${escapeHtml(updated[1].replace(/\s+/g, " ").trim())}.</span>` : ""}`; render() }
+        function pairsBlock(markdown) { const lines = markdown.split(/\r?\n/), heading = lines.findIndex(line => /^##\s+Pairs\s*$/.test(line)); const first = lines.findIndex((line, index) => index > heading && /^\s*\|/.test(line)); const block = []; for (let i = first; i < lines.length && /^\s*\|/.test(lines[i]); i++)block.push(lines[i]); if (heading < 0 || first < 0 || block.length < 3) throw Error("Could not find the Pairs table in docs/bench.md"); return block }
+        function splitRow(line) { const cells = []; let cell = "", escaped = false; for (const char of line.trim()) { if (escaped) { cell += char; escaped = false } else if (char === "\\") { escaped = true } else if (char === "|") { cells.push(cell.trim()); cell = "" } else cell += char } cells.push(cell.trim()); if (cells[0] === "") cells.shift(); if (cells.at(-1) === "") cells.pop(); return cells }
+        function render() { const term = filter.value.trim().toLowerCase(); let visible = rows.filter(row => row.cells.join(" ").toLowerCase().includes(term)); if (sortCol >= 0) visible = [...visible].sort(compareRows); count.textContent = `${visible.length} / ${rows.length}`; table.innerHTML = `<thead><tr>${headers.map((heading, index) => `<th aria-sort="${ariaSort(index)}"><button type="button" data-col="${index}"><span>${escapeHtml(heading)}</span><span>${sortMark(index)}</span></button></th>`).join("")}</tr></thead><tbody>${visible.map(row => `<tr>${row.cells.map(cell => `<td class="${statusClass(cell)}">${inlineMarkdown(cell)}</td>`).join("")}</tr>`).join("")}</tbody>` }
+        function compareRows(a, b) { const left = sortValue(a.cells[sortCol], headers[sortCol]), right = sortValue(b.cells[sortCol], headers[sortCol]); const result = typeof left === "number" && typeof right === "number" ? left - right : String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" }); return result ? result * sortDir : a.index - b.index }
+        function sortValue(cell, heading) { const text = plain(cell).toLowerCase(); if (heading === "Preferred Harness") return text === "yes" ? 1 : 0; if (["Floor", "Img-in"].includes(heading)) return text.includes("✅") ? 2 : text.includes("?") ? 1 : text.includes("❌") ? 0 : -1; return text }
+        function inlineMarkdown(value) { return escapeHtml(value).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => `<a href="${safeHref(url)}">${text}</a>`).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/\*([^*]+)\*/g, "<em>$1</em>") }
+        function safeHref(url) { const href = url.trim(); return /^(https?:\/\/|\.{0,2}\/|[A-Za-z0-9_.-]+\/?|#)/.test(href) ? escapeAttr(href) : "#" }
+        function plain(value) { return value.replace(/[`*_]/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") }
+        function statusClass(value) { return value.includes("✅") ? "ok" : value.includes("❌") ? "bad" : value.trim() === "?" ? "unknown" : "" }
+        function ariaSort(index) { return sortCol === index ? (sortDir > 0 ? "ascending" : "descending") : "none" }
+        function sortMark(index) { return sortCol === index ? (sortDir > 0 ? "^" : "v") : "" }
+        function escapeHtml(value) { return value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char])) }
+        function escapeAttr(value) { return escapeHtml(value).replace(/`/g, "&#96;") }
+        function showError(error) { count.textContent = "Error"; meta.innerHTML = `<div class="error">Could not load ${source}. Serve docs over HTTP, then refresh. ${escapeHtml(error.message)}</div>` }
+    </script>
 </body>
+
 </html>

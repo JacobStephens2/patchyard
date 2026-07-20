@@ -13,7 +13,7 @@
 | `model/factory-model.json` | Schema-validated model: stages, actors, edges, lanes, caps, phases and capacity defaults (A51); `model/render-model.py` projects Mermaid (A50) | this repo · https://report.example.com/software-factory-model.json |
 | `AGENTS.md` | This constitution; hard rules carried into every factory prompt | this repo |
 | `synthesized-solution.md`, `comparison.md`, `model-assessments.md` | Historical synthesis and provenance for how five inputs merged | this repo: `research/founding-synthesis/` (frozen copies, vendored 2026-07-20) |
-| `queue/` | Jacob's filed rulings land here as `rulings-*.md` | this repo: `queue/` |
+| `rulings-queue/` | Jacob's filed rulings land here as `rulings-*.md` | this repo: `rulings-queue/` |
 
 The HTML review page is a projection for humans. Do not treat it as a source; do not scrape it.
 
@@ -21,7 +21,7 @@ The HTML review page is a projection for humans. Do not treat it as a source; do
 
 - Phase 0 complete: pilot ran end to end. Fieldbook PR #213 was **closed by Jacob 2026-07-16** (A35 executed); ALPHABETIZE is the factory's first live test subject when phase 1 builds.
 - Phase 1 (`/factory` skill + factory dashboard v0) is **approved in scope but explicitly not to be built yet** ("don't build it yet" - console ruling 2026-07-16). Do not build it until Jacob says go.
-- Rulings filed via the console are processed into `queue/processed/`; **check this repo's `queue/` for new unprocessed `rulings-*.md` before acting on open decisions.**
+- Rulings filed via the console are processed into `rulings-queue/processed/`; **check this repo's `rulings-queue/` for new unprocessed `rulings-*.md` before acting on open decisions.**
 - Ruled 2026-07-16: approver policy = the engineering department + the company owner; currently Jacob + Engineer Two (engineering; Engineer Two returns the week of 2026-07-20) and the Owner (owner/GM). Marketing Colleague (marketing) does development but is not engineering - not an approver (A33). Caps stay 2/50; mailbox auth stays deferred to the phase-2 gate. Lane-D contact is ruled (A34): dashboard-mediated (option b) once requester-facing pages exist; until then the humans entering requests handle their own comms.
 - Demand is measured (A31): ~20 lane-A-class requests/week (15-25), so review capacity - not demand - is the binding constraint.
 - A factory dashboard (A32) at factory.example.com is directed: manual request intake + pipeline observability; part of phase 1.
@@ -63,7 +63,7 @@ Lane A additionally requires you to name the exact page(s) and file(s) with evid
 
 ## Pipeline obligations (stage contract)
 
-0. **Intake** - capture the request verbatim + attachments, hashed, into `factory/queue/<id>/request.md` before interpreting anything.
+0. **Intake** - capture the request verbatim + attachments, hashed, into the state layer (PostgreSQL row + `/var/lib/patchyard/artifacts/<id>/`, A43/A56) before interpreting anything.
 1. **Triage** - classify against versioned `rubric.md`; record confidence to the ledger; lane A requires a named skill match.
 2. **Implement (lane A only)** - fresh worktree from `origin/master` at a recorded SHA; branch `factory/<id>-<slug>`; smallest coherent diff; the skill playbook's checks ride in your prompt (Guide before generate).
 3. **Verify** - fail-closed, in order: patch gate (caps, deny-paths, secrets); `php -l` + blast-radius grep; deterministic postconditions (a sort's output is a pure permutation); targeted PHPUnit; preview screenshots of the exact pages from the request; one repair loop, then escalate with the log. A verify script's pass counts only if it has failed on an intentionally wrong patch. Replays must pass on every run - pass^k, not pass@k.

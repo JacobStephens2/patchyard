@@ -21,6 +21,7 @@ Session 0 covers the worker desired-state component; sessions 1-2 cover the cont
 
 ### Session 0 - desired-state foundation, control-plane VM, and worker droplet
 
+- **A76**: the Ansible desired state includes the self-hosted GitHub Actions runner on the control-plane VM - `gha-runner` user, ephemeral single-job systemd service, resource caps, zero access to factory state; registration token injected at bootstrap.
 - **A69**: the session's deliverable layout is `infra/<provider>` (nightloch pattern) - OpenTofu for droplets, Route 53 DNS, firewalls, and GitHub repo settings/branch protection; Ansible for all host config; encrypted state backend chosen and documented. Nothing about the factory is console-clicked from here on.
 - **A68**: session 0 is the bootstrap act - orchestration agents create/initialize two hosts from one desired state: the control-plane VM (supervisor daemon, PostgreSQL, artifact store, dashboard, Caddy, headless Chromium, its own factory-repo checkout and secret injection) and the secret-free worker droplet. Exit includes the independence check: with the orchestration VM unreachable, the factory still serves, authenticates, and runs. `factory.example.com` DNS points at the control-plane VM.
 - Entry: Jacob's "go". Pin OpenTofu and the Ansible runtime/collections on the orchestration controller; add `infra/opentofu/` and `infra/ansible/` with one documented plan, apply, check, replace, and rollback path.
@@ -35,7 +36,7 @@ Session 0 covers the worker desired-state component; sessions 1-2 cover the cont
 - Cargo workspace: `factory-core` (types, the parse-don't-validate intake constructor, shared constants), `factory-verify`, `factoryctl`, `factory-web` - empty shells beyond core.
 - **Provision all control-plane service identities now**: `factory-web` user and `factory` group; `/var/lib/patchyard/` skeleton with asserted ownership and modes recorded as tests, before anything depends on them implicitly. The worker identity is Ansible-owned from session 0 and its contract is asserted here rather than duplicated locally.
 - Verify the in-repo constitution (`AGENTS.md`, canonical here since dee992d) is wired into CI as a checked artifact.
-- Exit: `cargo test` green on the skeleton; CI green on a PR; identity/ownership assertions pass; README gains build/run instructions.
+- Exit: `cargo test` green on the skeleton; **CI green on a PR executed by the self-hosted runner (A76)** - hosted fallback verified switchable by a one-line `runs-on` change; identity/ownership assertions pass; README gains build/run instructions.
 
 ### Session 2 - PostgreSQL state layer behind a domain boundary
 

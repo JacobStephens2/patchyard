@@ -25,7 +25,7 @@
       "aa_intelligence": 60,
       "aa_cost_per_task_usd": 2.75,
       "aa_coding_index": null,
-      "aa_agentic_index": null
+      "aa_agentic_index": 53.0
     },
     {
       "model": "Claude Haiku 4.5",
@@ -94,7 +94,7 @@
       "aa_intelligence": 40,
       "aa_cost_per_task_usd": null,
       "aa_coding_index": null,
-      "aa_agentic_index": null
+      "aa_agentic_index": 31.0
     },
     {
       "model": "DeepSeek V4 Flash",
@@ -117,7 +117,7 @@
       "aa_intelligence": 40,
       "aa_cost_per_task_usd": null,
       "aa_coding_index": null,
-      "aa_agentic_index": null
+      "aa_agentic_index": 31.0
     },
     {
       "model": "DeepSeek V4 Pro",
@@ -140,7 +140,7 @@
       "aa_intelligence": 44,
       "aa_cost_per_task_usd": 1.07,
       "aa_coding_index": null,
-      "aa_agentic_index": null
+      "aa_agentic_index": 36.0
     },
     {
       "model": "DeepSeek V4 Pro",
@@ -163,7 +163,7 @@
       "aa_intelligence": 44,
       "aa_cost_per_task_usd": 1.07,
       "aa_coding_index": null,
-      "aa_agentic_index": null
+      "aa_agentic_index": 36.0
     },
     {
       "model": "Gemini 3.1 Pro (preview)",
@@ -186,7 +186,7 @@
       "aa_intelligence": 46,
       "aa_cost_per_task_usd": 0.36,
       "aa_coding_index": null,
-      "aa_agentic_index": null
+      "aa_agentic_index": 21.0
     },
     {
       "model": "Gemini 3.5 Flash",
@@ -209,7 +209,7 @@
       "aa_intelligence": 50,
       "aa_cost_per_task_usd": 0.59,
       "aa_coding_index": null,
-      "aa_agentic_index": null
+      "aa_agentic_index": 37.0
     },
     {
       "model": "Gemini 3.5 Flash",
@@ -229,7 +229,7 @@
       "standing": "Long-spec speed-only treatment; it timed out while still looping, so this does not replace the Gemini CLI floor.",
       "visible_tps": "229.3",
       "long_spec_wall": "240.069 s timeout",
-      "aa_intelligence": 50,
+      "aa_intelligence": 50.2,
       "aa_cost_per_task_usd": 0.59,
       "aa_coding_index": 70.1,
       "aa_agentic_index": 37.4
@@ -347,7 +347,7 @@
       "aa_intelligence": 51,
       "aa_cost_per_task_usd": null,
       "aa_coding_index": 71.4,
-      "aa_agentic_index": 45.6
+      "aa_agentic_index": 46.0
     },
     {
       "model": "gpt-oss-120b",
@@ -393,7 +393,7 @@
       "aa_intelligence": 24,
       "aa_cost_per_task_usd": 0.12,
       "aa_coding_index": null,
-      "aa_agentic_index": null
+      "aa_agentic_index": 13.0
     },
     {
       "model": "gpt-oss-120b",
@@ -416,7 +416,7 @@
       "aa_intelligence": 24,
       "aa_cost_per_task_usd": 0.12,
       "aa_coding_index": null,
-      "aa_agentic_index": null
+      "aa_agentic_index": 13.0
     },
     {
       "model": "gpt-oss-120b",
@@ -439,7 +439,7 @@
       "aa_intelligence": 24,
       "aa_cost_per_task_usd": 0.02,
       "aa_coding_index": null,
-      "aa_agentic_index": null
+      "aa_agentic_index": 13.0
     },
     {
       "model": "Grok 4.5",
@@ -462,7 +462,7 @@
       "aa_intelligence": 54,
       "aa_cost_per_task_usd": 0.31,
       "aa_coding_index": null,
-      "aa_agentic_index": null
+      "aa_agentic_index": 46.0
     },
     {
       "model": "Hy3 (Tencent)",
@@ -508,7 +508,7 @@
       "aa_intelligence": 44,
       "aa_cost_per_task_usd": 0.28,
       "aa_coding_index": 61.8,
-      "aa_agentic_index": 30.3
+      "aa_agentic_index": 30.0
     },
     {
       "model": "Kimi K2.6",
@@ -531,7 +531,7 @@
       "aa_intelligence": 44,
       "aa_cost_per_task_usd": 0.28,
       "aa_coding_index": 61.8,
-      "aa_agentic_index": 30.3
+      "aa_agentic_index": 30.0
     },
     {
       "model": "Kimi K2.6",
@@ -554,7 +554,7 @@
       "aa_intelligence": 44,
       "aa_cost_per_task_usd": 0.28,
       "aa_coding_index": 61.8,
-      "aa_agentic_index": 30.3
+      "aa_agentic_index": 30.0
     },
     {
       "model": "Kimi K3",
@@ -577,7 +577,7 @@
       "aa_intelligence": 57,
       "aa_cost_per_task_usd": null,
       "aa_coding_index": null,
-      "aa_agentic_index": null
+      "aa_agentic_index": 50.0
     },
     {
       "model": "MiMo-V2.5-Pro",
@@ -600,7 +600,7 @@
       "aa_intelligence": 42,
       "aa_cost_per_task_usd": null,
       "aa_coding_index": 60.2,
-      "aa_agentic_index": 29.1
+      "aa_agentic_index": 29.0
     },
     {
       "model": "MiniMax-M3",
@@ -623,7 +623,7 @@
       "aa_intelligence": 44,
       "aa_cost_per_task_usd": null,
       "aa_coding_index": 58.6,
-      "aa_agentic_index": 35.4
+      "aa_agentic_index": 35.0
     },
     {
       "model": "MiniMax-M3",
@@ -646,7 +646,7 @@
       "aa_intelligence": 44,
       "aa_cost_per_task_usd": null,
       "aa_coding_index": 58.6,
-      "aa_agentic_index": 35.4
+      "aa_agentic_index": 35.0
     },
     {
       "model": "Muse Spark 1.1",
@@ -669,7 +669,7 @@
       "aa_intelligence": 51,
       "aa_cost_per_task_usd": 0.26,
       "aa_coding_index": null,
-      "aa_agentic_index": null
+      "aa_agentic_index": 38.0
     },
     {
       "model": "Nemotron 3 Ultra 550B-A55B",
@@ -715,8 +715,8 @@
       "aa_intelligence": 46,
       "aa_cost_per_task_usd": 0.52,
       "aa_coding_index": null,
-      "aa_agentic_index": null
+      "aa_agentic_index": 31.0
     }
   ],
-  "aa_snapshot_date": "2026-07-17"
+  "aa_snapshot_date": "2026-07-20"
 }

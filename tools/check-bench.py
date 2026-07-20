@@ -14,6 +14,7 @@ script's location):
     python3 tools/check-bench.py --write    # validate + regenerate the table
 """
 import argparse
+import re
 import difflib
 import json
 import pathlib
@@ -111,14 +112,93 @@ def generated_span(md_lines):
     return begin, end
 
 
+AA_DIR = pathlib.Path(__file__).resolve().parent.parent / "research" / "artificial-analysis"
+EFFORT_TAGS = {"max", "xhigh", "high", "medium", "low", "minimal", "low effort", "non-reasoning", "thinking disabled"}
+
+
+def _parse_aa_name(name):
+    base, effort = name.strip(), None
+    while True:
+        m = re.search(r"\s*\(([^()]*)\)\s*$", base)
+        if not m:
+            break
+        tag = m.group(1).strip().lower()
+        if tag in ("with fallback", "preview"):
+            break
+        base = base[: m.start()].rstrip()
+        if tag in EFFORT_TAGS:
+            effort = tag
+    return base, effort or "default"
+
+
+def _squeeze(text):
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+def refresh_aa(data):
+    """Overlay aa_intelligence / aa_coding_index / aa_agentic_index from the
+    newest snapshots, effort-matched (a wrong-variant score never beats a
+    null). Sources, oldest overlaid first so newer non-null values win:
+    aa-snapshots/*.json (API free tier) and homepage-scrapes/*.json (chart
+    scrape). Cost columns are aa-join/leaderboard territory - untouched."""
+    sources = []
+    for sub in ("aa-snapshots", "homepage-scrapes"):
+        for f in sorted((AA_DIR / sub).glob("*.json")):
+            snap = json.loads(f.read_text(encoding="utf-8"))
+            date = re.search(r"(\d{4}-\d{2}-\d{2})", f.name).group(1)
+            sources.append((date, snap.get("models", {})))
+    sources.sort(key=lambda pair: pair[0])
+    index = {}
+    for date, models in sources:
+        for record in models.values():
+            base, effort = _parse_aa_name(record.get("name", ""))
+            key = (_squeeze(base), effort)
+            merged = index.setdefault(key, {})
+            for field in ("intel", "coding", "agentic"):
+                if record.get(field) is not None:
+                    merged[field] = record[field]
+    # chart-name aliases: source (slug, effort) tried for a given bench (slug, effort)
+    extra_lookups = {
+        ("claudefable5", "max"): [("claudefable5withfallback", "default")],
+    }
+    filled = 0
+    for pair in data["pairs"]:
+        b_eff = re.split(r"[\s(]", pair.get("effort", "default").strip().lower(), 1)[0] or "default"
+        hit = index.get((_squeeze(pair["model"]), b_eff))
+        if not hit:
+            base, _ = _parse_aa_name(pair["model"])
+            hit = index.get((_squeeze(base), b_eff))
+        if not hit:
+            for alt in extra_lookups.get((_squeeze(pair["model"]), b_eff), []):
+                hit = index.get(alt)
+                if hit:
+                    break
+        if not hit:
+            continue
+        for src, dst in (("intel", "aa_intelligence"), ("coding", "aa_coding_index"), ("agentic", "aa_agentic_index")):
+            if hit.get(src) is not None:
+                value = hit[src]
+                pair[dst] = int(value) if float(value).is_integer() and dst == "aa_intelligence" else value
+                filled += 1
+    if sources:
+        data["aa_snapshot_date"] = sources[-1][0]
+    return filled
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--write", action="store_true",
                         help="regenerate the Pairs table in docs/bench.md")
+    parser.add_argument("--refresh-aa", action="store_true",
+                        help="overlay aa_* index fields from the newest AA snapshots (effort-matched) before validating; combine with --write")
     args = parser.parse_args()
 
     data = json.loads(DATA.read_text(encoding="utf-8"))
     schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    if args.refresh_aa:
+        filled = refresh_aa(data)
+        DATA.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        print(f"refresh-aa: {filled} field values overlaid from snapshots; aa_snapshot_date={data.get('aa_snapshot_date')}")
     try:
         jsonschema.validate(data, schema)
     except jsonschema.ValidationError as error:

@@ -1,0 +1,249 @@
+{
+ "fetched": "2026-07-20",
+ "endpoint": "homepage-chart-scrape (intelligence + agentic tabs; model-level coding chart defeated extraction - stays null)",
+ "models": {
+  "claudefable5withfallback": {
+   "name": "Claude Fable 5 (with fallback)",
+   "intel": 60.0,
+   "coding": null,
+   "agentic": 53.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "gpt56solmax": {
+   "name": "GPT-5.6 Sol (max)",
+   "intel": 59.0,
+   "coding": null,
+   "agentic": 54.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "kimik3": {
+   "name": "Kimi K3",
+   "intel": 57.0,
+   "coding": null,
+   "agentic": 50.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "claudeopus48max": {
+   "name": "Claude Opus 4.8 (max)",
+   "intel": 56.0,
+   "coding": null,
+   "agentic": 47.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "gpt56terramax": {
+   "name": "GPT-5.6 Terra (max)",
+   "intel": 55.0,
+   "coding": null,
+   "agentic": 47.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "gpt55xhigh": {
+   "name": "GPT-5.5 (xhigh)",
+   "intel": 55.0,
+   "coding": null,
+   "agentic": 45.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "grok45high": {
+   "name": "Grok 4.5 (high)",
+   "intel": 54.0,
+   "coding": null,
+   "agentic": 46.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "claudesonnet5max": {
+   "name": "Claude Sonnet 5 (max)",
+   "intel": 53.0,
+   "coding": null,
+   "agentic": 47.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "gpt56lunamax": {
+   "name": "GPT-5.6 Luna (max)",
+   "intel": 51.0,
+   "coding": null,
+   "agentic": 46.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "glm52max": {
+   "name": "GLM-5.2 (max)",
+   "intel": 51.0,
+   "coding": null,
+   "agentic": 43.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "musespark11xhigh": {
+   "name": "Muse Spark 1.1 (xhigh)",
+   "intel": 51.0,
+   "coding": null,
+   "agentic": 38.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "gemini35flash": {
+   "name": "Gemini 3.5 Flash",
+   "intel": 50.0,
+   "coding": null,
+   "agentic": 37.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "gemini31propreview": {
+   "name": "Gemini 3.1 Pro Preview",
+   "intel": 46.0,
+   "coding": null,
+   "agentic": 21.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "qwen37max": {
+   "name": "Qwen3.7 Max",
+   "intel": 46.0,
+   "coding": null,
+   "agentic": 31.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "minimaxm3": {
+   "name": "MiniMax-M3",
+   "intel": 44.0,
+   "coding": null,
+   "agentic": 35.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "deepseekv4promax": {
+   "name": "DeepSeek V4 Pro (max)",
+   "intel": 44.0,
+   "coding": null,
+   "agentic": 36.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "kimik26": {
+   "name": "Kimi K2.6",
+   "intel": 44.0,
+   "coding": null,
+   "agentic": 30.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "mimov25pro": {
+   "name": "MiMo-V2.5-Pro",
+   "intel": 42.0,
+   "coding": null,
+   "agentic": 29.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "inkling": {
+   "name": "Inkling",
+   "intel": 41.0,
+   "coding": null,
+   "agentic": 32.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "deepseekv4flashmax": {
+   "name": "DeepSeek V4 Flash (max)",
+   "intel": 40.0,
+   "coding": null,
+   "agentic": 31.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "nemotron3ultra": {
+   "name": "Nemotron 3 Ultra",
+   "intel": 38.0,
+   "coding": null,
+   "agentic": 27.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "mistralmedium35": {
+   "name": "Mistral Medium 3.5",
+   "intel": 30.0,
+   "coding": null,
+   "agentic": 19.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "claude45haiku": {
+   "name": "Claude 4.5 Haiku",
+   "intel": 30.0,
+   "coding": null,
+   "agentic": 16.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "gemma431b": {
+   "name": "Gemma 4 31B",
+   "intel": 29.0,
+   "coding": null,
+   "agentic": 14.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "gptoss120bhigh": {
+   "name": "gpt-oss-120b (high)",
+   "intel": 24.0,
+   "coding": null,
+   "agentic": 13.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "commanda": {
+   "name": "Command A+",
+   "intel": 23.0,
+   "coding": null,
+   "agentic": 9.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  },
+  "k2thinkv2": {
+   "name": "K2 Think V2",
+   "intel": 17.0,
+   "coding": null,
+   "agentic": 2.0,
+   "out_price": null,
+   "tok_s": null,
+   "ttft": null
+  }
+ }
+}

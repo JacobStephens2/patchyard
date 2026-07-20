@@ -52,8 +52,8 @@ and models whose only reliable preference is harness-free.
 
 Graduated 2026-07-18 from `ideas.md`; this section is the operative
 roster (`ideas.md` carries no authority). Method (A58): when task
-quality has a ceiling relative to intelligence in, seat the cheapest
-model that clears it at reliability parity; when there is no ceiling,
+quality has a ceiling relative to intelligence in / when it is verifiable / more easily verifiable, seat the cheapest
+model that clears it at reliability parity; when there is no ceiling (especially non-verifiable tasks),
 seat max intelligence. Constraints: usage money flows to American
 companies (A59), no two seats share a model family or harness (A60),
 and only allowlisted providers receive fieldbook source + request

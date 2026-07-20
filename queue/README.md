@@ -1,0 +1,3 @@
+# Rulings queue
+
+Jacob's console rulings land here as `rulings-<utc>.md` (the review page's "Send to agent" posts to the status dashboard's `/api/rulings`, which writes into this repo's checkout). Agents: **check this directory for unprocessed `rulings-*.md` before acting on open decisions**; processed files move to `processed/` and are committed - the queue is git-versioned like everything else (A69). Relocated from `/srv/orchestration/factory/queue/` 2026-07-20 to remove the factory's last operative dependency on the orchestration host's filesystem layout (A68).

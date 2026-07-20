@@ -129,12 +129,12 @@ implement seat is closed (see Pairs).
 
 Text input only:
 
-| # | Model | Harness | Provider | $/task |
-| :-- | :-- | :-- | :-- | --: |
-| 1 | DeepSeek V4 Pro (high) | Claude Code (direct) | DeepInfra | $0.27 |
-| 2 | GPT-5.6 Luna (max) | Codex | OpenAI | $1.57 |
-| 3 | Gemini 3.1 Pro Preview | Gemini CLI | Google (Vertex preferred) | $2.00 |
-| 4 | Grok 4.5 (high) | Grok Build | xAI | $2.59 |
+| #   | Model                  | Harness              | Provider                  | $/task |
+| :-- | :--------------------- | :------------------- | :------------------------ | -----: |
+| 1   | DeepSeek V4 Pro (high) | Claude Code (direct) | DeepInfra                 |  $0.27 |
+| 2   | GPT-5.6 Luna (max)     | Codex                | OpenAI                    |  $1.57 |
+| 3   | Gemini 3.1 Pro Preview | Gemini CLI           | Google (Vertex preferred) |  $2.00 |
+| 4   | Grok 4.5 (high)        | Grok Build           | xAI                       |  $2.59 |
 
 Text + image input:
 

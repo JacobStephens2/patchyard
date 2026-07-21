@@ -1,0 +1,13 @@
+# Local applications authenticate only through the restricted peer socket.
+local   all           postgres                 peer
+local   patchyard   patchyard_migrator     peer map=patchyard
+local   patchyard   patchyard_supervisor   peer map=patchyard
+local   patchyard   patchyard_dashboard    peer map=patchyard
+local   patchyard   patchyard_exporter     peer map=patchyard
+
+# A84/A94 sole TCP exception: TLS plus source-pinned VPC trust for the read-only
+# Grafana role. Cloud and host firewalls admit only the monitoring droplet.
+hostssl patchyard   grafana_ro   {{ monitoring_private_cidr }}   trust
+
+host    all           all          0.0.0.0/0   reject
+host    all           all          ::0/0        reject

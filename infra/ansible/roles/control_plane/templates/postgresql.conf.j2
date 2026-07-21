@@ -1,0 +1,35 @@
+# Patchyard Factory PostgreSQL 16 desired state. Local application access is peer-only.
+data_directory = '/var/lib/pgsql/data'
+hba_file = '/var/lib/pgsql/data/pg_hba.conf'
+ident_file = '/var/lib/pgsql/data/pg_ident.conf'
+listen_addresses = '{{ private_ip }}'
+port = 5432
+max_connections = 100
+unix_socket_directories = '{{ postgresql_socket_directory }}'
+unix_socket_group = 'factory'
+unix_socket_permissions = 0770
+
+ssl = on
+ssl_min_protocol_version = 'TLSv1.3'
+ssl_cert_file = '{{ postgresql_tls_directory }}/server.crt'
+ssl_key_file = '{{ postgresql_tls_directory }}/server.key'
+
+shared_buffers = 1GB
+dynamic_shared_memory_type = posix
+max_wal_size = 2GB
+min_wal_size = 256MB
+timezone = 'UTC'
+log_timezone = 'UTC'
+datestyle = 'iso, mdy'
+default_text_search_config = 'pg_catalog.english'
+password_encryption = 'scram-sha-256'
+
+logging_collector = on
+log_directory = 'log'
+log_filename = 'postgresql-%a.log'
+log_truncate_on_rotation = on
+log_rotation_age = 1d
+log_line_prefix = '%m [%p] %q%u@%d '
+
+autovacuum = on
+track_counts = on

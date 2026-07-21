@@ -1,8 +1,8 @@
 # Factory infrastructure operations
 
-Session 0 encodes the two-host factory foundation with the nightloch-style
-`infra/<provider>` layout. OpenTofu owns cloud resources; Ansible owns host
-configuration. No console edit is part of the operating path.
+The nightloch-style `infra/<provider>` layout encodes the two-host factory
+foundation and its PostgreSQL state service. OpenTofu owns cloud resources;
+Ansible owns host configuration. No console edit is part of the operating path.
 
 ## Layout
 
@@ -11,7 +11,7 @@ configuration. No console edit is part of the operating path.
 | `digitalocean/` | two droplets, VPC placement, existing-tag attachment, cloud firewalls, SSH public identity, inventory outputs | `factory/digitalocean/tofu.tfstate` |
 | `aws/` | A96 bucket configuration and IAM adoption, Route 53 lifecycle policy, `factory.example.com` | `factory/aws/tofu.tfstate` |
 | `github/` | repository settings and `master` branch protection | `factory/github/tofu.tfstate` |
-| `ansible/` | both Rocky 9 hosts, identities, host firewall, exporters, control prerequisites, worker transient state | n/a |
+| `ansible/` | both Rocky 9 hosts, identities, host firewall, exporters, control prerequisites, PostgreSQL/roles/migrations, worker transient state | n/a |
 
 Each OpenTofu root pins OpenTofu 1.12.0 and its provider, enables native S3
 lockfiles without DynamoDB, requests SSE-S3, and enforces PBKDF2/AES-GCM
@@ -68,9 +68,11 @@ host tag. This prevents a tag-attached firewall's rule union from silently
 widening either host before a reviewer sees the resource plan.
 
 The second converge must show `changed=0` on both hosts. `qualify.sh` checks the
-installed revision and control prerequisites, exporter bindings/services, the
-absence of a self-hosted runner and Tempo/OTLP collector, the worker identity,
-private-network egress rejection, and standing-credential paths/patterns.
+installed revision and control prerequisites, PostgreSQL version/socket/TLS,
+peer maps, the full runtime grant matrix, the Grafana canary boundary, exporter
+bindings/services, the absence of a self-hosted runner and Tempo/OTLP collector,
+the worker identity, private-network egress rejection, and standing-credential
+paths/patterns.
 
 ## Read-only drift check
 
@@ -120,7 +122,15 @@ Full serve/authenticate/run independence cannot be exercised until the runtime
 exists in Sessions 1-14; Session 0 proves the topology and static half without
 claiming an end-to-end system early.
 
-Fleet-side Prometheus is outside this repository. After the hosts exist, add two
-file_sd targets in the observability repository using the OpenTofu private-IP
-outputs, scraping `:9100` and `:9187`. This is a handoff, not a Session 0 change
-to the fleet repository. Tempo and an OTLP collector remain absent.
+Fleet-side Prometheus and Grafana are outside this repository. The handoff is:
+
+- retain the two private-IP file_sd targets per host for `:9100` and `:9187`;
+- alert when `patchyard_postgresql_tls_certificate_remaining_seconds` is
+  below 30 days or `pg_up` is zero;
+- configure the Grafana PostgreSQL datasource at the control-plane private IP
+  on `:5432`, database `patchyard`, role `grafana_ro`, TLS verification on,
+  with `/etc/patchyard/postgresql-server-ca.crt` as the non-secret trust root.
+
+The cloud and host firewalls accept `:5432` only from the monitoring droplet.
+This is a handoff, not a change to the fleet repository. Tempo and an OTLP
+collector remain absent.

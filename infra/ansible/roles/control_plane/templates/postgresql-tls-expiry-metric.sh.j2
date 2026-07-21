@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 022
+
+CERTIFICATE={{ postgresql_tls_directory }}/server.crt
+TEXTFILE_DIRECTORY=/var/lib/node_exporter/textfile_collector
+METRIC_FILE="$TEXTFILE_DIRECTORY/patchyard_postgresql_tls.prom"
+METRIC_TEMP=$(mktemp "$TEXTFILE_DIRECTORY/.patchyard_postgresql_tls.XXXXXX")
+trap 'rm -f -- "$METRIC_TEMP"' EXIT
+
+END_DATE=$(openssl x509 -enddate -noout -in "$CERTIFICATE" | cut -d= -f2-)
+EXPIRY_EPOCH=$(date --date="$END_DATE" +%s)
+NOW_EPOCH=$(date +%s)
+REMAINING_SECONDS=$((EXPIRY_EPOCH - NOW_EPOCH))
+
+{
+  echo '# HELP patchyard_postgresql_tls_certificate_expiry_timestamp_seconds PostgreSQL server certificate expiry as Unix time.'
+  echo '# TYPE patchyard_postgresql_tls_certificate_expiry_timestamp_seconds gauge'
+  echo "patchyard_postgresql_tls_certificate_expiry_timestamp_seconds $EXPIRY_EPOCH"
+  echo '# HELP patchyard_postgresql_tls_certificate_remaining_seconds Seconds until the PostgreSQL server certificate expires.'
+  echo '# TYPE patchyard_postgresql_tls_certificate_remaining_seconds gauge'
+  echo "patchyard_postgresql_tls_certificate_remaining_seconds $REMAINING_SECONDS"
+} >"$METRIC_TEMP"
+chmod 0644 "$METRIC_TEMP"
+mv -f -- "$METRIC_TEMP" "$METRIC_FILE"
+trap - EXIT

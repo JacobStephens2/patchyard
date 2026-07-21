@@ -14,6 +14,24 @@ jobs:
     name: application
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55 # 16.14-bookworm
+        env:
+          POSTGRES_DB: patchyard_ci
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d patchyard_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres@localhost:5432/patchyard_ci?sslmode=disable
+      FACTORY_TEST_ADMIN_DATABASE_URL: postgresql://postgres@localhost:5432/patchyard_ci?sslmode=disable
+      FACTORY_TEST_DATABASE_URL: postgresql://patchyard_supervisor@localhost:5432/patchyard_ci?sslmode=disable
+      POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
 
     steps:
       - name: Check out the reviewed revision
@@ -35,6 +53,9 @@ jobs:
 
       - name: Install pinned check dependencies
         run: tools/prepare-application-ci.sh
+
+      - name: Prepare disposable PostgreSQL state service
+        run: tools/prepare-state-ci.sh
 
       - name: Run application and model checks
         run: tools/check-application.sh

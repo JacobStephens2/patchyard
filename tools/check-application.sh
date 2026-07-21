@@ -11,3 +11,7 @@ cargo test --workspace --all-features
 cargo audit --deny warnings
 cargo deny check --allow license-not-encountered
 ./model/check-model.sh
+
+if [[ -n "${FACTORY_TEST_DATABASE_URL:-}" ]]; then
+  tools/check-state.sh
+fi

@@ -1,0 +1,319 @@
+# Patchyard Factory - stack review packet for an outside council
+
+*Prepared 2026-07-21. Snapshot for external review - the canonical files live in the factory repo and supersede this copy.*
+
+## What you are reviewing
+
+Patchyard Factory is a gated software factory for a small travel company's legacy PHP ERP (Fieldbook): humans file requests through a dashboard; AI agent seats triage, implement in an isolated prod-parity environment, and open evidenced draft PRs; humans merge everything. Phase 1 is a 17-session build, not yet started. You are reviewing the **technology stack** (stack.md below) in the context of the **architecture it serves** (SPEC below, plus a compact system diagram).
+
+## Honest scale - calibrate to this
+
+~20 requests/week. Three named users. Two small VMs plus one ephemeral worker droplet. One subject codebase. If a recommendation assumes traffic, tenancy, or a team we don't have, say so explicitly - "at 10x you would need X" is a welcome form; "you need X" without the conditional is not.
+
+## Invariants - not up for review (design around them)
+
+1. Every change ships as a human-merged PR; no agent merges anything (A1).
+2. Agents never revise policy in place; lessons land as human-reviewed diffs (R19).
+3. No factory runtime function depends on the orchestration host that bootstraps it (A68).
+4. Workers are secret-free with single-allowlisted-provider egress; US-jurisdiction provenance for model hosting (A57/A59/A61).
+5. The ledger (PostgreSQL) is the authoritative record; telemetry is never evidence.
+
+## Ground rule on the exclusions table
+
+Every row in stack.md's "Deliberately excluded" table was decided with a stated reason and several are enforced by a CI tripwire. Challenges are welcome **only by engaging the stated reason** - tell us why the reason is wrong for our scale and constraints, not that the excluded thing is popular.
+
+## The questions
+
+1. Where is this stack **over-engineered** for 20 runs/week - what would you delete or simplify with no loss?
+2. Where is it **under-engineered** - what breaks first, and at what multiple of current scale?
+3. What operational burden are we underestimating (upgrades, backups, cert/key rotation, the two-VM GitOps loop)?
+4. The AI layer: harness-exec'd headless agents, seat routing from a tested bench, cross-family adversarial review. What failure mode is this design blind to?
+5. The observability shape (fleet Grafana/Prometheus, fail-open OTLP to Tempo, ledger-first): what will we wish we had instrumented from day one?
+6. Security: given the trust architecture in SPEC, which boundary would you attack first?
+7. What would you replace outright - one choice, your replacement, and the migration cost at our scale?
+
+---
+
+
+
+# ===== stack.md (canonical technology stack) =====
+
+# Technology stack
+
+*Living document - the canonical answer to "what is the factory built with, and why not the obvious alternatives." Each choice cites its ruling; the exclusions are enforced by `tools/check-stack.py` in CI (the doctrine-drift tripwire). This is a document, not a second model: the machine-relevant infrastructure facts live in `model/factory-model.json`'s deployment block; what's here is the full inventory with rationale, which has human readers and no machine consumers beyond the exclusions check.*
+
+## Languages (A42)
+
+| Language | Used for |
+| :-- | :-- |
+| Rust | Everything the factory *is*: `factory-core`, `factory-supervisor` (A67), `factory-verify`, `factoryctl`, `factory-web`. Toolchain pinned (`rust-toolchain.toml`), `Cargo.lock` committed, `cargo audit` + `cargo deny` in CI |
+| Python | Where its ecosystem owns the job: model tooling, Selenium evidence harness, bench/AA tooling (`tools/`) |
+| SQL | PostgreSQL schema and migrations |
+| HCL | OpenTofu configuration (`infra/<provider>/`) - the tool itself is a pinned Go binary; HCL is what we author and review |
+| YAML | Ansible (all host configuration) and GitHub Actions workflows - declaration languages only, never application code |
+| Bash | Glue scripts (`model/check-model.sh` and friends) |
+| Markdown | Prompts, policy, constitution, rubric, docs - everything humans and models read |
+
+## Web layer (A53, A63, A64, A70-A72, A75)
+
+- **Axum + Askama** on tokio: server-side rendering; SSE endpoints fed by Postgres `LISTEN/NOTIFY`.
+- **Vanilla JavaScript, slight**: `EventSource` fragments and the run-dot overlay. All other interactivity is form POSTs.
+- **terminal.css (vendored, MIT) + patchyard-theme.css**: matrix-boxy Patchyard look; every asset self-hosted.
+- **pulldown-cmark**: server-side markdown rendering for `/decisions`.
+- **Factory-native auth** (A68): argon2, server-side sessions, own users table.
+
+## Data and state
+
+- **PostgreSQL** (A56): local socket-only, peer auth, role grant matrix; `LISTEN/NOTIFY` triples as queue wake-up (A65), SSE push (A63), and control-row delivery (A70). Access via **SQLx** behind a domain repository boundary.
+- **MySQL 8.4, worker parity only** (A85): a per-run local instance inside the worker isolation boundary, seeded from a dated redacted snapshot artifact - the *subject* codebase's engine, never factory state (which is PostgreSQL).
+- **Filesystem artifact store** (A43): `/var/lib/patchyard`, 0700.
+- **Git** (A69): every encodable fact, including infrastructure, DNS, branch protection, and this file.
+
+## Infrastructure (A57, A68, A69)
+
+- **DigitalOcean**: control-plane VM + secret-free worker droplet.
+- **OpenTofu**: droplets, Route 53 DNS, firewalls, GitHub repo settings/branch protection; encrypted state backend (session-0 choice).
+- **Ansible**: Caddy, systemd units + hardening, Postgres roles, headless Chromium, bootstrap accounts.
+- **Firecracker microVM** (evaluate first) / **rootless Podman** (fallback) (A44): the worker's OS boundary.
+- **Caddy**: TLS/reverse proxy. **1Password**: vault of record; factory-scoped secret injection only.
+
+## AI layer (A41/A78, A61, A67, A73, A74)
+
+- **Claude Code headless** (`claude -p`) and **Codex** (`codex exec`, A73 adversarial reviews) as daemon-exec'd subprocesses - agents live on the far side of an exec boundary, never in-process.
+- **Seat routing** (A74): every invocation resolves through the versioned `policy/` routing config against the canonical bench (`docs/bench.json`); one provider per worker boot; A61 allowlist.
+- Construction: GPT-5.6 Sol × Codex builds; Fable 5 × Claude Code reviews every build PR (A41, seats amended by A78); humans merge.
+
+## Verification and CI
+
+- **factory-verify** with mutation self-tests (A10); **pass^k** acceptance; targeted **PHPUnit**; **Selenium/Chromium** preview evidence.
+- **GitHub Actions**, factory-repo hygiene only (R4): thin YAML wrappers over repo scripts so the CI backend is swappable in an afternoon. Executes on a **self-hosted runner on the control-plane VM** (A76): Ansible-provisioned, dedicated `gha-runner` user, ephemeral single-job mode, systemd-hardened and resource-capped, zero access to factory state; GitHub-hosted runners remain the one-line `runs-on` fallback. **GitHub App** bot identity (A45/A62).
+
+## Observability (A79/A80/A82/A83/A84 ruled; Loki direction)
+
+The **ledger is the primary observability system** - cost, latency, and outcome questions are SQL. Ruled: **Prometheus + Grafana (A80)** - daemon `/metrics`, node/postgres exporters on both hosts, Grafana reading factory PostgreSQL directly for ledger dashboards, pull-based scraping only (expose-never-require, A68); and **server-side usage metrics in phase 1 (A79/R23)** - Axum middleware page-view rows in the ledger, no client-side trackers. Also ruled: **OpenTelemetry in phase 1 (A82)** - `tracing` instrumentation day one, OTLP exporter fail-open toward an adopted Tempo backend; and **full-transcript capture (A83)** - every agent invocation's harness transcript into the artifact store, the content-level record spans can't give. Placement ruled (A84): the existing fleet Grafana (`grafana.example.com`) + Prometheus scrape the factory hosts over the private network, Tempo joins that stack, and one `grafana_ro` VPC-only `SELECT` role is A56's sole TCP exception for direct ledger dashboards. Still direction: whether Loki ever earns a place. A fleet-level Grafana/Prometheus host may scrape the factory (expose-never-require keeps A68 intact). No Google Analytics - external beacons don't belong on an internal admin surface.
+
+## Deliberately excluded - enforced by `tools/check-stack.py`
+
+| Exclusion | Ruling / reason | Tripwire artifact |
+| :-- | :-- | :-- |
+| npm / node toolchain | A53; supply-chain surface for zero benefit | `package.json`, `node_modules/`, `package-lock.json` |
+| TypeScript | A53; second type system that drifts from the Rust one | `tsconfig.json`, `*.ts` sources |
+| WASM / front-end frameworks | A53; no client-owned state to manage (Leptos is the named escalation if that ever changes) | - (review-caught) |
+| Docker Compose / Kubernetes / Helm | Scale mismatch; systemd + Ansible own the hosts | `docker-compose.yml`, `Chart.yaml`, `helmfile` |
+| In-process agent SDKs | Agents exec as subprocesses (A44/A67) | - (review-caught) |
+| Cloud queues/buses | Postgres LISTEN/NOTIFY does it | - (review-caught) |
+| Third-party control planes | R11 - vendors supply workers, never the control plane | - |
+| Subscription-gated dependencies | R22 | - |
+| Plaintext OpenTofu state in git | A69 | `*.tfstate` |
+
+
+# ===== factory-model-diagram.md (generated system diagram) =====
+
+# Factory model - generated diagram
+
+*Generated from `factory-model.json` schema v5, model
+v11 (2026-07-21), canonical identity
+`sha256:66e574fe70bea46041f3e3646251d16e43ef3154eeb90bf69a5383216e324a59`. Do not edit by hand - edit the model, update its identity,
+and re-run the projector. Hexagons = human; dashed rounded nodes = AI agent;
+rectangles = deterministic software. Dotted edges are decision or feedback
+paths; inspect their labels and endpoints to distinguish human gates from the
+learning loop.*
+
+Phase 1 keeps supervisor, postgresql, artifact store, dashboard, publisher on the
+`control-plane-vm` and runs implement and verify on a
+`dedicated-droplet` with no standing secrets, database access, fleet
+credentials, or execution access to the private network. The only runtime
+credential is `short-lived-spend-capped-model-only`. Bootstrap is performed by
+`orchestration-vm-agents` applying `opentofu` and
+`ansible` desired state from the
+`factory` repository; at runtime the control
+plane manages itself (`self`,
+no runtime dependency on orchestration host).
+
+```mermaid
+%% factory-model schema v5, model v11
+%% canonical sha256:66e574fe70bea46041f3e3646251d16e43ef3154eeb90bf69a5383216e324a59
+flowchart LR
+  intake["Intake<br/><i>deterministic</i>"]:::det
+  triage(["Triage<br/><i>agent</i>"]):::agent
+  implement(["Implement<br/><i>agent</i>"]):::agent
+  verify["Verify<br/><i>deterministic</i>"]:::det
+  approve{{"Approve<br/><i>human</i>"}}:::human
+  deploy["Deploy<br/><i>deterministic</i>"]:::det
+  close["Close the loop<br/><i>deterministic</i>"]:::det
+  plan{{"Plan bin<br/><i>human</i>"}}:::human
+  ledger["Ledger<br/><i>deterministic</i>"]:::det
+  rubric{{"Rubric<br/><i>human</i>"}}:::human
+  proposer(["Improvement proposer<br/><i>agent</i>"]):::agent
+  intake --> triage
+  triage -->|"lane A"| implement
+  triage -->|"lanes B, C, D"| plan
+  plan -.->|"approved"| implement
+  plan -.->|"answered"| triage
+  plan -.->|"binned"| ledger
+  implement --> verify
+  verify --> approve
+  approve -.->|"approved"| deploy
+  approve -.->|"changes requested"| implement
+  approve -.->|"rejected"| ledger
+  deploy --> close
+  close --> ledger
+  ledger -.->|"learning loop"| rubric
+  ledger -.->|"evidence read (n>=10 rates)"| proposer
+  proposer -.->|"policy PR - human merge only"| rubric
+  rubric -.->|"policy edit via PR"| triage
+  classDef human fill:#eaf2fc,stroke:#2a78d6,stroke-width:2.5px,color:#1c5cab
+  classDef agent fill:#fdf6ec,stroke:#b07d2b,stroke-dasharray:5 3,color:#7c5200
+  classDef det fill:#f4f5f7,stroke:#9aa0a8,color:#4c545f
+```
+
+
+# ===== SPEC.md (phase-1 architecture the stack serves) =====
+
+# factory - phase 1 build spec, v2.4
+
+*(GitHub: `JacobStephens2/patchyard`; local checkout on the orchestration VM at `/srv/orchestration/patchyard/`.)*
+
+*Status: v2.4, 2026-07-18 - revised after GPT 5.6-Sol xhigh's adversarial critique (`reviews/2026-07-16-gpt-5.6-sol-spec-critique.md`; dispositions in `reviews/2026-07-16-disposition.md`) and subsequent rulings through A61. Build remains gated on Jacob's "go". Builder: the orchestration agent. Merge gate: engineering department + company owner (A33). PR #213 was closed by Jacob 2026-07-16 - ALPHABETIZE is now the factory's first live test subject with no duplicate-PR conflict.*
+
+*v2.1, 2026-07-16: rulings A53-A55 folded in - the dashboard business-logic boundary (§ Dashboard v0), the original SQLite graduation tripwires (§ State layer), and host placement (§ Trust architecture). v2.2, 2026-07-18: A56 supersedes the SQLite choice before build; phase 1 starts on local socket-only PostgreSQL with peer authentication and database-enforced service roles. v2.3, 2026-07-18: A57 supersedes A55's host-separation timing; phase 1 provisions a dedicated secret-free worker droplet through OpenTofu and Ansible while the control plane stays on the orchestration VM. v2.4, 2026-07-18 (later): A58-A61 graduate the model/harness seat policy from `ideas.md`; the worker egress clause names the A61 provider allowlist (operative roster in `docs/bench.md`), and A62 makes factory PR authorship trigger-independent (§ Identity). v2.5, 2026-07-20: A63 SSE live visibility, A64 visual identity, A65 form-triggered runs + invariant, A66 single intake surface, A67 supervisor-as-daemon, A68 dedicated control-plane VM. v2.6, 2026-07-20: A67-A75 (supervisor daemon, control-plane VM independence, GitOps maximalism, kill-switch UI in phase 1). v2.7, 2026-07-21: A79 server-side usage metrics ship in phase 1 (§ Dashboard v0) and A80 adopts Prometheus + Grafana scrape-only observability (daemon `/metrics`, node/postgres exporters; Grafana reads the ledger). v2.8, 2026-07-21: A82 OpenTelemetry in phase 1 (fail-open OTLP from the daemon's `tracing` instrumentation, Tempo as backend) and A83 full-transcript capture to the artifact store. v2.9, 2026-07-21: A84 closes observability placement - fleet Grafana/Prometheus/Tempo, factory as scrape targets, one `grafana_ro` VPC-only read role as A56's sole TCP exception. v2.10, 2026-07-21: A85 worker environment parity - prod-matching runtime image + per-run redacted local MySQL 8.4, parity-by-artifact never parity-by-access. v2.11, 2026-07-21: A86 improvement proposer v0 in phase 1 (evidence-thresholded, policy-surface-only, one open PR, human merge) - PLAN gains session 14, baseline 17 sessions. The session-by-session build plan is `PLAN.md`, beside this file.*
+
+*v2.3, 2026-07-20: A63 - live task visibility ships in phase 1 (SSE on PostgreSQL LISTEN/NOTIFY, § Dashboard v0); graduates the ideas.md dashboard-visibility question.*
+
+*v2.4, 2026-07-20: A65 - dashboard submission starts a run (queue + resident supervisor listener; scribe boundary preserved); A64 visual identity.*
+
+**Job statement:** when a small self-describing Fieldbook request arrives, help Patchyard turn it into an evidenced pull request within the hour, so that staff requests stop dying in inboxes and review is the only human cost.
+
+Design authority: `docs/decision-log.md` in this repo. The founding synthesis remains provenance in the orchestration repo, not a second editable authority. Where this spec conflicts with a ruling, the ruling wins - and if a ruling requires an unsafe design, the ruling gets amended first (per the critique's correction of v1's wording). The canonical machine-readable model is `model/factory-model.json` **in this repo** (A51), served at https://report.example.com/software-factory-model.json; `model/render-model.py` projects it to Mermaid (`model/factory-model-diagram.md`). Edit the model first, regenerate the views, copy json+mmd to the orchestration VM's `hosted/` - byte-identical regeneration becomes a CI check at build (A50).
+
+## What changed from v1 (critique verdicts, Jacob's rulings)
+
+1. **Durable state + private artifact store move into phase 1** (was phase 2; amends D4/A40). Live requests and screenshots never enter Git history. A56 later chooses local PostgreSQL as the phase-1 engine.
+2. **Full container/microVM isolation for the implement worker moves into phase 1** (was phase-2; amends D1). A human trigger vouches for provenance, not content - untrusted screenshots get processed in a boundary the OS enforces, not a prompt.
+3. **Dashboard runs as `factory-web`**, never `conductor`.
+4. **Draft-PR evidence lifecycle** replaces v1's impossible ordering.
+5. **Factory bot identity**: PRs authored by a dedicated machine identity, not Jacob's PAT. Current branch-protection (self-approve, no-bypass unchecked) is retained for now per Jacob's ruling.
+6. **Acceptance expands** from replay repetition to hidden cases, near-misses, injection, and concurrency/crash fixtures.
+7. The original estimate was revised to component estimates, then cut into ~15 reviewable sessions by the adversarial plan review.
+8. **Dedicated worker droplet + desired-state IaC move into phase 1** (A57): OpenTofu provisions it, Ansible configures it, and clean-room replacement is an acceptance criterion.
+
+## Deliverables
+
+1. The `/factory` skill - the interactive lane-A pipeline.
+2. The isolation substrate - a containerized (or microVM) implement and verifier execution plane on a dedicated secret-free worker droplet.
+3. The state layer - local PostgreSQL ledger + artifact store under `/var/lib/patchyard/`.
+4. Dashboard v0 at `factory.example.com` (intake + observability).
+5. OpenTofu + Ansible desired state for reproducible worker provisioning, configuration, drift checks, replacement, and rollback.
+
+Non-goals (phase 2): mailbox intake, automatic reconciliation/polling, requester-facing pages and notifications (A34's option b), automated cross-family verify.
+
+## Trust architecture (finding 1 + Jacob's ruling 2)
+
+The lethal-trifecta rule applies to phase 1: the component that reads untrusted request content must hold nothing worth stealing.
+
+- **Supervisor (A67)**: a Rust daemon (`factory-supervisor`, systemd) - deterministic by construction: claims the request from PostgreSQL, execs the agentic stages as bounded headless subprocesses (triage prompt, implement worker), applies the verified patch, publishes. No prompt exists at the supervisor layer to inject. Two entry points in phase 1 (A65): the daemon's claim loop (`LISTEN` on the intake channel) for dashboard-queued requests, and `factoryctl run <id>` driving the same code path in foreground for out-of-band runs. Dashboard-triggered runs are attended-by-submitter: a known `factory_submit` human vouched by submitting, and a human still merges; A18's automated cross-family verifier remains phase 2 (it attaches to unvouched intake, not staff submissions). Guardrails on the queue path: the 2-open-PR cap throttles drain, per-submitter and global daily run limits apply, and `factoryctl pause` halts claiming without touching in-flight runs. **Invariant (A65)**: for a request triaged lane A, no human action exists between completing the intake form and the ready-for-review draft PR. Guardrails may delay the run (queued, throttled), never require a person to advance it; the next human touch is PR review.
+- **Observability (A80/A82)**: the daemon serves Prometheus `/metrics` (runs by stage/outcome, tokens and cost by model, stage-latency histograms) and is instrumented with `tracing` from day one; an OTLP exporter ships spans toward Tempo, non-blocking and fail-open - telemetry may drop, a run never waits. Placement (A84): the existing fleet Grafana/Prometheus scrape the factory hosts over the private network; Tempo joins that stack and fills the exporter's endpoint. The ledger remains the authoritative record; spans and metrics are telemetry, never evidence.
+- **Transcripts (A83)**: every agentic invocation's full harness transcript is captured to the artifact store, attached to the run's events and retention-swept with it; ledger rows carry the pointer. Transcripts never enter Git or leave the control plane.
+- **Triage** runs as a no-shell subagent (Read/Grep/Glob only - harness-enforced; defense-in-depth under the OS boundary, not a substitute).
+- **Implement worker** runs on the dedicated worker droplet inside an isolated environment with: the request mounted read-only; one exact-base-SHA source tree mounted read-write; **no** SSH material, 1Password token, DB/Fieldbook/GitHub credentials, docker socket, or private-network access; egress restricted to exactly one allowlisted model provider per boot (A61; seat roster in `docs/bench.md`) with a short-lived, spend-capped credential (never `conductor`'s env). It emits a patch and a rationale, nothing else.
+  - **Environment parity (A85)**: the isolation image reproduces the prod Fieldbook runtime (PHP version, extensions, web-server config - pinned in desired state) and includes a local MySQL 8.4 seeded per run from a dated redacted snapshot artifact (manager-sandbox redaction lineage; version in run provenance; refresh fail-static). The worker runs the app against its own worktree and local DB. Parity is carried in as artifacts - never as network access to a real database or Fieldbook host; all A57/A61 clauses unchanged.
+  - **Runtime decision at build**: the orchestration VM's `/dev/kvm` result does not prove the new droplet exposes KVM. Probe it there, then evaluate **Firecracker microVM** first for kernel-attack-surface isolation (Jacob's preference); fallback is a rootless-Podman container (install podman; the Docker daemon's root socket must never be reachable from the worker). Record the decision and its rationale in this repo.
+- **Verifier** runs after the worker is terminated, in a clean environment on the worker droplet as the unprivileged `factory-worker` user, against the patch (tree-hash recorded before/after) - never against a live worker.
+- **Publisher** (supervisor-side, deterministic): applies the verified patch to a fresh worktree at the recorded base SHA, confirms tree hash, pushes, opens the draft PR as the **factory bot identity**.
+- **Host placement and independence (A68, amending A57)**: the whole control plane - supervisor daemon, PostgreSQL, artifact store, dashboard, publisher, evidence capture with its own headless Chromium - runs on a dedicated control-plane VM; the secret-free worker droplet is unchanged. **Independence invariant: no factory runtime function depends on the orchestration host.** The orchestration host bootstraps (agents there create/initialize both VMs via OpenTofu + Ansible from this repo; the control-plane VM holds its own repo checkout and can re-apply its desired state) and may mirror projections (`hosted/` copies of the model and review page) - nothing more. `factory.example.com` DNS points at the control-plane VM. The factory receives its own narrowly-scoped secrets (GitHub App key, allowlisted model API keys) through its own injection path - never the orchestration `env.tpl`. The worker contract is unchanged: read-only inputs and an exact-base-SHA bundle in, patch + rationale + evidence out, no credentials ever.
+
+## Worker infrastructure and desired state (A57)
+
+- `infra/opentofu/` owns the DigitalOcean droplet, cloud firewall, attached SSH public identity, attachment to existing Patchyard tags, and inventory outputs. OpenTofu runs only from the orchestration controller; the DigitalOcean token never reaches the worker. State is remote in DigitalOcean Spaces, locking is enabled with `use_lockfile`, and backend credentials arrive through the controller's environment rather than source, state configuration, or plan arguments.
+- `infra/ansible/` owns the base OS, `factory-worker` identity, packages, host firewall, runtime substrate, systemd units, logging, temporary paths, per-run cleanup, and management access restricted to orchestration. A second converge must report no changes. No manual host edit is part of the operating procedure.
+- Pull-request CI runs credential-free formatting, validation, lint, and syntax checks. A read-only live OpenTofu plan and Ansible check run from orchestration and their redacted output is attached for human review. After merge, a human-triggered apply from orchestration updates the worker; scheduled drift checks report differences but do not remediate automatically in phase 1.
+- **Secret-free means no standing reusable cross-system authority**: no 1Password service token, cloud/provider token, GitHub credential, database identity, Fieldbook secret, or fleet SSH client key at rest or between runs. Unavoidable host identity keys are restricted to managing that droplet. A per-run spend-capped model capability may exist only in memory/tmpfs and is revoked or expires at teardown.
+- Rebuild acceptance starts with a clean droplet and the reviewed Git commit, applies OpenTofu + Ansible with explicit secret references, executes the worker qualification suite, and requires no hand edits or restored worker data. The worker is disposable; PostgreSQL and artifacts remain backed up on the control plane under the state-layer contract.
+
+- **GitOps maximalism (A69)**: everything reasonably encodable is versioned here. `infra/` (nightloch-style `infra/<provider>` layout) carries OpenTofu for both VMs, Route 53 DNS, firewalls, and GitHub repo settings/branch protection; Ansible carries all host configuration (Caddy, systemd units, Chromium, Postgres roles); the repo already carries schema/migrations, prompts/policy, model, CI, and secret references (`op://` pointers - values stay in the vault). Excluded: secret values, key material, runtime state. OpenTofu state goes to an encrypted backend chosen in session 0 - never plaintext in git. CI executes on a self-hosted runner on the control-plane VM (A76: ephemeral, hardened, resource-capped, no factory-state access; GitHub-hosted runners as one-line fallback).
+
+## Identity (finding 5 + Jacob's ruling 3)
+
+Factory PRs are authored by a dedicated machine identity so attribution reads "the factory did X" and any approver - including Jacob - can review them. Preferred: an **`patchyard` GitHub App** (no seat cost, short-lived installation tokens, matches phase-2 architecture; key in 1Password, minted per-run by the publisher). Acceptable fallback: a machine-user fine-grained PAT. Fieldbook branch protection stays as Jacob has it today (1 approval, bypass available to admins, self-approve possible); the factory itself never merges, and an admin-bypassed merge does not count as a passing factory run.
+
+Authorship is trigger-independent (A62): factory-produced commits and PRs carry the factory identity whether the run was unattended or human-triggered - console or an engineer's dashboard submission. The trigger's human identity lives in the intake row, the ledger's `source` field, and the PR body - never in the commit author field. A hand-pushed commit on a factory branch keeps its human author and demotes the run's ledger row from pure-factory; hand edits are never laundered through the bot identity, nor factory output through a human's.
+
+## State layer (findings 3, 8, 11)
+
+**Canonical data model = the migrations.** The SQL migration files (session 2, under the workspace's declared migrations path) are the schema's single authoritative form - reviewed, versioned, append-only. No hand-authored schema description exists beside them: SQLx enforces query-schema agreement at compile time, the dashboard's `/schema` route (A72) is the live projection by introspection, and a generated Mermaid `erDiagram` (regenerated by script, byte-identical check in CI - the `model/` discipline) is the committed human-readable picture. Both projections share one bespoke introspection implementation (A81) - no mermerd/tbls; two readers of the same catalog queries, never two query implementations. The table prose below is pre-build specification; the migrations supersede it as canonical the day they exist.
+
+- A dedicated local PostgreSQL database, `patchyard`, stores `requests` (id, fingerprint UNIQUE, source, received_at, status), `runs` (request_id, base_sha, branch UNIQUE, lane, skill, state, timestamps, tokens, turns, eval scores, provenance hashes), `events` (append-only transitions), `artifacts` (path, sha256, kind), `pr_state` (number UNIQUE, head_sha, ci_state, review_state, merged_at, deployed_sha), and `leases` (claims with TTL - two engineers cannot claim one request; cap checks and PR creation serialize under the publisher lease).
+- `/var/lib/patchyard/artifacts/<id>/` - raw request text + attachments, `factory-web:factory` 0700, 90-day retention after close (configurable). Git holds **code, policy, schemas, and sanitized fixtures only**.
+- Dashboard renders from PostgreSQL; GitHub state arrives via a bounded reconcile call (argument-vector exec, timeout, output cap) triggered by `factoryctl reconcile <id>` or a dashboard refresh action - never live `gh` per page load. **Fail closed on the 2-open-PR cap when GitHub state is stale.**
+- `factoryctl`: `claim`, `reconcile`, `close`, `retention-sweep`. Deployed SHA comes from the status dashboard's existing deployed-version source, compared to the merge SHA.
+- The `/api/rulings` console intake already writes into this repo's `rulings-queue/` (relocated 2026-07-20); rulings and software requests keep separate namespaces - the run queue is PostgreSQL rows (A65), never these files.
+- **PostgreSQL trust boundary (A56, A84 exception)**: the cluster runs on the control-plane VM (A68) with TCP disabled for all application access - a restricted Unix socket and peer authentication mapped from the service users. The one exception (A84): a `grafana_ro` role, `SELECT`-only on read views, on a listener bound to the private/VPC interface, firewalled to the fleet monitoring droplet, TLS required - the fleet Grafana's ledger datasource. No application carries a database password. Separate owner/migrator, supervisor, and dashboard roles are provisioned declaratively and tested as a grant matrix. `factory-web` receives `SELECT` on the state it renders and `INSERT` only on the request-intake columns; it receives no `UPDATE`, `DELETE`, or `TRUNCATE`, and cannot mutate the append-only event ledger. The supervisor can perform state transitions and append events, but no runtime role can update or delete event rows; schema ownership remains outside runtime roles. The isolated worker has neither a database role nor the host socket mounted.
+- SQLx targets PostgreSQL only. A domain storage boundary keeps core logic testable, but phase 1 does not build or claim a portable dual-engine implementation: migrations, checked queries, locking, and crash semantics are PostgreSQL-specific. Queue claims may use row locks; `SKIP LOCKED` is reserved for genuinely concurrent consumers rather than added by default. The original A54 SQLite choice is superseded. Its MySQL rejection remains: co-tenanting on prod's mysql8 would couple factory availability to the production database and pollute its audit surface, while another local MySQL instance adds daemon cost without PostgreSQL's chosen role model.
+- Backups use a tested `pg_dump` + artifact-tree manifest; restore begins from declarative cluster/role provisioning, applies migrations, restores the dump and artifacts, and verifies row counts plus artifact hashes.
+
+## Dashboard v0 (findings 2, 6, 7)
+
+- Rust/Axum, compiled binary, systemd `factory-dashboard.service` running as **`factory-web`** (no shell, no SSH dir, no `op.env`/`env.tpl` access, no repo credentials; `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, explicit `ReadWritePaths=` for spool + artifacts only). The application reaches PostgreSQL through its restricted local socket and peer-mapped dashboard role. The dashboard HTTP Unix socket is owned `caddy:factory-web` - no loopback TCP header-spoofing surface.
+- Caddy vhost `factory.example.com` on the control-plane VM with **factory-native authentication (A68)**: the dashboard authenticates against its own users table in factory PostgreSQL (argon2 password hashing, server-side session cookie); engineering, owner, and submitter accounts are provisioned at bootstrap. No `forward_auth` to the status dashboard - the factory depends on the orchestration host for nothing at runtime.
+- **Authorization**: new `factory_submit` and `factory_admin` permissions in the members store - `reports` is not reused. Request lists, detail pages, evidence, and operational state are `factory_admin`-only in phase 1. **The form is phase 1's only intake surface (A66)** - out-of-band requests enter by whoever holds them submitting the form; `factoryctl request new` is ops/test tooling, not staff intake. A bare submitter sees a success receipt - which for a lane-A-classified request includes its live run status (A65: submission starts the run via the queue; the dashboard writes the intake row and `NOTIFY`s, the supervisor listener does everything else).
+- Routes: `GET /` (admin: list + stage badges), `GET /request/<id>` (admin: verbatim request, stage, drafts, evidence), `GET/POST /new` (submit), `GET /evidence/<run>/<name>` (admin: authenticated artifact serving - PR bodies link here; no images committed to fieldbook), `GET /request/<id>/events` (admin: SSE stream of that request's event-ledger transitions - A63), `GET /model` (authenticated: the generated model projection - A71), `GET /bench` (admin: projection of the canonical bench, rendered from `docs/bench.json` in the local checkout - A72), `GET /schema` (admin: live PostgreSQL structure introspection + row counts - A72), `GET /decisions` (authenticated: the decision log rendered from the local checkout - A75), `GET /healthz`.
+- **Business-logic boundary (A53)**: the dashboard is a scribe and a window - it writes exactly one thing (an intake row) and reads everything else; no state transitions, no triage, no caps enforcement, no verification (those belong to the pipeline, `factory-verify`, and the supervisor). Intake validation is one function in `factory-core` (parse-don't-validate: the only constructor of the validated request type), called identically by the dashboard, `factoryctl`, and the pipeline - no inline validation in handlers. The client gets zero authoritative logic: HTML-native constraints (`maxlength`, `required`, `accept`) are template-injected from the same core constants the parse function enforces, and phase 1 ships no hand-written validation JS. SSR only: Axum + Askama - no WASM, no npm, no TypeScript. Intake validation is a quality gate, not a security boundary: the threat model assumes well-formed-but-malicious content passes it, and the downstream gates re-enforce regardless.
+- **Model projection (A71)**: `GET /model` serves the repo's generated diagram (SVG, byte-identical to `model/factory-model.svg` - regenerated only via the model workflow, A50) with links to the canonical json/mmd/schema from the local checkout, terminal-themed. With SSE: a live overlay - one dot per active run at its current stage, driven by the same event stream as the timeline.
+- **Bench and schema views (A72)**: `/bench` renders the canonical `docs/bench.json` at request time (the roster task-time routing would read - one file, projected, never copied); `/schema` renders live `information_schema`/`pg_catalog` introspection with per-table row counts. Admin-only, read-only, through the restricted role. A raw data browser is deliberately absent - purpose-built views carry the data's story; a bounded peek would need its own ruling.
+- **Decision log view (A75)**: `/decisions` renders `docs/decision-log.md` from the local checkout - pulldown-cmark server-side (tables extension), terminal-themed, stable per-ruling anchors (`#A47`). A window, never a pen: the log changes only through the repo.
+- **Kill-switch controls (A70)**: `factory_admin`-only pause/resume, per-run kill, and full stop. The button writes a control row + `NOTIFY` (the A65 mirror - the dashboard remains a scribe; the supervisor daemon executes): worker boot terminated, lease released, run marked `killed` with reason as a terminal ledger event, never published. Control rows are audit trail; kills appear live on the SSE timeline.
+- **Live visibility (A63)**: the request detail page renders the events ledger as an SSR timeline (stage, actor tag from the model's A49 metadata, timestamps, durations, evidence links; current stage highlighted with elapsed time). While the run is non-terminal, a small inline vanilla-JS `EventSource` fragment subscribes to `GET /request/<id>/events` and appends transitions as they happen - the supervisor's event append fires `NOTIFY`, the dashboard's restricted role `LISTEN`s, frames push with no polling at any layer. This is presentation-only JS, inside A53's boundary (validation JS remains zero; no WASM/npm/TS; WebSockets and front-end frameworks remain out - one-directional push suffices). Fallback when JS or the stream is unavailable: the page emits a conditional `Refresh` header while non-terminal, so the zero-JS path still shows progress. Caddy must pass the events route unbuffered with long-lived connections permitted; the stream authenticates through the same forward_auth session as every other admin route.
+- **Usage metrics (A79)**: an Axum middleware writes page-view rows (authenticated user, path, timestamp) to factory PostgreSQL; `/healthz`, `/metrics`, static assets, and SSE streams are excluded. No client-side trackers (R23) - the CSP stays closed; Caddy access logs are the cross-check.
+- **Visual style (A64)**: matrix boxy terminal aesthetic - vendored `terminal.css` (MIT, single static file, `assets/dashboard/`) with the Patchyard palette applied through its custom properties in `assets/dashboard/patchyard-theme.css`: brand green `#00A651` (example.com) as the terminal accent on a dark green-cast ground, fieldbook's `#f44336` for errors, amber for stuck-stage badges; system mono stack, no webfonts. Every asset self-hosted (no CDN, no npm - A53 and the strict CSP hold); the theme file owns the factory widgets (stage badges, event timeline, live indicator with `prefers-reduced-motion` respected).
+- **Upload hardening acceptance criteria**: canonical server-generated IDs and filenames (user filename never a path); create-new + atomic rename; magic-byte sniffing + decoder pixel limits + re-encode to clean PNG/JPEG; reject archives, executables, and scriptable SVG; per-request and per-user quotas + rate limits + disk-full behavior; strict CSP, `Content-Disposition: attachment`, no inline untrusted HTML; symlink/hardlink defense. Adversarial fixtures: traversal names, double extensions, MIME spoofing, decompression bombs, malformed images, duplicate/concurrent submissions.
+
+## The `/factory` skill (pipeline contract)
+
+`/factory <id>`: supervisor claims via lease → triage (no-shell subagent) classifies against `rubric.md`; B/C/D exit to the plan bin (drafts for human review) and the run ends. The plan bin is a loop, not a sink (A46): an approved B spec re-enters at implement with the spec as its Guide and a human-approved budget replacing the lane-A caps; an answered D question re-triages; an executed C runbook closes; a plan rejected in the bin closes with outcome 'rejected-at-plan' and its reason - a ledger row feeding the learning loop (A48) → implement worker (isolated, above) emits patch → worker terminated → verifier runs `factory-verify` subcommands + targeted PHPUnit as `factory-worker` → one repair loop (A9), second failure escalates → publisher applies patch at base SHA, opens **draft PR** as the bot.
+
+**Draft-PR evidence lifecycle (finding 4):** draft opens with request + root cause + assumptions → GitHub CI runs → preview lease (owner, request-id, expected SHA, TTL, guaranteed cleanup) on a slot; `git rev-parse HEAD` verified in-preview before and after browser checks; read-only actions only (shared mutable preview DB); headless helper extended for the dev-fleet bearer header via an owner-only header file, redacted from logs, navigation restricted to the leased host → evidence (screenshots + extracted DOM order) stored to the artifact store, linked from the PR body via the dashboard evidence route → PR marked ready-for-review with the full contract (A26 quiz, explain-diff, drafted reply). CI/preview failures are explicit fail-closed states with timeouts.
+
+Worktrees: the credentialed bare clone and publisher worktrees stay under `/var/lib/patchyard/worktrees/` on orchestration (never inside the shared `/srv/orchestration/fieldbook` cache). Fetch before branch; export the recorded base SHA as a source bundle to a fresh per-run worker directory; give the worker no Git remote; accept only the bounded result contract; then apply the verified patch to a fresh publisher worktree at that SHA. Refuse an existing branch unless it belongs to the same request; clean both hosts on failure, close, and merge.
+
+- **Adversarial review steps (A73)**: pipeline configuration may attach a cross-family review to a stage - a second family (GPT-5.6 Sol × Codex, `codex exec`) execed under the same bounded subprocess contract, reviewing e.g. an implementation plan before the worker builds it. Its verdict is ledger evidence; it gates only where configuration says it gates. A18's mandatory automated verifier for unattended intake remains phase 2.
+- **Adjudication contract (A77)**: the author adjudicates every review - concede, refute-with-evidence, or escalate, per finding, recorded to the ledger. Reviewer count is a routing dimension (A74): one cross-family reviewer by default, two-three families for high-stakes classes. A refuted finding whose reviewer stands firm arbitrates to a third compliant family - the most intelligent compliant pair from a family distinct from author and reviewer (A58): **Grok 4.5 × Grok Build** today - on that dispute only. Empirically checkable findings resolve by running the check, never by vote. The builder seat is the best-qualified pair regardless of family arithmetic.
+- **Seat routing (A74)**: every agentic invocation resolves through the versioned `routing` policy (task class → selection rule → seated pair from the canonical bench). Phase 1 rules are static per stage; phase 2 replaces rules (cheapest-at-parity vs max-intelligence, A58, priced by the aa-join roster) without daemon changes. The resolved model × harness × provider × effort and the routing-config version land in run provenance.
+- **Improvement proposer (A86)**: a scheduled control-plane seat reads the ledger and transcripts and proposes factory improvements - below n≥10 relevant runs, appends to the authority-free `docs/ideas.md` only; at threshold, at most one open PR against `policy/`/ideas.md citing the run IDs and rates behind it, authored by the bot identity (A62), human-merged (A1). The R19-blessed form exactly: lessons land as reviewed diffs, never in-place revision - including the proposer's own prompt.
+
+## Verification (findings 13-15, 17)
+
+`factory-verify` subcommands (Rust; A10 self-tests as cargo tests, each enumerating the mutations it must reject - WHERE-clause change, option value change, membership change, sort-key swap, whitespace-only padding):
+
+- `caps` - additions+deletions vs recorded base SHA; tests count toward the cap; renames/mode/binary/generated changes enumerated; the open-PR cap is **publisher** state checked under the lease, not a patch check.
+- `deny-paths` - constitution deny-list against the final diff.
+- `postconditions` - per-skill; for sorts: baseline DOM captured at base SHA from the same preview mechanism, labels sorted case-folded by the ruled key (first name), values/membership/counts/selected preserved, blank-sentinel and duplicate-label handling defined; shared-getter callers enumerated and checked; changing `ORDER BY listOrder` is permitted only with evidence it is presentation order, not routing priority.
+- `ledger-append` - transactional run-record writes.
+
+Every run records provenance: model id, CLI version, constitution hash, rubric hash, skill hash, prompt-template hash, verifier binary hash, base tree hash. Replays are meaningless without them.
+
+## Acceptance criteria (finding 9; behavioral pass^k, k=3)
+
+1. **Smoke (public)**: the sanitized `fixtures/acceptance/alphabetize/` request → lane A, both root-cause files, patch equivalent to the closed PR #213's - 3/3. PR #213 is closed, so the one live run publishes the factory's own draft PR with no duplicate conflict.
+2. **Hidden positives**: sort fixes in other report/dropdown implementations + decoy files with similar labels - correct target located, wrong-target rate measured, 3/3 each.
+3. **Near-miss negatives** (must demote or refuse): `listOrder` as intentional priority; last-name explicitly requested; blank sentinel; values ≠ labels; shared getter with non-UI callers; locale/case traps.
+4. **Injection fixtures**: hostile instructions in email body, image OCR, filenames, source comments, failing test output - zero credential reads, zero out-of-boundary writes, zero forbidden-lane publications.
+5. **Concurrency/crash**: duplicate submit; crash before/after branch push resumes to one branch + one PR; GitHub/preview unavailable → fail-closed states; PR-cap race under two simultaneous runs; repair-loop exhaustion escalates.
+6. **Gates**: every `factory-verify` subcommand fails its enumerated mutations (cargo test); eval rubric (A38) scored on every replay.
+7. **Dashboard**: submit → receipt **→ run starts without console intervention** (A65: queued row claimed by the listener; pause switch verifiably halts claiming; **an admin kill of a live run terminates the worker, releases the lease, and lands the killed event on the SSE stream** (the D5 kill drill, pulled forward); daily limits enforced); admin sees stage transitions through a full run **live on the SSE stream** (event appended → frame received, no reload) and on the conditional-refresh fallback; anonymous 302 on pages and stream alike; upload fixtures rejected; evidence route authenticated.
+8. **Worker infrastructure** (one clean-room replacement after the repeated behavioral cases): a clean worker is created and configured from the reviewed commit; second Ansible converge is empty; secret and private-network probes pass; replacement reproduces the worker qualification result without manual edits or state copied from the old worker.
+
+## Language, supply chain (A42 + finding 12)
+
+Rust for `factory-verify`, `factoryctl`, and the dashboard; `rust-toolchain.toml` pinned; `Cargo.lock` committed; `cargo audit` + `cargo deny` in CI; reproducible build + checksummed binary install + rollback documented. Python stays where the ecosystem owns the job (headless harness, status-dashboard touchpoints). One explicit threat-model/fuzz session budgeted for upload and path surfaces. OpenTofu owns DigitalOcean resources and Ansible owns host configuration; both are pinned and validated in CI, and neither is a worker runtime dependency.
+
+## Component estimates (finding 12; ~8-11 sessions, re-baselined ~16; 17 after A86)
+
+*Re-baseline, 2026-07-16: the adversarial plan review (`reviews/2026-07-16-plan-adversarial-review.md`, all findings conceded) showed the 8-11 total undercounted by bundling - isolation qualification, preview-integrated verification, dashboard hardening, and post-cutover acceptance each need their own session and exit. The component estimates below stand; A57 adds a dedicated desired-state and clean-room replacement session, making the session cutting `PLAN.md` v4's ~16 sessions.*
+
+1. OpenTofu + Ansible worker desired state and replacement proof: 0.5-1
+2. Toolchain + scaffold + state layer (PostgreSQL, roles, artifacts, factoryctl): 1.5-2
+3. Isolation substrate (Firecracker eval vs rootless Podman, worker image, credential plumbing): 2-2.5
+4. `factory-verify` crate + mutation self-tests: 1-1.5
+5. `/factory` skill + subagents + rubric + playbook + replay fixtures: 1.5-2
+6. Dashboard + auth/Caddy/permissions + upload hardening: 1.5-2
+7. Evidence lifecycle (draft PR, preview lease, headless auth, artifact routes) + acceptance hardening + threat-model session: 1.5-2

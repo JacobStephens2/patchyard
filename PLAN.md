@@ -130,10 +130,11 @@ Session 0 covers the worker desired-state component; sessions 1-2 cover the cont
 
 ### Session 15 - improvement proposer v0 (A86)
 
-- A scheduled seat the supervisor execs on the control-plane VM (where the socket is - A56/A84): reads ledger read views + transcripts, proposes factory improvements. Seat resolved through the A74 routing config as its own task class - the routing layer's first consumer - judgment work under A58's no-ceiling order.
+- **Substrate first (A93)**: `factoryctl lessons-report` lands before the seat - deterministic, no model in the path, emitting typed outcome facts + bounded quoted spans from the ledger; runnable standalone as the manual learning loop's tool.
+- The scheduled seat the supervisor execs on the control-plane VM (A56/A84) consumes **only the lessons-report's typed facts** - raw transcripts never enter its prompt (framed there as untrusted data); its policy PRs route through the same cross-family adversarial review as code PRs (A-10)
 - **Evidence threshold**: below n≥10 relevant runs, `docs/ideas.md` appends only (authority-free by that file's rule 1); at threshold, a PR citing the run IDs and rates that motivated it. A proposer PR without ledger evidence is as unacceptable as a lane-A PR without a root cause.
 - **Authority surface**: `policy/` + `docs/ideas.md` only; hard cap one open proposer PR; bot identity authors (A62); human merge only (A1); R19 airtight including the proposer's own prompt.
-- Exit: below-threshold seeded ledger → ideas.md append, no PR; at-threshold ledger → exactly one evidence-cited PR against `policy/`; a second attempt while it stands open is refused; a write outside the authority surface fails in test.
+- Exit: lessons-report runs standalone and its output validates against its schema; a test proves the proposer prompt contains typed facts and bounded quotes only - no raw transcript text; below-threshold seeded ledger → ideas.md append, no PR; at-threshold ledger → exactly one evidence-cited PR against `policy/`; a second attempt while it stands open is refused; a write outside the authority surface fails in test.
 
 ### Session 16 - cutover
 

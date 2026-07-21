@@ -15,6 +15,9 @@ resource "github_repository" "factory" {
 
   lifecycle {
     prevent_destroy = true
+    # GitHub's provider deprecated this API field. Preserve the imported live
+    # value instead of normalizing it during the branch-protection apply.
+    ignore_changes = [has_downloads]
   }
 }
 

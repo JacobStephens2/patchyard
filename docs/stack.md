@@ -46,7 +46,7 @@
 ## Verification and CI
 
 - **factory-verify** with mutation self-tests (A10); **pass^k** acceptance; targeted **PHPUnit**; **Selenium/Chromium** preview evidence.
-- **GitHub Actions**, factory-repo hygiene only (R4): thin YAML wrappers over repo scripts so the CI backend is swappable in an afternoon. Executes on a **self-hosted runner on the control-plane VM** (A76): Ansible-provisioned, dedicated `gha-runner` user, ephemeral single-job mode, systemd-hardened and resource-capped, zero access to factory state; GitHub-hosted runners remain the one-line `runs-on` fallback. **GitHub App** bot identity (A45/A62).
+- **GitHub Actions**, factory-repo hygiene only (R4): thin YAML wrappers over repo scripts so the CI backend is swappable in an afternoon. Executes on **GitHub-hosted runners** (A76 amended by A88, disposition E-1): `runs-on: ubuntu-latest` + a Rust cache action for warm builds; no runner process on any factory host - kernel co-tenancy with the ledger was the council's unanimous top removal. Escalation path if private-network CI is ever measured to be needed: an ephemeral single-job runner on a disposable droplet, never the ledger VM. **GitHub App** bot identity (A45/A62).
 
 ## Observability (A79/A80/A82/A83/A84 ruled; Loki direction)
 

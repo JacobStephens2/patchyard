@@ -1,5 +1,5 @@
 output "control_plane_ipv4" {
-  description = "Public address consumed by Route 53 and orchestration management."
+  description = "Public address consumed by Route 53 and orchestration break-glass access."
   value       = digitalocean_droplet.control_plane.ipv4_address
 }
 
@@ -26,6 +26,7 @@ output "ansible_inventory" {
         ansible_ssh_private_key_file = "/var/lib/conductor/.ssh/id_ed25519"
         monitoring_private_cidr      = var.monitoring_private_cidr
         orchestration_public_cidr    = var.orchestration_public_cidr
+        control_plane_private_cidr   = "${digitalocean_droplet.control_plane.ipv4_address_private}/32"
       }
     }
     control_plane = {

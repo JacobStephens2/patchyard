@@ -1,0 +1,21 @@
+---
+all:
+  vars:
+    ansible_user: {{ factory_manager_user }}
+    ansible_ssh_private_key_file: {{ factory_manager_private_key }}
+    monitoring_private_cidr: {{ monitoring_private_cidr }}
+    orchestration_public_cidr: {{ orchestration_public_cidr }}
+    control_plane_private_cidr: {{ control_plane_private_cidr }}
+  children:
+    control_plane:
+      hosts:
+        {{ groups['control_plane'][0] }}:
+          ansible_host: {{ hostvars[groups['control_plane'][0]].private_ip }}
+          private_ip: {{ hostvars[groups['control_plane'][0]].private_ip }}
+          factory_role: control-plane
+    worker:
+      hosts:
+        {{ groups['worker'][0] }}:
+          ansible_host: {{ hostvars[groups['worker'][0]].private_ip }}
+          private_ip: {{ hostvars[groups['worker'][0]].private_ip }}
+          factory_role: worker

@@ -3,9 +3,12 @@
 Ansible initializes both Rocky Linux 9 hosts. `inventory/tofu.sh` reads the
 DigitalOcean outputs directly, so no address is transcribed by hand.
 
-Sessions 0-2 own:
+Sessions 0-4 own:
 
-- the `conductor` management identity and SSH/firewalld restrictions;
+- the `conductor` bootstrap/break-glass identity, retained on both hosts but
+  excluded from every runtime role;
+- the `factory-manager` identity, whose private key exists only on the control
+  plane and manages both hosts over their private VPC addresses;
 - pinned node_exporter and postgres_exporter binaries on both hosts, bound to
   private addresses and scrapeable only by `10.132.0.14/32`;
 - the control-plane prerequisites (Caddy binary, Chromium, and an exact Git
@@ -21,8 +24,9 @@ Sessions 0-2 own:
 - a daily node_exporter textfile metric for PostgreSQL certificate expiry. The
   non-secret trust root is `/etc/patchyard/postgresql-server-ca.crt`.
 
-It deliberately installs no self-hosted Actions runner, Tempo/OTLP collector,
-Podman, or Firecracker. The runtime choice belongs to Session 3.
+It deliberately installs no self-hosted Actions runner or Tempo/OTLP collector.
+Session 3 selected Firecracker; Session 4 owns its production installation and
+runtime contract.
 
 ## Controller setup
 
@@ -50,4 +54,15 @@ bundle. No GitHub credential reaches either host. A second normal converge must
 end with `changed=0` for both hosts. `qualify.sh` asserts the control-plane and
 worker identity contracts, PostgreSQL exposure and peer maps, the complete
 runtime grant matrix, the Grafana canary boundary, and every factory
-state-directory owner, group, and mode.
+state-directory owner, group, and mode. It also proves A101 live: while a timed
+worker rule rejects orchestration, the control-plane identity still reaches and
+qualifies the worker over the private VPC.
+
+After bootstrap, the control plane can re-apply the current host-local desired
+state without orchestration or cloud credentials:
+
+```bash
+sudo -u factory-manager /usr/local/sbin/patchyard-converge-hosts
+```
+
+That entry point cannot mutate DigitalOcean, AWS, GitHub, or OpenTofu state.

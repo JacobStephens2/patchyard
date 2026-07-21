@@ -126,10 +126,15 @@ or guest.
 
 ## Escalation: control-plane-to-worker management identity
 
-A68 forbids any factory runtime dependency on the orchestration VM, while the
-current desired state permits worker SSH only from the orchestration public IP
-and installs only the orchestration management key. That is sufficient for the
-bootstrap spike but cannot carry the runtime credential flow described above.
+Resolved by A101 and implemented in Session 4: a control-plane-owned
+`factory-manager` identity manages both factory hosts over the private VPC;
+orchestration's `conductor` authorization remains bootstrap/break-glass only.
+
+A68 forbids any factory runtime dependency on the orchestration VM. At the
+Session 3 checkpoint, desired state permitted worker SSH only from the
+orchestration public IP and installed only the orchestration management key.
+That was sufficient for the bootstrap spike but could not carry the runtime
+credential flow described above.
 
 Session 4 therefore needs Jacob's disposition before its implementation thread:
 authorize a distinct factory control-plane management identity and private-VPC

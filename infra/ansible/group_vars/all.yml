@@ -1,5 +1,8 @@
 ---
-management_public_key_path: /var/lib/conductor/.ssh/id_ed25519.pub
+breakglass_public_key: ssh-ed25519 REDACTED-BREAK-GLASS-KEY-BODY operator@example.com
+factory_manager_user: factory-manager
+factory_manager_home: /var/lib/patchyard-manager
+factory_manager_private_key: /var/lib/patchyard-manager/.ssh/id_ed25519
 worker_dns_resolver_ipv4: 10.132.255.254
 
 node_exporter_version: 1.12.1

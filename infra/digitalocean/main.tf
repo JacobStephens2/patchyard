@@ -3,7 +3,7 @@ data "digitalocean_vpc" "factory" {
 }
 
 resource "digitalocean_ssh_key" "management" {
-  name       = "patchyard-conductor"
+  name       = "patchyard-orchestration-break-glass"
   public_key = var.management_ssh_public_key
 }
 
@@ -62,9 +62,12 @@ resource "digitalocean_firewall" "control_plane" {
   droplet_ids = [digitalocean_droplet.control_plane.id]
 
   inbound_rule {
-    protocol         = "tcp"
-    port_range       = "22"
-    source_addresses = [var.orchestration_public_cidr]
+    protocol   = "tcp"
+    port_range = "22"
+    source_addresses = [
+      var.orchestration_public_cidr,
+      "${digitalocean_droplet.control_plane.ipv4_address_private}/32",
+    ]
   }
 
   inbound_rule {
@@ -120,9 +123,12 @@ resource "digitalocean_firewall" "worker" {
   droplet_ids = [digitalocean_droplet.worker.id]
 
   inbound_rule {
-    protocol         = "tcp"
-    port_range       = "22"
-    source_addresses = [var.orchestration_public_cidr]
+    protocol   = "tcp"
+    port_range = "22"
+    source_addresses = [
+      var.orchestration_public_cidr,
+      "${digitalocean_droplet.control_plane.ipv4_address_private}/32",
+    ]
   }
 
   inbound_rule {

@@ -10,7 +10,59 @@
       - chromium
       - fontconfig
       - policycoreutils-python-utils
+      - python3-pip
     state: present
+
+- name: Create the factory-owned Ansible desired-state directory
+  ansible.builtin.file:
+    path: /usr/local/share/patchyard/ansible
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the pinned Ansible controller manifests
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/{{ item }}"
+    dest: "/usr/local/share/patchyard/ansible/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - requirements.txt
+    - requirements.yml
+
+- name: Install the pinned control-plane Ansible environment
+  ansible.builtin.pip:
+    requirements: /usr/local/share/patchyard/ansible/requirements.txt
+    virtualenv: /opt/patchyard-ansible
+    virtualenv_command: /usr/bin/python3 -m venv
+
+- name: Inspect the installed ansible.posix collection
+  ansible.builtin.command:
+    argv:
+      - /opt/patchyard-ansible/bin/ansible-galaxy
+      - collection
+      - list
+      - ansible.posix
+  environment:
+    ANSIBLE_COLLECTIONS_PATH: /opt/patchyard-ansible/collections
+  register: factory_ansible_posix_collection
+  changed_when: false
+  failed_when: false
+
+- name: Install the pinned ansible.posix collection
+  ansible.builtin.command:
+    argv:
+      - /opt/patchyard-ansible/bin/ansible-galaxy
+      - collection
+      - install
+      - --collections-path
+      - /opt/patchyard-ansible/collections
+      - --requirements-file
+      - /usr/local/share/patchyard/ansible/requirements.yml
+  when: "'ansible.posix 1.5.4' not in factory_ansible_posix_collection.stdout"
+  changed_when: true
 
 - name: Create the factory service group
   ansible.builtin.group:
@@ -47,9 +99,9 @@
     append: true
   notify: Restart control-plane exporters
 
-- name: Allow the management identity to traverse factory-owned state
+- name: Allow the factory management identity to traverse factory-owned state
   ansible.builtin.user:
-    name: conductor
+    name: "{{ factory_manager_user }}"
     groups:
       - factory
     append: true
@@ -415,7 +467,7 @@
       - /usr/local/bin/factoryctl
       - migrate
   become: true
-  become_user: conductor
+  become_user: "{{ factory_manager_user }}"
   environment:
     DATABASE_URL: >-
       postgresql:///patchyard?host={{ postgresql_socket_directory }}&user=patchyard_migrator&sslmode=disable
@@ -497,7 +549,7 @@
   ansible.builtin.file:
     path: /var/lib/patchyard/worktrees
     state: directory
-    owner: conductor
+    owner: "{{ factory_manager_user }}"
     group: factory
     mode: "0750"
 
@@ -576,7 +628,7 @@
       - HEAD
   register: installed_factory_revision
   become: true
-  become_user: conductor
+  become_user: "{{ factory_manager_user }}"
   changed_when: false
   failed_when: false
 
@@ -584,8 +636,8 @@
   ansible.builtin.file:
     path: /opt/patchyard
     state: directory
-    owner: conductor
-    group: conductor
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
     mode: "0750"
   when: not factory_checkout.stat.exists
 
@@ -593,8 +645,8 @@
   ansible.builtin.copy:
     src: "{{ factory_repo_bundle }}"
     dest: /var/tmp/patchyard.bundle
-    owner: conductor
-    group: conductor
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
     mode: "0600"
   when: installed_factory_revision.stdout != factory_repo_revision
 
@@ -609,7 +661,7 @@
       - /var/tmp/patchyard.bundle
       - .
   become: true
-  become_user: conductor
+  become_user: "{{ factory_manager_user }}"
   changed_when: true
   when: not factory_checkout.stat.exists
 
@@ -623,7 +675,7 @@
       - /var/tmp/patchyard.bundle
       - "+{{ factory_repo_revision }}:refs/remotes/bootstrap/desired"
   become: true
-  become_user: conductor
+  become_user: "{{ factory_manager_user }}"
   changed_when: false
   when: installed_factory_revision.stdout != factory_repo_revision
 
@@ -638,7 +690,7 @@
       - --force
       - "{{ factory_repo_revision }}"
   become: true
-  become_user: conductor
+  become_user: "{{ factory_manager_user }}"
   changed_when: true
   when: installed_factory_revision.stdout != factory_repo_revision
 
@@ -653,14 +705,38 @@
       - origin
       - https://github.com/JacobStephens2/patchyard.git
   become: true
-  become_user: conductor
+  become_user: "{{ factory_manager_user }}"
   changed_when: false
 
-- name: Make the management identity owner of the checkout
+- name: Install the private-VPC management inventory
+  ansible.builtin.template:
+    src: factory-management-inventory.yml.j2
+    dest: /etc/patchyard/management-inventory.yml
+    owner: root
+    group: "{{ factory_manager_user }}"
+    mode: "0640"
+
+- name: Install the bounded private-VPC management transport
+  ansible.builtin.template:
+    src: patchyard-management-ssh.j2
+    dest: /usr/local/sbin/patchyard-management-ssh
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
+    mode: "0750"
+
+- name: Install the control-plane host convergence entry point
+  ansible.builtin.copy:
+    src: patchyard-converge-hosts
+    dest: /usr/local/sbin/patchyard-converge-hosts
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
+    mode: "0750"
+
+- name: Make the factory management identity owner of the checkout
   ansible.builtin.file:
     path: /opt/patchyard
-    owner: conductor
-    group: conductor
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
     recurse: true
 
 - name: Remove the transferred repository bundle

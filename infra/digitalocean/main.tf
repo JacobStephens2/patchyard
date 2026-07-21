@@ -26,6 +26,12 @@ resource "digitalocean_droplet" "control_plane" {
   droplet_agent = true
   ipv6          = false
 
+  backup_policy {
+    plan    = "weekly"
+    weekday = "SUN"
+    hour    = 8
+  }
+
   lifecycle {
     prevent_destroy = true
   }

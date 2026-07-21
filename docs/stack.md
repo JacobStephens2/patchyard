@@ -49,7 +49,7 @@
 
 ## Observability (direction, not yet ruled)
 
-The **ledger is the primary observability system** - cost, latency, and outcome questions are SQL. Planned light additions: `tracing` instrumentation in the daemon, node/postgres exporters, server-side usage logging. A fleet-level Grafana/Prometheus host may scrape the factory (expose-never-require keeps A68 intact). No Google Analytics - external beacons don't belong on an internal admin surface.
+The **ledger is the primary observability system** - cost, latency, and outcome questions are SQL. Planned light additions: `tracing` instrumentation in the daemon, node/postgres exporters, and server-side usage logging - the one ruled slice (A79/R23): page-view rows written by Axum middleware into the ledger, no client-side trackers (Plausible/Umami rejected for the factory). A fleet-level Grafana/Prometheus host may scrape the factory (expose-never-require keeps A68 intact). No Google Analytics - external beacons don't belong on an internal admin surface.
 
 ## Deliberately excluded - enforced by `tools/check-stack.py`
 

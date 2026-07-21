@@ -1,0 +1,40 @@
+---
+- name: Wait for immutable-image initialization
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Wait for SSH after droplet creation
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        timeout: 600
+
+    - name: Wait for cloud-init to release package management
+      ansible.builtin.command:
+        argv:
+          - cloud-init
+          - status
+          - --wait
+      changed_when: false
+
+- name: Initialize factory hosts
+  hosts: all
+  become: true
+  gather_facts: true
+  roles:
+    - role: common
+    - role: exporters
+
+- name: Initialize the factory control plane
+  hosts: control_plane
+  become: true
+  gather_facts: false
+  roles:
+    - role: control_plane
+
+- name: Initialize the disposable factory worker
+  hosts: worker
+  become: true
+  gather_facts: false
+  roles:
+    - role: worker

@@ -1,0 +1,6 @@
+---
+- name: Restart worker egress policy
+  ansible.builtin.systemd:
+    name: patchyard-worker-egress.service
+    state: restarted
+    daemon_reload: true

@@ -1,0 +1,37 @@
+[Unit]
+Description=Prometheus PostgreSQL exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=postgres_exporter
+Group=postgres_exporter
+Environment="DATA_SOURCE_NAME=postgresql:///postgres?host=/var/run/postgresql&sslmode=disable"
+ExecStart=/usr/local/bin/postgres_exporter --web.listen-address={{ private_ip }}:9187
+Restart=on-failure
+RestartSec=5s
+AmbientCapabilities=
+CapabilityBoundingSet=
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

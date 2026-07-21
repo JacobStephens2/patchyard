@@ -5,6 +5,11 @@ __pycache__/
 .venv/
 venv/
 target/
+.terraform/
+*.tfplan
+*.tfplan.txt
+*.tfstate
+*.tfstate.*
 *.egg-info/
 .mypy_cache/
 .obsidian/workspace.json

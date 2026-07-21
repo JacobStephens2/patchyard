@@ -2,7 +2,7 @@
 set -euo pipefail
 umask 022
 
-CERTIFICATE={{ postgresql_tls_directory }}/server.crt
+CERTIFICATE=/etc/patchyard/postgresql-server-ca.crt
 TEXTFILE_DIRECTORY=/var/lib/node_exporter/textfile_collector
 METRIC_FILE="$TEXTFILE_DIRECTORY/patchyard_postgresql_tls.prom"
 METRIC_TEMP=$(mktemp "$TEXTFILE_DIRECTORY/.patchyard_postgresql_tls.XXXXXX")

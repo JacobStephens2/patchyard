@@ -480,6 +480,7 @@
   ansible.builtin.systemd:
     name: patchyard-postgresql-tls-metric.service
     state: started
+  changed_when: false
 
 - name: Restart exporters after socket and metric configuration
   ansible.builtin.meta: flush_handlers

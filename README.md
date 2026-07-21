@@ -18,11 +18,11 @@ Patchyard's software factory: small, self-describing staff requests in, evidence
 | `tools/` | Bench and measurement scripts (not factory runtime) |
 | `rulings-queue/` | Console rulings awaiting fold-in; `processed/` once folded |
 | `policy/` | Daemon-consumed, human-ruled prompts/rubric/routing (sessions 8-9) |
-| `infra/` | OpenTofu + Ansible desired state skeleton (populated session 0) |
+| `infra/` | Live OpenTofu + Ansible desired state for the two factory hosts (session 0) |
 | `crates/` / `.github/` | Cargo workspace and hosted-runner CI |
 | `assets/` | Vendored dashboard style (terminal.css + Patchyard theme, A64) |
 
-Root stays thin so the upcoming Cargo workspace can land without fighting a pile of Python helpers. Runtime code will live beside this tree at build; design authority and evidence stay where they are.
+Root stays thin: the Cargo workspace lives in `crates/`, runtime code grows there session by session, and design authority and evidence stay where they are.
 
 ## Key documents
 
@@ -31,7 +31,7 @@ Root stays thin so the upcoming Cargo workspace can land without fighting a pile
 - **Bedrock Haiku runbook:** [`docs/bedrock-haiku.md`](docs/bedrock-haiku.md) - provisioned identities, 1Password mapping, STS boundary, verified Claude Code launcher, manual smoke test, costs, and remaining isolation work.
 - **Dated records:** [`reviews/`](reviews/) holds critiques of our own artifacts plus their dispositions; [`research/`](research/) holds world-facing evidence - harness and provider measurements, external research briefs and their responses. See [`research/README.md`](research/README.md).
 - **Ideas inbox:** [`docs/ideas.md`](docs/ideas.md) - hand-written, pre-ruling scratch space. Carries no authority; ideas graduate into the decision log or die there.
-- **Design record:** [`docs/decision-log.md`](docs/decision-log.md) is the canonical ruling log (accepted / deferred / rejected, currently through A95). The independent proposals, comparison and historical synthesis remain as provenance in the orchestration repo at `projects/software-factory/`; the interactive review is at https://report.example.com/software-factory-review.html. Repository ownership is documented in [`docs/repository-boundary.md`](docs/repository-boundary.md).
+- **Design record:** [`docs/decision-log.md`](docs/decision-log.md) is the canonical ruling log (accepted / deferred / rejected, currently through A100). The independent proposals, comparison and historical synthesis remain as provenance in the orchestration repo at `projects/software-factory/`; the interactive review is at https://report.example.com/software-factory-review.html. Repository ownership is documented in [`docs/repository-boundary.md`](docs/repository-boundary.md).
 - **Constitution:** [`AGENTS.md`](AGENTS.md). Its hard rules ride every factory agent prompt and change only through a human-reviewed pull request.
 - **Acceptance fixtures:** sanitized replay inputs live under `fixtures/acceptance/alphabetize/`; raw requests and screenshots never enter Git. Bench-only prompts live under `fixtures/bench/`.
 - **Canonical model:** `model/factory-model.json`, governed by `model/factory-model.schema.json` and the boundary in [`docs/model-boundary.md`](docs/model-boundary.md). Its canonical JSON SHA-256 is committed in `model/factory-model.sha256`. The model contains stable, queryable architecture and limits; prose, people, status, evidence and runtime state live elsewhere.
@@ -61,7 +61,7 @@ Measurement scripts live under [`tools/`](tools/) (see [`tools/README.md`](tools
 
 ## Build and run
 
-Phase 1 is under construction. The session-1 binaries are intentionally empty
+Phase 1 is **under construction on live infrastructure**: sessions 0-1 are merged (two drift-checked hosts - control plane at `factory.example.com`, a disposable secret-free worker - plus the Rust workspace and hosted CI), session 2 (PostgreSQL state layer) is in flight, and the build runs under the A97-A100 operating contract: continuous sessions with hard human checkpoints at 3/5/10/16, one adversarial review per PR, every merge human. The session-1 binaries are intentionally empty
 shells; only `factory-core` contains behavior yet. On a Linux x86-64 development
 host, install a C linker (`gcc` on Rocky Linux), then use the repository pins:
 

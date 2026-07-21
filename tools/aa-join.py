@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-LB_DIR = REPO / "research" / "artificial-analysis" / "artificial-analysis-llm-api-providers-leaderboard"
+LB_DIR = REPO / "research" / "artificial-analysis" / "providers-leaderboard"
 BENCH = REPO / "docs" / "bench.json"
 
 EFFORT_TAGS = {"max", "xhigh", "high", "medium", "low", "minimal", "low effort", "non-reasoning", "thinking disabled"}

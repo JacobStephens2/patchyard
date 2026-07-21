@@ -19,9 +19,3 @@ MMDC=(npx --yes @mermaid-js/mermaid-cli@11.12.0)
   -c "$HERE/factory-model-mermaid-config.json" \
   -b white
 
-"${MMDC[@]}" \
-  -i "$HERE/factory-model.mmd" \
-  -o "$HERE/factory-model.png" \
-  -c "$HERE/factory-model-mermaid-config.json" \
-  -s 3 \
-  -b white

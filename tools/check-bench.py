@@ -4,7 +4,7 @@ docs/bench.md in sync with it.
 
 docs/bench.json is the source of truth for the Pairs table; the markdown
 table between the BEGIN/END GENERATED markers in docs/bench.md is a
-projection of it, as is docs/bench.html. Everything else in bench.md
+projection of it. Everything else in bench.md
 (seat orders, probes, rules) stays hand-edited prose.
 
 Usage, from the repository root (or anywhere - paths resolve from this

@@ -2,6 +2,8 @@
 
 # What This Data Is
 
+*Renamed 2026-07-21: the snapshot lives at `2026-07-20.tsv` in this folder. The Drive JSON export of the same sheet was removed as a duplicate - `tools/aa-join.py` consumes the TSV.*
+
 This spreadsheet (artificial-analysis-llm-api-providers-leaderboard-2026-07-20, sheet Sheet1) is a snapshot of the Artificial Analysis LLM API Providers Leaderboard, comparing hosted API endpoints for large language models across different providers.  
 Each row represents a single provider \+ model endpoint (for example, Anthropic | Claude Fable 5 (with fallback), SiliconFlow | DeepSeek V4 Pro (max), Parasail | Kimi K2.6). The same model appears on multiple rows when served by multiple providers, since pricing, throughput, and capabilities differ by host. The current dataset contains 523 endpoint rows.
 

@@ -19,7 +19,7 @@ Patchyard's software factory: small, self-describing staff requests in, evidence
 | `rulings-queue/` | Console rulings awaiting fold-in; `processed/` once folded |
 | `policy/` | Daemon-consumed, human-ruled prompts/rubric/routing (sessions 8-9) |
 | `infra/` | OpenTofu + Ansible desired state skeleton (populated session 0) |
-| `crates/` / `.github/` | Cargo workspace and CI landing zones (sessions 0-1) |
+| `crates/` / `.github/` | Cargo workspace and hosted-runner CI |
 | `assets/` | Vendored dashboard style (terminal.css + Patchyard theme, A64) |
 
 Root stays thin so the upcoming Cargo workspace can land without fighting a pile of Python helpers. Runtime code will live beside this tree at build; design authority and evidence stay where they are.
@@ -59,4 +59,39 @@ python3 model/render-model.py
 
 Measurement scripts live under [`tools/`](tools/) (see [`tools/README.md`](tools/README.md)). They write evidence into `research/` and never reseat production policy.
 
-Build status: **approved in scope, not yet started** - console ruling 2026-07-16, "don't build it yet." Nothing in this repo executes factory runtime until Jacob's go. Phase 1 includes a dedicated secret-free worker droplet whose OpenTofu + Ansible desired state lives under `infra/` (skeleton pre-created; populated in session 0, A57/A69).
+## Build and run
+
+Phase 1 is under construction. The session-1 binaries are intentionally empty
+shells; only `factory-core` contains behavior yet. On a Linux x86-64 development
+host, install a C linker (`gcc` on Rocky Linux), then use the repository pins:
+
+```bash
+tools/install-rustup.sh
+export PATH="$HOME/.cargo/bin:$PATH"
+tools/install-rust-tools.sh
+python3 -m pip install -r model/requirements-model.txt
+```
+
+Run the same application gate as hosted CI:
+
+```bash
+tools/check-application.sh
+```
+
+The individual scaffold binaries can also be exercised directly:
+
+```bash
+cargo run -p factoryctl
+cargo run -p factory-verify
+cargo run -p factory-web
+```
+
+Host provisioning remains under `infra/`; see
+[`infra/README.md`](infra/README.md) for plan, converge, qualification,
+replacement, and rollback commands. When the GitHub App credentials are
+injected by the orchestration wrapper, `tools/smoke-github-app.sh` mints a
+factory-only read token and proves that it cannot read `fieldbook`.
+
+`AGENTS.md` is the canonical constitution. `AGENTS.sha256` makes its reviewed
+bytes an explicit CI artifact; any constitution change must update that digest
+in the same human-reviewed PR.

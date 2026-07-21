@@ -3,13 +3,15 @@
 Ansible initializes both Rocky Linux 9 hosts. `inventory/tofu.sh` reads the
 DigitalOcean outputs directly, so no address is transcribed by hand.
 
-Session 0 owns:
+Sessions 0-1 own:
 
 - the `conductor` management identity and SSH/firewalld restrictions;
 - pinned node_exporter and postgres_exporter binaries on both hosts, bound to
   private addresses and scrapeable only by `10.132.0.14/32`;
 - the control-plane prerequisites (Caddy binary, Chromium, and an exact Git
   checkout transferred as a credential-free bundle);
+- the `factory` group, no-login `factory-web` service identity, and asserted
+  `/var/lib/patchyard/{artifacts,spool,worktrees}` ownership/modes;
 - the unprivileged `factory-worker` identity, transient paths, cleanup, and a
   host-level block on new private-network egress;
 - journald retention and hardened exporter services.
@@ -39,4 +41,6 @@ infra/ansible/qualify.sh
 
 `converge.sh` creates a temporary Git bundle, passes it to Ansible, and removes
 it. No GitHub credential reaches either host. A second normal converge must end
-with `changed=0` for both hosts.
+with `changed=0` for both hosts. `qualify.sh` asserts the control-plane and
+worker identity contracts plus every factory state-directory owner, group, and
+mode.

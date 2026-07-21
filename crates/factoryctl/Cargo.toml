@@ -1,0 +1,11 @@
+[package]
+name = "factoryctl"
+description = "Operator CLI for Patchyard Factory"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

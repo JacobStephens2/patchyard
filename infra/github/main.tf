@@ -31,7 +31,7 @@ resource "github_branch_protection" "master" {
 
   required_status_checks {
     strict   = true
-    contexts = ["infrastructure"]
+    contexts = ["application", "infrastructure"]
   }
 
   required_pull_request_reviews {

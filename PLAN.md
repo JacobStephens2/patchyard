@@ -57,7 +57,8 @@ Session 0 covers the worker desired-state component; sessions 1-2 cover the cont
 ### Session 4 - worker runtime build-out
 
 - The chosen runtime becomes the production worker shape: image construction, mount wiring, egress enforcement (one allowlisted provider per boot, A61), short-lived spend-capped model credential in memory/tmpfs (never `conductor`'s env), exact-SHA source/input transfer, worker I/O contract (a patch + a rationale and bounded verification evidence out, nothing else), guaranteed teardown.
-- Exit: a toy request yields a patch through the real inter-host boundary; egress and mount contracts hold under the probe scripts from session 3; teardown leaves no residue (asserted).
+- **Environment parity (A85)**: the image pins prod Fieldbook's PHP version/extensions/web-server config from desired state; a local MySQL 8.4 seeds per run from the dated redacted snapshot artifact (built on the control plane from the manager-sandbox redaction lineage, shipped with the bundle, fail-static on refresh failure); the worker boots the app and exercises a page against seeded data.
+- Exit: a toy request yields a patch through the real inter-host boundary **from inside the parity environment** (asserted: PHP version matches the pin, the app boots, a seeded query returns rows, snapshot version lands in provenance); egress and mount contracts hold under the probe scripts from session 3; teardown leaves no residue (asserted).
 
 ### Session 5 - worker adversarial qualification
 

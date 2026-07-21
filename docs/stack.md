@@ -25,6 +25,7 @@
 ## Data and state
 
 - **PostgreSQL** (A56): local socket-only, peer auth, role grant matrix; `LISTEN/NOTIFY` triples as queue wake-up (A65), SSE push (A63), and control-row delivery (A70). Access via **SQLx** behind a domain repository boundary.
+- **MySQL 8.4, worker parity only** (A85): a per-run local instance inside the worker isolation boundary, seeded from a dated redacted snapshot artifact - the *subject* codebase's engine, never factory state (which is PostgreSQL).
 - **Filesystem artifact store** (A43): `/var/lib/patchyard`, 0700.
 - **Git** (A69): every encodable fact, including infrastructure, DNS, branch protection, and this file.
 

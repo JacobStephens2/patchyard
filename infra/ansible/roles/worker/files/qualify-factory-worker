@@ -9,6 +9,8 @@ systemctl is-active --quiet node-exporter.service
 systemctl is-active --quiet postgres-exporter.service
 systemctl is-active --quiet patchyard-worker-egress.service
 nft list table inet patchyard_worker_egress | grep -q '10.0.0.0/8'
+nft list table inet patchyard_worker_egress | grep -Eq '10\.132\.255\.254.*udp dport 53.*accept'
+nft list table inet patchyard_worker_egress | grep -Eq '10\.132\.255\.254.*tcp dport 53.*accept'
 ss -lntH | grep -Fq "$PRIVATE_IP:9100"
 ss -lntH | grep -Fq "$PRIVATE_IP:9187"
 firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="9100"'

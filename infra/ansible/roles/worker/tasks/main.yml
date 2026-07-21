@@ -58,7 +58,7 @@
     mode: "0755"
 
 - name: Install worker private-egress policy
-  ansible.builtin.copy:
+  ansible.builtin.template:
     src: patchyard-worker-egress.nft
     dest: /etc/nftables/patchyard-worker-egress.nft
     owner: root

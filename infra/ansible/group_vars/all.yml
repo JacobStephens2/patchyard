@@ -1,5 +1,6 @@
 ---
 management_public_key_path: /var/lib/conductor/.ssh/id_ed25519.pub
+worker_dns_resolver_ipv4: 10.132.255.254
 
 node_exporter_version: 1.12.1
 node_exporter_sha256: b51d8a76aa2a9156a55d501aca6276fae09e262259a5e4e831d2c2222f084e63

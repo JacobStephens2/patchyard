@@ -14,7 +14,7 @@ FORBIDDEN_NAMES = {
     "Chart.yaml": "Helm (stack.md exclusions)",
 }
 FORBIDDEN_SUFFIXES = {".ts": "TypeScript (A53)", ".tsx": "TypeScript (A53)", ".tfstate": "plaintext tofu state (A69)"}
-SKIP_DIRS = {".git", "node_modules", "__pycache__", ".obsidian", "target", ".venv", ".pytest_cache", ".ruff_cache"}
+SKIP_DIRS = {".git", ".terraform", "node_modules", "__pycache__", ".obsidian", "target", ".venv", ".pytest_cache", ".ruff_cache"}
 
 violations = []
 for path in REPO.rglob("*"):

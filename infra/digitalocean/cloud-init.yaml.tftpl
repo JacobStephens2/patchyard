@@ -1,0 +1,20 @@
+#cloud-config
+users:
+  - default
+  - name: conductor
+    gecos: Patchyard orchestration management identity
+    groups: [wheel]
+    lock_passwd: true
+    shell: /bin/bash
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    ssh_authorized_keys:
+      - ${management_public_key}
+ssh_pwauth: false
+disable_root: true
+package_update: true
+packages:
+  - firewalld
+  - python3
+  - sudo
+runcmd:
+  - [systemctl, enable, --now, firewalld]

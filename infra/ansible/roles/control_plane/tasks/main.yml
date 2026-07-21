@@ -85,8 +85,19 @@
       - rev-parse
       - HEAD
   register: installed_factory_revision
+  become: true
+  become_user: conductor
   changed_when: false
   failed_when: false
+
+- name: Create the credential-free checkout root
+  ansible.builtin.file:
+    path: /opt/patchyard
+    state: directory
+    owner: conductor
+    group: conductor
+    mode: "0750"
+  when: not factory_checkout.stat.exists
 
 - name: Copy the bundle only when the checkout needs an update
   ansible.builtin.copy:
@@ -101,10 +112,14 @@
   ansible.builtin.command:
     argv:
       - git
+      - -C
+      - /opt/patchyard
       - clone
       - --no-checkout
       - /var/tmp/patchyard.bundle
-      - /opt/patchyard
+      - .
+  become: true
+  become_user: conductor
   changed_when: true
   when: not factory_checkout.stat.exists
 
@@ -117,6 +132,8 @@
       - fetch
       - /var/tmp/patchyard.bundle
       - refs/heads/*:refs/remotes/bootstrap/*
+  become: true
+  become_user: conductor
   changed_when: false
   when: installed_factory_revision.stdout != factory_repo_revision
 
@@ -130,6 +147,8 @@
       - --detach
       - --force
       - "{{ factory_repo_revision }}"
+  become: true
+  become_user: conductor
   changed_when: true
   when: installed_factory_revision.stdout != factory_repo_revision
 
@@ -143,6 +162,8 @@
       - set-url
       - origin
       - https://github.com/JacobStephens2/patchyard.git
+  become: true
+  become_user: conductor
   changed_when: false
 
 - name: Make the management identity owner of the checkout

@@ -72,6 +72,11 @@ only the private VPC and the credential-free checkout. OpenTofu/cloud changes
 remain orchestration-owned and human-reviewed. `conductor` remains authorized
 solely for bootstrap and break-glass use.
 
+Cloud-init is a create-time bootstrap input and is ignored for updates after a
+droplet exists. New/replacement hosts receive the current template; Ansible owns
+the converged identity metadata. This prevents a comment or bootstrap-package
+change from silently turning into a host replacement.
+
 DigitalOcean planning fails closed if any live cloud firewall targets a desired
 host tag. This prevents a tag-attached firewall's rule union from silently
 widening either host before a reviewer sees the resource plan.

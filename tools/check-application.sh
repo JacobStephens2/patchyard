@@ -10,4 +10,10 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo audit --deny warnings
 cargo deny check --allow license-not-encountered
+cargo vet --locked
+cargo machete
 ./model/check-model.sh
+
+if [[ -n "${FACTORY_TEST_DATABASE_URL:-}" ]]; then
+  tools/check-state.sh
+fi

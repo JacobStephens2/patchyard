@@ -8,9 +8,12 @@ their own.
 | Script | Purpose |
 | :-- | :-- |
 | `check-application.sh` | Hosted/local Rust, supply-chain, constitution, and model gate |
+| `prepare-state-ci.sh` | Provision roles, migrate, and grant a pinned disposable PostgreSQL service |
+| `check-state.sh` | PostgreSQL durability, complete grant matrix, A94 canary, shared catalog, and ERD drift gate |
+| `check-state-restart.sh` | Restart PostgreSQL at the declared post-commit boundary and prove retry idempotence |
 | `check-constitution.sh` | Verify the reviewed `AGENTS.md` digest |
 | `install-rustup.sh` | Install checksum-pinned rustup and resolve `rust-toolchain.toml` |
-| `install-rust-tools.sh` | Install checksum-pinned cargo-audit and cargo-deny binaries |
+| `install-rust-tools.sh` | Install checksum-pinned cargo-audit, cargo-deny, cargo-vet, and cargo-machete binaries |
 | `smoke-github-app.sh` | Mint a narrowed App token and prove repository scoping without printing credentials |
 | `aa-sweep.py` | Artificial Analysis catalog snapshot + move report |
 | `check-bench.py` | Validate `docs/bench.json` (schema + invariants) and sync the generated Pairs table in `docs/bench.md` (`--write` to regenerate; no flag = drift check) |
@@ -35,3 +38,7 @@ python3 tools/benchmark_harness_speed.py --output-dir /tmp/patchyard-docx-spec-s
 
 Credentials come from the orchestrator environment (`claude-orchestrator`);
 do not put keys in this directory.
+
+The state scripts require the disposable PostgreSQL service variables supplied
+by `.github/workflows/application.yml`; without those variables the ordinary
+local application gate runs only database-independent tests.

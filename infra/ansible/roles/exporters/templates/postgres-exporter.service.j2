@@ -7,7 +7,12 @@ Wants=network-online.target
 Type=simple
 User=postgres_exporter
 Group=postgres_exporter
-Environment="DATA_SOURCE_NAME=postgresql:///postgres?host=/var/run/postgresql&sslmode=disable"
+{% if factory_role == 'control-plane' %}
+Environment="DATA_SOURCE_NAME=postgresql:///patchyard?host={{ postgresql_socket_directory }}&user=patchyard_exporter&sslmode=disable"
+{% else %}
+# The worker has no PostgreSQL role or socket; its exporter stays deliberately dormant.
+Environment="DATA_SOURCE_NAME=postgresql:///postgres?host=/run/patchyard-no-postgresql&sslmode=disable"
+{% endif %}
 ExecStart=/usr/local/bin/postgres_exporter --web.listen-address={{ private_ip }}:9187
 Restart=on-failure
 RestartSec=5s

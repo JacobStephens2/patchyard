@@ -9,12 +9,43 @@
     name:
       - chromium
       - fontconfig
+      - policycoreutils-python-utils
     state: present
 
 - name: Create the factory service group
   ansible.builtin.group:
     name: factory
     system: true
+
+- name: Enable the pinned PostgreSQL AppStream server profile
+  ansible.builtin.dnf:
+    name: "@postgresql:{{ postgresql_stream }}/server"
+    state: present
+
+- name: Install the exact reviewed PostgreSQL packages
+  ansible.builtin.dnf:
+    name:
+      - "postgresql-{{ postgresql_version }}-{{ postgresql_package_release }}"
+      - "postgresql-contrib-{{ postgresql_version }}-{{ postgresql_package_release }}"
+      - "postgresql-server-{{ postgresql_version }}-{{ postgresql_package_release }}"
+    state: present
+    allow_downgrade: true
+
+- name: Give PostgreSQL permission to own the restricted socket group
+  ansible.builtin.user:
+    name: postgres
+    groups:
+      - factory
+    append: true
+  notify: Restart PostgreSQL
+
+- name: Give the exporter access to the restricted database socket
+  ansible.builtin.user:
+    name: postgres_exporter
+    groups:
+      - factory
+    append: true
+  notify: Restart control-plane exporters
 
 - name: Allow the management identity to traverse factory-owned state
   ansible.builtin.user:
@@ -52,6 +83,415 @@
   loop:
     - artifacts
     - spool
+
+- name: Check whether PostgreSQL is initialized
+  ansible.builtin.stat:
+    path: /var/lib/pgsql/data/PG_VERSION
+  register: postgresql_initialized
+
+- name: Initialize the PostgreSQL data directory
+  ansible.builtin.command:
+    argv:
+      - postgresql-setup
+      - --initdb
+      - --unit
+      - postgresql
+  when: not postgresql_initialized.stat.exists
+  changed_when: true
+
+- name: Create the restricted PostgreSQL runtime socket via tmpfiles
+  ansible.builtin.copy:
+    dest: /etc/tmpfiles.d/patchyard-postgresql.conf
+    content: "d {{ postgresql_socket_directory }} 0770 postgres factory -\n"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Read local SELinux file-context overrides
+  ansible.builtin.command:
+    argv:
+      - semanage
+      - fcontext
+      - --list
+      - --locallist
+  register: postgresql_local_fcontexts
+  changed_when: false
+
+- name: Register the PostgreSQL socket SELinux context
+  ansible.builtin.command:
+    argv:
+      - semanage
+      - fcontext
+      - --add
+      - --type
+      - postgresql_var_run_t
+      - "{{ postgresql_socket_directory | regex_replace('^/run', '/var/run') }}(/.*)?"
+  when: >-
+    postgresql_local_fcontexts.stdout_lines
+    | select(
+        'search',
+        (postgresql_socket_directory | regex_replace('^/run', '/var/run'))
+        | regex_escape
+      )
+    | list
+    | length == 0
+  changed_when: true
+
+- name: Correct the PostgreSQL socket SELinux context
+  ansible.builtin.command:
+    argv:
+      - semanage
+      - fcontext
+      - --modify
+      - --type
+      - postgresql_var_run_t
+      - "{{ postgresql_socket_directory | regex_replace('^/run', '/var/run') }}(/.*)?"
+  when: >-
+    postgresql_local_fcontexts.stdout_lines
+    | select(
+        'search',
+        (postgresql_socket_directory | regex_replace('^/run', '/var/run'))
+        | regex_escape
+      )
+    | reject('search', 'postgresql_var_run_t')
+    | list
+    | length > 0
+  changed_when: true
+
+- name: Materialize the restricted PostgreSQL runtime socket directory
+  ansible.builtin.command:
+    argv:
+      - systemd-tmpfiles
+      - --create
+      - /etc/tmpfiles.d/patchyard-postgresql.conf
+  changed_when: false
+
+- name: Apply the PostgreSQL socket SELinux context
+  ansible.builtin.command:
+    argv:
+      - restorecon
+      - -RFv
+      - "{{ postgresql_socket_directory }}"
+  register: postgresql_socket_restorecon
+  changed_when: "'Relabeled' in postgresql_socket_restorecon.stdout"
+
+- name: Create the PostgreSQL TLS directory
+  ansible.builtin.file:
+    path: "{{ postgresql_tls_directory }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0700"
+
+- name: Check the PostgreSQL TLS certificate renewal window
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - x509
+      - -checkend
+      - "{{ postgresql_tls_renewal_window_seconds | string }}"
+      - -noout
+      - -in
+      - "{{ postgresql_tls_directory }}/server.crt"
+  register: postgresql_tls_current
+  changed_when: false
+  failed_when: false
+
+- name: Generate a host-local PostgreSQL TLS key and self-signed trust root
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - req
+      - -x509
+      - -newkey
+      - rsa:3072
+      - -sha256
+      - -nodes
+      - -days
+      - "397"
+      - -subj
+      - /CN=factory-control.example.com
+      - -addext
+      - "subjectAltName=DNS:factory-control.example.com,IP:{{ private_ip }}"
+      - -keyout
+      - "{{ postgresql_tls_directory }}/server.key"
+      - -out
+      - "{{ postgresql_tls_directory }}/server.crt"
+  become: true
+  become_user: postgres
+  no_log: true
+  when: postgresql_tls_current.rc != 0
+  changed_when: true
+  notify: Restart PostgreSQL
+
+- name: Enforce PostgreSQL TLS key permissions
+  ansible.builtin.file:
+    path: "{{ postgresql_tls_directory }}/server.key"
+    owner: postgres
+    group: postgres
+    mode: "0600"
+
+- name: Enforce PostgreSQL TLS certificate permissions
+  ansible.builtin.file:
+    path: "{{ postgresql_tls_directory }}/server.crt"
+    owner: postgres
+    group: postgres
+    mode: "0644"
+
+- name: Create the public database trust-root directory
+  ansible.builtin.file:
+    path: /etc/patchyard
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Publish the non-secret PostgreSQL TLS trust root
+  ansible.builtin.copy:
+    src: "{{ postgresql_tls_directory }}/server.crt"
+    dest: /etc/patchyard/postgresql-server-ca.crt
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install PostgreSQL desired-state configuration
+  ansible.builtin.template:
+    src: "{{ item.source }}"
+    dest: "/var/lib/pgsql/data/{{ item.destination }}"
+    owner: postgres
+    group: postgres
+    mode: "0600"
+  loop:
+    - source: postgresql.conf.j2
+      destination: postgresql.conf
+    - source: pg_hba.conf.j2
+      destination: pg_hba.conf
+    - source: pg_ident.conf.j2
+      destination: pg_ident.conf
+  notify: Restart PostgreSQL
+
+- name: Enable PostgreSQL
+  ansible.builtin.systemd:
+    name: postgresql.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Apply pending PostgreSQL restarts before database provisioning
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify the exact PostgreSQL server version
+  ansible.builtin.command:
+    argv:
+      - postgres
+      - --version
+  register: postgresql_version_output
+  changed_when: false
+  failed_when: >-
+    (postgresql_version_output.stdout | trim)
+    != ('postgres (PostgreSQL) ' ~ (postgresql_version | string))
+
+- name: Create the PostgreSQL desired-state SQL directory
+  ansible.builtin.file:
+    path: /usr/local/share/patchyard/postgresql
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install declarative PostgreSQL role and grant definitions
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/usr/local/share/patchyard/postgresql/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - postgresql-roles.sql
+    - postgresql-grants.sql
+
+- name: Apply declarative PostgreSQL roles
+  ansible.builtin.command:
+    argv:
+      - psql
+      - "--host={{ postgresql_socket_directory }}"
+      - --dbname=postgres
+      - --set=ON_ERROR_STOP=1
+      - --file=/usr/local/share/patchyard/postgresql/postgresql-roles.sql
+  become: true
+  become_user: postgres
+  changed_when: false
+
+- name: Check for the factory database
+  ansible.builtin.command:
+    argv:
+      - psql
+      - "--host={{ postgresql_socket_directory }}"
+      - --dbname=postgres
+      - --tuples-only
+      - --no-align
+      - --command=SELECT 1 FROM pg_database WHERE datname = 'patchyard'
+  become: true
+  become_user: postgres
+  register: factory_database_exists
+  changed_when: false
+
+- name: Create the factory database under the schema owner
+  ansible.builtin.command:
+    argv:
+      - createdb
+      - "--host={{ postgresql_socket_directory }}"
+      - --owner=patchyard_owner
+      - patchyard
+  become: true
+  become_user: postgres
+  when: factory_database_exists.stdout | trim != '1'
+  changed_when: true
+
+- name: Make migrations assume the non-login schema owner
+  ansible.builtin.command:
+    argv:
+      - psql
+      - "--host={{ postgresql_socket_directory }}"
+      - --dbname=patchyard
+      - --set=ON_ERROR_STOP=1
+      - --command=ALTER ROLE patchyard_migrator IN DATABASE patchyard SET role TO patchyard_owner
+  become: true
+  become_user: postgres
+  changed_when: false
+
+- name: Require the reviewed factoryctl build artifact
+  ansible.builtin.assert:
+    that:
+      - factoryctl_binary is defined
+      - factoryctl_binary | length > 0
+      - factoryctl_sha256 is defined
+      - factoryctl_sha256 is match('^[0-9a-f]{64}$')
+    fail_msg: "Use converge.sh so migrations run from the reviewed, locked Rust build."
+
+- name: Hash the local factoryctl build artifact
+  ansible.builtin.stat:
+    path: "{{ factoryctl_binary }}"
+    checksum_algorithm: sha256
+  delegate_to: localhost
+  become: false
+  register: local_factoryctl
+
+- name: Require the exact factoryctl build artifact
+  ansible.builtin.assert:
+    that:
+      - local_factoryctl.stat.exists
+      - local_factoryctl.stat.checksum == factoryctl_sha256
+    fail_msg: "factoryctl changed after converge.sh built and hashed it."
+
+- name: Install the reviewed factoryctl binary
+  ansible.builtin.copy:
+    src: "{{ factoryctl_binary }}"
+    dest: /usr/local/bin/factoryctl
+    owner: root
+    group: root
+    mode: "0755"
+  register: factoryctl_install
+
+- name: Count applied SQLx migrations before convergence
+  ansible.builtin.command:
+    argv:
+      - psql
+      - "--host={{ postgresql_socket_directory }}"
+      - --dbname=patchyard
+      - --tuples-only
+      - --no-align
+      - --command=SELECT count(*) FROM public._sqlx_migrations WHERE success
+  become: true
+  become_user: postgres
+  register: migration_count_before
+  changed_when: false
+  failed_when: false
+
+- name: Apply embedded SQLx migrations through the peer-mapped migrator
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/factoryctl
+      - migrate
+  become: true
+  become_user: conductor
+  environment:
+    DATABASE_URL: >-
+      postgresql:///patchyard?host={{ postgresql_socket_directory }}&user=patchyard_migrator&sslmode=disable
+  register: migration_apply
+  changed_when: >-
+    migration_count_before.rc != 0
+    or (migration_count_before.stdout | trim | int) < factory_migration_count
+
+- name: Assert the canonical migration count
+  ansible.builtin.command:
+    argv:
+      - psql
+      - "--host={{ postgresql_socket_directory }}"
+      - --dbname=patchyard
+      - --tuples-only
+      - --no-align
+      - --command=SELECT count(*) FROM public._sqlx_migrations WHERE success
+  become: true
+  become_user: postgres
+  register: migration_count_after
+  changed_when: false
+  failed_when: migration_count_after.stdout | trim | int != factory_migration_count
+
+- name: Apply the complete runtime role grant matrix
+  ansible.builtin.command:
+    argv:
+      - psql
+      - "--host={{ postgresql_socket_directory }}"
+      - --dbname=patchyard
+      - --set=ON_ERROR_STOP=1
+      - --file=/usr/local/share/patchyard/postgresql/postgresql-grants.sql
+  become: true
+  become_user: postgres
+  changed_when: false
+
+- name: Install PostgreSQL TLS expiry metric generator
+  ansible.builtin.template:
+    src: postgresql-tls-expiry-metric.sh.j2
+    dest: /usr/local/sbin/patchyard-postgresql-tls-metric
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install PostgreSQL TLS expiry metric units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - patchyard-postgresql-tls-metric.service
+    - patchyard-postgresql-tls-metric.timer
+
+- name: Enable the PostgreSQL TLS expiry metric timer
+  ansible.builtin.systemd:
+    name: patchyard-postgresql-tls-metric.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Publish the initial PostgreSQL TLS expiry metric
+  ansible.builtin.systemd:
+    name: patchyard-postgresql-tls-metric.service
+    state: started
+  changed_when: false
+
+- name: Restart exporters after socket and metric configuration
+  ansible.builtin.meta: flush_handlers
+
+- name: Start the PostgreSQL exporter against the peer socket
+  ansible.builtin.systemd:
+    name: postgres-exporter.service
+    enabled: true
+    state: started
+    daemon_reload: true
 
 - name: Create the publisher worktree root
   ansible.builtin.file:

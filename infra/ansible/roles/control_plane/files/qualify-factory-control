@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 EXPECTED_REVISION=${1:?expected repository revision required}
 PRIVATE_IP=${2:?private address required}
+QUALIFICATION_TEMP=$(mktemp -d /tmp/patchyard-control-qualification.XXXXXX)
+trap 'rm -r -- "$QUALIFICATION_TEMP"' EXIT
 
 systemctl is-active --quiet node-exporter.service
 systemctl is-active --quiet postgres-exporter.service
+systemctl is-active --quiet postgresql.service
+systemctl is-active --quiet patchyard-postgresql-tls-metric.timer
 ss -lntH | grep -Fq "$PRIVATE_IP:9100"
 ss -lntH | grep -Fq "$PRIVATE_IP:9187"
+ss -lntH | grep -Fq "$PRIVATE_IP:5432"
+! ss -lntH | grep -Eq '(^|[[:space:]])(0\.0\.0\.0|\*):5432'
 firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="9100"'
 firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="9187"'
+firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="5432"'
 test "$(git -C /opt/patchyard rev-parse HEAD)" = "$EXPECTED_REVISION"
 
 FACTORY_GID=$(getent group factory | cut -d: -f3)
@@ -38,6 +46,130 @@ assert_path /var/lib/patchyard root factory 750
 assert_path /var/lib/patchyard/artifacts factory-web factory 700
 assert_path /var/lib/patchyard/spool factory-web factory 700
 assert_path /var/lib/patchyard/worktrees conductor factory 750
+assert_path /run/patchyard-postgres postgres factory 770
+assert_path /var/lib/pgsql/patchyard-tls postgres postgres 700
+assert_path /var/lib/pgsql/patchyard-tls/server.key postgres postgres 600
+assert_path /var/lib/pgsql/patchyard-tls/server.crt postgres postgres 644
+assert_path /etc/patchyard/postgresql-server-ca.crt root root 644
+
+test "$(postgres --version)" = 'postgres (PostgreSQL) 16.14'
+openssl x509 -checkend 2592000 -noout \
+  -in /var/lib/pgsql/patchyard-tls/server.crt
+openssl verify -CAfile /etc/patchyard/postgresql-server-ca.crt \
+  /var/lib/pgsql/patchyard-tls/server.crt
+test -S /run/patchyard-postgres/.s.PGSQL.5432
+test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \
+  --dbname=patchyard --tuples-only --no-align --command='SHOW listen_addresses')" = "$PRIVATE_IP"
+test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \
+  --dbname=patchyard --tuples-only --no-align --command='SHOW ssl')" = on
+test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \
+  --dbname=patchyard --tuples-only --no-align \
+  --command='SELECT count(*) FROM public._sqlx_migrations WHERE success')" = 1
+
+for ROLE in patchyard_migrator patchyard_supervisor patchyard_dashboard grafana_ro patchyard_exporter; do
+  test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \
+    --dbname=patchyard --tuples-only --no-align \
+    --command="SELECT count(*) FROM pg_authid WHERE rolname = '$ROLE' AND rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND rolpassword IS NULL")" = 1
+done
+test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \
+  --dbname=patchyard --tuples-only --no-align \
+  --command="SELECT count(*) FROM pg_authid WHERE rolname = 'patchyard_owner' AND NOT rolcanlogin AND NOT rolsuper AND rolpassword IS NULL")" = 1
+test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \
+  --dbname=patchyard --tuples-only --no-align \
+  --command="SELECT count(*) FROM pg_roles WHERE rolname IN ('patchyard_worker', 'factory_worker')")" = 0
+
+runuser -u conductor -- psql --host=/run/patchyard-postgres \
+  --username=patchyard_supervisor --dbname=patchyard \
+  --set=ON_ERROR_STOP=1 --command='SELECT 1' >/dev/null
+runuser -u factory-web -- psql --host=/run/patchyard-postgres \
+  --username=patchyard_dashboard --dbname=patchyard \
+  --set=ON_ERROR_STOP=1 --command='SELECT 1' >/dev/null
+runuser -u postgres_exporter -- psql --host=/run/patchyard-postgres \
+  --username=patchyard_exporter --dbname=patchyard \
+  --set=ON_ERROR_STOP=1 --command='SELECT 1' >/dev/null
+
+PSQL=(runuser -u postgres -- psql --host=/run/patchyard-postgres \
+  --dbname=patchyard --no-psqlrc --set=ON_ERROR_STOP=1)
+
+assert_role_allowed() {
+  local role=$1 statement=$2
+  "${PSQL[@]}" --command="BEGIN; SET LOCAL ROLE $role; $statement; ROLLBACK" \
+    >/dev/null
+}
+
+assert_role_denied() {
+  local role=$1 statement=$2
+  if "${PSQL[@]}" --command="BEGIN; SET LOCAL ROLE $role; $statement; ROLLBACK" \
+    >/dev/null 2>&1; then
+    echo "$role unexpectedly allowed: $statement" >&2
+    return 1
+  fi
+}
+
+for TABLE in requests runs events artifacts pr_state leases; do
+  assert_role_allowed patchyard_dashboard "SELECT 1 FROM factory.$TABLE LIMIT 1"
+  assert_role_allowed patchyard_supervisor "SELECT 1 FROM factory.$TABLE LIMIT 1"
+done
+assert_role_allowed patchyard_dashboard \
+  "INSERT INTO factory.requests (id, fingerprint, source, body, trace_id) VALUES ('40000000-0000-4000-8000-000000000001', decode(repeat('44', 32), 'hex'), 'qualification', 'dashboard intake', '40000000000000000000000000000001')"
+assert_role_allowed patchyard_supervisor \
+  "INSERT INTO factory.requests (id, fingerprint, source, body, trace_id) VALUES ('50000000-0000-4000-8000-000000000001', decode(repeat('55', 32), 'hex'), 'qualification', 'supervisor intake', '50000000000000000000000000000001'); INSERT INTO factory.events (request_id, event_type, trace_id) VALUES ('50000000-0000-4000-8000-000000000001', 'qualification', '50000000000000000000000000000001')"
+assert_role_allowed patchyard_supervisor \
+  "UPDATE factory.requests SET status = status WHERE false"
+
+for STATEMENT in \
+  "UPDATE factory.requests SET status = status WHERE false" \
+  "DELETE FROM factory.requests WHERE false" \
+  "TRUNCATE factory.requests" \
+  "INSERT INTO factory.events (request_id, event_type, trace_id) SELECT id, 'forbidden', trace_id FROM factory.requests LIMIT 1" \
+  "UPDATE factory.events SET event_type = event_type WHERE false" \
+  "DELETE FROM factory.events WHERE false" \
+  "CREATE TABLE factory.dashboard_escape(id integer)"; do
+  assert_role_denied patchyard_dashboard "$STATEMENT"
+done
+for STATEMENT in \
+  "UPDATE factory.events SET event_type = event_type WHERE false" \
+  "DELETE FROM factory.events WHERE false" \
+  "TRUNCATE factory.events" \
+  "CREATE TABLE factory.supervisor_escape(id integer)"; do
+  assert_role_denied patchyard_supervisor "$STATEMENT"
+done
+
+GRAFANA_CANARY=$(
+  "${PSQL[@]}" --quiet --tuples-only --no-align --command="
+    BEGIN;
+    INSERT INTO factory.requests (id, fingerprint, source, body, trace_id)
+    VALUES ('60000000-0000-4000-8000-000000000001', decode(repeat('66', 32), 'hex'), 'canary', 'GRAFANA_REQUEST_CANARY_LIVE', '60000000000000000000000000000001');
+    INSERT INTO factory.artifacts (id, request_id, path, sha256, kind)
+    VALUES ('60000000-0000-4000-8000-000000000002', '60000000-0000-4000-8000-000000000001', 'GRAFANA_ARTIFACT_CANARY_LIVE', decode(repeat('67', 32), 'hex'), 'canary');
+    SET LOCAL ROLE grafana_ro;
+    SELECT jsonb_build_object(
+      'requests', COALESCE((SELECT jsonb_agg(to_jsonb(summary)) FROM factory.grafana_request_summary summary), '[]'::jsonb),
+      'runs', COALESCE((SELECT jsonb_agg(to_jsonb(metrics)) FROM factory.grafana_run_metrics metrics), '[]'::jsonb)
+    )::text;
+    ROLLBACK;"
+)
+! grep -Fq GRAFANA_REQUEST_CANARY_LIVE <<<"$GRAFANA_CANARY"
+! grep -Fq GRAFANA_ARTIFACT_CANARY_LIVE <<<"$GRAFANA_CANARY"
+assert_role_denied grafana_ro 'SELECT body FROM factory.requests LIMIT 1'
+assert_role_denied grafana_ro 'SELECT path FROM factory.artifacts LIMIT 1'
+test "$("${PSQL[@]}" --tuples-only --no-align \
+  --command="SELECT count(*) FROM information_schema.role_table_grants WHERE table_schema = 'factory' AND grantee = 'grafana_ro'")" = 0
+test "$("${PSQL[@]}" --tuples-only --no-align \
+  --command="SELECT count(*) FROM information_schema.column_privileges WHERE table_schema = 'factory' AND grantee = 'grafana_ro'")" = 19
+
+grep -Eq '^patchyard_postgresql_tls_certificate_remaining_seconds [0-9]+$' \
+  /var/lib/node_exporter/textfile_collector/patchyard_postgresql_tls.prom
+TLS_REMAINING=$(awk '/^patchyard_postgresql_tls_certificate_remaining_seconds / {print $2}' \
+  /var/lib/node_exporter/textfile_collector/patchyard_postgresql_tls.prom)
+test "$TLS_REMAINING" -gt 2592000
+curl --fail --silent --output "$QUALIFICATION_TEMP/postgres.metrics" \
+  "http://$PRIVATE_IP:9187/metrics"
+grep -Eq '^pg_up 1(\.0)?$' "$QUALIFICATION_TEMP/postgres.metrics"
+curl --fail --silent --output "$QUALIFICATION_TEMP/node.metrics" \
+  "http://$PRIVATE_IP:9100/metrics"
+grep -q '^patchyard_postgresql_tls_certificate_remaining_seconds ' \
+  "$QUALIFICATION_TEMP/node.metrics"
 
 /usr/local/bin/caddy version
 chromium-browser --version 2>/dev/null || chromium --version

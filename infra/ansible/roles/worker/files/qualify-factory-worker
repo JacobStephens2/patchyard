@@ -24,6 +24,9 @@ ss -lntH | grep -Fq "$PRIVATE_IP:9100"
 ss -lntH | grep -Fq "$PRIVATE_IP:9187"
 firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="9100"'
 firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="9187"'
+! ss -lntH | grep -Eq '(^|[[:space:]])([^[:space:]]*:)?5432'
+test ! -e /run/patchyard-postgres
+! rpm --quiet --query postgresql-server
 ! getent passwd gha-runner >/dev/null
 ! systemctl list-unit-files --no-legend | grep -Eq 'gha-runner|tempo|otelcol'
 test ! -S /var/run/docker.sock

@@ -91,6 +91,12 @@ resource "digitalocean_firewall" "control_plane" {
     source_addresses = [var.monitoring_private_cidr]
   }
 
+  inbound_rule {
+    protocol         = "tcp"
+    port_range       = "5432"
+    source_addresses = [var.monitoring_private_cidr]
+  }
+
   outbound_rule {
     protocol              = "tcp"
     port_range            = "all"

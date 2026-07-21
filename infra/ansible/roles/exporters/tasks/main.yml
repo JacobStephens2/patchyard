@@ -27,6 +27,14 @@
     shell: /usr/sbin/nologin
     system: true
 
+- name: Create node exporter textfile collector directory
+  ansible.builtin.file:
+    path: /var/lib/node_exporter/textfile_collector
+    state: directory
+    owner: root
+    group: node_exporter
+    mode: "0750"
+
 - name: Download pinned node exporter
   ansible.builtin.get_url:
     url: >-

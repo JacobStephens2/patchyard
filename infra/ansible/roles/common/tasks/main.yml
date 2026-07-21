@@ -127,6 +127,26 @@
     - "9100"
     - "9187"
 
+- name: Allow the sole PostgreSQL TCP reader only from fleet monitoring
+  ansible.posix.firewalld:
+    zone: public
+    rich_rule: >-
+      rule family="ipv4" source address="{{ monitoring_private_cidr }}"
+      port port="5432" protocol="tcp" accept
+    state: enabled
+    permanent: true
+    immediate: true
+  when: factory_role == 'control-plane'
+
+- name: Keep PostgreSQL closed on the secret-free worker
+  ansible.posix.firewalld:
+    zone: public
+    port: 5432/tcp
+    state: disabled
+    permanent: true
+    immediate: true
+  when: factory_role == 'worker'
+
 - name: Expose HTTP and HTTPS on the control plane only
   ansible.posix.firewalld:
     zone: public

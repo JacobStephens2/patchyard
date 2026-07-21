@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=node_exporter
 Group=node_exporter
-ExecStart=/usr/local/bin/node_exporter --web.listen-address={{ private_ip }}:9100
+ExecStart=/usr/local/bin/node_exporter --web.listen-address={{ private_ip }}:9100 --collector.textfile.directory=/var/lib/node_exporter/textfile_collector
 Restart=on-failure
 RestartSec=5s
 AmbientCapabilities=
@@ -17,7 +17,8 @@ MemoryDenyWriteExecute=yes
 NoNewPrivileges=yes
 PrivateDevices=yes
 PrivateTmp=yes
-ProtectClock=yes
+# The timex collector reads adjtimex state. Empty capabilities keep clock writes denied.
+ProtectClock=no
 ProtectControlGroups=yes
 ProtectHome=yes
 ProtectHostname=yes
@@ -29,7 +30,9 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictNamespaces=yes
 RestrictRealtime=yes
 SystemCallArchitectures=native
-SystemCallFilter=@system-service
+SystemCallFilter=@system-service adjtimex open_tree
+# Dependency feature probes must receive a denial they can handle, not SIGSYS.
+SystemCallErrorNumber=EPERM
 UMask=0077
 
 [Install]

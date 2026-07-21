@@ -1,0 +1,15 @@
+---
+- name: Restart PostgreSQL
+  ansible.builtin.systemd:
+    name: postgresql.service
+    state: restarted
+    daemon_reload: true
+
+- name: Restart control-plane exporters
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: restarted
+    daemon_reload: true
+  loop:
+    - node-exporter.service
+    - postgres-exporter.service

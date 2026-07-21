@@ -5,6 +5,7 @@ umask 077
 REPO_ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 ANSIBLE_ROOT="$REPO_ROOT/infra/ansible"
 FACTORY_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
+CARGO_BIN=${CARGO_BIN:-/var/lib/conductor/.cargo/bin/cargo}
 
 if [[ -n "$(git -C "$REPO_ROOT" status --porcelain)" ]]; then
   echo "converge requires a committed, clean desired-state revision" >&2
@@ -15,6 +16,10 @@ CONVERGE_TEMP=$(mktemp -d /tmp/patchyard-converge.XXXXXX)
 trap 'rm -r -- "$CONVERGE_TEMP"' EXIT
 FACTORY_BUNDLE="$CONVERGE_TEMP/factory.bundle"
 git -C "$REPO_ROOT" bundle create "$FACTORY_BUNDLE" --all
+
+"$CARGO_BIN" build --locked --release --package factoryctl
+FACTORYCTL_BINARY="$REPO_ROOT/target/release/factoryctl"
+FACTORYCTL_SHA256=$(sha256sum "$FACTORYCTL_BINARY" | cut -d' ' -f1)
 
 if [[ -x "$ANSIBLE_ROOT/.venv/bin/ansible-playbook" ]]; then
   ANSIBLE_PLAYBOOK="$ANSIBLE_ROOT/.venv/bin/ansible-playbook"
@@ -28,4 +33,6 @@ cd "$ANSIBLE_ROOT"
   site.yml \
   -e "factory_repo_bundle=$FACTORY_BUNDLE" \
   -e "factory_repo_revision=$FACTORY_REVISION" \
+  -e "factoryctl_binary=$FACTORYCTL_BINARY" \
+  -e "factoryctl_sha256=$FACTORYCTL_SHA256" \
   "$@"

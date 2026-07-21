@@ -9,6 +9,7 @@
     name:
       - chromium
       - fontconfig
+      - policycoreutils-python-utils
     state: present
 
 - name: Create the factory service group
@@ -97,6 +98,49 @@
     group: root
     mode: "0644"
 
+- name: Read local SELinux file-context overrides
+  ansible.builtin.command:
+    argv:
+      - semanage
+      - fcontext
+      - --list
+      - --locallist
+  register: postgresql_local_fcontexts
+  changed_when: false
+
+- name: Register the PostgreSQL socket SELinux context
+  ansible.builtin.command:
+    argv:
+      - semanage
+      - fcontext
+      - --add
+      - --type
+      - postgresql_var_run_t
+      - "{{ postgresql_socket_directory }}(/.*)?"
+  when: >-
+    postgresql_local_fcontexts.stdout_lines
+    | select('search', postgresql_socket_directory | regex_escape)
+    | list
+    | length == 0
+  changed_when: true
+
+- name: Correct the PostgreSQL socket SELinux context
+  ansible.builtin.command:
+    argv:
+      - semanage
+      - fcontext
+      - --modify
+      - --type
+      - postgresql_var_run_t
+      - "{{ postgresql_socket_directory }}(/.*)?"
+  when: >-
+    postgresql_local_fcontexts.stdout_lines
+    | select('search', postgresql_socket_directory | regex_escape)
+    | reject('search', 'postgresql_var_run_t')
+    | list
+    | length > 0
+  changed_when: true
+
 - name: Materialize the restricted PostgreSQL runtime socket directory
   ansible.builtin.command:
     argv:
@@ -104,6 +148,15 @@
       - --create
       - /etc/tmpfiles.d/patchyard-postgresql.conf
   changed_when: false
+
+- name: Apply the PostgreSQL socket SELinux context
+  ansible.builtin.command:
+    argv:
+      - restorecon
+      - -RFv
+      - "{{ postgresql_socket_directory }}"
+  register: postgresql_socket_restorecon
+  changed_when: "'Relabeled' in postgresql_socket_restorecon.stdout"
 
 - name: Create the PostgreSQL TLS directory
   ansible.builtin.file:

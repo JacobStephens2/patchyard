@@ -288,7 +288,8 @@
   register: postgresql_version_output
   changed_when: false
   failed_when: >-
-    ('PostgreSQL ' ~ postgresql_version) not in postgresql_version_output.stdout
+    (postgresql_version_output.stdout | trim)
+    != ('postgres (PostgreSQL) ' ~ (postgresql_version | string))
 
 - name: Create the PostgreSQL desired-state SQL directory
   ansible.builtin.file:

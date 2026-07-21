@@ -181,7 +181,7 @@
       - /opt/patchyard
       - fetch
       - /var/tmp/patchyard.bundle
-      - refs/heads/*:refs/remotes/bootstrap/*
+      - "+{{ factory_repo_revision }}:refs/remotes/bootstrap/desired"
   become: true
   become_user: conductor
   changed_when: false

@@ -1,0 +1,80 @@
+runtime=rootless-podman
+launcher_identity=factory-worker uid=991
+container_identity=uid=0(root) mapped through the rootless user namespace
+rootfs=read-only
+capabilities=drop-all
+no_new_privileges=true
+pids_limit=128
+memory_limit=512m
+network=pasta:--ipv4-only
+runtime_dns=denied
+allowed_endpoint=api.openai.com:443
+launcher_argv=env -i HOME=/var/tmp/patchyard-s3-probe/podman/home XDG_RUNTIME_DIR=/run/user/991 PATH=/usr/local/bin:/usr/bin:/bin podman run --rm --pull=never --name patchyard-s3-podman-main --network=pasta:--ipv4-only --read-only --cap-drop=all --security-opt=no-new-privileges --pids-limit=128 --memory=512m --tmpfs=/tmp:rw,noexec,nosuid,nodev,size=16m -v /var/tmp/patchyard-s3-probe/podman/request:/input:ro,Z -v /var/tmp/patchyard-s3-probe/podman/work:/work:rw,Z --add-host=api.openai.com:162.159.140.245 --add-host=api.openai.com:172.66.0.243 localhost/patchyard-session3-probe:podman
+network_policy=host nft output chain matches skuid 991; accept only {162.159.140.245,172.66.0.243}:443; reject remaining IPv4 and IPv6
+
+initial_launch=FAIL
+initial_launch_error=crun: controller `cpu` is not available under the rootless system-user cgroup
+correction=removed the probe-only --cpus flag; production resource control remains a root-owned systemd-unit concern
+
+candidate_probe_started=2026-07-21T21:04:50Z
+kernel=Linux 5.14.0-687.10.1.el9_8.0.1.x86_64 x86_64 GNU/Linux
+identity=uid=0(root) gid=0(root) groups=0(root)
+request_mutation=DENIED command=printf\ x\ \>\>/input/request.md
+request_mutation=DENIED command=touch\ /input/new
+request_mutation=DENIED command=mv\ /input/request.md\ /input/renamed
+request_mutation=DENIED command=chmod\ 0600\ /input/request.md
+request_mutation=DENIED command=rm\ /input/request.md
+P1=PASS detail=sha256=50df41f7de045efefc6ef60a1fd7f4f18004afe6378ef3a7a61b3fbac94a6a3e; all mutation forms denied
+P2=PASS detail=base_sha256=9a61720d26a50c5dc3b795c28c9f05a5cae15d523fda9baa05dede5b5b9ac1cc; create/edit/rename/delete succeeded
+host_path=ABSENT path=/host/sentinel
+host_path=ABSENT path=/proc/1/root/host/sentinel
+host_path=ABSENT path=/var/tmp/patchyard-s3-probe/host-credential-canary
+host_path=ABSENT path=/dev/kvm
+host_path=ABSENT path=/run/podman/podman.sock
+host_path=ABSENT path=/var/run/docker.sock
+internal_mount=DENIED
+internal_mknod=DENIED
+internal_nft=DENIED
+P3_INSIDE=PASS detail=host paths and devices absent; host hashes pending launcher verification
+P4=PASS detail=http_status=401
+P5=PASS detail=1.1.1.1:443 denied
+P6=PASS detail=forbidden IPv6 denied or IPv6 disabled
+forbidden_dns_name=DENIED
+direct_dns_udp=DENIED
+direct_dns_tcp=DENIED
+P7=PASS detail=runtime resolution and direct UDP/TCP DNS denied
+private_target=DENIED target=10.132.0.14/9090
+private_target=DENIED target=10.132.0.1/22
+private_target=DENIED target=100.64.0.1/443
+private_target=DENIED target=169.254.169.254/80
+private_target=DENIED target=fd00::1/443
+P8=PASS detail=private, metadata, CGNAT, and ULA targets denied
+credential_environment=ABSENT
+credential_path=ABSENT path=/etc/op.env
+credential_path=ABSENT path=/etc/orchestration/op.env
+credential_path=ABSENT path=/root/.aws/credentials
+credential_path=ABSENT path=/root/.config/op
+credential_path=ABSENT path=/var/lib/patchyard-worker/.aws/credentials
+credential_path=ABSENT path=/var/lib/patchyard-worker/.config/op
+P9=PASS detail=credential variables, canary, and standard paths absent
+candidate_probe_finished=2026-07-21T21:04:51Z pass=8 fail=0
+candidate_exit=0
+
+egress_allowed_counter=11_packets/1388_bytes
+egress_ipv4_reject_counter=11_packets/668_bytes
+request_after_sha256=50df41f7de045efefc6ef60a1fd7f4f18004afe6378ef3a7a61b3fbac94a6a3e
+host_sentinel_after_sha256=d10b325777dc12a84aa1d2e17e9c72a194460a00ba0e7febbf7b086d7f65b20e
+returned_worktree=base.txt:27_bytes,result.txt:15_bytes
+
+cycle=1 startup_ms=307 teardown_ms=353 mode=forced-kill
+cycle=2 startup_ms=354 teardown_ms=422 mode=stop
+cycle=3 startup_ms=299 teardown_ms=447 mode=stop
+cycle=4 startup_ms=334 teardown_ms=371 mode=stop
+cycle=5 startup_ms=280 teardown_ms=381 mode=stop
+startup_median_ms=307
+teardown_median_ms=381
+remaining_containers=0
+candidate_processes=NONE
+candidate_cgroups=NONE
+egress_policy=REMOVED
+host_firewall_after_sha256=94ff817299703f0bb213a386d46f3e31596451edcd28f77fd096c9d096422388

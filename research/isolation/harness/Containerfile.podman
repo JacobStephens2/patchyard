@@ -1,0 +1,16 @@
+FROM docker.io/library/ubuntu@sha256:52df9b1ee71626e0088f7d400d5c6b5f7bb916f8f0c82b474289a4ece6cf3faf
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        curl \
+        dnsutils \
+        iproute2 \
+        nftables \
+        util-linux \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY candidate-probe.sh /usr/local/bin/session3-candidate-probe
+
+ENTRYPOINT ["/usr/local/bin/session3-candidate-probe"]

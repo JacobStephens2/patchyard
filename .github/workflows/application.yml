@@ -31,7 +31,6 @@ jobs:
       DATABASE_URL: postgresql://postgres@localhost:5432/patchyard_ci?sslmode=disable
       FACTORY_TEST_ADMIN_DATABASE_URL: postgresql://postgres@localhost:5432/patchyard_ci?sslmode=disable
       FACTORY_TEST_DATABASE_URL: postgresql://patchyard_supervisor@localhost:5432/patchyard_ci?sslmode=disable
-      POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
 
     steps:
       - name: Check out the reviewed revision
@@ -55,9 +54,13 @@ jobs:
         run: tools/prepare-application-ci.sh
 
       - name: Prepare disposable PostgreSQL state service
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
         run: tools/prepare-state-ci.sh
 
       - name: Run application and model checks
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
         run: tools/check-application.sh
 
       - name: Report Rust cache result

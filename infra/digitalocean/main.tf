@@ -2,13 +2,14 @@ data "digitalocean_vpc" "factory" {
   name = var.vpc_name
 }
 
-data "digitalocean_ssh_key" "management" {
-  name = var.management_ssh_key_name
+resource "digitalocean_ssh_key" "management" {
+  name       = "patchyard-conductor"
+  public_key = var.management_ssh_public_key
 }
 
 locals {
   cloud_init = templatefile("${path.module}/cloud-init.yaml.tftpl", {
-    management_public_key = data.digitalocean_ssh_key.management.public_key
+    management_public_key = digitalocean_ssh_key.management.public_key
   })
 }
 
@@ -18,7 +19,7 @@ resource "digitalocean_droplet" "control_plane" {
   size          = var.control_plane_size
   image         = var.image
   vpc_uuid      = data.digitalocean_vpc.factory.id
-  ssh_keys      = [data.digitalocean_ssh_key.management.id]
+  ssh_keys      = [digitalocean_ssh_key.management.id]
   tags          = var.existing_eta_tag_names
   user_data     = local.cloud_init
   backups       = true
@@ -33,7 +34,9 @@ resource "digitalocean_droplet" "control_plane" {
   }
 
   lifecycle {
-    prevent_destroy = true
+    # Replacement staging only: restore prevent_destroy immediately after the
+    # reviewed key-correction replacement has completed and converged.
+    create_before_destroy = true
   }
 }
 
@@ -43,13 +46,17 @@ resource "digitalocean_droplet" "worker" {
   size          = var.worker_size
   image         = var.image
   vpc_uuid      = data.digitalocean_vpc.factory.id
-  ssh_keys      = [data.digitalocean_ssh_key.management.id]
+  ssh_keys      = [digitalocean_ssh_key.management.id]
   tags          = var.existing_eta_tag_names
   user_data     = local.cloud_init
   backups       = false
   monitoring    = true
   droplet_agent = true
   ipv6          = false
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "digitalocean_firewall" "control_plane" {

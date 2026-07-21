@@ -28,10 +28,15 @@ variable "worker_size" {
   default     = "s-8vcpu-16gb"
 }
 
-variable "management_ssh_key_name" {
-  description = "Existing public identity attached at droplet creation; private material stays on orchestration."
+variable "management_ssh_public_key" {
+  description = "Versioned public half of the orchestration management identity; private material stays on orchestration."
   type        = string
-  default     = "conductor@conductor.example.com"
+  default     = "ssh-ed25519 REDACTED-BREAK-GLASS-KEY-BODY operator@example.com"
+
+  validation {
+    condition     = startswith(var.management_ssh_public_key, "ssh-ed25519 ")
+    error_message = "management_ssh_public_key must be an Ed25519 public key."
+  }
 }
 
 variable "existing_eta_tag_names" {

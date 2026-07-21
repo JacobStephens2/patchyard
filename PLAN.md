@@ -50,7 +50,7 @@ Session 0 covers the worker desired-state component; sessions 1-2 cover the cont
 
 ### Session 3 - isolation spike: Firecracker vs rootless Podman
 
-- Probe `/dev/kvm` on the new worker droplet - the orchestration VM's verified KVM result does not transfer - then evaluate Firecracker first; fallback candidate rootless Podman under the same mount/egress contract (A44).
+- Probe `/dev/kvm` on the new worker droplet - the orchestration VM's verified KVM result does not transfer - then run the **half-session time-boxed evaluation (A91)**: adopt Firecracker if KVM is present and it is not much operationally harder than hardened rootless Podman - ties go to the kernel boundary; the Podman fallback runs under the same mount/egress contract (A44) and is the accepted outcome only on material operational cost or absent KVM.
 - **Probe manifest predeclared before running**: read-only request mount, read-write worktree mount, host-write attempts, egress beyond the boot's single allowlisted provider endpoint (A61; IPv4, IPv6, DNS), credential absence, startup and teardown overhead - with must-pass selection criteria written down first.
 - Exit: **a decision recorded in this repo** - runtime, rationale, raw probe results against the predeclared criteria, and the credential plumbing shape across the physical `conductor`/`factory-worker` split. Implementation may be partial; the probes may not be.
 

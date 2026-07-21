@@ -43,8 +43,12 @@ case "$TOFU_ROOT" in
     : "${ROUTE53_AWS_SECRET_ACCESS_KEY:=$PROVIDER_AWS_SECRET_ACCESS_KEY}"
     : "${ROUTE53_AWS_ACCESS_KEY_ID:?set ROUTE53_AWS_ACCESS_KEY_ID or ORIGINAL_AWS_ACCESS_KEY_ID}"
     : "${ROUTE53_AWS_SECRET_ACCESS_KEY:?set ROUTE53_AWS_SECRET_ACCESS_KEY or ORIGINAL_AWS_SECRET_ACCESS_KEY}"
-    export TF_VAR_aws_provider_access_key_id="$ROUTE53_AWS_ACCESS_KEY_ID"
-    export TF_VAR_aws_provider_secret_access_key="$ROUTE53_AWS_SECRET_ACCESS_KEY"
+    AWS_MANAGEMENT_ACCESS_KEY_ID=${AWS_FACTORY_A96_OPERATOR_ACCESS_KEY_ID:-$ROUTE53_AWS_ACCESS_KEY_ID}
+    AWS_MANAGEMENT_SECRET_ACCESS_KEY=${AWS_FACTORY_A96_OPERATOR_SECRET_ACCESS_KEY:-$ROUTE53_AWS_SECRET_ACCESS_KEY}
+    export TF_VAR_aws_provider_access_key_id="$AWS_MANAGEMENT_ACCESS_KEY_ID"
+    export TF_VAR_aws_provider_secret_access_key="$AWS_MANAGEMENT_SECRET_ACCESS_KEY"
+    export TF_VAR_route53_provider_access_key_id="$ROUTE53_AWS_ACCESS_KEY_ID"
+    export TF_VAR_route53_provider_secret_access_key="$ROUTE53_AWS_SECRET_ACCESS_KEY"
     if [[ -z "${TF_VAR_control_plane_ipv4:-}" && -d "$REPO_ROOT/infra/digitalocean/.terraform" ]]; then
       TF_VAR_control_plane_ipv4=$("$0" digitalocean output -raw control_plane_ipv4 2>/dev/null || true)
       export TF_VAR_control_plane_ipv4

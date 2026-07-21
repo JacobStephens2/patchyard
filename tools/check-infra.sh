@@ -15,6 +15,8 @@ tofu fmt -check -recursive "$REPO_ROOT/infra"
 export TF_VAR_state_encryption_passphrase=ci-only-passphrase-not-a-secret
 export TF_VAR_aws_provider_access_key_id=ci-placeholder
 export TF_VAR_aws_provider_secret_access_key=ci-placeholder-secret
+export TF_VAR_route53_provider_access_key_id=ci-route53-placeholder
+export TF_VAR_route53_provider_secret_access_key=ci-route53-placeholder-secret
 export TF_VAR_control_plane_ipv4=192.0.2.1
 export DIGITALOCEAN_TOKEN=ci-placeholder
 export GITHUB_TOKEN=ci-placeholder

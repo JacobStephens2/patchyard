@@ -11,9 +11,12 @@ export TF_VAR_control_plane_ipv4=${TF_VAR_control_plane_ipv4:-192.0.2.1}
 
 "$REPO_ROOT/infra/tofu.sh" aws init -reconfigure
 
-if ! AWS_ACCESS_KEY_ID="$ORIGINAL_AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$ORIGINAL_AWS_SECRET_ACCESS_KEY" \
+AWS_MANAGEMENT_ACCESS_KEY_ID=${AWS_FACTORY_A96_OPERATOR_ACCESS_KEY_ID:-$ORIGINAL_AWS_ACCESS_KEY_ID}
+AWS_MANAGEMENT_SECRET_ACCESS_KEY=${AWS_FACTORY_A96_OPERATOR_SECRET_ACCESS_KEY:-$ORIGINAL_AWS_SECRET_ACCESS_KEY}
+
+if ! AWS_ACCESS_KEY_ID="$AWS_MANAGEMENT_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$AWS_MANAGEMENT_SECRET_ACCESS_KEY" \
   aws iam get-user --user-name orchestrator-tofu-state >/dev/null 2>&1; then
-  echo "A96 import blocked: the AWS provider identity cannot read the hand-created IAM and bucket resources." >&2
+  echo "A96 import blocked: the AWS management identity cannot read the hand-created IAM and bucket resources." >&2
   echo "Use a temporary operator credential with IAM and S3 configuration management; never use the backend access key as that credential." >&2
   exit 1
 fi

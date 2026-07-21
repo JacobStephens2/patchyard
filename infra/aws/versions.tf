@@ -49,14 +49,28 @@ variable "state_encryption_passphrase" {
 }
 
 variable "aws_provider_access_key_id" {
-  description = "Route 53/IAM provider identity, kept distinct from the S3 backend identity."
+  description = "S3/IAM management identity, kept distinct from backend and Route 53 identities."
   type        = string
   sensitive   = true
   ephemeral   = true
 }
 
 variable "aws_provider_secret_access_key" {
-  description = "Route 53/IAM provider secret, supplied only through the environment."
+  description = "S3/IAM management secret, supplied only through the environment."
+  type        = string
+  sensitive   = true
+  ephemeral   = true
+}
+
+variable "route53_provider_access_key_id" {
+  description = "Route 53 record-lifecycle identity, kept distinct from the temporary adoption operator."
+  type        = string
+  sensitive   = true
+  ephemeral   = true
+}
+
+variable "route53_provider_secret_access_key" {
+  description = "Route 53 record-lifecycle secret, supplied only through the environment."
   type        = string
   sensitive   = true
   ephemeral   = true
@@ -66,4 +80,11 @@ provider "aws" {
   region     = "us-east-1"
   access_key = var.aws_provider_access_key_id
   secret_key = var.aws_provider_secret_access_key
+}
+
+provider "aws" {
+  alias      = "route53"
+  region     = "us-east-1"
+  access_key = var.route53_provider_access_key_id
+  secret_key = var.route53_provider_secret_access_key
 }

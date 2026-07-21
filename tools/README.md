@@ -1,11 +1,17 @@
-# tools/
+# Tools
 
-Bench and measurement scripts. Not factory runtime; they probe providers and
-harnesses, write evidence under `research/`, and never edit the decision log
-or reseat models on their own.
+Repository checks, bootstrap helpers, bench scripts, and measurement scripts.
+They are not factory runtime. Bench tools probe providers and harnesses, write
+evidence under `research/`, and never edit the decision log or reseat models on
+their own.
 
 | Script | Purpose |
 | :-- | :-- |
+| `check-application.sh` | Hosted/local Rust, supply-chain, constitution, and model gate |
+| `check-constitution.sh` | Verify the reviewed `AGENTS.md` digest |
+| `install-rustup.sh` | Install checksum-pinned rustup and resolve `rust-toolchain.toml` |
+| `install-rust-tools.sh` | Install checksum-pinned cargo-audit and cargo-deny binaries |
+| `smoke-github-app.sh` | Mint a narrowed App token and prove repository scoping without printing credentials |
 | `aa-sweep.py` | Artificial Analysis catalog snapshot + move report |
 | `check-bench.py` | Validate `docs/bench.json` (schema + invariants) and sync the generated Pairs table in `docs/bench.md` (`--write` to regenerate; no flag = drift check) |
 | `check-seats.py` | Cross-check `docs/bench.md` § Seat preference orders against `bench.json` + the A61 allowlist (membership, preferred harness, floors, rank ordering, speed values; `--strict` fails on warnings) |

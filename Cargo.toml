@@ -1,0 +1,21 @@
+[workspace]
+members = [
+    "crates/factory-core",
+    "crates/factory-verify",
+    "crates/factoryctl",
+    "crates/factory-web",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.97.1"
+license = "LicenseRef-Proprietary"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"

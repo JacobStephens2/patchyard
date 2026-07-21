@@ -11,6 +11,34 @@ ss -lntH | grep -Fq "$PRIVATE_IP:9187"
 firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="9100"'
 firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="9187"'
 test "$(git -C /opt/patchyard rev-parse HEAD)" = "$EXPECTED_REVISION"
+
+FACTORY_GID=$(getent group factory | cut -d: -f3)
+IFS=: read -r _ _ FACTORY_WEB_UID FACTORY_WEB_GID _ FACTORY_WEB_HOME FACTORY_WEB_SHELL \
+  < <(getent passwd factory-web)
+test -n "$FACTORY_GID"
+test "$FACTORY_WEB_UID" -lt 1000
+test "$FACTORY_WEB_GID" = "$FACTORY_GID"
+test "$FACTORY_WEB_HOME" = /var/lib/patchyard
+test "$FACTORY_WEB_SHELL" = /usr/sbin/nologin
+id -nG conductor | tr ' ' '\n' | grep -Fxq factory
+passwd -S factory-web | grep -Eq '^factory-web (L|LK) '
+test ! -e /var/lib/patchyard/.ssh
+
+assert_path() {
+  local path=$1 expected_owner=$2 expected_group=$3 expected_mode=$4
+  local actual
+  actual=$(stat -c '%U:%G:%a' "$path")
+  test "$actual" = "$expected_owner:$expected_group:$expected_mode" || {
+    echo "$path is $actual; expected $expected_owner:$expected_group:$expected_mode" >&2
+    return 1
+  }
+}
+
+assert_path /var/lib/patchyard root factory 750
+assert_path /var/lib/patchyard/artifacts factory-web factory 700
+assert_path /var/lib/patchyard/spool factory-web factory 700
+assert_path /var/lib/patchyard/worktrees conductor factory 750
+
 /usr/local/bin/caddy version
 chromium-browser --version 2>/dev/null || chromium --version
 ! getent passwd gha-runner >/dev/null

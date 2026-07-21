@@ -11,6 +11,56 @@
       - fontconfig
     state: present
 
+- name: Create the factory service group
+  ansible.builtin.group:
+    name: factory
+    system: true
+
+- name: Allow the management identity to traverse factory-owned state
+  ansible.builtin.user:
+    name: conductor
+    groups:
+      - factory
+    append: true
+
+- name: Create the dashboard service identity
+  ansible.builtin.user:
+    name: factory-web
+    comment: Patchyard Factory dashboard service
+    create_home: false
+    group: factory
+    home: /var/lib/patchyard
+    password_lock: true
+    shell: /usr/sbin/nologin
+    system: true
+
+- name: Create the factory state root
+  ansible.builtin.file:
+    path: /var/lib/patchyard
+    state: directory
+    owner: root
+    group: factory
+    mode: "0750"
+
+- name: Create dashboard-writable factory state directories
+  ansible.builtin.file:
+    path: "/var/lib/patchyard/{{ item }}"
+    state: directory
+    owner: factory-web
+    group: factory
+    mode: "0700"
+  loop:
+    - artifacts
+    - spool
+
+- name: Create the publisher worktree root
+  ansible.builtin.file:
+    path: /var/lib/patchyard/worktrees
+    state: directory
+    owner: conductor
+    group: factory
+    mode: "0750"
+
 - name: Create Caddy service identity
   ansible.builtin.user:
     name: caddy
@@ -131,7 +181,7 @@
       - /opt/patchyard
       - fetch
       - /var/tmp/patchyard.bundle
-      - refs/heads/*:refs/remotes/bootstrap/*
+      - "+{{ factory_repo_revision }}:refs/remotes/bootstrap/desired"
   become: true
   become_user: conductor
   changed_when: false

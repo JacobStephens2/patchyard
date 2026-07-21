@@ -31,6 +31,8 @@ RestrictNamespaces=yes
 RestrictRealtime=yes
 SystemCallArchitectures=native
 SystemCallFilter=@system-service adjtimex open_tree
+# Dependency feature probes must receive a denial they can handle, not SIGSYS.
+SystemCallErrorNumber=EPERM
 UMask=0077
 
 [Install]

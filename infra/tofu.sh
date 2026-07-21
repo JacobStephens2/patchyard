@@ -51,8 +51,9 @@ case "$TOFU_ROOT" in
     fi
     ;;
   github)
-    : "${GH_TOKEN:?missing GitHub provider token}"
-    export GITHUB_TOKEN="$GH_TOKEN"
+    GITHUB_PROVIDER_TOKEN=${GH_FACTORY_ADMIN_PAT:-${GH_TOKEN:-}}
+    : "${GITHUB_PROVIDER_TOKEN:?set GH_FACTORY_ADMIN_PAT or GH_TOKEN for the GitHub provider}"
+    export GITHUB_TOKEN="$GITHUB_PROVIDER_TOKEN"
     ;;
 esac
 

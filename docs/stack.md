@@ -47,9 +47,9 @@
 - **factory-verify** with mutation self-tests (A10); **pass^k** acceptance; targeted **PHPUnit**; **Selenium/Chromium** preview evidence.
 - **GitHub Actions**, factory-repo hygiene only (R4): thin YAML wrappers over repo scripts so the CI backend is swappable in an afternoon. Executes on a **self-hosted runner on the control-plane VM** (A76): Ansible-provisioned, dedicated `gha-runner` user, ephemeral single-job mode, systemd-hardened and resource-capped, zero access to factory state; GitHub-hosted runners remain the one-line `runs-on` fallback. **GitHub App** bot identity (A45/A62).
 
-## Observability (direction, not yet ruled)
+## Observability (A79/A80 ruled; the rest direction)
 
-The **ledger is the primary observability system** - cost, latency, and outcome questions are SQL. Planned light additions: `tracing` instrumentation in the daemon, node/postgres exporters, and server-side usage logging - the one ruled slice (A79/R23): page-view rows written by Axum middleware into the ledger, no client-side trackers (Plausible/Umami rejected for the factory). A fleet-level Grafana/Prometheus host may scrape the factory (expose-never-require keeps A68 intact). No Google Analytics - external beacons don't belong on an internal admin surface.
+The **ledger is the primary observability system** - cost, latency, and outcome questions are SQL. Ruled: **Prometheus + Grafana (A80)** - daemon `/metrics`, node/postgres exporters on both hosts, Grafana reading factory PostgreSQL directly for ledger dashboards, pull-based scraping only (expose-never-require, A68); and **server-side usage metrics in phase 1 (A79/R23)** - Axum middleware page-view rows in the ledger, no client-side trackers. Still direction: `tracing` instrumentation from day one (the OTLP hedge), where Grafana/Prometheus live (fleet monitoring host), and whether Loki/Tempo ever earn a place. A fleet-level Grafana/Prometheus host may scrape the factory (expose-never-require keeps A68 intact). No Google Analytics - external beacons don't belong on an internal admin surface.
 
 ## Deliberately excluded - enforced by `tools/check-stack.py`
 

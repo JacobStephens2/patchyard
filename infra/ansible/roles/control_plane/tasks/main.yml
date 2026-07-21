@@ -31,6 +31,14 @@
     state: present
     allow_downgrade: true
 
+- name: Give PostgreSQL permission to own the restricted socket group
+  ansible.builtin.user:
+    name: postgres
+    groups:
+      - factory
+    append: true
+  notify: Restart PostgreSQL
+
 - name: Give the exporter access to the restricted database socket
   ansible.builtin.user:
     name: postgres_exporter

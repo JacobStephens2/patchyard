@@ -1,6 +1,7 @@
 resource "github_repository" "factory" {
   name                   = "factory"
-  description            = "Patchyard Software Factory"
+  description            = "Patchyard's software factory: small staff requests in, evidenced pull requests out - one human gate, the PR. Rust control plane, skill playbooks, queue, ledger, and dashboard."
+  homepage_url           = "https://factory.example.com"
   visibility             = "private"
   has_discussions        = false
   has_issues             = true

@@ -1,0 +1,151 @@
+---
+- name: Require the reviewed Rocky Linux base image
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == 'Rocky'
+      - ansible_distribution_major_version == '9'
+    fail_msg: "Factory desired state supports Rocky Linux 9 only."
+
+- name: Set the desired hostname
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: Install base administration packages
+  ansible.builtin.dnf:
+    name:
+      - ca-certificates
+      - curl
+      - firewalld
+      - git
+      - jq
+      - nftables
+      - rsync
+      - tar
+      - unzip
+    state: present
+
+- name: Create the orchestration management identity
+  ansible.builtin.user:
+    name: conductor
+    comment: Patchyard orchestration management identity
+    groups: wheel
+    append: true
+    create_home: true
+    password_lock: true
+    shell: /bin/bash
+
+- name: Authorize the orchestration public key
+  ansible.posix.authorized_key:
+    user: conductor
+    key: "{{ lookup('ansible.builtin.file', management_public_key_path) }}"
+    exclusive: true
+    state: present
+
+- name: Grant the management identity passwordless sudo
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/patchyard-conductor
+    content: "conductor ALL=(ALL) NOPASSWD:ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Install the factory SSH policy
+  ansible.builtin.template:
+    src: 60-patchyard.conf.j2
+    dest: /etc/ssh/sshd_config.d/60-patchyard.conf
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart sshd
+
+- name: Create journald configuration directory
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Bound persistent journal retention
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/60-patchyard.conf
+    content: |
+      [Journal]
+      Storage=persistent
+      SystemMaxUse=1G
+      MaxRetentionSec=7day
+      Compress=yes
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart journald
+
+- name: Enable firewalld
+  ansible.builtin.systemd:
+    name: firewalld
+    enabled: true
+    state: started
+
+- name: Make the public zone fail closed
+  ansible.posix.firewalld:
+    zone: public
+    target: DROP
+    state: present
+    permanent: true
+    immediate: true
+
+- name: Remove unrestricted SSH service access
+  ansible.posix.firewalld:
+    zone: public
+    service: ssh
+    state: disabled
+    permanent: true
+    immediate: true
+
+- name: Allow SSH only from orchestration
+  ansible.posix.firewalld:
+    zone: public
+    rich_rule: >-
+      rule family="ipv4" source address="{{ orchestration_public_cidr }}"
+      service name="ssh" accept
+    state: enabled
+    permanent: true
+    immediate: true
+
+- name: Allow exporter scrapes only from fleet monitoring
+  ansible.posix.firewalld:
+    zone: public
+    rich_rule: >-
+      rule family="ipv4" source address="{{ monitoring_private_cidr }}"
+      port port="{{ item }}" protocol="tcp" accept
+    state: enabled
+    permanent: true
+    immediate: true
+  loop:
+    - "9100"
+    - "9187"
+
+- name: Expose HTTP and HTTPS on the control plane only
+  ansible.posix.firewalld:
+    zone: public
+    service: "{{ item }}"
+    state: enabled
+    permanent: true
+    immediate: true
+  loop:
+    - http
+    - https
+  when: factory_role == 'control-plane'
+
+- name: Ensure HTTP and HTTPS stay closed on the worker
+  ansible.posix.firewalld:
+    zone: public
+    service: "{{ item }}"
+    state: disabled
+    permanent: true
+    immediate: true
+  loop:
+    - http
+    - https
+  when: factory_role == 'worker'

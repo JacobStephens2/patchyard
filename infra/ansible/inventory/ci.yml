@@ -1,0 +1,19 @@
+---
+all:
+  vars:
+    ansible_connection: local
+    ansible_user: runner
+    private_ip: 192.0.2.10
+    monitoring_private_cidr: 192.0.2.20/32
+    orchestration_public_cidr: 192.0.2.30/32
+    factory_repo_bundle: /tmp/factory.bundle
+    factory_repo_revision: 0000000000000000000000000000000000000000
+  children:
+    control_plane:
+      hosts:
+        ci-control:
+          factory_role: control-plane
+    worker:
+      hosts:
+        ci-worker:
+          factory_role: worker

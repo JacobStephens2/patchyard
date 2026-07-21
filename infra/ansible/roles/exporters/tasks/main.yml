@@ -1,0 +1,110 @@
+---
+- name: Create exporter installation root
+  ansible.builtin.file:
+    path: /opt/patchyard-tools
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create node exporter identity
+  ansible.builtin.user:
+    name: node_exporter
+    comment: Prometheus node exporter
+    create_home: false
+    home: /nonexistent
+    password_lock: true
+    shell: /usr/sbin/nologin
+    system: true
+
+- name: Create PostgreSQL exporter identity
+  ansible.builtin.user:
+    name: postgres_exporter
+    comment: Prometheus PostgreSQL exporter
+    create_home: false
+    home: /nonexistent
+    password_lock: true
+    shell: /usr/sbin/nologin
+    system: true
+
+- name: Download pinned node exporter
+  ansible.builtin.get_url:
+    url: >-
+      https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version
+      }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz
+    dest: "/var/cache/node_exporter-{{ node_exporter_version }}.tar.gz"
+    checksum: "sha256:{{ node_exporter_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Unpack pinned node exporter
+  ansible.builtin.unarchive:
+    src: "/var/cache/node_exporter-{{ node_exporter_version }}.tar.gz"
+    dest: /opt/patchyard-tools
+    remote_src: true
+    creates: "/opt/patchyard-tools/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+
+- name: Link node exporter into the executable path
+  ansible.builtin.file:
+    src: "/opt/patchyard-tools/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+    dest: /usr/local/bin/node_exporter
+    state: link
+    force: true
+    owner: root
+    group: root
+
+- name: Download pinned PostgreSQL exporter
+  ansible.builtin.get_url:
+    url: >-
+      https://github.com/prometheus-community/postgres_exporter/releases/download/v{{ postgres_exporter_version
+      }}/postgres_exporter-{{ postgres_exporter_version }}.linux-amd64.tar.gz
+    dest: "/var/cache/postgres_exporter-{{ postgres_exporter_version }}.tar.gz"
+    checksum: "sha256:{{ postgres_exporter_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Unpack pinned PostgreSQL exporter
+  ansible.builtin.unarchive:
+    src: "/var/cache/postgres_exporter-{{ postgres_exporter_version }}.tar.gz"
+    dest: /opt/patchyard-tools
+    remote_src: true
+    creates: "/opt/patchyard-tools/postgres_exporter-{{ postgres_exporter_version }}.linux-amd64/postgres_exporter"
+
+- name: Link PostgreSQL exporter into the executable path
+  ansible.builtin.file:
+    src: "/opt/patchyard-tools/postgres_exporter-{{ postgres_exporter_version }}.linux-amd64/postgres_exporter"
+    dest: /usr/local/bin/postgres_exporter
+    state: link
+    force: true
+    owner: root
+    group: root
+
+- name: Install node exporter service
+  ansible.builtin.template:
+    src: node-exporter.service.j2
+    dest: /etc/systemd/system/node-exporter.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart node exporter
+
+- name: Install PostgreSQL exporter service
+  ansible.builtin.template:
+    src: postgres-exporter.service.j2
+    dest: /etc/systemd/system/postgres-exporter.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart PostgreSQL exporter
+
+- name: Enable scrape exporters
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - node-exporter.service
+    - postgres-exporter.service

@@ -1,0 +1,9 @@
+---
+management_public_key_path: /var/lib/conductor/.ssh/id_ed25519.pub
+
+node_exporter_version: 1.12.1
+node_exporter_sha256: b51d8a76aa2a9156a55d501aca6276fae09e262259a5e4e831d2c2222f084e63
+postgres_exporter_version: 0.20.1
+postgres_exporter_sha256: 89d4f7e7920cad48fdc3133f789556ef5253c330a9f5fdace3bdb6344c0a8b5a
+caddy_version: 2.11.4
+caddy_sha512: 8220d1f013b6f27510247b2360c9e0ca9f018feebd82515f07635318b34ff9777ccc8fd0b6e6f2486ce3a33fe389fbb7db12d05baa474f4587509fb4f5ebf1c9

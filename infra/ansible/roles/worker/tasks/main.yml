@@ -1,0 +1,92 @@
+---
+- name: Create the worker runtime group
+  ansible.builtin.group:
+    name: factory-worker
+    system: true
+
+- name: Create the unprivileged worker identity
+  ansible.builtin.user:
+    name: factory-worker
+    comment: Secret-free factory execution identity
+    group: factory-worker
+    create_home: true
+    home: /var/lib/patchyard-worker
+    password_lock: true
+    shell: /bin/bash
+    system: true
+
+- name: Restrict the worker home
+  ansible.builtin.file:
+    path: /var/lib/patchyard-worker
+    state: directory
+    owner: factory-worker
+    group: factory-worker
+    mode: "0700"
+
+- name: Install worker qualification probe
+  ansible.builtin.copy:
+    src: qualify-factory-worker
+    dest: /usr/local/sbin/qualify-factory-worker
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Declare transient worker paths and cleanup
+  ansible.builtin.copy:
+    dest: /etc/tmpfiles.d/patchyard-worker.conf
+    content: |
+      d /run/patchyard-worker 0700 factory-worker factory-worker -
+      d /var/tmp/patchyard-worker 0700 factory-worker factory-worker 1d
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Materialize transient worker paths
+  ansible.builtin.command:
+    argv:
+      - systemd-tmpfiles
+      - --create
+      - /etc/tmpfiles.d/patchyard-worker.conf
+  changed_when: false
+
+- name: Create nftables configuration directory
+  ansible.builtin.file:
+    path: /etc/nftables
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install worker private-egress policy
+  ansible.builtin.copy:
+    src: patchyard-worker-egress.nft
+    dest: /etc/nftables/patchyard-worker-egress.nft
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart worker egress policy
+
+- name: Install worker egress policy loader
+  ansible.builtin.copy:
+    src: apply-worker-egress.sh
+    dest: /usr/local/sbin/apply-worker-egress
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart worker egress policy
+
+- name: Install worker egress systemd service
+  ansible.builtin.copy:
+    src: patchyard-worker-egress.service
+    dest: /etc/systemd/system/patchyard-worker-egress.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart worker egress policy
+
+- name: Enable worker private-egress rejection
+  ansible.builtin.systemd:
+    name: patchyard-worker-egress.service
+    enabled: true
+    state: started
+    daemon_reload: true

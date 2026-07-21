@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+EXPECTED_REVISION=${1:?expected repository revision required}
+PRIVATE_IP=${2:?private address required}
+
+systemctl is-active --quiet node-exporter.service
+systemctl is-active --quiet postgres-exporter.service
+ss -lntH | grep -Fq "$PRIVATE_IP:9100"
+ss -lntH | grep -Fq "$PRIVATE_IP:9187"
+firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="9100"'
+firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="9187"'
+test "$(git -C /opt/patchyard rev-parse HEAD)" = "$EXPECTED_REVISION"
+/usr/local/bin/caddy version
+chromium-browser --version 2>/dev/null || chromium --version
+! getent passwd gha-runner >/dev/null
+! systemctl list-unit-files --no-legend | grep -Eq 'gha-runner|tempo|otelcol'
+
+echo "control-plane qualification: pass"

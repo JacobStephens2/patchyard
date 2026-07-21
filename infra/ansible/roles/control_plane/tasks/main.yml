@@ -1,0 +1,159 @@
+---
+- name: Install EPEL for headless Chromium
+  ansible.builtin.dnf:
+    name: epel-release
+    state: present
+
+- name: Install control-plane packages
+  ansible.builtin.dnf:
+    name:
+      - chromium
+      - fontconfig
+    state: present
+
+- name: Create Caddy service identity
+  ansible.builtin.user:
+    name: caddy
+    comment: Caddy web server
+    create_home: false
+    home: /var/lib/caddy
+    password_lock: true
+    shell: /usr/sbin/nologin
+    system: true
+
+- name: Download pinned Caddy
+  ansible.builtin.get_url:
+    url: "https://github.com/caddyserver/caddy/releases/download/v{{ caddy_version }}/caddy_{{ caddy_version }}_linux_amd64.tar.gz"
+    dest: "/var/cache/caddy-{{ caddy_version }}.tar.gz"
+    checksum: "sha512:{{ caddy_sha512 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Create versioned Caddy directory
+  ansible.builtin.file:
+    path: "/opt/patchyard-tools/caddy-{{ caddy_version }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Unpack pinned Caddy
+  ansible.builtin.unarchive:
+    src: "/var/cache/caddy-{{ caddy_version }}.tar.gz"
+    dest: "/opt/patchyard-tools/caddy-{{ caddy_version }}"
+    remote_src: true
+    creates: "/opt/patchyard-tools/caddy-{{ caddy_version }}/caddy"
+
+- name: Link Caddy into the executable path
+  ansible.builtin.file:
+    src: "/opt/patchyard-tools/caddy-{{ caddy_version }}/caddy"
+    dest: /usr/local/bin/caddy
+    state: link
+    force: true
+    owner: root
+    group: root
+
+- name: Install control-plane qualification probe
+  ansible.builtin.copy:
+    src: qualify-factory-control
+    dest: /usr/local/sbin/qualify-factory-control
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Require a credential-free repository bundle
+  ansible.builtin.assert:
+    that:
+      - factory_repo_bundle is defined
+      - factory_repo_bundle | length > 0
+      - factory_repo_revision is defined
+      - factory_repo_revision is match('^[0-9a-f]{40}$')
+    fail_msg: "Use converge.sh so the control plane receives an exact Git bundle and revision."
+
+- name: Inspect the control-plane checkout
+  ansible.builtin.stat:
+    path: /opt/patchyard/.git
+  register: factory_checkout
+
+- name: Read the installed desired-state revision
+  ansible.builtin.command:
+    argv:
+      - git
+      - -C
+      - /opt/patchyard
+      - rev-parse
+      - HEAD
+  register: installed_factory_revision
+  changed_when: false
+  failed_when: false
+
+- name: Copy the bundle only when the checkout needs an update
+  ansible.builtin.copy:
+    src: "{{ factory_repo_bundle }}"
+    dest: /var/tmp/patchyard.bundle
+    owner: conductor
+    group: conductor
+    mode: "0600"
+  when: installed_factory_revision.stdout != factory_repo_revision
+
+- name: Create the credential-free control-plane checkout
+  ansible.builtin.command:
+    argv:
+      - git
+      - clone
+      - --no-checkout
+      - /var/tmp/patchyard.bundle
+      - /opt/patchyard
+  changed_when: true
+  when: not factory_checkout.stat.exists
+
+- name: Fetch the exact desired state from the bundle
+  ansible.builtin.command:
+    argv:
+      - git
+      - -C
+      - /opt/patchyard
+      - fetch
+      - /var/tmp/patchyard.bundle
+      - refs/heads/*:refs/remotes/bootstrap/*
+  changed_when: false
+  when: installed_factory_revision.stdout != factory_repo_revision
+
+- name: Check out the exact desired-state revision
+  ansible.builtin.command:
+    argv:
+      - git
+      - -C
+      - /opt/patchyard
+      - checkout
+      - --detach
+      - --force
+      - "{{ factory_repo_revision }}"
+  changed_when: true
+  when: installed_factory_revision.stdout != factory_repo_revision
+
+- name: Record the credential-free upstream URL
+  ansible.builtin.command:
+    argv:
+      - git
+      - -C
+      - /opt/patchyard
+      - remote
+      - set-url
+      - origin
+      - https://github.com/JacobStephens2/patchyard.git
+  changed_when: false
+
+- name: Make the management identity owner of the checkout
+  ansible.builtin.file:
+    path: /opt/patchyard
+    owner: conductor
+    group: conductor
+    recurse: true
+
+- name: Remove the transferred repository bundle
+  ansible.builtin.file:
+    path: /var/tmp/patchyard.bundle
+    state: absent
+  when: installed_factory_revision.stdout != factory_repo_revision

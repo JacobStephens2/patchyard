@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-07-21T00:00:00Z",
+  "source_host": "fieldbook.example.com",
+  "operating_system": "Rocky Linux 9.8",
+  "php_version": "8.4.21",
+  "httpd_version": "2.4.62",
+  "mysql_version": "8.4.8",
+  "configuration_sources": {
+    "/etc/httpd/conf/httpd.conf": "0b9e73f421625eb3375220edecdc3ae6a282c102e0bb1f5e519781c06a4cef50",
+    "/etc/httpd/conf.d/php.conf": "af1e2727fb6baffb778c0659aa80146de79e8156fc02618bd1fb88936c2f8f3e",
+    "/etc/httpd/conf.d/fieldbook.example.conf": "ebae0392fb398d51dfec4b9d6ff98ab39c0e6428bd0b3042eaa92efcba42a20c",
+    "/etc/httpd/conf.d/fieldbook.example-le-ssl.conf": "6ea05af83c65e1afb1b3090f9261b1ac0c5f8333602771b086893fb049e65cca"
+  },
+  "parity_adaptations": [
+    "HTTP only inside the no-inbound-network microVM; production TLS termination and certificates are not copied.",
+    "Production-only terminal reverse proxies are omitted because the worker exposes no terminal service.",
+    "DocumentRoot, directory policy, PHP-FPM Unix socket handling, authorization forwarding, index order, and TRACE/TRACK rejection match the production Fieldbook vhost."
+  ]
+}

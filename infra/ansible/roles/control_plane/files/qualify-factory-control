@@ -12,6 +12,7 @@ systemctl is-active --quiet node-exporter.service
 systemctl is-active --quiet postgres-exporter.service
 systemctl is-active --quiet postgresql.service
 systemctl is-active --quiet patchyard-postgresql-tls-metric.timer
+systemctl is-active --quiet patchyard-snapshot-metric.timer
 ss -lntH | grep -Fq "$PRIVATE_IP:9100"
 ss -lntH | grep -Fq "$PRIVATE_IP:9187"
 ss -lntH | grep -Fq "$PRIVATE_IP:5432"
@@ -60,6 +61,15 @@ assert_path /var/lib/pgsql/patchyard-tls/server.key postgres postgres 600
 assert_path /var/lib/pgsql/patchyard-tls/server.crt postgres postgres 644
 assert_path /etc/patchyard/postgresql-server-ca.crt root root 644
 assert_path /etc/patchyard/management-inventory.yml root factory-manager 640
+assert_path /var/lib/patchyard/snapshots factory-manager factory 700
+test -x /usr/local/sbin/build-redacted-snapshot
+test -x /usr/local/sbin/check-snapshot-eligibility
+test -x /usr/local/sbin/patchyard-run-fixture
+test -x /usr/local/sbin/patchyard-run-isolation-probe
+grep -Eq '^patchyard_parity_snapshot_age_days -?[0-9]+$' \
+  /var/lib/node_exporter/textfile_collector/patchyard_snapshot.prom
+grep -Eq '^patchyard_parity_snapshot_eligible [01]$' \
+  /var/lib/node_exporter/textfile_collector/patchyard_snapshot.prom
 
 test "$(postgres --version)" = 'postgres (PostgreSQL) 16.14'
 openssl x509 -checkend 2592000 -noout \

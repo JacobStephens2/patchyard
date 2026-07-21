@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "default": "deny",
+  "runtime_dns": "deny",
+  "qualification_rule": "A provider stays ineligible until Session 5 proves issuance, delivery, expiry, revocation, crash cleanup, and provider-side spend enforcement.",
+  "providers": {
+    "anthropic": {
+      "display_name": "Anthropic",
+      "hostnames": ["api.anthropic.com"],
+      "credential_qualified": false
+    },
+    "openai": {
+      "display_name": "OpenAI",
+      "hostnames": ["api.openai.com"],
+      "credential_qualified": false
+    },
+    "xai": {
+      "display_name": "xAI",
+      "hostnames": ["api.x.ai"],
+      "credential_qualified": false
+    },
+    "google": {
+      "display_name": "Google",
+      "hostnames": ["aiplatform.googleapis.com", "generativelanguage.googleapis.com"],
+      "credential_qualified": false
+    },
+    "meta": {
+      "display_name": "Meta",
+      "hostnames": ["api.meta.ai"],
+      "credential_qualified": false
+    },
+    "amazon-bedrock": {
+      "display_name": "Amazon (Bedrock)",
+      "hostnames": ["bedrock-runtime.us-east-1.amazonaws.com"],
+      "credential_qualified": false
+    },
+    "fireworks": {
+      "display_name": "Fireworks",
+      "hostnames": ["api.fireworks.ai"],
+      "credential_qualified": false
+    },
+    "cerebras": {
+      "display_name": "Cerebras",
+      "hostnames": ["api.cerebras.ai"],
+      "credential_qualified": false
+    },
+    "deepinfra": {
+      "display_name": "DeepInfra",
+      "hostnames": ["api.deepinfra.com"],
+      "credential_qualified": false
+    },
+    "novita": {
+      "display_name": "Novita",
+      "hostnames": ["api.novita.ai"],
+      "credential_qualified": false
+    },
+    "openrouter": {
+      "display_name": "OpenRouter",
+      "hostnames": ["openrouter.ai"],
+      "credential_qualified": false
+    },
+    "blackbox-ai": {
+      "display_name": "Blackbox AI",
+      "hostnames": ["api.blackbox.ai"],
+      "credential_qualified": false
+    },
+    "cohere": {
+      "display_name": "Cohere",
+      "hostnames": ["api.cohere.ai"],
+      "credential_qualified": false
+    }
+  }
+}

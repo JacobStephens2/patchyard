@@ -1,8 +1,8 @@
 # Factory model - generated diagram
 
-*Generated from `factory-model.json` schema v5, model
-v11 (2026-07-21), canonical identity
-`sha256:66e574fe70bea46041f3e3646251d16e43ef3154eeb90bf69a5383216e324a59`. Do not edit by hand - edit the model, update its identity,
+*Generated from `factory-model.json` schema v6, model
+v12 (2026-07-21), canonical identity
+`sha256:45cf6eaf2ceec3da045c9a5483525fcf9f6091413b7896acbd6e036986a9abfa`. Do not edit by hand - edit the model, update its identity,
 and re-run the projector. Hexagons = human; dashed rounded nodes = AI agent;
 rectangles = deterministic software. Dotted edges are decision or feedback
 paths; inspect their labels and endpoints to distinguish human gates from the
@@ -15,13 +15,15 @@ credentials, or execution access to the private network. The only runtime
 credential is `short-lived-spend-capped-model-only`. Bootstrap is performed by
 `orchestration-vm-agents` applying `opentofu` and
 `ansible` desired state from the
-`factory` repository; at runtime the control
-plane manages itself (`self`,
+`factory` repository as
+`bootstrap-break-glass-only`; at runtime
+`control-plane-factory-manager` manages the worker over
+`private-vpc-ssh` (
 no runtime dependency on orchestration host).
 
 ```mermaid
-%% factory-model schema v5, model v11
-%% canonical sha256:66e574fe70bea46041f3e3646251d16e43ef3154eeb90bf69a5383216e324a59
+%% factory-model schema v6, model v12
+%% canonical sha256:45cf6eaf2ceec3da045c9a5483525fcf9f6091413b7896acbd6e036986a9abfa
 flowchart LR
   intake["Intake<br/><i>deterministic</i>"]:::det
   triage(["Triage<br/><i>agent</i>"]):::agent

@@ -1,0 +1,13 @@
+[Unit]
+Description=Publish Patchyard Factory parity snapshot freshness metrics
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/patchyard-snapshot-metric
+User=root
+Group=root
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/node_exporter/textfile_collector

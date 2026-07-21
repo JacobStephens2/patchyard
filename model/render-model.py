@@ -88,8 +88,10 @@ credentials, or execution access to the private network. The only runtime
 credential is `{worker["runtimeCredential"]}`. Bootstrap is performed by
 `{management["bootstrapController"]}` applying `{management["provisioner"]}` and
 `{management["configurationManager"]}` desired state from the
-`{management["desiredStateRepository"]}` repository; at runtime the control
-plane manages itself (`{management["runtimeController"]}`,
+`{management["desiredStateRepository"]}` repository as
+`{management["bootstrapRole"]}`; at runtime
+`{management["runtimeController"]}` manages the worker over
+`{management["runtimeTransport"]}` (
 {deployment["independence"].replace("-", " ")}).
 
 ```mermaid

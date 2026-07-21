@@ -39,6 +39,17 @@ case "$MODE" in
     "$REPO_ROOT/infra/ansible/converge.sh"
     "$REPO_ROOT/infra/ansible/converge.sh"
     "$REPO_ROOT/infra/ansible/qualify.sh"
+    INVENTORY_JSON=$("$REPO_ROOT/infra/ansible/inventory/tofu.sh")
+    CONTROL_HOST=$(jq -r '.control_plane.hosts[0]' <<<"$INVENTORY_JSON")
+    CONTROL_IP=$(jq -r --arg host "$CONTROL_HOST" \
+      '._meta.hostvars[$host].ansible_host' <<<"$INVENTORY_JSON")
+    REPLACEMENT_EVIDENCE="/var/lib/patchyard/artifacts/worker-replacement-$(date -u +%Y%m%dT%H%M%SZ)"
+    ssh -i /var/lib/conductor/.ssh/id_ed25519 \
+      -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+      "conductor@$CONTROL_IP" \
+      sudo -u factory-manager /usr/local/sbin/patchyard-run-isolation-probe \
+      /var/lib/patchyard/snapshots/current "$REPLACEMENT_EVIDENCE"
+    "$REPO_ROOT/infra/ansible/qualify.sh"
     ;;
   *)
     echo "usage: $0 <plan /absolute/output/directory | apply /absolute/worker-replacement.tfplan>" >&2

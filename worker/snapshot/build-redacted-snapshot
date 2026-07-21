@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+usage() {
+  echo "usage: $0 /absolute/schema-only.sql YYYY-MM-DD /absolute/output-root" >&2
+  exit 2
+}
+
+[[ $# -eq 3 ]] || usage
+SCHEMA_SQL=$1
+SNAPSHOT_DATE=$2
+OUTPUT_ROOT=$3
+[[ "$SCHEMA_SQL" == /* && "$OUTPUT_ROOT" == /* ]] || usage
+[[ "$SNAPSHOT_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || usage
+date -u -d "$SNAPSHOT_DATE" +%F | grep -Fxq "$SNAPSHOT_DATE"
+[[ "$(date -u -d "$SNAPSHOT_DATE" +%s)" -le "$(date -u +%s)" ]]
+[[ -s "$SCHEMA_SQL" ]]
+
+ASSET_ROOT=/usr/local/share/patchyard-worker/snapshot
+SEED_SQL=$ASSET_ROOT/seed.sql
+POLICY=$ASSET_ROOT/snapshot-policy.json
+LINEAGE=$ASSET_ROOT/lineage.json
+
+for required in "$SEED_SQL" "$POLICY" "$LINEAGE"; do
+  [[ -s "$required" ]] || {
+    echo "missing snapshot lineage input: $required" >&2
+    exit 1
+  }
+done
+
+# The input is a schema-only projection of the already scrubbed training
+# database. Any row-bearing dump fails closed before it reaches the artifact.
+if grep -Eiq '^[[:space:]]*(INSERT|REPLACE|LOAD[[:space:]]+DATA)[[:space:]]' "$SCHEMA_SQL"; then
+  echo "snapshot source contains row-bearing SQL" >&2
+  exit 1
+fi
+grep -Eq 'CREATE TABLE' "$SCHEMA_SQL"
+
+SOURCE_SCHEMA_SHA256=$(sha256sum "$SCHEMA_SQL" | cut -d' ' -f1)
+SCRUB_SHA256=$(jq -r .training_scrub_sha256 "$LINEAGE")
+VALIDATE_SHA256=$(jq -r .training_validate_sha256 "$LINEAGE")
+LINEAGE_REVISION=$(jq -r .revision "$LINEAGE")
+[[ "$SCRUB_SHA256" =~ ^[0-9a-f]{64}$ && "$VALIDATE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+[[ "$LINEAGE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+POLICY_SHA256=$(sha256sum "$POLICY" | cut -d' ' -f1)
+VERSION="$SNAPSHOT_DATE-${SOURCE_SCHEMA_SHA256:0:12}"
+FINAL_DIR="$OUTPUT_ROOT/$VERSION"
+[[ ! -e "$FINAL_DIR" ]] || {
+  echo "snapshot already exists: $VERSION" >&2
+  exit 1
+}
+
+install -d -m 0700 "$OUTPUT_ROOT"
+BUILD_DIR=$(mktemp -d "$OUTPUT_ROOT/.build-$VERSION.XXXXXX")
+cleanup() { rm -r -- "$BUILD_DIR"; }
+trap cleanup EXIT
+
+{
+  printf 'SET NAMES latin1;\nSET FOREIGN_KEY_CHECKS=0;\n'
+  sed -E \
+    -e '/^--/d' \
+    -e '/^\/\*![0-9]+ DEFINER=/d' \
+    "$SCHEMA_SQL"
+  cat "$SEED_SQL"
+  printf 'SET FOREIGN_KEY_CHECKS=1;\n'
+} | gzip -n -9 >"$BUILD_DIR/snapshot.sql.gz"
+gzip -t "$BUILD_DIR/snapshot.sql.gz"
+SNAPSHOT_SQL_SHA256=$(sha256sum "$BUILD_DIR/snapshot.sql.gz" | cut -d' ' -f1)
+
+jq -n \
+  --arg snapshot_version "$VERSION" \
+  --arg snapshot_date "$SNAPSHOT_DATE" \
+  --arg source_schema_sha256 "$SOURCE_SCHEMA_SHA256" \
+  --arg snapshot_sql_sha256 "$SNAPSHOT_SQL_SHA256" \
+  --arg scrub_sha256 "$SCRUB_SHA256" \
+  --arg validate_sha256 "$VALIDATE_SHA256" \
+  --arg lineage_revision "$LINEAGE_REVISION" \
+  --arg policy_sha256 "$POLICY_SHA256" \
+  '{
+    schema_version: 1,
+    snapshot_version: $snapshot_version,
+    snapshot_date: $snapshot_date,
+    source: "fieldbook_training schema-only export",
+    source_schema_sha256: $source_schema_sha256,
+    snapshot_sql_sha256: $snapshot_sql_sha256,
+    redaction_lineage: {
+      manager_fieldbooks_revision: $lineage_revision,
+      training_scrub_sha256: $scrub_sha256,
+      training_validate_sha256: $validate_sha256
+    },
+    snapshot_policy_sha256: $policy_sha256,
+    data_shape: "production schema plus synthetic non-person seed; zero source rows"
+  }' >"$BUILD_DIR/snapshot.json"
+
+chmod 0600 "$BUILD_DIR/snapshot.sql.gz" "$BUILD_DIR/snapshot.json"
+/usr/local/sbin/check-snapshot-eligibility "$BUILD_DIR"
+mv "$BUILD_DIR" "$FINAL_DIR"
+trap - EXIT
+ln -sfn "$VERSION" "$OUTPUT_ROOT/current.tmp"
+mv -T "$OUTPUT_ROOT/current.tmp" "$OUTPUT_ROOT/current"
+echo "snapshot_version=$VERSION"

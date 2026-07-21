@@ -1,0 +1,6 @@
+mysql-community-client-8.4.8-1.el9
+mysql-community-client-plugins-8.4.8-1.el9
+mysql-community-common-8.4.8-1.el9
+mysql-community-icu-data-files-8.4.8-1.el9
+mysql-community-libs-8.4.8-1.el9
+mysql-community-server-8.4.8-1.el9

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "owner": "Patchyard IT Manager",
+  "run_max_seconds": 300,
+  "worker_host_max_age_days": 30,
+  "replacement_triggers": [
+    "worker host reaches its maximum age",
+    "a containment qualification fails",
+    "teardown leaves a process, tap, nftables table, jail, run directory, or credential file",
+    "the persistent BOUNDARY_TAINTED marker exists"
+  ],
+  "replacement_method": "human-reviewed OpenTofu worker replacement from the sole cloud writer; restore no worker state",
+  "readmission_gates": [
+    "two desired-state converges, with changed=0 on the second",
+    "host qualification",
+    "production Firecracker isolation probe",
+    "post-probe no-residue qualification"
+  ]
+}

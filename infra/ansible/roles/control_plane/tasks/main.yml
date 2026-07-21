@@ -136,6 +136,84 @@
     - artifacts
     - spool
 
+- name: Create the parity snapshot artifact root
+  ansible.builtin.file:
+    path: /var/lib/patchyard/snapshots
+    state: directory
+    owner: "{{ factory_manager_user }}"
+    group: factory
+    mode: "0700"
+
+- name: Create the installed snapshot desired-state directory
+  ansible.builtin.file:
+    path: /usr/local/share/patchyard-worker/snapshot
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the parity snapshot desired-state inputs
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../worker/snapshot/{{ item }}"
+    dest: "/usr/local/share/patchyard-worker/snapshot/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - lineage.json
+    - seed.sql
+
+- name: Install the parity snapshot policy
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../policy/snapshot-policy.json"
+    dest: /usr/local/share/patchyard-worker/snapshot/snapshot-policy.json
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install parity snapshot operations
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../worker/snapshot/{{ item }}"
+    dest: "/usr/local/sbin/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - build-redacted-snapshot
+    - check-snapshot-eligibility
+
+- name: Install the parity snapshot freshness metric generator
+  ansible.builtin.copy:
+    src: patchyard-snapshot-metric
+    dest: /usr/local/sbin/patchyard-snapshot-metric
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install parity snapshot freshness metric units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - patchyard-snapshot-metric.service
+    - patchyard-snapshot-metric.timer
+
+- name: Enable the parity snapshot freshness metric timer
+  ansible.builtin.systemd:
+    name: patchyard-snapshot-metric.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Publish the initial parity snapshot freshness metric
+  ansible.builtin.systemd:
+    name: patchyard-snapshot-metric.service
+    state: started
+  changed_when: false
+
 - name: Check whether PostgreSQL is initialized
   ansible.builtin.stat:
     path: /var/lib/pgsql/data/PG_VERSION
@@ -728,6 +806,22 @@
   ansible.builtin.copy:
     src: patchyard-converge-hosts
     dest: /usr/local/sbin/patchyard-converge-hosts
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
+    mode: "0750"
+
+- name: Install the inter-host Session 4 fixture runner
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../../worker/runtime/patchyard-run-fixture"
+    dest: /usr/local/sbin/patchyard-run-fixture
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
+    mode: "0750"
+
+- name: Install the production-runtime isolation probe runner
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../../worker/runtime/patchyard-run-isolation-probe"
+    dest: /usr/local/sbin/patchyard-run-isolation-probe
     owner: "{{ factory_manager_user }}"
     group: "{{ factory_manager_user }}"
     mode: "0750"

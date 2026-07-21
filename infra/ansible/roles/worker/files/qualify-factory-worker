@@ -3,6 +3,7 @@ set -euo pipefail
 
 PRIVATE_IP=${1:?private address required}
 CONTROL_PLANE_PRIVATE_CIDR=${2:?control-plane private CIDR required}
+EXPECTED_RECIPE_SHA256=${3:?worker image recipe SHA-256 required}
 
 FACTORY_WORKER_GID=$(getent group factory-worker | cut -d: -f3)
 IFS=: read -r _ _ FACTORY_WORKER_UID FACTORY_WORKER_PRIMARY_GID _ FACTORY_WORKER_HOME FACTORY_WORKER_SHELL \
@@ -39,7 +40,28 @@ test ! -e /run/patchyard-postgres
 ! systemctl list-unit-files --no-legend | grep -Eq 'gha-runner|tempo|otelcol'
 test ! -S /var/run/docker.sock
 ! command -v podman >/dev/null
-! command -v firecracker >/dev/null
+test "$(firecracker --version)" = 'Firecracker v1.15.1'
+test "$(jailer --version)" = 'Jailer v1.15.1'
+test -c /dev/kvm
+id -nG factory-worker | tr ' ' '\n' | grep -Fxq kvm
+echo 'e20e46d0c36c55c0d1014eb20576171b3f3d922260d9f792017aeff53af3d4f2  /opt/patchyard-worker/images/vmlinux' \
+  | sha256sum --check --status
+echo "$(</opt/patchyard-worker/images/fieldbook-parity.sha256)  /opt/patchyard-worker/images/fieldbook-parity.ext4" \
+  | sha256sum --check --status
+e2fsck -fn /opt/patchyard-worker/images/fieldbook-parity.ext4 >/dev/null
+test "$(</opt/patchyard-worker/images/fieldbook-parity.recipe-sha256)" = \
+  "$EXPECTED_RECIPE_SHA256"
+jq -e '[.providers[].credential_qualified] | all(. == false)' \
+  /etc/patchyard-worker/provider-egress.json >/dev/null
+jq -e '.schema_version == 1 and .run_max_seconds == 300 and .worker_host_max_age_days == 30' \
+  /etc/patchyard-worker/worker-lifecycle.json >/dev/null
+BOOT_EPOCH=$(stat -c %Y /var/lib/cloud/instance/boot-finished)
+MAX_AGE_DAYS=$(jq -r .worker_host_max_age_days \
+  /etc/patchyard-worker/worker-lifecycle.json)
+test "$(( ($(date -u +%s) - BOOT_EPOCH) / 86400 ))" -le "$MAX_AGE_DAYS"
+test "$(find /run/patchyard-worker -mindepth 1 | wc -l)" -eq 0
+test "$(find /var/tmp/patchyard-worker -mindepth 1 | wc -l)" -eq 0
+test ! -e /var/lib/patchyard-worker/BOUNDARY_TAINTED
 
 if timeout 3 bash -c '</dev/tcp/10.132.0.14/9090' 2>/dev/null; then
   echo "worker private-network egress probe unexpectedly succeeded" >&2

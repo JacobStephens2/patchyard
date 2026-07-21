@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+RECIPE_ROOT=/usr/local/share/patchyard-worker/image
+IMAGE_ROOT=/opt/patchyard-worker/images
+CACHE_ROOT=/var/cache/patchyard-worker
+EXPECTED_RECIPE_SHA256=${1:?expected recipe SHA-256 required}
+
+# shellcheck source=/dev/null
+source "$RECIPE_ROOT/pins.env"
+
+recipe_sha256() {
+  find "$RECIPE_ROOT" -type f -printf '%P\0' \
+    | LC_ALL=C sort -z \
+    | while IFS= read -r -d '' relative; do
+        printf '%s  %s\n' "$(sha256sum "$RECIPE_ROOT/$relative" | cut -d' ' -f1)" "$relative"
+      done \
+    | sha256sum \
+    | cut -d' ' -f1
+}
+
+ACTUAL_RECIPE_SHA256=$(recipe_sha256)
+if [[ "$ACTUAL_RECIPE_SHA256" != "$EXPECTED_RECIPE_SHA256" ]]; then
+  echo "worker image recipe hash mismatch" >&2
+  exit 1
+fi
+
+ROOTFS="$IMAGE_ROOT/fieldbook-parity.ext4"
+MARKER="$IMAGE_ROOT/fieldbook-parity.recipe-sha256"
+if [[ -f "$ROOTFS" && -f "$MARKER" ]] \
+  && [[ "$(<"$MARKER")" == "$EXPECTED_RECIPE_SHA256" ]] \
+  && e2fsck -fn "$ROOTFS" >/dev/null 2>&1; then
+  echo "parity image already matches recipe $EXPECTED_RECIPE_SHA256"
+  exit 0
+fi
+
+BUILD_ROOT=$(mktemp -d /var/tmp/patchyard-image.XXXXXX)
+MOUNT_ROOT="$BUILD_ROOT/rootfs"
+STAGED_ROOTFS="$BUILD_ROOT/fieldbook-parity.ext4"
+MOUNTED=false
+cleanup() {
+  if $MOUNTED; then
+    umount "$MOUNT_ROOT" >/dev/null 2>&1 || true
+  fi
+  rm -r -- "$BUILD_ROOT"
+}
+trap cleanup EXIT
+
+install -d -m 0755 "$IMAGE_ROOT" "$CACHE_ROOT" "$MOUNT_ROOT"
+
+fetch_pinned() {
+  local url=$1 expected=$2 destination=$3
+  if [[ ! -f "$destination" ]] \
+    || [[ "$(sha256sum "$destination" | cut -d' ' -f1)" != "$expected" ]]; then
+    curl --fail --location --retry 3 --output "$destination.tmp" "$url"
+    echo "$expected  $destination.tmp" | sha256sum --check --status
+    mv "$destination.tmp" "$destination"
+  fi
+  echo "$expected  $destination" | sha256sum --check --status
+}
+
+fetch_pinned "$REMI_RELEASE_URL" "$REMI_RELEASE_SHA256" \
+  "$CACHE_ROOT/remi-release-9.rpm"
+fetch_pinned "$MYSQL_RELEASE_URL" "$MYSQL_RELEASE_SHA256" \
+  "$CACHE_ROOT/mysql84-community-release-el9-2.noarch.rpm"
+
+truncate -s "${ROOTFS_SIZE_GIB}G" "$STAGED_ROOTFS"
+mkfs.ext4 -F -L ETA_ROOT "$STAGED_ROOTFS" >/dev/null
+mount -o loop "$STAGED_ROOTFS" "$MOUNT_ROOT"
+MOUNTED=true
+
+DNF=(
+  dnf
+  --installroot="$MOUNT_ROOT"
+  --releasever="$ROCKY_RELEASE"
+  --setopt=install_weak_deps=False
+  --setopt=keepcache=False
+  --setopt=module_platform_id=platform:el9
+  --assumeyes
+)
+
+"${DNF[@]}" install rocky-release rocky-repos rocky-gpg-keys
+"${DNF[@]}" --nogpgcheck install \
+  "$CACHE_ROOT/remi-release-9.rpm" \
+  "$CACHE_ROOT/mysql84-community-release-el9-2.noarch.rpm"
+"${DNF[@]}" module reset php
+"${DNF[@]}" module enable php:remi-8.4
+
+mapfile -t HTTPD_PACKAGES <"$RECIPE_ROOT/httpd-packages.txt"
+mapfile -t PHP_PACKAGES <"$RECIPE_ROOT/php-packages.txt"
+mapfile -t MYSQL_PACKAGES <"$RECIPE_ROOT/mysql-packages.txt"
+"${DNF[@]}" install \
+  bash bind-utils ca-certificates coreutils curl-minimal diffutils e2fsprogs findutils \
+  gawk git gzip hostname iproute iputils jq procps-ng shadow-utils systemd \
+  systemd-udev tar util-linux \
+  "${HTTPD_PACKAGES[@]}" "${PHP_PACKAGES[@]}" "${MYSQL_PACKAGES[@]}"
+"${DNF[@]}" clean all
+
+install -d -m 0755 \
+  "$MOUNT_ROOT/etc/systemd/network" \
+  "$MOUNT_ROOT/etc/systemd/system" \
+  "$MOUNT_ROOT/usr/local/sbin" \
+  "$MOUNT_ROOT/var/lib/patchyard-guest"
+
+install -m 0755 "$RECIPE_ROOT/patchyard-guest-run" \
+  "$MOUNT_ROOT/usr/local/sbin/patchyard-guest-run"
+install -m 0755 "$RECIPE_ROOT/patchyard-toy-agent" \
+  "$MOUNT_ROOT/usr/local/bin/patchyard-toy-agent"
+echo "$CANDIDATE_PROBE_SHA256  /usr/local/share/patchyard-worker/probes/candidate-probe.sh" \
+  | sha256sum --check --status
+install -m 0755 /usr/local/share/patchyard-worker/probes/candidate-probe.sh \
+  "$MOUNT_ROOT/usr/local/sbin/candidate-probe"
+install -m 0644 "$RECIPE_ROOT/patchyard-guest-run.service" \
+  "$MOUNT_ROOT/etc/systemd/system/patchyard-guest-run.service"
+install -m 0644 "$RECIPE_ROOT/patchyard-parity.conf" \
+  "$MOUNT_ROOT/etc/httpd/conf.d/patchyard-parity.conf"
+install -m 0644 "$RECIPE_ROOT/10-eth0.network" \
+  "$MOUNT_ROOT/etc/systemd/network/10-eth0.network"
+
+printf 'nameserver 127.0.0.1\noptions attempts:1 timeout:1\n' \
+  >"$MOUNT_ROOT/etc/resolv.conf"
+printf 'Patchyard Factory parity guest\n' >"$MOUNT_ROOT/etc/hostname"
+printf 'LABEL=ETA_ROOT / ext4 defaults 0 1\n' >"$MOUNT_ROOT/etc/fstab"
+
+chroot "$MOUNT_ROOT" /usr/sbin/groupadd --gid 1000 factory-agent
+chroot "$MOUNT_ROOT" /usr/sbin/useradd \
+  --uid 1000 --gid 1000 --home-dir /home/factory-agent \
+  --create-home --shell /bin/bash factory-agent
+chroot "$MOUNT_ROOT" /usr/bin/passwd --lock factory-agent >/dev/null
+
+systemctl --root="$MOUNT_ROOT" enable systemd-networkd.service >/dev/null
+systemctl --root="$MOUNT_ROOT" enable patchyard-guest-run.service >/dev/null
+systemctl --root="$MOUNT_ROOT" disable \
+  firewalld.service sshd.service mysqld.service httpd.service php-fpm.service \
+  >/dev/null 2>&1 || true
+
+rm -f -- "$MOUNT_ROOT/etc/machine-id"
+touch "$MOUNT_ROOT/etc/machine-id"
+rm -rf -- \
+  "$MOUNT_ROOT/var/cache/dnf" \
+  "$MOUNT_ROOT/var/lib/dnf/history" \
+  "$MOUNT_ROOT/var/log"/*
+
+sync
+umount "$MOUNT_ROOT"
+MOUNTED=false
+e2fsck -fy "$STAGED_ROOTFS" >/dev/null
+resize2fs -M "$STAGED_ROOTFS" >/dev/null
+
+ROOTFS_SHA256=$(sha256sum "$STAGED_ROOTFS" | cut -d' ' -f1)
+mv "$STAGED_ROOTFS" "$ROOTFS"
+printf '%s\n' "$EXPECTED_RECIPE_SHA256" >"$MARKER.tmp"
+mv "$MARKER.tmp" "$MARKER"
+printf '%s\n' "$ROOTFS_SHA256" >"$IMAGE_ROOT/fieldbook-parity.sha256.tmp"
+mv "$IMAGE_ROOT/fieldbook-parity.sha256.tmp" "$IMAGE_ROOT/fieldbook-parity.sha256"
+chmod 0644 "$ROOTFS" "$MARKER" "$IMAGE_ROOT/fieldbook-parity.sha256"
+echo "built parity image sha256=$ROOTFS_SHA256 recipe=$EXPECTED_RECIPE_SHA256"

@@ -27,7 +27,7 @@
       "const": "./factory-model.schema.json"
     },
     "schemaVersion": {
-      "const": 5
+      "const": 6
     },
     "modelVersion": {
       "type": "integer",
@@ -248,7 +248,9 @@
           "additionalProperties": false,
           "required": [
             "bootstrapController",
+            "bootstrapRole",
             "runtimeController",
+            "runtimeTransport",
             "provisioner",
             "configurationManager",
             "desiredStateRepository"
@@ -257,8 +259,14 @@
             "bootstrapController": {
               "const": "orchestration-vm-agents"
             },
+            "bootstrapRole": {
+              "const": "bootstrap-break-glass-only"
+            },
             "runtimeController": {
-              "const": "self"
+              "const": "control-plane-factory-manager"
+            },
+            "runtimeTransport": {
+              "const": "private-vpc-ssh"
             },
             "provisioner": {
               "const": "opentofu"
@@ -293,7 +301,9 @@
         "fleetCredentials",
         "executionPrivateNetworkAccess",
         "runtimeCredential",
-        "executionBoundary"
+        "executionBoundary",
+        "qualifiedFallback",
+        "parityDatabase"
       ],
       "properties": {
         "host": {
@@ -321,7 +331,13 @@
           "const": "short-lived-spend-capped-model-only"
         },
         "executionBoundary": {
-          "const": "firecracker-or-rootless-podman"
+          "const": "firecracker-1.15.1"
+        },
+        "qualifiedFallback": {
+          "const": "rootless-podman-5.8.2"
+        },
+        "parityDatabase": {
+          "const": "mysql-8.4-per-run-redacted-snapshot"
         }
       }
     },

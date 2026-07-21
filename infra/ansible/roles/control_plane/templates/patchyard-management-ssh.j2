@@ -39,7 +39,8 @@ case "$OPERATION" in
       exit 2
     }
     "${SSH[@]}" sudo /usr/local/sbin/qualify-factory-worker \
-      "$TARGET_IP" "{{ control_plane_private_cidr }}"
+      "$TARGET_IP" "{{ control_plane_private_cidr }}" \
+      "{{ worker_image_recipe_sha256 }}"
     ;;
   block-breakglass)
     [[ "$TARGET" == worker ]] || {

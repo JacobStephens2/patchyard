@@ -23,6 +23,11 @@ Sessions 0-4 own:
   TLS/private-VPC `grafana_ro` listener;
 - a daily node_exporter textfile metric for PostgreSQL certificate expiry. The
   non-secret trust root is `/etc/patchyard/postgresql-server-ca.crt`.
+- Firecracker 1.15.1, the reproducible production-parity guest image, the
+  fail-static redacted snapshot pipeline, and the bounded inter-host worker
+  launchers described in `../../docs/session-4-worker-runtime.md`;
+- an hourly parity-snapshot freshness metric. The fleet alert rule remains an
+  external Prometheus/Grafana handoff.
 
 It deliberately installs no self-hosted Actions runner or Tempo/OTLP collector.
 Session 3 selected Firecracker; Session 4 owns its production installation and
@@ -56,7 +61,9 @@ worker identity contracts, PostgreSQL exposure and peer maps, the complete
 runtime grant matrix, the Grafana canary boundary, and every factory
 state-directory owner, group, and mode. It also proves A101 live: while a timed
 worker rule rejects orchestration, the control-plane identity still reaches and
-qualifies the worker over the private VPC.
+qualifies the worker over the private VPC. Worker qualification also verifies
+the Firecracker/kernel/rootfs pins, 30-day host lifetime, zero runtime residue,
+and the fail-closed boundary-taint state.
 
 After bootstrap, the control plane can re-apply the current host-local desired
 state without orchestration or cloud credentials:

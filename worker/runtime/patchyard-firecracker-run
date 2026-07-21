@@ -1,0 +1,385 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+usage() {
+  echo "usage: $0 /absolute/run.json /absolute/source.tar.gz /absolute/request.md /absolute/snapshot-dir /absolute/output-dir" >&2
+  exit 2
+}
+
+[[ $# -eq 5 ]] || usage
+MANIFEST=$1
+SOURCE_ARCHIVE=$2
+REQUEST=$3
+SNAPSHOT_DIR=$4
+OUTPUT_DIR=$5
+for path in "$MANIFEST" "$SOURCE_ARCHIVE" "$REQUEST" "$SNAPSHOT_DIR" "$OUTPUT_DIR"; do
+  [[ "$path" == /* ]] || usage
+done
+[[ -f "$MANIFEST" && -f "$SOURCE_ARCHIVE" && -f "$REQUEST" ]]
+[[ -f "$SNAPSHOT_DIR/snapshot.sql.gz" && -f "$SNAPSHOT_DIR/snapshot.json" ]]
+[[ ! -e "$OUTPUT_DIR" ]]
+
+RUNTIME_ROOT=/var/tmp/patchyard-worker
+TMPFS_ROOT=/run/patchyard-worker
+IMAGE_ROOT=/opt/patchyard-worker/images
+POLICY=/etc/patchyard-worker/provider-egress.json
+LIFECYCLE_POLICY=/etc/patchyard-worker/worker-lifecycle.json
+FIRECRACKER=/usr/local/bin/firecracker
+JAILER=/usr/local/bin/jailer
+KERNEL="$IMAGE_ROOT/vmlinux"
+ROOTFS_TEMPLATE="$IMAGE_ROOT/fieldbook-parity.ext4"
+ROOTFS_SHA_FILE="$IMAGE_ROOT/fieldbook-parity.sha256"
+ROOTFS_RECIPE_FILE="$IMAGE_ROOT/fieldbook-parity.recipe-sha256"
+LOCK_FILE=/run/lock/patchyard-worker.lock
+TAINT_FILE=/var/lib/patchyard-worker/BOUNDARY_TAINTED
+[[ ! -e "$TAINT_FILE" ]] || {
+  echo "worker is boundary-tainted and must be replaced and re-qualified" >&2
+  exit 1
+}
+
+jq -e '
+  .schema_version == 1
+  and (.run_id | test("^[a-z0-9][a-z0-9-]{0,62}$"))
+  and (.base_sha | test("^[0-9a-f]{40}$"))
+  and (.source_archive_sha256 | test("^[0-9a-f]{64}$"))
+  and (.request_sha256 | test("^[0-9a-f]{64}$"))
+  and (.snapshot_sql_sha256 | test("^[0-9a-f]{64}$"))
+  and (.snapshot_manifest_sha256 | test("^[0-9a-f]{64}$"))
+  and (.provider | test("^(none|[a-z0-9][a-z0-9-]{0,31})$"))
+  and (.mode == "fixture" or .mode == "provider-qualification")
+  and (.credential_required | type == "boolean")
+  and (.spend_cap_cents | type == "number" and . >= 0 and . <= 5000)
+' "$MANIFEST" >/dev/null
+
+RUN_ID=$(jq -r .run_id "$MANIFEST")
+BASE_SHA=$(jq -r .base_sha "$MANIFEST")
+PROVIDER=$(jq -r .provider "$MANIFEST")
+MODE=$(jq -r .mode "$MANIFEST")
+CREDENTIAL_REQUIRED=$(jq -r .credential_required "$MANIFEST")
+SOURCE_EXPECTED=$(jq -r .source_archive_sha256 "$MANIFEST")
+REQUEST_EXPECTED=$(jq -r .request_sha256 "$MANIFEST")
+SNAPSHOT_SQL_EXPECTED=$(jq -r .snapshot_sql_sha256 "$MANIFEST")
+SNAPSHOT_MANIFEST_EXPECTED=$(jq -r .snapshot_manifest_sha256 "$MANIFEST")
+
+[[ "$(sha256sum "$SOURCE_ARCHIVE" | cut -d' ' -f1)" == "$SOURCE_EXPECTED" ]]
+[[ "$(sha256sum "$REQUEST" | cut -d' ' -f1)" == "$REQUEST_EXPECTED" ]]
+[[ "$(sha256sum "$SNAPSHOT_DIR/snapshot.sql.gz" | cut -d' ' -f1)" == "$SNAPSHOT_SQL_EXPECTED" ]]
+[[ "$(sha256sum "$SNAPSHOT_DIR/snapshot.json" | cut -d' ' -f1)" == "$SNAPSHOT_MANIFEST_EXPECTED" ]]
+[[ "$(jq -r .snapshot_sql_sha256 "$SNAPSHOT_DIR/snapshot.json")" == "$SNAPSHOT_SQL_EXPECTED" ]]
+/usr/local/sbin/check-snapshot-eligibility "$SNAPSHOT_DIR" >/dev/null
+ROOTFS_SHA256=$(<"$ROOTFS_SHA_FILE")
+IMAGE_RECIPE_SHA256=$(<"$ROOTFS_RECIPE_FILE")
+PARITY_MANIFEST_SHA256=$(sha256sum \
+  /usr/local/share/patchyard-worker/image/production-parity.json | cut -d' ' -f1)
+echo "$ROOTFS_SHA256  $ROOTFS_TEMPLATE" | sha256sum --check --status
+
+exec 9>"$LOCK_FILE"
+flock -n 9 || {
+  echo "worker already has an active microVM" >&2
+  exit 1
+}
+
+SHORT_ID=$(printf '%s' "$RUN_ID" | sha256sum | cut -c1-10)
+TAP="ef${SHORT_ID:0:8}"
+NFT_TABLE="eta_fc_${SHORT_ID}"
+HOST_IP=172.16.0.1
+GUEST_IP=172.16.0.2
+JAIL_BASE="$RUNTIME_ROOT/jailer"
+JAIL_ROOT="$JAIL_BASE/firecracker/$RUN_ID/root"
+SOURCE_STAGE="$RUNTIME_ROOT/source-$RUN_ID"
+INPUT_STAGE="$RUNTIME_ROOT/input-$RUN_ID"
+RUN_TMPFS="$TMPFS_ROOT/$RUN_ID"
+RESULT_EXTRACT="$RUNTIME_ROOT/result-extract-$RUN_ID"
+ACCEPT_TEMP=
+JAILER_PID=
+BASE_FORWARD=$(sysctl -n net.ipv4.ip_forward)
+
+remove_runtime() {
+  set +e
+  if [[ -n "$JAILER_PID" ]]; then
+    kill -KILL -- "-$JAILER_PID" >/dev/null 2>&1 || true
+    kill -KILL "$JAILER_PID" >/dev/null 2>&1 || true
+    wait "$JAILER_PID" >/dev/null 2>&1 || true
+  fi
+  pkill -KILL -u factory-worker -f -- "--id=$RUN_ID" >/dev/null 2>&1 || true
+  mountpoint -q "$JAIL_ROOT/credential.ext4" && umount "$JAIL_ROOT/credential.ext4"
+  nft delete table inet "$NFT_TABLE" >/dev/null 2>&1 || true
+  ip link delete "$TAP" >/dev/null 2>&1 || true
+  sysctl -q -w "net.ipv4.ip_forward=$BASE_FORWARD" >/dev/null
+  rm -rf -- "$JAIL_BASE/firecracker/$RUN_ID" "$SOURCE_STAGE" "$INPUT_STAGE" \
+    "$RUN_TMPFS" "$RESULT_EXTRACT" "$RUNTIME_ROOT/console-$RUN_ID.log"
+}
+
+cleanup_and_taint() {
+  local rc=$?
+  remove_runtime
+  if [[ -n "$ACCEPT_TEMP" ]]; then
+    rm -rf -- "$ACCEPT_TEMP"
+    ACCEPT_TEMP=
+  fi
+  local residue=0
+  pgrep -u factory-worker -f -- "--id=$RUN_ID" >/dev/null 2>&1 && residue=1
+  ip -o link show "$TAP" >/dev/null 2>&1 && residue=1
+  nft list table inet "$NFT_TABLE" >/dev/null 2>&1 && residue=1
+  [[ -e "$JAIL_BASE/firecracker/$RUN_ID" || -e "$RUN_TMPFS" \
+    || -e "$RUNTIME_ROOT/console-$RUN_ID.log" ]] && residue=1
+  local reason=
+  [[ "$residue" -ne 0 ]] && reason=cleanup-residue
+  if [[ "$MODE" == provider-qualification && "$rc" -ne 0 ]]; then
+    reason=containment-qualification-failed
+  fi
+  if [[ -n "$reason" ]]; then
+    printf 'run=%s reason=%s detected_at=%s\n' \
+      "$RUN_ID" "$reason" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      >"$TAINT_FILE"
+  fi
+}
+trap cleanup_and_taint EXIT
+
+install -d -m 0750 "$RUNTIME_ROOT" "$JAIL_ROOT" "$SOURCE_STAGE" "$INPUT_STAGE"
+install -d -m 0700 "$RUN_TMPFS"
+install -d -m 0700 "$RESULT_EXTRACT"
+
+tar -xzf "$SOURCE_ARCHIVE" -C "$SOURCE_STAGE" --no-same-owner --no-same-permissions
+if [[ "$MODE" == fixture ]]; then
+  [[ -d "$SOURCE_STAGE/mfieldbook" ]]
+else
+  [[ -f "$SOURCE_STAGE/base.txt" ]]
+fi
+git -C "$SOURCE_STAGE" init --quiet
+git -C "$SOURCE_STAGE" config user.name 'Patchyard Factory base'
+git -C "$SOURCE_STAGE" config user.email 'factory@example.invalid'
+git -C "$SOURCE_STAGE" add -A
+GIT_AUTHOR_DATE=2000-01-01T00:00:00Z GIT_COMMITTER_DATE=2000-01-01T00:00:00Z \
+  git -C "$SOURCE_STAGE" commit --quiet -m 'Exact transferred base tree'
+printf '.patchyard-base-sha\n' >>"$SOURCE_STAGE/.git/info/exclude"
+printf '%s\n' "$BASE_SHA" >"$SOURCE_STAGE/.patchyard-base-sha"
+chown -R 1000:1000 "$SOURCE_STAGE"
+
+install -m 0400 "$MANIFEST" "$INPUT_STAGE/run.json"
+install -m 0400 "$REQUEST" "$INPUT_STAGE/request.md"
+install -m 0400 "$SNAPSHOT_DIR/snapshot.sql.gz" "$INPUT_STAGE/snapshot.sql.gz"
+install -m 0400 "$SNAPSHOT_DIR/snapshot.json" "$INPUT_STAGE/snapshot.json"
+: >"$INPUT_STAGE/provider-hosts"
+jq -n \
+  --arg rootfs_sha256 "$ROOTFS_SHA256" \
+  --arg image_recipe_sha256 "$IMAGE_RECIPE_SHA256" \
+  --arg production_parity_sha256 "$PARITY_MANIFEST_SHA256" \
+  '{
+    schema_version: 1,
+    rootfs_sha256: $rootfs_sha256,
+    image_recipe_sha256: $image_recipe_sha256,
+    production_parity_sha256: $production_parity_sha256
+  }' >"$INPUT_STAGE/image.json"
+
+ALLOWED_IPS=()
+if [[ "$PROVIDER" == none ]]; then
+  [[ "$MODE" == fixture && "$CREDENTIAL_REQUIRED" == false ]]
+else
+  jq -e --arg provider "$PROVIDER" '.providers[$provider] != null' "$POLICY" >/dev/null
+  if [[ "$MODE" != provider-qualification ]]; then
+    jq -e --arg provider "$PROVIDER" '.providers[$provider].credential_qualified == true' \
+      "$POLICY" >/dev/null
+  fi
+  mapfile -t PROVIDER_HOSTS < <(jq -r --arg provider "$PROVIDER" \
+    '.providers[$provider].hostnames[]' "$POLICY")
+  for hostname in "${PROVIDER_HOSTS[@]}"; do
+    mapfile -t resolved < <(getent ahostsv4 "$hostname" \
+      | awk '{print $1}' | sort -u)
+    [[ ${#resolved[@]} -gt 0 ]]
+    for address in "${resolved[@]}"; do
+      [[ "$address" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
+      ALLOWED_IPS+=("$address")
+      printf '%s %s\n' "$address" "$hostname" >>"$INPUT_STAGE/provider-hosts"
+    done
+  done
+fi
+
+if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
+  CAPABILITY="$RUN_TMPFS/capability.json"
+  dd if=/dev/stdin of="$CAPABILITY" bs=65536 count=1 status=none
+  [[ -s "$CAPABILITY" && "$(stat -c %s "$CAPABILITY")" -le 65536 ]]
+  CAPABILITY_SHA=$(sha256sum "$CAPABILITY" | cut -d' ' -f1)
+  [[ "$CAPABILITY_SHA" == "$(jq -r .capability_sha256 "$MANIFEST")" ]]
+  NOW=$(date -u +%s)
+  EXPIRES=$(jq -r '.expires_at | fromdateiso8601' "$CAPABILITY")
+  jq -e --arg provider "$PROVIDER" --argjson cap "$(jq -r .spend_cap_cents "$MANIFEST")" '
+    .schema_version == 1
+    and .provider == $provider
+    and (.capability_id | test("^[a-zA-Z0-9_-]{8,128}$"))
+    and (.secret | type == "string" and length >= 16 and length <= 8192)
+    and (.spend_cap_cents | type == "number" and . > 0 and . <= $cap)
+    and (.expires_at | type == "string")
+  ' "$CAPABILITY" >/dev/null
+  [[ "$EXPIRES" -gt "$NOW" && "$EXPIRES" -le $((NOW + 3600)) ]]
+fi
+
+truncate -s 256M "$JAIL_ROOT/input.ext4"
+mkfs.ext4 -q -F -L ETA_INPUT -d "$INPUT_STAGE" "$JAIL_ROOT/input.ext4"
+truncate -s 4G "$JAIL_ROOT/work.ext4"
+mkfs.ext4 -q -F -L ETA_WORK -d "$SOURCE_STAGE" "$JAIL_ROOT/work.ext4"
+truncate -s 16M "$JAIL_ROOT/result.ext4"
+mkfs.ext4 -q -F -L ETA_RESULT "$JAIL_ROOT/result.ext4"
+if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
+  install -d -m 0700 "$RUN_TMPFS/credential-root"
+  install -m 0400 "$RUN_TMPFS/capability.json" \
+    "$RUN_TMPFS/credential-root/capability.json"
+  truncate -s 4M "$RUN_TMPFS/credential.ext4"
+  mkfs.ext4 -q -F -L ETA_CREDENTIAL -d "$RUN_TMPFS/credential-root" \
+    "$RUN_TMPFS/credential.ext4"
+  # Keep the capability-backed drive on host tmpfs. A bind mount makes the
+  # image visible inside the jail without ever copying its bytes to disk.
+  touch "$JAIL_ROOT/credential.ext4"
+  mount --bind "$RUN_TMPFS/credential.ext4" "$JAIL_ROOT/credential.ext4"
+fi
+
+cp --reflink=auto --sparse=always "$ROOTFS_TEMPLATE" "$JAIL_ROOT/rootfs.ext4"
+cp "$KERNEL" "$JAIL_ROOT/vmlinux"
+touch "$JAIL_ROOT/firecracker.log"
+
+DRIVES=$(jq -n \
+  '[
+    {drive_id:"rootfs", path_on_host:"/rootfs.ext4", is_root_device:true, is_read_only:false},
+    {drive_id:"input", path_on_host:"/input.ext4", is_root_device:false, is_read_only:true},
+    {drive_id:"work", path_on_host:"/work.ext4", is_root_device:false, is_read_only:false},
+    {drive_id:"result", path_on_host:"/result.ext4", is_root_device:false, is_read_only:false}
+  ]')
+if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
+  DRIVES=$(jq '. + [{drive_id:"credential", path_on_host:"/credential.ext4", is_root_device:false, is_read_only:true}]' <<<"$DRIVES")
+fi
+jq -n \
+  --argjson drives "$DRIVES" \
+  '{
+    "boot-source": {
+      "kernel_image_path": "/vmlinux",
+      "boot_args": "console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw ipv6.disable=1"
+    },
+    "drives": $drives,
+    "network-interfaces": [{
+      "iface_id": "net1",
+      "guest_mac": "06:00:AC:10:00:02",
+      "host_dev_name": "TAP_PLACEHOLDER"
+    }],
+    "machine-config": {"vcpu_count": 4, "mem_size_mib": 4096, "smt": false},
+    "logger": {
+      "log_path": "/firecracker.log",
+      "level": "Warning",
+      "show_level": true,
+      "show_log_origin": false
+    }
+  }' | sed "s/TAP_PLACEHOLDER/$TAP/" >"$JAIL_ROOT/config.json"
+
+FACTORY_UID=$(id -u factory-worker)
+FACTORY_GID=$(id -g factory-worker)
+chown -R "$FACTORY_UID:$FACTORY_GID" "$JAIL_ROOT"
+
+ip tuntap add dev "$TAP" mode tap user factory-worker
+ip addr add "$HOST_IP/30" dev "$TAP"
+ip link set "$TAP" up
+sysctl -q -w net.ipv4.ip_forward=1
+
+nft add table inet "$NFT_TABLE"
+nft "add chain inet $NFT_TABLE input { type filter hook input priority -100; policy accept; }"
+nft "add chain inet $NFT_TABLE forward { type filter hook forward priority -100; policy accept; }"
+nft "add chain inet $NFT_TABLE postrouting { type nat hook postrouting priority srcnat; policy accept; }"
+nft add rule inet "$NFT_TABLE" input iifname "$TAP" counter reject
+nft add rule inet "$NFT_TABLE" forward oifname "$TAP" ct state established,related counter accept
+if [[ ${#ALLOWED_IPS[@]} -gt 0 ]]; then
+  ADDRESS_SET=$(IFS=,; echo "${ALLOWED_IPS[*]}")
+  nft "add rule inet $NFT_TABLE forward iifname $TAP ip daddr { $ADDRESS_SET } tcp dport 443 ct state new,established counter accept"
+fi
+nft add rule inet "$NFT_TABLE" forward iifname "$TAP" ip daddr 0.0.0.0/0 counter reject
+nft add rule inet "$NFT_TABLE" forward iifname "$TAP" ip6 daddr ::/0 counter reject
+nft add rule inet "$NFT_TABLE" postrouting ip saddr 172.16.0.0/30 oifname != "$TAP" masquerade
+
+setsid "$JAILER" \
+  --id "$RUN_ID" \
+  --exec-file "$FIRECRACKER" \
+  --uid "$FACTORY_UID" \
+  --gid "$FACTORY_GID" \
+  --chroot-base-dir "$JAIL_BASE" \
+  --cgroup-version 2 \
+  --resource-limit no-file=1024 \
+  --resource-limit fsize=17179869184 \
+  --new-pid-ns \
+  -- \
+  --api-sock /api.sock \
+  --config-file /config.json \
+  >"$RUNTIME_ROOT/console-$RUN_ID.log" 2>&1 &
+JAILER_PID=$!
+
+RUN_MAX_SECONDS=$(jq -r .run_max_seconds "$LIFECYCLE_POLICY")
+[[ "$RUN_MAX_SECONDS" =~ ^[0-9]+$ && "$RUN_MAX_SECONDS" -ge 1 && "$RUN_MAX_SECONDS" -le 900 ]]
+DEADLINE=$((SECONDS + RUN_MAX_SECONDS))
+while kill -0 "$JAILER_PID" >/dev/null 2>&1; do
+  if [[ "$SECONDS" -ge "$DEADLINE" ]]; then
+    echo "microVM exceeded ${RUN_MAX_SECONDS}-second run ceiling" >&2
+    exit 1
+  fi
+  sleep 0.25
+done
+wait "$JAILER_PID" || {
+  tail -n 80 "$RUNTIME_ROOT/console-$RUN_ID.log" >&2
+  exit 1
+}
+JAILER_PID=
+
+# The guest controls this filesystem's bytes. Parse it in bounded user space;
+# never mount a guest-written filesystem into the host kernel.
+e2fsck -fn "$JAIL_ROOT/result.ext4" >/dev/null
+mapfile -t RESULT_ENTRIES < <(
+  debugfs -R 'ls -p /' "$JAIL_ROOT/result.ext4" 2>/dev/null \
+    | awk -F/ 'NF >= 7 && $6 != "." && $6 != ".." && $6 != "lost+found" {print $6}' \
+    | LC_ALL=C sort
+)
+[[ "${RESULT_ENTRIES[*]}" == 'change.patch evidence.json rationale.txt status' ]]
+for expected in change.patch rationale.txt evidence.json status; do
+  debugfs -R "stat /$expected" "$JAIL_ROOT/result.ext4" 2>/dev/null \
+    | grep -Eq 'Type:[[:space:]]+regular'
+  debugfs -R "dump -p /$expected $RESULT_EXTRACT/$expected" \
+    "$JAIL_ROOT/result.ext4" >/dev/null 2>&1
+  [[ -f "$RESULT_EXTRACT/$expected" && ! -L "$RESULT_EXTRACT/$expected" ]]
+done
+[[ "$(<"$RESULT_EXTRACT/status")" == success ]]
+[[ "$(stat -c %s "$RESULT_EXTRACT/change.patch")" -le 1048576 ]]
+[[ "$(stat -c %s "$RESULT_EXTRACT/rationale.txt")" -le 65536 ]]
+[[ "$(stat -c %s "$RESULT_EXTRACT/evidence.json")" -le 131072 ]]
+jq -e --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
+  --arg rootfs_sha256 "$ROOTFS_SHA256" \
+  --arg image_recipe_sha256 "$IMAGE_RECIPE_SHA256" \
+  --arg production_parity_sha256 "$PARITY_MANIFEST_SHA256" \
+  '.schema_version == 1
+    and .run_id == $run_id
+    and .base_sha == $base_sha
+    and .rootfs_sha256 == $rootfs_sha256
+    and .image_recipe_sha256 == $image_recipe_sha256
+    and .production_parity_sha256 == $production_parity_sha256
+    and .git_remote_count == 0
+    and .credential_removed_before_output == true' \
+  "$RESULT_EXTRACT/evidence.json" >/dev/null
+[[ "$(sha256sum "$RESULT_EXTRACT/change.patch" | cut -d' ' -f1)" == "$(jq -r .patch_sha256 "$RESULT_EXTRACT/evidence.json")" ]]
+git -c safe.directory="$SOURCE_STAGE" -C "$SOURCE_STAGE" \
+  apply --check "$RESULT_EXTRACT/change.patch"
+
+ACCEPT_TEMP=$(mktemp -d "$(dirname "$OUTPUT_DIR")/.patchyard-result.XXXXXX")
+install -m 0600 "$RESULT_EXTRACT/change.patch" "$ACCEPT_TEMP/change.patch"
+install -m 0600 "$RESULT_EXTRACT/rationale.txt" "$ACCEPT_TEMP/rationale.txt"
+install -m 0600 "$RESULT_EXTRACT/evidence.json" "$ACCEPT_TEMP/evidence.json"
+
+remove_runtime
+
+[[ "$(pgrep -u factory-worker -f -- "--id=$RUN_ID" | wc -l)" -eq 0 ]]
+[[ "$(ip -o link show "$TAP" 2>/dev/null | wc -l)" -eq 0 ]]
+[[ "$(nft list table inet "$NFT_TABLE" 2>/dev/null | wc -l)" -eq 0 ]]
+[[ ! -e "$JAIL_BASE/firecracker/$RUN_ID" && ! -e "$RUN_TMPFS" ]]
+trap - EXIT
+
+jq '. + {host_teardown: {processes: 0, taps: 0, nftables_tables: 0, run_directories: 0, credential_files: 0}}' \
+  "$ACCEPT_TEMP/evidence.json" >"$ACCEPT_TEMP/evidence.json.tmp"
+mv "$ACCEPT_TEMP/evidence.json.tmp" "$ACCEPT_TEMP/evidence.json"
+mv "$ACCEPT_TEMP" "$OUTPUT_DIR"
+ACCEPT_TEMP=
+CALLER=${SUDO_USER:-root}
+chown -R "$CALLER:$CALLER" "$OUTPUT_DIR"
+echo "factory worker run complete: $RUN_ID"

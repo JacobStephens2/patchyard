@@ -10,6 +10,9 @@ WORKER_IP=$(jq -r --arg host "$WORKER_HOST" '._meta.hostvars[$host].ansible_host
 CONTROL_PRIVATE_IP=$(jq -r --arg host "$CONTROL_HOST" '._meta.hostvars[$host].private_ip' <<<"$INVENTORY_JSON")
 WORKER_PRIVATE_IP=$(jq -r --arg host "$WORKER_HOST" '._meta.hostvars[$host].private_ip' <<<"$INVENTORY_JSON")
 FACTORY_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
+WORKER_IMAGE_RECIPE_SHA256=$(sed -n \
+  's/^worker_image_recipe_sha256:[[:space:]]*//p' \
+  "$REPO_ROOT/infra/ansible/group_vars/all.yml")
 SSH_ARGS=(-i /var/lib/conductor/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
 FRESH_SSH_ARGS=("${SSH_ARGS[@]}" -o ControlMaster=no -o ControlPath=none -o ConnectTimeout=4)
 
@@ -21,7 +24,8 @@ ssh "${SSH_ARGS[@]}" "conductor@$CONTROL_IP" \
 echo "qualifying worker $WORKER_HOST"
 ssh "${SSH_ARGS[@]}" "conductor@$WORKER_IP" \
   sudo /usr/local/sbin/qualify-factory-worker \
-    "$WORKER_PRIVATE_IP" "$CONTROL_PRIVATE_IP/32"
+    "$WORKER_PRIVATE_IP" "$CONTROL_PRIVATE_IP/32" \
+    "$WORKER_IMAGE_RECIPE_SHA256"
 
 run_factory_manager() {
   ssh "${SSH_ARGS[@]}" "conductor@$CONTROL_IP" \

@@ -1,0 +1,265 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+RESULT_MOUNTED=false
+INPUT_MOUNTED=false
+WORK_MOUNTED=false
+CREDENTIAL_MOUNTED=false
+STATUS=error
+FAILURE=guest-runner-failed
+
+poweroff_guest() {
+  sync
+  systemctl reboot --force --force >/dev/null 2>&1 || reboot -f
+}
+
+finish() {
+  local rc=$?
+  set +e
+  if $RESULT_MOUNTED; then
+    if [[ "$STATUS" != success ]]; then
+      printf '%s\n' "$FAILURE" > /result/status
+    fi
+    sync /result
+  fi
+  $CREDENTIAL_MOUNTED && umount /credential
+  $WORK_MOUNTED && umount /work
+  $INPUT_MOUNTED && umount /input
+  $RESULT_MOUNTED && umount /result
+  poweroff_guest
+  exit "$rc"
+}
+trap finish EXIT
+
+for label in ETA_INPUT ETA_WORK ETA_RESULT; do
+  for _ in $(seq 1 100); do
+    [[ -e "/dev/disk/by-label/$label" ]] && break
+    sleep 0.05
+  done
+  [[ -e "/dev/disk/by-label/$label" ]] || {
+    FAILURE="missing-drive-$label"
+    exit 1
+  }
+done
+
+install -d -m 0755 /input /work /result
+mount -o ro,nosuid,nodev,noexec /dev/disk/by-label/ETA_INPUT /input
+INPUT_MOUNTED=true
+mount -o rw,nosuid,nodev /dev/disk/by-label/ETA_WORK /work
+WORK_MOUNTED=true
+mount -o rw,nosuid,nodev,noexec /dev/disk/by-label/ETA_RESULT /result
+RESULT_MOUNTED=true
+
+MANIFEST=/input/run.json
+jq -e '
+  .schema_version == 1
+  and (.run_id | test("^[a-z0-9][a-z0-9-]{0,62}$"))
+  and (.base_sha | test("^[0-9a-f]{40}$"))
+  and (.source_archive_sha256 | test("^[0-9a-f]{64}$"))
+  and (.request_sha256 | test("^[0-9a-f]{64}$"))
+  and (.snapshot_sql_sha256 | test("^[0-9a-f]{64}$"))
+  and (.snapshot_manifest_sha256 | test("^[0-9a-f]{64}$"))
+  and (.mode == "fixture" or .mode == "provider-qualification")
+' "$MANIFEST" >/dev/null
+
+RUN_ID=$(jq -r .run_id "$MANIFEST")
+BASE_SHA=$(jq -r .base_sha "$MANIFEST")
+REQUEST_SHA=$(jq -r .request_sha256 "$MANIFEST")
+SNAPSHOT_SQL_SHA=$(jq -r .snapshot_sql_sha256 "$MANIFEST")
+SNAPSHOT_MANIFEST_SHA=$(jq -r .snapshot_manifest_sha256 "$MANIFEST")
+PROVIDER=$(jq -r .provider "$MANIFEST")
+MODE=$(jq -r .mode "$MANIFEST")
+IMAGE_MANIFEST=/input/image.json
+jq -e '
+  .schema_version == 1
+  and (.rootfs_sha256 | test("^[0-9a-f]{64}$"))
+  and (.image_recipe_sha256 | test("^[0-9a-f]{64}$"))
+  and (.production_parity_sha256 | test("^[0-9a-f]{64}$"))
+' "$IMAGE_MANIFEST" >/dev/null
+ROOTFS_SHA=$(jq -r .rootfs_sha256 "$IMAGE_MANIFEST")
+IMAGE_RECIPE_SHA=$(jq -r .image_recipe_sha256 "$IMAGE_MANIFEST")
+PRODUCTION_PARITY_SHA=$(jq -r .production_parity_sha256 "$IMAGE_MANIFEST")
+
+[[ "$(sha256sum /input/request.md | cut -d' ' -f1)" == "$REQUEST_SHA" ]]
+[[ "$(sha256sum /input/snapshot.sql.gz | cut -d' ' -f1)" == "$SNAPSHOT_SQL_SHA" ]]
+[[ "$(sha256sum /input/snapshot.json | cut -d' ' -f1)" == "$SNAPSHOT_MANIFEST_SHA" ]]
+[[ "$(</work/.patchyard-base-sha)" == "$BASE_SHA" ]]
+[[ -d /work/.git ]]
+[[ -z "$(git -C /work remote)" ]]
+[[ -z "$(git -C /work status --porcelain)" ]]
+
+if [[ -s /input/provider-hosts ]]; then
+  while read -r address hostname extra; do
+    [[ -z "${extra:-}" ]]
+    [[ "$address" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
+    [[ "$hostname" =~ ^[a-z0-9.-]+$ ]]
+    printf '%s %s\n' "$address" "$hostname" >>/etc/hosts
+  done </input/provider-hosts
+fi
+
+CREDENTIAL_REQUIRED=$(jq -r .credential_required "$MANIFEST")
+CAPABILITY_FILE=
+if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
+  [[ -e /dev/disk/by-label/ETA_CREDENTIAL ]]
+  install -d -m 0700 /credential /run/patchyard-capability
+  mount -o ro,nosuid,nodev,noexec /dev/disk/by-label/ETA_CREDENTIAL /credential
+  CREDENTIAL_MOUNTED=true
+  install -m 0400 -o factory-agent -g factory-agent \
+    /credential/capability.json /run/patchyard-capability/capability.json
+  umount /credential
+  CREDENTIAL_MOUNTED=false
+  CAPABILITY_FILE=/run/patchyard-capability/capability.json
+fi
+
+if [[ "$MODE" == provider-qualification ]]; then
+  [[ "$PROVIDER" == openai && "$CREDENTIAL_REQUIRED" == false ]]
+  [[ -f /work/base.txt ]]
+  /usr/local/sbin/candidate-probe > /run/session3-probe.log
+  runuser -u factory-agent -- git -C /work add -N .
+  runuser -u factory-agent -- git -C /work diff --binary --full-index \
+    > /result/change.patch
+  [[ -s /result/change.patch ]]
+  printf '%s\n' \
+    'Replayed the unchanged Session 3 mount, egress, boundary, and credential-absence probe inside the production Firecracker image.' \
+    > /result/rationale.txt
+  PATCH_SHA=$(sha256sum /result/change.patch | cut -d' ' -f1)
+  PROBE_SHA=$(sha256sum /run/session3-probe.log | cut -d' ' -f1)
+  PROBE_LOG=$(jq -Rs . </run/session3-probe.log)
+  jq -n \
+    --arg run_id "$RUN_ID" \
+    --arg base_sha "$BASE_SHA" \
+    --arg request_sha256 "$REQUEST_SHA" \
+    --arg provider "$PROVIDER" \
+    --arg patch_sha256 "$PATCH_SHA" \
+    --arg rootfs_sha256 "$ROOTFS_SHA" \
+    --arg image_recipe_sha256 "$IMAGE_RECIPE_SHA" \
+    --arg production_parity_sha256 "$PRODUCTION_PARITY_SHA" \
+    --arg probe_sha256 "$PROBE_SHA" \
+    --argjson probe_log "$PROBE_LOG" \
+    '{
+      schema_version: 1,
+      run_id: $run_id,
+      base_sha: $base_sha,
+      request_sha256: $request_sha256,
+      provider: $provider,
+      patch_sha256: $patch_sha256,
+      rootfs_sha256: $rootfs_sha256,
+      image_recipe_sha256: $image_recipe_sha256,
+      production_parity_sha256: $production_parity_sha256,
+      git_remote_count: 0,
+      credential_removed_before_output: true,
+      session3_probe_sha256: $probe_sha256,
+      session3_probe_log: $probe_log
+    }' > /result/evidence.json
+  printf 'success\n' > /result/status
+  STATUS=success
+  FAILURE=
+  exit 0
+fi
+
+rm -rf -- /var/lib/mysql/*
+install -d -m 0750 -o mysql -g mysql /var/lib/mysql /run/mysqld
+mysqld --initialize-insecure --user=mysql --datadir=/var/lib/mysql
+systemctl start mysqld.service
+for _ in $(seq 1 120); do
+  mysqladmin --protocol=socket --socket=/var/lib/mysql/mysql.sock ping \
+    >/dev/null 2>&1 && break
+  sleep 0.25
+done
+mysqladmin --protocol=socket --socket=/var/lib/mysql/mysql.sock ping >/dev/null
+mysql --protocol=socket --socket=/var/lib/mysql/mysql.sock -uroot <<'SQL'
+CREATE DATABASE fieldbook_training CHARACTER SET latin1 COLLATE latin1_swedish_ci;
+CREATE USER 'factory'@'127.0.0.1' IDENTIFIED BY 'factory-local-only';
+GRANT ALL ON fieldbook_training.* TO 'factory'@'127.0.0.1';
+SQL
+gzip -cd /input/snapshot.sql.gz \
+  | mysql --protocol=socket --socket=/var/lib/mysql/mysql.sock -uroot fieldbook_training
+
+install -d -m 0755 /var/www
+ln -sfn /work /var/www/html
+cp /work/mfieldbook/system_specific/settings_template.php \
+  /work/mfieldbook/system_specific/settings.php
+sed -i \
+  -e "/'db.example.com' => \[/,/^[[:space:]]*\],/ s/'host'[[:space:]]*=>[[:space:]]*'[^']*'/'host'     => '127.0.0.1'/" \
+  -e "/'db.example.com' => \[/,/^[[:space:]]*\],/ s/'username'[[:space:]]*=>[[:space:]]*'[^']*'/'username' => 'factory'/" \
+  -e "/'db.example.com' => \[/,/^[[:space:]]*\],/ s/'password'[[:space:]]*=>[[:space:]]*'[^']*'/'password' => 'factory-local-only'/" \
+  -e "/'db.example.com' => \[/,/^[[:space:]]*\],/ s/'database'[[:space:]]*=>[[:space:]]*'[^']*'/'database' => 'fieldbook_training'/" \
+  /work/mfieldbook/system_specific/settings.php
+chown factory-agent:factory-agent /work/mfieldbook/system_specific/settings.php
+
+systemctl start php-fpm.service
+systemctl start httpd.service
+APP_STATUS=$(curl --silent --output /run/fieldbook-index.html \
+  --write-out '%{http_code}' --max-time 20 http://127.0.0.1/index.php)
+[[ "$APP_STATUS" =~ ^(200|302)$ ]]
+
+[[ "$MODE" == fixture && "$PROVIDER" == none ]]
+RATIONALE=$(runuser -u factory-agent -- env -i \
+  HOME=/home/factory-agent PATH=/usr/local/bin:/usr/bin:/bin \
+  PATCHYARD_CAPABILITY_FILE="$CAPABILITY_FILE" \
+  /usr/local/bin/patchyard-toy-agent /input/request.md /work)
+rm -f -- "$CAPABILITY_FILE"
+rmdir /run/patchyard-capability >/dev/null 2>&1 || true
+
+PROBE_BODY=$(curl --fail --silent --max-time 20 \
+  http://127.0.0.1/mfieldbook/patchyard_session4_probe.php)
+[[ "$PROBE_BODY" == 'Session 4 factory worker|redacted-snapshot-row' ]]
+QUERY_ROWS=$(mysql --protocol=socket --socket=/var/lib/mysql/mysql.sock \
+  -uroot --batch --skip-column-names fieldbook_training \
+  -e 'SELECT COUNT(*) FROM etaFactoryParitySeed')
+[[ "$QUERY_ROWS" -ge 1 ]]
+
+runuser -u factory-agent -- git -C /work add -N .
+runuser -u factory-agent -- git -C /work diff --binary --full-index \
+  > /result/change.patch
+[[ -s /result/change.patch ]]
+printf '%s\n' "$RATIONALE" > /result/rationale.txt
+
+PHP_ACTUAL=$(php -r 'echo PHP_VERSION;')
+HTTPD_ACTUAL=$(httpd -v | sed -n '1s#Server version: Apache/##; s# (.*##p')
+MYSQL_ACTUAL=$(mysql --protocol=socket --socket=/var/lib/mysql/mysql.sock \
+  -uroot --batch --skip-column-names -e 'SELECT VERSION()')
+SNAPSHOT_VERSION=$(jq -r .snapshot_version /input/snapshot.json)
+PATCH_SHA=$(sha256sum /result/change.patch | cut -d' ' -f1)
+
+jq -n \
+  --arg run_id "$RUN_ID" \
+  --arg base_sha "$BASE_SHA" \
+  --arg request_sha256 "$REQUEST_SHA" \
+  --arg snapshot_version "$SNAPSHOT_VERSION" \
+  --arg snapshot_sql_sha256 "$SNAPSHOT_SQL_SHA" \
+  --arg php_version "$PHP_ACTUAL" \
+  --arg httpd_version "$HTTPD_ACTUAL" \
+  --arg mysql_version "$MYSQL_ACTUAL" \
+  --arg app_http_status "$APP_STATUS" \
+  --arg query_rows "$QUERY_ROWS" \
+  --arg provider "$PROVIDER" \
+  --arg patch_sha256 "$PATCH_SHA" \
+  --arg rootfs_sha256 "$ROOTFS_SHA" \
+  --arg image_recipe_sha256 "$IMAGE_RECIPE_SHA" \
+  --arg production_parity_sha256 "$PRODUCTION_PARITY_SHA" \
+  '{
+    schema_version: 1,
+    run_id: $run_id,
+    base_sha: $base_sha,
+    request_sha256: $request_sha256,
+    snapshot_version: $snapshot_version,
+    snapshot_sql_sha256: $snapshot_sql_sha256,
+    php_version: $php_version,
+    httpd_version: $httpd_version,
+    mysql_version: $mysql_version,
+    app_http_status: ($app_http_status | tonumber),
+    seeded_query_rows: ($query_rows | tonumber),
+    provider: $provider,
+    patch_sha256: $patch_sha256,
+    rootfs_sha256: $rootfs_sha256,
+    image_recipe_sha256: $image_recipe_sha256,
+    production_parity_sha256: $production_parity_sha256,
+    git_remote_count: 0,
+    credential_removed_before_output: true
+  }' > /result/evidence.json
+
+printf 'success\n' > /result/status
+STATUS=success
+FAILURE=

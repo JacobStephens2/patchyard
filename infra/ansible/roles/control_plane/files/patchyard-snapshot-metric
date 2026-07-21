@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 022
+
+SNAPSHOT_ROOT=/var/lib/patchyard/snapshots
+POLICY=/usr/local/share/patchyard-worker/snapshot/snapshot-policy.json
+METRIC_ROOT=/var/lib/node_exporter/textfile_collector
+OUTPUT=$METRIC_ROOT/patchyard_snapshot.prom
+TEMP=$(mktemp "$METRIC_ROOT/.patchyard_snapshot.XXXXXX")
+trap 'rm -f -- "$TEMP"' EXIT
+
+age_days=-1
+eligible=0
+stale=1
+if [[ -f "$SNAPSHOT_ROOT/current/snapshot.json" ]]; then
+  snapshot_date=$(jq -r .snapshot_date "$SNAPSHOT_ROOT/current/snapshot.json")
+  snapshot_epoch=$(date -u -d "$snapshot_date" +%s)
+  age_days=$((( $(date -u +%s) - snapshot_epoch ) / 86400))
+  warn_days=$(jq -r .warn_after_days "$POLICY")
+  [[ "$age_days" -le "$warn_days" ]] && stale=0
+  if /usr/local/sbin/check-snapshot-eligibility "$SNAPSHOT_ROOT/current" \
+    >/dev/null 2>&1; then
+    eligible=1
+  fi
+fi
+
+cat >"$TEMP" <<EOF
+# HELP patchyard_parity_snapshot_age_days Age of the current parity snapshot in whole days, or -1 when absent.
+# TYPE patchyard_parity_snapshot_age_days gauge
+patchyard_parity_snapshot_age_days $age_days
+# HELP patchyard_parity_snapshot_stale Whether snapshot age has crossed the warning threshold.
+# TYPE patchyard_parity_snapshot_stale gauge
+patchyard_parity_snapshot_stale $stale
+# HELP patchyard_parity_snapshot_eligible Whether the current snapshot may enter a new worker run.
+# TYPE patchyard_parity_snapshot_eligible gauge
+patchyard_parity_snapshot_eligible $eligible
+EOF
+chmod 0644 "$TEMP"
+mv "$TEMP" "$OUTPUT"
+trap - EXIT

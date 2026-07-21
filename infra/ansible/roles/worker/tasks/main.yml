@@ -4,6 +4,17 @@
     name: factory-worker
     system: true
 
+- name: Install Firecracker image and runtime prerequisites
+  ansible.builtin.dnf:
+    name:
+      - dnf-plugins-core
+      - e2fsprogs
+      - gzip
+      - openssl
+      - procps-ng
+      - util-linux
+    state: present
+
 - name: Create the unprivileged worker identity
   ansible.builtin.user:
     name: factory-worker
@@ -15,6 +26,13 @@
     shell: /bin/bash
     system: true
 
+- name: Give the worker VMM access only to KVM
+  ansible.builtin.user:
+    name: factory-worker
+    groups:
+      - kvm
+    append: true
+
 - name: Restrict the worker home
   ansible.builtin.file:
     path: /var/lib/patchyard-worker
@@ -22,6 +40,158 @@
     owner: factory-worker
     group: factory-worker
     mode: "0700"
+
+- name: Create worker desired-state and image directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - path: /usr/local/share/patchyard-worker/image
+      mode: "0755"
+    - path: /usr/local/share/patchyard-worker/snapshot
+      mode: "0755"
+    - path: /usr/local/share/patchyard-worker/probes
+      mode: "0755"
+    - path: /etc/patchyard-worker
+      mode: "0755"
+    - path: /opt/patchyard-worker/images
+      mode: "0755"
+    - path: /var/cache/patchyard-worker
+      mode: "0755"
+
+- name: Install the parity image recipe
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../worker/image/"
+    dest: /usr/local/share/patchyard-worker/image/
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Make parity image recipe entry points executable
+  ansible.builtin.file:
+    path: "/usr/local/share/patchyard-worker/image/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - build-parity-image
+    - patchyard-guest-run
+    - patchyard-toy-agent
+
+- name: Install the unchanged Session 3 candidate probe
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../research/isolation/harness/candidate-probe.sh"
+    dest: /usr/local/share/patchyard-worker/probes/candidate-probe.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the provider egress policy
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../policy/provider-egress.json"
+    dest: /etc/patchyard-worker/provider-egress.json
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install the worker lifecycle policy
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../policy/worker-lifecycle.json"
+    dest: /etc/patchyard-worker/worker-lifecycle.json
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install the production Firecracker launcher
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../worker/runtime/patchyard-firecracker-run"
+    dest: /usr/local/sbin/patchyard-firecracker-run
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install the snapshot eligibility guard
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../worker/snapshot/check-snapshot-eligibility"
+    dest: /usr/local/sbin/check-snapshot-eligibility
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the snapshot policy for runtime eligibility checks
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../policy/snapshot-policy.json"
+    dest: /usr/local/share/patchyard-worker/snapshot/snapshot-policy.json
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Download the checksum-pinned Firecracker release
+  ansible.builtin.get_url:
+    url: "{{ firecracker_release_url }}"
+    dest: "/var/cache/patchyard-worker/firecracker-v{{ firecracker_version }}.tgz"
+    checksum: "sha256:{{ firecracker_release_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Create the versioned Firecracker directory
+  ansible.builtin.file:
+    path: "/opt/patchyard-worker/firecracker-{{ firecracker_version }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Unpack the checksum-pinned Firecracker release
+  ansible.builtin.unarchive:
+    src: "/var/cache/patchyard-worker/firecracker-v{{ firecracker_version }}.tgz"
+    dest: "/opt/patchyard-worker/firecracker-{{ firecracker_version }}"
+    remote_src: true
+    creates: >-
+      /opt/patchyard-worker/firecracker-{{ firecracker_version }}/release-v{{ firecracker_version }}-x86_64/firecracker-v{{ firecracker_version }}-x86_64
+
+- name: Link the pinned Firecracker binaries
+  ansible.builtin.file:
+    src: >-
+      /opt/patchyard-worker/firecracker-{{ firecracker_version }}/release-v{{ firecracker_version }}-x86_64/{{ item }}-v{{ firecracker_version }}-x86_64
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    force: true
+    owner: root
+    group: root
+  loop:
+    - firecracker
+    - jailer
+
+- name: Download the checksum-pinned Firecracker guest kernel
+  ansible.builtin.get_url:
+    url: "{{ firecracker_guest_kernel_url }}"
+    dest: /opt/patchyard-worker/images/vmlinux
+    checksum: "sha256:{{ firecracker_guest_kernel_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Inspect the installed parity image recipe marker
+  ansible.builtin.slurp:
+    src: /opt/patchyard-worker/images/fieldbook-parity.recipe-sha256
+  register: worker_image_recipe_marker
+  failed_when: false
+
+- name: Build the production parity root filesystem
+  ansible.builtin.command:
+    argv:
+      - /usr/local/share/patchyard-worker/image/build-parity-image
+      - "{{ worker_image_recipe_sha256 }}"
+  when: >-
+    worker_image_recipe_marker.content is not defined
+    or (worker_image_recipe_marker.content | b64decode | trim)
+       != worker_image_recipe_sha256
+  changed_when: true
 
 - name: Install worker qualification probe
   ansible.builtin.copy:

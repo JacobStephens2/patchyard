@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 EXPECTED_REVISION=${1:?expected repository revision required}
 PRIVATE_IP=${2:?private address required}
+QUALIFICATION_TEMP=$(mktemp -d /tmp/patchyard-control-qualification.XXXXXX)
+trap 'rm -r -- "$QUALIFICATION_TEMP"' EXIT
 
 systemctl is-active --quiet node-exporter.service
 systemctl is-active --quiet postgres-exporter.service
@@ -160,9 +163,13 @@ grep -Eq '^patchyard_postgresql_tls_certificate_remaining_seconds [0-9]+$' \
 TLS_REMAINING=$(awk '/^patchyard_postgresql_tls_certificate_remaining_seconds / {print $2}' \
   /var/lib/node_exporter/textfile_collector/patchyard_postgresql_tls.prom)
 test "$TLS_REMAINING" -gt 2592000
-curl --fail --silent "http://$PRIVATE_IP:9187/metrics" | grep -Eq '^pg_up 1(\.0)?$'
-curl --fail --silent "http://$PRIVATE_IP:9100/metrics" \
-  | grep -q '^patchyard_postgresql_tls_certificate_remaining_seconds '
+curl --fail --silent --output "$QUALIFICATION_TEMP/postgres.metrics" \
+  "http://$PRIVATE_IP:9187/metrics"
+grep -Eq '^pg_up 1(\.0)?$' "$QUALIFICATION_TEMP/postgres.metrics"
+curl --fail --silent --output "$QUALIFICATION_TEMP/node.metrics" \
+  "http://$PRIVATE_IP:9100/metrics"
+grep -q '^patchyard_postgresql_tls_certificate_remaining_seconds ' \
+  "$QUALIFICATION_TEMP/node.metrics"
 
 /usr/local/bin/caddy version
 chromium-browser --version 2>/dev/null || chromium --version

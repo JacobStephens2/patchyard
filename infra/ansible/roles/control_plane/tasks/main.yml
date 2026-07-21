@@ -116,10 +116,14 @@
       - --add
       - --type
       - postgresql_var_run_t
-      - "{{ postgresql_socket_directory }}(/.*)?"
+      - "{{ postgresql_socket_directory | regex_replace('^/run', '/var/run') }}(/.*)?"
   when: >-
     postgresql_local_fcontexts.stdout_lines
-    | select('search', postgresql_socket_directory | regex_escape)
+    | select(
+        'search',
+        (postgresql_socket_directory | regex_replace('^/run', '/var/run'))
+        | regex_escape
+      )
     | list
     | length == 0
   changed_when: true
@@ -132,10 +136,14 @@
       - --modify
       - --type
       - postgresql_var_run_t
-      - "{{ postgresql_socket_directory }}(/.*)?"
+      - "{{ postgresql_socket_directory | regex_replace('^/run', '/var/run') }}(/.*)?"
   when: >-
     postgresql_local_fcontexts.stdout_lines
-    | select('search', postgresql_socket_directory | regex_escape)
+    | select(
+        'search',
+        (postgresql_socket_directory | regex_replace('^/run', '/var/run'))
+        | regex_escape
+      )
     | reject('search', 'postgresql_var_run_t')
     | list
     | length > 0

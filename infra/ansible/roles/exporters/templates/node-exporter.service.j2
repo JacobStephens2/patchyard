@@ -30,7 +30,7 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictNamespaces=yes
 RestrictRealtime=yes
 SystemCallArchitectures=native
-SystemCallFilter=@system-service adjtimex
+SystemCallFilter=@system-service adjtimex open_tree
 UMask=0077
 
 [Install]

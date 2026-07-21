@@ -1,15 +1,16 @@
 {
   "$schema": "./factory-model.schema.json",
   "schemaVersion": 5,
-  "modelVersion": 10,
-  "updated": "2026-07-18",
+  "modelVersion": 11,
+  "updated": "2026-07-21",
   "rulings": [
     "A39",
     "A47",
     "A49",
     "A50",
     "A52",
-    "A57"
+    "A57",
+    "A86"
   ],
   "topology": {
     "kind": "hierarchical-pipeline",
@@ -184,6 +185,12 @@
       "name": "Rubric",
       "actor": "human",
       "summary": "Versioned classification policy changed only through a reviewed pull request"
+    },
+    {
+      "id": "proposer",
+      "name": "Improvement proposer",
+      "actor": "agent",
+      "summary": "Scheduled control-plane seat reading the ledger and transcripts; below n>=10 relevant runs appends to the authority-free ideas inbox, at threshold opens at most one evidence-cited PR against policy/ - human merge only"
     }
   ],
   "edges": [
@@ -276,6 +283,25 @@
       "label": "learning loop",
       "rulings": [
         "A48"
+      ]
+    },
+    {
+      "from": "ledger",
+      "to": "proposer",
+      "kind": "learning",
+      "label": "evidence read (n>=10 rates)",
+      "rulings": [
+        "A48",
+        "A86"
+      ]
+    },
+    {
+      "from": "proposer",
+      "to": "rubric",
+      "kind": "learning",
+      "label": "policy PR - human merge only",
+      "rulings": [
+        "A86"
       ]
     },
     {

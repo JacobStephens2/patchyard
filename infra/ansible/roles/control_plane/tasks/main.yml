@@ -45,6 +45,7 @@
     groups:
       - factory
     append: true
+  notify: Restart control-plane exporters
 
 - name: Allow the management identity to traverse factory-owned state
   ansible.builtin.user:

@@ -93,7 +93,8 @@
     target: DROP
     state: present
     permanent: true
-    immediate: true
+    immediate: false
+  notify: Reload firewalld
 
 - name: Remove unrestricted SSH service access
   ansible.posix.firewalld:

@@ -26,6 +26,19 @@ for path in REPO.rglob("*"):
         elif path.suffix in FORBIDDEN_SUFFIXES:
             violations.append(f"{path.relative_to(REPO)} - {FORBIDDEN_SUFFIXES[path.suffix]}")
 
+# Doc-version tripwire: SPEC's status line must match its last changelog entry
+# (the v2.4-stuck-header defect, council-flagged, recurred within a day - D3/audit 2026-07-21).
+spec = (REPO / "SPEC.md").read_text()
+import re as _re
+changelog_versions = _re.findall(r"v(2\.\d+), 20\d\d-\d\d-\d\d", spec)
+status_m = _re.search(r"\*Status: v(2\.\d+),", spec)
+if changelog_versions and status_m:
+    newest = max(changelog_versions, key=lambda v: tuple(map(int, v.split("."))))
+    if status_m.group(1) != newest:
+        violations.append(f"SPEC.md - status line says v{status_m.group(1)} but newest changelog entry is v{newest}")
+if _re.search(r"build spec, v\d", spec.splitlines()[0]):
+    violations.append("SPEC.md - title carries a version; the status line owns it")
+
 if violations:
     print("check-stack: excluded-technology artifacts found:")
     for v in violations:

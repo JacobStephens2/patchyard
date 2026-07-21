@@ -6,18 +6,6 @@ data "digitalocean_ssh_key" "management" {
   name = var.management_ssh_key_name
 }
 
-resource "digitalocean_tag" "factory" {
-  name = "patchyard"
-}
-
-resource "digitalocean_tag" "control_plane" {
-  name = "patchyard-control-plane"
-}
-
-resource "digitalocean_tag" "worker" {
-  name = "patchyard-worker"
-}
-
 locals {
   cloud_init = templatefile("${path.module}/cloud-init.yaml.tftpl", {
     management_public_key = data.digitalocean_ssh_key.management.public_key
@@ -31,7 +19,7 @@ resource "digitalocean_droplet" "control_plane" {
   image         = var.image
   vpc_uuid      = data.digitalocean_vpc.factory.id
   ssh_keys      = [data.digitalocean_ssh_key.management.id]
-  tags          = [digitalocean_tag.factory.id, digitalocean_tag.control_plane.id]
+  tags          = var.existing_eta_tag_names
   user_data     = local.cloud_init
   backups       = true
   monitoring    = true
@@ -50,7 +38,7 @@ resource "digitalocean_droplet" "worker" {
   image         = var.image
   vpc_uuid      = data.digitalocean_vpc.factory.id
   ssh_keys      = [data.digitalocean_ssh_key.management.id]
-  tags          = [digitalocean_tag.factory.id, digitalocean_tag.worker.id]
+  tags          = var.existing_eta_tag_names
   user_data     = local.cloud_init
   backups       = false
   monitoring    = true

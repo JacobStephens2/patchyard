@@ -34,6 +34,16 @@ variable "management_ssh_key_name" {
   default     = "conductor@conductor.example.com"
 }
 
+variable "existing_eta_tag_names" {
+  description = "Canonical existing Patchyard tag names to attach; supply only after reading the live tag inventory."
+  type        = set(string)
+
+  validation {
+    condition     = length(var.existing_eta_tag_names) > 0
+    error_message = "At least one existing Patchyard tag name is required."
+  }
+}
+
 variable "orchestration_public_cidr" {
   description = "Only source allowed to manage either host over SSH."
   type        = string

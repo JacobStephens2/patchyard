@@ -8,7 +8,7 @@ configuration. No console edit is part of the operating path.
 
 | Path | Ownership | Encrypted S3 state key |
 | --- | --- | --- |
-| `digitalocean/` | two droplets, VPC placement, tags, cloud firewalls, SSH public identity, inventory outputs | `factory/digitalocean/tofu.tfstate` |
+| `digitalocean/` | two droplets, VPC placement, existing-tag attachment, cloud firewalls, SSH public identity, inventory outputs | `factory/digitalocean/tofu.tfstate` |
 | `aws/` | A96 bucket configuration and IAM adoption, Route 53 lifecycle policy, `factory.example.com` | `factory/aws/tofu.tfstate` |
 | `github/` | repository settings and `master` branch protection | `factory/github/tofu.tfstate` |
 | `ansible/` | both Rocky 9 hosts, identities, host firewall, exporters, control prerequisites, worker transient state | n/a |
@@ -46,6 +46,8 @@ the DigitalOcean apply:
 
 ```bash
 PLAN_DIR=$(mktemp -d /tmp/patchyard-plan.XXXXXX)
+# Set this from a reviewed live tag listing; do not invent or create tags.
+export TF_VAR_existing_eta_tag_names='["<canonical-existing-Patchyard-tag>"]'
 infra/plan.sh digitalocean "$PLAN_DIR"
 # Human reviews $PLAN_DIR/digitalocean.tfplan.txt.
 infra/tofu.sh digitalocean apply "$PLAN_DIR/digitalocean.tfplan"

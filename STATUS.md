@@ -1,7 +1,7 @@
 # Session 0 build status
 
-Updated 2026-07-21 for session restart. This is a handoff record, not evidence
-that PLAN Session 0 has exited.
+Updated 2026-07-21 after credential rotation. This is a handoff record, not
+evidence that PLAN Session 0 has exited.
 
 ## Resume location
 
@@ -48,19 +48,15 @@ No cloud resource was created, imported, changed, or deleted during the session.
 
 ### DigitalOcean
 
-The process that created the PR still held the old token: read requests to
-`/v2/tags` and `/v2/firewalls` both returned HTTP 403. The newly created
-`conductor-v3` token had not entered that process. Never print or persist either
-token; restart through the normal conductor secret-injection path.
+The current injected token has been verified without live mutation for droplet
+delete and firewall/tag read/create/update/delete. The former 403 blocker is
+closed. Never print or persist the token.
 
-The browser-reported v3 scopes remain insufficient for the Session 0 contract:
-OpenTofu owns the cloud firewalls and clean worker replacement, so the token
-also needs firewall create/update/delete and droplet delete. Tags are existing
-Patchyard tags, not resources for this root to invent or create. Their canonical names
-are not in the repository and must come from a reviewed live tag listing. Supply
-them as a JSON list in `TF_VAR_existing_eta_tag_names` for plan/apply. If the
-DigitalOcean API requires tag write authority merely to attach/detach existing
-tags, escalate that exact requirement rather than widening by assumption.
+The reviewed live inventory established `production` as the existing tag used
+by production-facing hosts in the nyc3 VPC; it is now the versioned default for
+both factory hosts. A fresh encrypted plan proposes exactly two droplets and two
+firewalls: 4 additions, 0 changes, and 0 destroys. No apply has occurred; the
+committed plan still requires explicit human review/approval.
 
 The live `factory.example.com` Route 53 record count was `0`.
 
@@ -112,13 +108,8 @@ curl -sS -o /dev/null -w 'firewalls=%{http_code}\n' \
 PATH="$PWD/infra/ansible/.venv/bin:$PATH" ./tools/check-ansible.sh
 ```
 
-After reviewing the live tag names and confirming all required DigitalOcean
-write/delete scopes, set `TF_VAR_existing_eta_tag_names`, create a fresh absolute
-plan directory, and run `infra/plan.sh digitalocean "$PLAN_DIR"`. Do not apply
-until the human-readable plan has been reviewed. Continue with the staged
-operations in `infra/README.md`; update PR #10 with command evidence and keep it
-draft until every unresolved exit item is genuinely met.
-
-Do not delete `conductor-v2` merely because the new token was created. Delete it
-only after the relaunched process has verified v3 and a reviewed DigitalOcean
-plan proves the required access path.
+Create a fresh absolute plan directory and run
+`infra/plan.sh digitalocean "$PLAN_DIR"`. Do not apply until the human-readable
+plan from the exact committed revision has been reviewed and approved. Continue
+with the staged operations in `infra/README.md`; update PR #10 with command
+evidence and keep it draft until every unresolved exit item is genuinely met.

@@ -35,8 +35,9 @@ variable "management_ssh_key_name" {
 }
 
 variable "existing_eta_tag_names" {
-  description = "Canonical existing Patchyard tag names to attach; supply only after reading the live tag inventory."
+  description = "Canonical existing Patchyard tag names attached to both factory hosts."
   type        = set(string)
+  default     = ["production"]
 
   validation {
     condition     = length(var.existing_eta_tag_names) > 0

@@ -46,8 +46,6 @@ the DigitalOcean apply:
 
 ```bash
 PLAN_DIR=$(mktemp -d /tmp/patchyard-plan.XXXXXX)
-# Set this from a reviewed live tag listing; do not invent or create tags.
-export TF_VAR_existing_eta_tag_names='["<canonical-existing-Patchyard-tag>"]'
 infra/plan.sh digitalocean "$PLAN_DIR"
 # Human reviews $PLAN_DIR/digitalocean.tfplan.txt.
 infra/tofu.sh digitalocean apply "$PLAN_DIR/digitalocean.tfplan"

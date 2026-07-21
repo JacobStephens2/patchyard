@@ -8,9 +8,9 @@ SSH public identity, and the machine-readable inventory output consumed by Ansib
 The control plane is protected from accidental replacement. The worker is
 disposable by design; use `../replace-worker.sh` for a reviewed replacement.
 
-Read the live tag inventory and supply the reviewed names as
-`TF_VAR_existing_eta_tag_names` (a JSON list). The provider token must manage
-droplets and firewalls, read and attach the existing tags, and delete the worker
-for clean-room replacement. A token missing any one of those capabilities fails
-at the provider boundary; these resources are never replaced by console work or
+Both hosts attach to the existing `production` tag, matching production-facing
+hosts in the same nyc3 VPC. The provider token must manage droplets and
+firewalls, attach/detach the existing tag, and delete the worker for clean-room
+replacement. A token missing any one of those capabilities fails at the
+provider boundary; these resources are never replaced by console work or
 host-only filtering.

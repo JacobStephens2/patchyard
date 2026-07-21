@@ -2,7 +2,7 @@
 
 *(Companion to `SPEC.md`. The spec says what must exist and why; this plan says in what order, cut into sessions, each with a verifiable exit. Build remains gated on Jacob's explicit "go" - this document is prep, not build.)*
 
-*Status: v4, 2026-07-18 - v2 re-planned after the adversarial review (`reviews/2026-07-16-plan-adversarial-review.md`; dispositions in `reviews/2026-07-16-plan-review-disposition.md`; all findings conceded; A86 later added session 14 - proposer v0 - renumbering cutover/acceptance to 15/16 for a 17-session baseline). v1's ~10+1 sessions re-baselined to ~15: same components, honest cuts - isolation qualification, preview-integrated verification, dashboard hardening, and post-cutover acceptance each get their own exit instead of hiding inside another session's. Builder: the orchestration agent. Cross-family reviewer: GPT 5.6-Sol xhigh in Codex on each build PR (A41). Merge gate: engineering + owner (A33). v3 applies A56: phase 1 starts on local, socket-only PostgreSQL with peer authentication and role-enforced service boundaries; no SQLite or dual-engine implementation is built. v4 applies A57: phase 1 adds a dedicated secret-free worker droplet, OpenTofu + Ansible desired state, and a clean-room replacement exit, for ~16 sessions total.*
+*Status: v4, 2026-07-18 - v2 re-planned after the adversarial review (`reviews/2026-07-16-plan-adversarial-review.md`; dispositions in `reviews/2026-07-16-plan-review-disposition.md`; all findings conceded; A86 later added the proposer session and A89 the evidence-isolation session - an 18-session baseline). v1's ~10+1 sessions re-baselined to ~15: same components, honest cuts - isolation qualification, preview-integrated verification, dashboard hardening, and post-cutover acceptance each get their own exit instead of hiding inside another session's. Builder: the orchestration agent. Cross-family reviewer: GPT 5.6-Sol xhigh in Codex on each build PR (A41). Merge gate: engineering + owner (A33). v3 applies A56: phase 1 starts on local, socket-only PostgreSQL with peer authentication and role-enforced service boundaries; no SQLite or dual-engine implementation is built. v4 applies A57: phase 1 adds a dedicated secret-free worker droplet, OpenTofu + Ansible desired state, and a clean-room replacement exit, for ~16 sessions total.*
 
 The factory's own macro-shape is Plan → Implement → Verify (A47), and lane B demands a plan before implementation. Phase 1's build is itself a lane-B job, so this is the factory eating its own process: `SPEC.md` is the approved spec, this plan is its Guide, and the session exits below are its human-approved budget.
 
@@ -116,29 +116,36 @@ Session 0 covers the worker desired-state component; sessions 1-2 cover the cont
 - The budgeted **threat-model/fuzz session** runs here against the upload and path surfaces, with seed corpus and time budget declared up front.
 - Exit: every named adversarial fixture rejected (traversal names, double extensions, MIME spoofing, decompression bombs, malformed images, duplicate/concurrent submissions); fuzz campaign completed within its declared budget with zero unresolved findings.
 
-### Session 13 - evidence lifecycle
+### Session 13 - evidence-capture isolation (A89)
+
+- Evidence capture becomes a per-run, no-authority isolation job (disposition A-1): fresh container/microVM holding no PostgreSQL socket, GitHub App key, model credential, vault capability, repo credential, or artifact-tree mount; the supervisor copies the bounded outputs (screenshot, extracted DOM, hashes, execution manifest) into the artifact store only after the job has ended.
+- Egress profile is the preview, enforced at the network layer: the leased preview host plus required DNS only; cloud metadata and the private fleet denied; redirect targets re-evaluated against the allowlist. It never shares the implement worker's model-provider boot profile.
+- One-use, short-lived preview bearer delivered in tmpfs and destroyed at teardown; helper contract fixed (allowed URL, bounded selectors/actions, timeouts, maximum output sizes, expected SHA; no caller-supplied JavaScript outside reviewed tests).
+- Exit: adversarial fixtures each land in their named fail-closed state - redirect chains, DNS rebinding, subresource exfiltration, popups, downloads, oversized pages, bearer-disclosure probes, browser crashes; a probe from inside the evidence environment proves no credential, socket, or artifact path is reachable; teardown leaves nothing behind.
+
+### Session 14 - evidence lifecycle
 
 - The full draft-PR evidence lifecycle on session 7's preview slice: GitHub CI wait states, evidence artifacts (screenshots + extracted DOM order) stored with hashes, PR-body links via the authenticated dashboard evidence route, ready-for-review flip with the full contract (A26 quiz, explain-diff, drafted reply).
 - Failure paths are first-class: CI/preview timeouts fail closed; lease cleanup on success and failure; navigation restricted to the leased host; bearer header redacted from logs, verified by a log-secret scan.
 - Exit: a full ALPHABETIZE run produces an evidence-linked ready-for-review draft PR **and** each failure path lands in its named fail-closed state.
 
-### Session 14 - improvement proposer v0 (A86)
+### Session 15 - improvement proposer v0 (A86)
 
 - A scheduled seat the supervisor execs on the control-plane VM (where the socket is - A56/A84): reads ledger read views + transcripts, proposes factory improvements. Seat resolved through the A74 routing config as its own task class - the routing layer's first consumer - judgment work under A58's no-ceiling order.
 - **Evidence threshold**: below n≥10 relevant runs, `docs/ideas.md` appends only (authority-free by that file's rule 1); at threshold, a PR citing the run IDs and rates that motivated it. A proposer PR without ledger evidence is as unacceptable as a lane-A PR without a root cause.
 - **Authority surface**: `policy/` + `docs/ideas.md` only; hard cap one open proposer PR; bot identity authors (A62); human merge only (A1); R19 airtight including the proposer's own prompt.
 - Exit: below-threshold seeded ledger → ideas.md append, no PR; at-threshold ledger → exactly one evidence-cited PR against `policy/`; a second attempt while it stands open is refused; a write outside the authority surface fails in test.
 
-### Session 15 - cutover
+### Session 16 - cutover
 
 - Rulings queue already relocated into this repo (`rulings-queue/`, 2026-07-20); this session migrates the remaining orchestration-side remnants (processed-rulings pointer dir, any stray ledger artifacts) and verifies before/after counts.
 - Runbook v0: operate, converge, replace, back up, restore, roll back, kill. Worker replacement begins from OpenTofu + Ansible and restores no worker data. The control-plane backup is a `pg_dump` plus artifact manifest; restore starts from declarative PostgreSQL/role provisioning, reapplies migrations, restores database + artifacts, and verifies row counts and hashes. Restore and rollback are actually drilled, not described.
 - Exit: the installed topology is live; a request filed via the dashboard reaches the same spool the skill consumes; the orchestration repo carries pointers only; post-cutover smoke passes.
 
-### Session 16 - final acceptance against the installed topology
+### Session 17 - final acceptance against the installed topology
 
 - **Frozen, versioned case manifest first**: the seven behavioral SPEC § Acceptance cases (smoke, hidden positives, near-miss negatives, injection, concurrency/crash, gate self-tests, dashboard incl. the full-run stage-transition display) × 3 repetitions, each with expected lane, end state, and publication count; fixture hashes recorded. The infrastructure case runs once afterward as a clean-room worker replacement.
-- Run at pass^k, k=3, **against the cut-over topology from session 15**
+- Run at pass^k, k=3, **against the cut-over topology from session 16**
   - the accepted artifact is the installed system, not a pre-cutover approximation. Discovered failures: fix, then rerun the affected criteria from a clean base; zero unresolved failures.
 - Exit: all eight criteria pass on the installed topology, including one clean-room worker replacement with no manual edits or copied worker state; results recorded in the ledger and `research/`.
 
@@ -157,4 +164,4 @@ Session 0 covers the worker desired-state component; sessions 1-2 cover the cont
 - **Inter-host result contract** - a remote boundary is useful only if source input and patch/evidence output stay bounded and authenticated. Sessions 4, 5, 7, and 9 test transport tampering, replay, cleanup, and fail-closed loss.
 - **GitHub App friction** - now opened at session 1 precisely so permission iteration burns calendar time, not session time.
 - **Preview-fleet coupling** - the evidence lifecycle leases shared mutable previews; sessions 7 and 13 must fail closed on lease conflicts, never queue silently.
-- **No buffer session** - the 17-session baseline is honest rather than padded; if a session overruns, the overrun is reported in that build PR rather than absorbed silently (the ground rules forbid compressing the security and failure testing to stay on schedule).
+- **No buffer session** - the 18-session baseline is honest rather than padded; if a session overruns, the overrun is reported in that build PR rather than absorbed silently (the ground rules forbid compressing the security and failure testing to stay on schedule).

@@ -34,9 +34,7 @@ resource "digitalocean_droplet" "control_plane" {
   }
 
   lifecycle {
-    # Replacement staging only: restore prevent_destroy immediately after the
-    # reviewed key-correction replacement has completed and converged.
-    create_before_destroy = true
+    prevent_destroy = true
   }
 }
 

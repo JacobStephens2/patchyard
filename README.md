@@ -61,8 +61,8 @@ Measurement scripts live under [`tools/`](tools/) (see [`tools/README.md`](tools
 
 ## Build and run
 
-Phase 1 is **under construction on live infrastructure**: sessions 0-1 are merged (two drift-checked hosts - control plane at `factory.example.com`, a disposable secret-free worker - plus the Rust workspace and hosted CI), session 2 (PostgreSQL state layer) is in flight, and the build runs under the A97-A100 operating contract: continuous sessions with hard human checkpoints at 3/5/10/16, one adversarial review per PR, every merge human. The session-1 binaries are intentionally empty
-shells; only `factory-core` contains behavior yet. On a Linux x86-64 development
+Phase 1 is **under construction on live infrastructure**: sessions 0-2 are merged (two drift-checked hosts, the Rust workspace and hosted CI, and the PostgreSQL state layer), and session 3's Firecracker isolation decision is at its A97 human checkpoint. The build runs under the A97-A100 operating contract: continuous sessions with hard human checkpoints at 3/5/10/16, one adversarial review per PR, every merge human. The dashboard and verifier remain intentional
+shells; `factory-core` and `factoryctl` contain the state-layer behavior. On a Linux x86-64 development
 host, install a C linker (`gcc` on Rocky Linux), then use the repository pins:
 
 ```bash

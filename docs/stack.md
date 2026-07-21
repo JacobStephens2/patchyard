@@ -34,7 +34,7 @@
 - **DigitalOcean**: control-plane VM + secret-free worker droplet.
 - **OpenTofu**: droplets, Route 53 DNS, firewalls, GitHub repo settings/branch protection; state in S3 `example-tofu-state` (A96: versioned, SSE, lockfile locking) + client-side state encryption.
 - **Ansible**: Caddy, systemd units + hardening, Postgres roles, headless Chromium, bootstrap accounts.
-- **Firecracker microVM** / **rootless Podman** (A44, A91): the worker's OS boundary - a half-session time-boxed probe decides, with ties going to Firecracker's kernel boundary; Podman is the accepted outcome only on material operational cost or absent KVM.
+- **Firecracker 1.15.1 microVM** (A44, A91): selected by the Session 3 time-boxed probe on the actual worker; all containment criteria passed and its 3.666-second median startup penalty stayed below the predeclared material-cost threshold. Hardened rootless Podman 5.8.2 also passed and remains the pre-approved fallback if KVM disappears or Firecracker's operational cost materially changes. Raw results and credential plumbing are in `session-3-isolation-decision.md`.
 - **Caddy**: TLS/reverse proxy. **1Password**: vault of record; factory-scoped secret injection only.
 
 ## AI layer (A41/A78, A61, A67, A73, A74)

@@ -16,6 +16,7 @@ tree holds the records it cites.
 | [`command-a-plus/`](command-a-plus/) | Command A+ × OpenCode |
 | [`long-spec-speed/`](long-spec-speed/) | Long-form DOCX-spec speed comparisons |
 | [`aa-snapshots/`](aa-snapshots/) | Artificial Analysis catalog snapshots (`tools/aa-sweep.py`) |
+| [`isolation/`](isolation/) | Session 3 Firecracker/rootless-Podman manifest, harness, and raw probe evidence |
 
 ## Conventions
 

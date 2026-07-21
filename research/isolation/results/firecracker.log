@@ -1,0 +1,83 @@
+runtime=firecracker
+version=1.15.1
+vmm_identity=factory-worker uid=991
+guest_identity=uid=0(root) behind the KVM kernel boundary
+seccomp=Firecracker default production filter
+guest_rootfs=disposable ext4
+request_drive=/dev/vdb read-only
+worktree_drive=/dev/vdc read-write
+runtime_dns=denied
+allowed_endpoint=api.openai.com:443
+vmm_argv=env -i HOME=/var/lib/patchyard-worker PATH=/usr/local/bin:/usr/bin:/bin firecracker-v1.15.1-x86_64 --api-sock /var/tmp/patchyard-s3-probe/firecracker/run-main/api.sock --config-file /var/tmp/patchyard-s3-probe/firecracker/run-main/config.json
+guest_probe_argv=ip route replace default via 172.16.0.1; mount -o ro /dev/vdb /input; mount /dev/vdc /work; /usr/local/bin/session3-candidate-probe
+network_policy=host nft forward chain matches iifname patchyard-s3-tap; accept only {162.159.140.245,172.66.0.243}:443; reject remaining IPv4 and IPv6; NAT 172.16.0.0/30 after filtering
+
+setup_observation=the official CI rootfs required normal chroot preparation before adding probe-only dnsutils/nftables packages
+initial_launcher_attempt=FAIL before VMM exec because the management shell could not redirect into the factory-worker-owned run directory
+correction=the root-owned launcher opened logs before dropping to factory-worker
+initial_control_attempt=FAIL because the Session 0 defense-in-depth rule denied host management traffic to the new 172.16.0.0/30 tap
+correction=a root-owned exact-guest-IP control exception was inserted for the run and removed at teardown
+
+P0=PASS detail=/dev/kvm present; Firecracker VMM ran as factory-worker
+guest_devices=vda:1G:rw:/,vdb:32M:ro:/input,vdc:64M:rw:/work
+candidate_probe_started=2026-07-21T21:12:47Z
+kernel=Linux 6.1.155+ x86_64 GNU/Linux
+identity=uid=0(root) gid=0(root) groups=0(root)
+request_mutation=DENIED command=printf\ x\ \>\>/input/request.md
+request_mutation=DENIED command=touch\ /input/new
+request_mutation=DENIED command=mv\ /input/request.md\ /input/renamed
+request_mutation=DENIED command=chmod\ 0600\ /input/request.md
+request_mutation=DENIED command=rm\ /input/request.md
+P1=PASS detail=sha256=50df41f7de045efefc6ef60a1fd7f4f18004afe6378ef3a7a61b3fbac94a6a3e; all mutation forms denied
+P2=PASS detail=base_sha256=9a61720d26a50c5dc3b795c28c9f05a5cae15d523fda9baa05dede5b5b9ac1cc; create/edit/rename/delete succeeded
+host_path=ABSENT path=/host/sentinel
+host_path=ABSENT path=/proc/1/root/host/sentinel
+host_path=ABSENT path=/var/tmp/patchyard-s3-probe/host-credential-canary
+host_path=ABSENT path=/dev/kvm
+host_path=ABSENT path=/run/podman/podman.sock
+host_path=ABSENT path=/var/run/docker.sock
+internal_mount=ISOLATED_GUEST_SUCCESS
+internal_mknod=ISOLATED_GUEST_SUCCESS
+internal_nft=DENIED
+P3_INSIDE=PASS detail=host paths and devices absent; guest-local root actions did not cross the VM boundary
+P4=PASS detail=http_status=401
+P5=PASS detail=1.1.1.1:443 denied
+P6=PASS detail=forbidden IPv6 denied or IPv6 disabled
+forbidden_dns_name=DENIED
+direct_dns_udp=DENIED
+direct_dns_tcp=DENIED
+P7=PASS detail=runtime resolution and direct UDP/TCP DNS denied
+private_target=DENIED target=10.132.0.14/9090
+private_target=DENIED target=10.132.0.1/22
+private_target=DENIED target=100.64.0.1/443
+private_target=DENIED target=169.254.169.254/80
+private_target=DENIED target=fd00::1/443
+P8=PASS detail=private, metadata, CGNAT, and ULA targets denied
+credential_environment=ABSENT
+credential_path=ABSENT path=/etc/op.env
+credential_path=ABSENT path=/etc/orchestration/op.env
+credential_path=ABSENT path=/root/.aws/credentials
+credential_path=ABSENT path=/root/.config/op
+credential_path=ABSENT path=/var/lib/patchyard-worker/.aws/credentials
+credential_path=ABSENT path=/var/lib/patchyard-worker/.config/op
+P9=PASS detail=credential variables, canary, and standard paths absent
+candidate_probe_finished=2026-07-21T21:12:52Z pass=8 fail=0
+candidate_exit=0
+
+egress_allowed_counter=16_packets/1648_bytes
+egress_ipv4_reject_counter=16_packets/968_bytes
+host_sentinel_after_sha256=d10b325777dc12a84aa1d2e17e9c72a194460a00ba0e7febbf7b086d7f65b20e
+request_drive_after_sha256=25b9a152a996ee2f099e2f0d20230ab450b67c8187614bdd3b59f0026156a04b
+returned_worktree=base.txt:27_bytes,result.txt:15_bytes
+returned_result_sha256=4d52b5c5fd64e1ec9d6c491c307fcfa0a761b56ffb11511b3622baa5abff45fb
+
+cycle=1 startup_ms=3973 teardown_ms=130 mode=forced-kill processes=0 taps=0 policies=0 control_rules=0 run_dirs=0
+cycle=2 startup_ms=4090 teardown_ms=403 mode=guest-poweroff-plus-vmm-term processes=0 taps=0 policies=0 control_rules=0 run_dirs=0
+cycle=3 startup_ms=3868 teardown_ms=487 mode=guest-poweroff-plus-vmm-term processes=0 taps=0 policies=0 control_rules=0 run_dirs=0
+cycle=4 startup_ms=4117 teardown_ms=320 mode=guest-poweroff-plus-vmm-term processes=0 taps=0 policies=0 control_rules=0 run_dirs=0
+cycle=5 startup_ms=3931 teardown_ms=421 mode=guest-poweroff-plus-vmm-term processes=0 taps=0 policies=0 control_rules=0 run_dirs=0
+startup_median_ms=3973
+teardown_median_ms=403
+firewall_restored=94ff817299703f0bb213a386d46f3e31596451edcd28f77fd096c9d096422388
+firewall_baseline=94ff817299703f0bb213a386d46f3e31596451edcd28f77fd096c9d096422388
+ip_forward_restored=0

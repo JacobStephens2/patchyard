@@ -1,0 +1,55 @@
+manifest_commit=408eeb2c822a2f474fe19ed72612013af9a1511b
+local_start=2026-07-21T20:59:16Z
+remote_start=2026-07-21T20:59:17Z
+remote_stop=2026-07-21T21:15:19Z
+elapsed_seconds=961
+timebox_seconds=7200
+timebox_status=PASS
+
+Linux 5.14.0-687.10.1.el9_8.0.1.x86_64 x86_64 GNU/Linux
+os=Rocky Linux 9.8
+management_identity=uid=1000(conductor) gid=1000(conductor) groups=1000(conductor),10(wheel)
+kvm=character-device
+kvm_mode=666 kvm_owner=root:kvm kvm_major_minor=a:e8
+virtualization_flag_lines=16
+kvm_group=kvm:x:36:
+podman_before=not-installed
+firecracker_before=not-installed
+host_firewall_baseline_sha256=94ff817299703f0bb213a386d46f3e31596451edcd28f77fd096c9d096422388
+host_sentinel_sha256=d10b325777dc12a84aa1d2e17e9c72a194460a00ba0e7febbf7b086d7f65b20e
+request_fixture_sha256=50df41f7de045efefc6ef60a1fd7f4f18004afe6378ef3a7a61b3fbac94a6a3e
+worktree_fixture_sha256=9a61720d26a50c5dc3b795c28c9f05a5cae15d523fda9baa05dede5b5b9ac1cc
+
+podman_package=podman-5.8.2-5.el9_8.x86_64
+podman_rootless=true
+podman_network_backend=netavark
+podman_cgroup_manager=systemd
+podman_oci_runtime=crun
+ubuntu_base_digest=sha256:52df9b1ee71626e0088f7d400d5c6b5f7bb916f8f0c82b474289a4ece6cf3faf
+podman_probe_image_id=482edc386618bf83e8ce30b7466bb4ac667026ddee62896c2dbe939397307cec
+podman_probe_image_digest=sha256:d4a12329ae5931c5dd5da665ea7e0c1ba1986aa3a0130d6f96e397e515c3f88e
+
+firecracker_version=1.15.1
+firecracker_release_sha256=d4a32ab2322d887ca1bc4a4e7afa9cc35393e6362dfc2b3becb389d362e4275a
+firecracker_release_internal_sha256s=PASS
+guest_kernel=6.1.155
+guest_kernel_sha256=e20e46d0c36c55c0d1014eb20576171b3f3d922260d9f792017aeff53af3d4f2
+guest_rootfs=ubuntu-24.04.squashfs
+guest_rootfs_upstream_sha256=68321e0482baeb3844dafe8a6b08a6902401a7afc41fbfd8c3d9ea08aadd244f
+guest_rootfs_probe_ext4_sha256=d7bbbb1b27d6392f9d4cd9cad25590d496667fa839e064cfe904546ed1e3cfaa
+request_drive_sha256=25b9a152a996ee2f099e2f0d20230ab450b67c8187614bdd3b59f0026156a04b
+
+allowed_ipv4=162.159.140.245
+allowed_ipv4=172.66.0.243
+
+cleanup_verification=2026-07-21T21:16:01Z
+podman_after=not-installed
+firecracker_after=not-installed
+factory_worker_subuid_entries=0
+factory_worker_subgid_entries=0
+factory_worker_linger=absent
+temporary_probe_root=absent
+kvm_after=character-device
+host_firewall_after_sha256=94ff817299703f0bb213a386d46f3e31596451edcd28f77fd096c9d096422388
+ip_forward_after=0
+worker_qualification=PASS

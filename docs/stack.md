@@ -36,11 +36,11 @@
 - **Firecracker microVM** (evaluate first) / **rootless Podman** (fallback) (A44): the worker's OS boundary.
 - **Caddy**: TLS/reverse proxy. **1Password**: vault of record; factory-scoped secret injection only.
 
-## AI layer (A41, A61, A67, A73, A74)
+## AI layer (A41/A78, A61, A67, A73, A74)
 
 - **Claude Code headless** (`claude -p`) and **Codex** (`codex exec`, A73 adversarial reviews) as daemon-exec'd subprocesses - agents live on the far side of an exec boundary, never in-process.
 - **Seat routing** (A74): every invocation resolves through the versioned `policy/` routing config against the canonical bench (`docs/bench.json`); one provider per worker boot; A61 allowlist.
-- Construction: Fable 5 × Claude Code builds; GPT-5.6 Sol × Codex reviews every build PR (A41); humans merge.
+- Construction: GPT-5.6 Sol × Codex builds; Fable 5 × Claude Code reviews every build PR (A41, seats amended by A78); humans merge.
 
 ## Verification and CI
 

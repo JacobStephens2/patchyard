@@ -1,6 +1,6 @@
 {
   "$schema": "bench.schema.json",
-  "last_updated": "2026-07-20",
+  "last_updated": "2026-07-21",
   "update_note": "AA columns enriched: coding + agentic indexes (effort-matched from the 2026-07-17 free snapshot; null where no matching-effort row) and aa_snapshot_date provenance.",
   "aa_index_version": "4.1",
   "pairs": [
@@ -19,7 +19,7 @@
         "detail": ""
       },
       "provenance": "US",
-      "standing": "Implement bench #2; **builder incumbent**",
+      "standing": "Implement bench #2; **build-PR adversarial reviewer incumbent** (A78)",
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 60,
@@ -318,7 +318,7 @@
         "detail": ""
       },
       "provenance": "US",
-      "standing": "Implement bench #1 (no-ceiling order); **adversarial reviewer incumbent** (A41)",
+      "standing": "Implement bench #1 (no-ceiling order); **builder incumbent** (A78; coding-agents 61)",
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 58,

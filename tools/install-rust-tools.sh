@@ -8,7 +8,7 @@ source "$REPO_ROOT/tools/rust-tool-versions.env"
 case "$(uname -s):$(uname -m)" in
   Linux:x86_64) ;;
   *)
-    echo "Pinned cargo-audit/cargo-deny archives support Linux x86_64 only" >&2
+    echo "Pinned Rust check-tool archives support Linux x86_64 only" >&2
     exit 1
     ;;
 esac
@@ -23,7 +23,7 @@ install_archive() {
   local binary=$1 version=$2 url=$3 sha256=$4 member=$5
   local destination="$CARGO_BIN_HOME/bin/$binary"
 
-  if [[ -x "$destination" ]] && "$destination" --version | grep -Fq " $version"; then
+  if [[ -x "$destination" ]] && "$destination" --version | grep -Fq "$version"; then
     echo "$binary $version already installed"
     return
   fi
@@ -31,7 +31,7 @@ install_archive() {
   local archive="$TOOLS_TEMP/$binary.tgz"
   curl --fail --location --silent --show-error --output "$archive" "$url"
   printf '%s  %s\n' "$sha256" "$archive" | sha256sum --check
-  tar -xzf "$archive" -C "$TOOLS_TEMP" "$member"
+  tar -xf "$archive" -C "$TOOLS_TEMP" "$member"
   install -m 0755 "$TOOLS_TEMP/$member" "$destination"
   "$destination" --version
 }
@@ -42,3 +42,9 @@ install_archive \
 install_archive \
   cargo-deny "$CARGO_DENY_VERSION" "$CARGO_DENY_URL" \
   "$CARGO_DENY_SHA256" "$CARGO_DENY_MEMBER"
+install_archive \
+  cargo-vet "$CARGO_VET_VERSION" "$CARGO_VET_URL" \
+  "$CARGO_VET_SHA256" "$CARGO_VET_MEMBER"
+install_archive \
+  cargo-machete "$CARGO_MACHETE_VERSION" "$CARGO_MACHETE_URL" \
+  "$CARGO_MACHETE_SHA256" "$CARGO_MACHETE_MEMBER"

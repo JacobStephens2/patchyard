@@ -1,24 +1,39 @@
-data "aws_iam_policy_document" "route53_records" {
-  statement {
-    sid = "ManageEtaRecords"
-    actions = [
-      "route53:ChangeResourceRecordSets",
-      "route53:ListResourceRecordSets",
-    ]
-    resources = ["arn:aws:route53:::hostedzone/${var.eta_zone_id}"]
-  }
-
-  statement {
-    sid       = "ReadRecordChangeStatus"
-    actions   = ["route53:GetChange"]
-    resources = ["arn:aws:route53:::change/*"]
-  }
-}
-
 resource "aws_iam_policy" "route53_records" {
   name_prefix = "route53-patchyard-create-read-"
   description = "Manage the full Route 53 record lifecycle in the example.com hosted zone."
-  policy      = data.aws_iam_policy_document.route53_records.json
+  tags        = {}
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ReadAllZonesAndRecords"
+        Effect = "Allow"
+        Action = [
+          "route53:ListHostedZones",
+          "route53:ListHostedZonesByName",
+          "route53:GetHostedZone",
+          "route53:ListResourceRecordSets",
+          "route53:GetChange",
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "ManageRecordsFactoryZone"
+        Effect = "Allow"
+        Action = [
+          "route53:ChangeResourceRecordSets",
+          "route53:ListResourceRecordSets",
+        ]
+        Resource = "arn:aws:route53:::hostedzone/${var.eta_zone_id}"
+      },
+      {
+        Sid      = "GetChangeStatus"
+        Effect   = "Allow"
+        Action   = "route53:GetChange"
+        Resource = "arn:aws:route53:::change/*"
+      },
+    ]
+  })
 
   lifecycle {
     create_before_destroy = true
@@ -28,6 +43,10 @@ resource "aws_iam_policy" "route53_records" {
 resource "aws_iam_user_policy_attachment" "route53_records" {
   user       = "orchestrator-route53"
   policy_arn = aws_iam_policy.route53_records.arn
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "aws_route53_record" "factory" {

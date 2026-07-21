@@ -37,10 +37,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "state" {
   bucket = aws_s3_bucket.state.id
 
   rule {
-    id     = "expire-noncurrent-state"
+    id     = "expire-noncurrent-versions-90d"
     status = "Enabled"
-
-    filter {}
 
     noncurrent_version_expiration {
       noncurrent_days = 90
@@ -82,27 +80,27 @@ resource "aws_iam_user" "state" {
 
   lifecycle {
     prevent_destroy = true
+    # AWS adds access-key description tags outside OpenTofu. The access key is
+    # deliberately unmanaged under A96, so its tag must remain unmanaged too.
+    ignore_changes = [tags]
   }
 }
 
 data "aws_iam_policy_document" "state_access" {
   statement {
-    sid = "ListFactoryState"
-    actions = [
-      "s3:GetBucketLocation",
-      "s3:ListBucket",
-    ]
+    sid       = "ListStateBucket"
+    actions   = ["s3:ListBucket"]
     resources = [aws_s3_bucket.state.arn]
   }
 
   statement {
-    sid = "ManageFactoryStateObjects"
+    sid = "ReadWriteStateObjects"
     actions = [
       "s3:DeleteObject",
       "s3:GetObject",
       "s3:PutObject",
     ]
-    resources = ["${aws_s3_bucket.state.arn}/factory/*"]
+    resources = ["${aws_s3_bucket.state.arn}/*"]
   }
 }
 

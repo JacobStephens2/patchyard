@@ -10,12 +10,7 @@ backend credentials, temporary S3/IAM management operator, standing Route 53
 record identity, and state passphrase in separate process-environment channels.
 `AWS_FACTORY_A96_OPERATOR_ACCESS_KEY_ID` and
 `AWS_FACTORY_A96_OPERATOR_SECRET_ACCESS_KEY` override only the management
-provider; `orchestrator-route53` remains the aliased DNS provider. Once the
-temporary operator is revoked, the standing Route 53 user's adopted-resource
-read grant supports drift plans while remediating management drift requires a
+provider; `orchestrator-route53` remains the aliased DNS provider. The standing
+Route 53 user's adopted-resource read grant supports drift plans after the
+temporary operator is revoked, while remediating management drift requires a
 new reviewed operator grant.
-
-The current injected identities can use the state objects and Route 53 records,
-but neither can read IAM or bucket configuration. A credential with the exact
-bucket/IAM read-management permissions is therefore required to complete the
-mandated imports and the reviewed policy-description replacement.

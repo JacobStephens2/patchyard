@@ -63,6 +63,10 @@ infra/ansible/converge.sh
 infra/ansible/qualify.sh
 ```
 
+DigitalOcean planning fails closed if any live cloud firewall targets a desired
+host tag. This prevents a tag-attached firewall's rule union from silently
+widening either host before a reviewer sees the resource plan.
+
 The second converge must show `changed=0` on both hosts. `qualify.sh` checks the
 installed revision and control prerequisites, exporter bindings/services, the
 absence of a self-hosted runner and Tempo/OTLP collector, the worker identity,

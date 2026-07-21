@@ -25,6 +25,10 @@ if [[ "$TOFU_ROOT" == aws ]]; then
   TF_VAR_control_plane_ipv4=$("$REPO_ROOT/infra/tofu.sh" digitalocean output -raw control_plane_ipv4)
 fi
 
+if [[ "$TOFU_ROOT" == digitalocean ]]; then
+  "$REPO_ROOT/infra/check-do-tag-firewalls.sh"
+fi
+
 "$REPO_ROOT/infra/tofu.sh" "$TOFU_ROOT" init -reconfigure
 "$REPO_ROOT/infra/tofu.sh" "$TOFU_ROOT" plan -out="$PLAN_ROOT/$TOFU_ROOT.tfplan"
 "$REPO_ROOT/infra/tofu.sh" "$TOFU_ROOT" show -no-color "$PLAN_ROOT/$TOFU_ROOT.tfplan" \

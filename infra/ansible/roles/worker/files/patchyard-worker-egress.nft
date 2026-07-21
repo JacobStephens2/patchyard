@@ -1,3 +1,5 @@
+# Session 0 host guardrail only. This is not the A61 one-provider boundary;
+# Session 3 must place that enforcement outside worker-controlled execution.
 table inet patchyard_worker_egress {
   chain output {
     type filter hook output priority 10; policy accept;

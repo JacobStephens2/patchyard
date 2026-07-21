@@ -14,6 +14,7 @@ case "$MODE" in
     fi
     install -d -m 0700 "$REPLACE_ROOT"
     PLAN_FILE="$REPLACE_ROOT/worker-replacement.tfplan"
+    "$REPO_ROOT/infra/check-do-tag-firewalls.sh"
     "$REPO_ROOT/infra/tofu.sh" digitalocean init -reconfigure
     "$REPO_ROOT/infra/tofu.sh" digitalocean plan \
       -replace=digitalocean_droplet.worker \

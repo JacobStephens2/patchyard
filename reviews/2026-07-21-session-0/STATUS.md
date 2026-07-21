@@ -8,9 +8,8 @@ evidence that PLAN Session 0 has exited.
 - Isolated worktree: `/srv/orchestration/patchyard-s0`
 - Branch: `session-0-bootstrap`
 - Draft PR: <https://github.com/JacobStephens2/patchyard/pull/10>
-- Last implementation commit before this handoff: `9acdc43`
-- Hosted CI run: <https://github.com/JacobStephens2/patchyard/actions/runs/29816740938>
-  (`success`, 1m13s)
+- Current head: run `git rev-parse HEAD`; do not trust a stale handoff SHA.
+- Hosted CI: <https://github.com/JacobStephens2/patchyard/actions/workflows/infrastructure.yml>
 
 Do not work from `/srv/orchestration/patchyard`; that shared checkout belongs
 to the orchestration agent. Reuse the existing isolated worktree and branch.
@@ -29,7 +28,9 @@ to the orchestration agent. Reuse the existing isolated worktree and branch.
 - AWS desired state encodes the hand-created backend resources, unmanaged access
   key exception, Route 53 policy replacement, attachment migration, and
   `factory.example.com` A record.
-- GitHub desired state encodes repository settings and protected `master`.
+- GitHub desired state encodes repository settings and protected `master`;
+  Jacob ruled that last-push approval is not required because the conductor PAT
+  and reviewer share one GitHub identity.
 - Ansible desired state encodes base hardening, exporters on both hosts,
   control-plane prerequisites/credential-free checkout, the secret-free worker,
   private-network egress rejection, transient paths, qualification, convergence,
@@ -57,6 +58,10 @@ by production-facing hosts in the nyc3 VPC; it is now the versioned default for
 both factory hosts. A fresh encrypted plan proposes exactly two droplets and two
 firewalls: 4 additions, 0 changes, and 0 destroys. No apply has occurred; the
 committed plan still requires explicit human review/approval.
+
+The live pre-apply union check found no DigitalOcean firewall targeting
+`production`. `infra/check-do-tag-firewalls.sh` now makes both initial and
+replacement planning fail closed if that changes.
 
 The live `factory.example.com` Route 53 record count was `0`.
 

@@ -154,7 +154,7 @@ Session 0 covers the worker desired-state component; sessions 1-2 cover the cont
 1. The "go" itself - gates session 0.
 2. GitHub App creation + installation on the fieldbook repo - **starts at session 1** (needs org admin - the PAT lacks it); only the smoke test blocks on it early, the publisher (session 10) blocks on it late. The PAT fallback is a dedicated machine user, to be created if the App path stalls.
 3. Optional: factory repo description/topics via the GitHub UI (text already provided), or grant the PAT Administration permission.
-4. A DigitalOcean Spaces access key for locked remote OpenTofu state if the existing state-backend bootstrap task is not complete when session 0 starts.
+4. The A96 state backend provisioned before session 0: S3 bucket `example-tofu-state` (versioned, SSE, public-blocked), its scoped IAM user's keys in 1Password with `env.tpl` refs, the client-side state-encryption key in 1Password, and the Route 53 policy widened to the record lifecycle on the example.com zone.
 
 ## Known risks
 

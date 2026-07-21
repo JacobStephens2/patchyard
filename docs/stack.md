@@ -32,7 +32,7 @@
 ## Infrastructure (A57, A68, A69)
 
 - **DigitalOcean**: control-plane VM + secret-free worker droplet.
-- **OpenTofu**: droplets, Route 53 DNS, firewalls, GitHub repo settings/branch protection; encrypted state backend (session-0 choice).
+- **OpenTofu**: droplets, Route 53 DNS, firewalls, GitHub repo settings/branch protection; state in S3 `example-tofu-state` (A96: versioned, SSE, lockfile locking) + client-side state encryption.
 - **Ansible**: Caddy, systemd units + hardening, Postgres roles, headless Chromium, bootstrap accounts.
 - **Firecracker microVM** / **rootless Podman** (A44, A91): the worker's OS boundary - a half-session time-boxed probe decides, with ties going to Firecracker's kernel boundary; Podman is the accepted outcome only on material operational cost or absent KVM.
 - **Caddy**: TLS/reverse proxy. **1Password**: vault of record; factory-scoped secret injection only.

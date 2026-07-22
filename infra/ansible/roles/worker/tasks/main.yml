@@ -240,11 +240,25 @@
        != worker_image_recipe_sha256
   changed_when: true
 
-- name: Install the checksum-pinned Remi repository definition for verifier PHP
+- name: Hash the cached checksum-pinned Remi repository definition
+  ansible.builtin.stat:
+    path: /var/cache/patchyard-worker/remi-release-9.rpm
+    checksum_algorithm: sha256
+  register: worker_remi_release
+
+- name: Require the exact Remi repository bootstrap artifact
+  ansible.builtin.assert:
+    that:
+      - worker_remi_release.stat.exists
+      - worker_remi_release.stat.checksum == remi_release_sha256
+
+- name: Install the checksum-pinned Remi repository bootstrap
   ansible.builtin.dnf:
     name: /var/cache/patchyard-worker/remi-release-9.rpm
     state: present
-    disable_gpg_check: false
+    # The checksum-pinned bootstrap RPM installs the Remi signing key used by
+    # every subsequent package. There is no earlier host trust root for itself.
+    disable_gpg_check: true
 
 - name: Reset the host PHP module before selecting the parity stream
   ansible.builtin.command:

@@ -36,6 +36,8 @@ ROOTFS_RECIPE_FILE="$IMAGE_ROOT/fieldbook-parity.recipe-sha256"
 RESULT_IMAGE_MAX_BYTES=16777216
 LOCK_FILE=/run/lock/patchyard-worker.lock
 TAINT_FILE=/var/lib/patchyard-worker/BOUNDARY_TAINTED
+FAILURE_STAGE=preflight
+FAILURE_LINE=unknown
 [[ ! -e "$TAINT_FILE" ]] || {
   echo "worker is boundary-tainted and must be replaced and re-qualified" >&2
   exit 1
@@ -143,13 +145,23 @@ cleanup_and_taint() {
     reason=containment-qualification-failed
   fi
   if [[ -n "$reason" ]]; then
-    printf 'run=%s reason=%s detected_at=%s\n' \
-      "$RUN_ID" "$reason" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    printf 'run=%s reason=%s stage=%s line=%s detected_at=%s\n' \
+      "$RUN_ID" "$reason" "$FAILURE_STAGE" "$FAILURE_LINE" \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       >"$TAINT_FILE"
   fi
 }
+record_failure() {
+  FAILURE_LINE=$1
+  local rc=$2
+  printf 'factory worker run failed: stage=%s line=%s status=%s\n' \
+    "$FAILURE_STAGE" "$FAILURE_LINE" "$rc" >&2
+  return "$rc"
+}
 trap cleanup_and_taint EXIT
+trap 'record_failure "$LINENO" "$?"' ERR
 
+FAILURE_STAGE=runtime-staging
 install -d -m 0750 "$RUNTIME_ROOT" "$JAIL_ROOT" "$SOURCE_STAGE" "$INPUT_STAGE"
 install -d -m 0700 "$RUN_TMPFS"
 install -d -m 0700 -o factory-worker -g factory-worker "$RESULT_EXTRACT"
@@ -313,6 +325,7 @@ nft add rule inet "$NFT_TABLE" forward iifname "$TAP" ip daddr 0.0.0.0/0 counter
 nft add rule inet "$NFT_TABLE" forward iifname "$TAP" ip6 daddr ::/0 counter reject
 nft add rule inet "$NFT_TABLE" postrouting ip saddr 172.16.0.0/30 oifname != "$TAP" masquerade
 
+FAILURE_STAGE=microvm-execution
 setsid "$JAILER" \
   --id "$RUN_ID" \
   --exec-file "$FIRECRACKER_EXECUTABLE" \
@@ -368,6 +381,7 @@ VMM_PID=
 # The guest controls this filesystem's bytes. Parse it in bounded user space;
 # never mount a guest-written filesystem into the host kernel or parse it as
 # root. A parser exploit reaches only the disposable factory-worker identity.
+FAILURE_STAGE=result-filesystem-validation
 [[ -f "$JAIL_ROOT/result.ext4" && ! -L "$JAIL_ROOT/result.ext4" ]]
 RESULT_IMAGE_BYTES=$(stat -c %s "$JAIL_ROOT/result.ext4")
 [[ "$RESULT_IMAGE_BYTES" -gt 0 && "$RESULT_IMAGE_BYTES" -le "$RESULT_IMAGE_MAX_BYTES" ]]
@@ -380,6 +394,7 @@ mapfile -t RESULT_ENTRIES < <(
     | LC_ALL=C sort
 )
 [[ "${RESULT_ENTRIES[*]}" == 'change.patch evidence.json rationale.txt status' ]]
+FAILURE_STAGE=result-file-extraction
 for expected in change.patch rationale.txt evidence.json status; do
   runuser -u factory-worker -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
     /usr/sbin/debugfs -R "stat /$expected" "$JAIL_ROOT/result.ext4" 2>/dev/null \
@@ -389,7 +404,14 @@ for expected in change.patch rationale.txt evidence.json status; do
     "$JAIL_ROOT/result.ext4" >/dev/null 2>&1
   [[ -f "$RESULT_EXTRACT/$expected" && ! -L "$RESULT_EXTRACT/$expected" ]]
 done
-[[ "$(<"$RESULT_EXTRACT/status")" == success ]]
+FAILURE_STAGE=guest-result-status
+RESULT_STATUS=$(<"$RESULT_EXTRACT/status")
+[[ "$RESULT_STATUS" =~ ^[a-z0-9,-]{1,128}$ ]]
+if [[ "$RESULT_STATUS" != success ]]; then
+  printf 'guest returned failure status=%s\n' "$RESULT_STATUS" >&2
+  false
+fi
+FAILURE_STAGE=result-evidence-validation
 [[ "$(stat -c %s "$RESULT_EXTRACT/change.patch")" -le 1048576 ]]
 [[ "$(stat -c %s "$RESULT_EXTRACT/rationale.txt")" -le 65536 ]]
 [[ "$(stat -c %s "$RESULT_EXTRACT/evidence.json")" -le 131072 ]]
@@ -407,6 +429,7 @@ jq -e --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
     and .credential_removed_before_output == true' \
   "$RESULT_EXTRACT/evidence.json" >/dev/null
 [[ "$(sha256sum "$RESULT_EXTRACT/change.patch" | cut -d' ' -f1)" == "$(jq -r .patch_sha256 "$RESULT_EXTRACT/evidence.json")" ]]
+FAILURE_STAGE=patch-validation
 git -c safe.directory="$SOURCE_STAGE" -C "$SOURCE_STAGE" \
   apply --check "$RESULT_EXTRACT/change.patch"
 
@@ -415,6 +438,7 @@ install -m 0600 "$RESULT_EXTRACT/change.patch" "$ACCEPT_TEMP/change.patch"
 install -m 0600 "$RESULT_EXTRACT/rationale.txt" "$ACCEPT_TEMP/rationale.txt"
 install -m 0600 "$RESULT_EXTRACT/evidence.json" "$ACCEPT_TEMP/evidence.json"
 
+FAILURE_STAGE=teardown
 remove_runtime
 
 [[ "$(pgrep -u factory-worker -f -- "--id[ =]$RUN_ID" | wc -l)" -eq 0 ]]
@@ -422,7 +446,9 @@ remove_runtime
 [[ "$(nft list table inet "$NFT_TABLE" 2>/dev/null | wc -l)" -eq 0 ]]
 [[ ! -e "$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID" && ! -e "$RUN_TMPFS" ]]
 trap - EXIT
+trap - ERR
 
+FAILURE_STAGE=publish
 jq '. + {host_teardown: {processes: 0, taps: 0, nftables_tables: 0, run_directories: 0, credential_files: 0}}' \
   "$ACCEPT_TEMP/evidence.json" >"$ACCEPT_TEMP/evidence.json.tmp"
 mv "$ACCEPT_TEMP/evidence.json.tmp" "$ACCEPT_TEMP/evidence.json"

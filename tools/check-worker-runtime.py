@@ -146,6 +146,10 @@ if 'JAIL_RUN_ROOT="$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID"' not in launcher:
     errors.append("staged runtime path does not match jailer's executable-name layout")
 if 'chown root:factory-worker \\' not in launcher:
     errors.append("non-root result parser cannot traverse the root-owned jail path")
+if 'factory worker run failed: stage=%s line=%s status=%s' not in launcher:
+    errors.append("fail-closed runtime diagnostics omit the bounded failing stage")
+if '[[ "$RESULT_STATUS" =~ ^[a-z0-9,-]{1,128}$ ]]' not in launcher:
+    errors.append("guest failure status is not sanitized before diagnostics")
 if 'VMM_PID=$(<"$VMM_PID_FILE")' not in launcher:
     errors.append("launcher does not assume lifecycle ownership of jailer's Firecracker PID")
 if '"--id[ =]$RUN_ID"' not in launcher:

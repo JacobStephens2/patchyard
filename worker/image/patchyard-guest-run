@@ -115,7 +115,14 @@ fi
 if [[ "$MODE" == provider-qualification ]]; then
   [[ "$PROVIDER" == openai && "$CREDENTIAL_REQUIRED" == false ]]
   [[ -f /work/base.txt ]]
-  /usr/local/sbin/candidate-probe > /run/session3-probe.log
+  if ! /usr/local/sbin/candidate-probe > /run/session3-probe.log; then
+    FAILED_PROBES=$(awk -F= \
+      '/^P[0-9]+(_INSIDE)?=FAIL/ {print tolower($1)}' \
+      /run/session3-probe.log | paste -sd, -)
+    [[ "$FAILED_PROBES" =~ ^[a-z0-9_,]{1,96}$ ]] || FAILED_PROBES=unknown
+    FAILURE="containment-probe-failed-$FAILED_PROBES"
+    exit 1
+  fi
   runuser -u factory-agent -- git -C /work add -N .
   runuser -u factory-agent -- git -C /work diff --binary --full-index \
     > /result/change.patch

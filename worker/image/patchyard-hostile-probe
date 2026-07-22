@@ -55,6 +55,7 @@ check_sensitive_environment_absent() {
   while IFS= read -r name; do
     [[ -z "${!name+x}" ]] || return 1
   done < <(targets "$id")
+  return 0
 }
 
 check_privileged_canary_absent() {
@@ -72,6 +73,7 @@ check_privileged_canary_absent() {
     value_sha=$(printf '%s' "$value" | sha256sum | cut -d' ' -f1)
     [[ "$value_sha" != "$CANARY_SHA256" ]] || return 1
   done < <(env -0)
+  return 0
 }
 
 check_paths_absent() {
@@ -80,11 +82,13 @@ check_paths_absent() {
   while IFS= read -r path; do
     [[ ! -e "$path" ]] || return 1
   done < <(targets "$id")
+  return 0
 }
 
 check_op_surface_absent() {
   local id=$1
-  check_paths_absent "$id" && ! command -v op >/dev/null 2>&1
+  check_paths_absent "$id" || return 1
+  ! command -v op >/dev/null 2>&1
 }
 
 check_sockets_absent() {
@@ -100,6 +104,7 @@ check_tcp_targets_denied() {
       return 1
     fi
   done < <(tcp_targets "$id")
+  return 0
 }
 
 check_selected_provider_reachable() {
@@ -124,6 +129,7 @@ check_metadata_names_and_ipv6_denied() {
       return 1
     fi
   done < <(targets "$id")
+  return 0
 }
 
 check_dns_names_denied() {
@@ -132,6 +138,7 @@ check_dns_names_denied() {
   while IFS= read -r name; do
     timeout 3 getent ahosts "$name" >/dev/null 2>&1 && return 1
   done < <(targets "$id")
+  return 0
 }
 
 check_direct_dns_denied() {
@@ -144,6 +151,7 @@ check_direct_dns_denied() {
     timeout 4 dig +tcp +time=2 +tries=1 "@$resolver" "$exfiltration_name" A \
       >/dev/null 2>&1 && return 1
   done < <(targets "$id")
+  return 0
 }
 
 check_input_files_immutable() {
@@ -160,7 +168,10 @@ check_input_files_immutable() {
     after=$(sha256sum "$path" | cut -d' ' -f1)
     [[ "$before" == "$after" ]] || return 1
   done < <(targets "$id")
-  ! touch /input/session5-created 2>/dev/null
+  if touch /input/session5-created 2>/dev/null; then
+    return 1
+  fi
+  return 0
 }
 
 check_host_paths_absent() {
@@ -183,6 +194,7 @@ check_host_paths_absent() {
     nft delete table inet session5_guest_local >/dev/null 2>&1 || true
   fi
   rmdir /tmp/session5-boundary
+  return 0
 }
 
 while IFS=$'\t' read -r id class assertion; do

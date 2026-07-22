@@ -11,6 +11,7 @@ use crate::{InputError, caps::DiffManifest, require_repo_path};
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DenyRule {
+    FactorySelfProtection,
     SchemaOrMigration,
     AuthSessionPermissionOrSecret,
     Financial,
@@ -60,6 +61,13 @@ fn classify(path: &str) -> Option<DenyRule> {
         .collect();
     let filename = components.last().map_or("", |value| value.as_ref());
 
+    if normalized.starts_with(".github/workflows/")
+        || normalized.starts_with("infra/")
+        || normalized.starts_with("policy/")
+        || normalized.starts_with("crates/factory-verify/")
+    {
+        return Some(DenyRule::FactorySelfProtection);
+    }
     if has_any(
         &components,
         &[

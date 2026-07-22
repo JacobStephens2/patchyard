@@ -92,8 +92,21 @@ fn caps_rejects_every_enumerated_mutation() {
 }
 
 #[test]
-fn deny_paths_rejects_every_constitution_category_and_both_rename_sides() {
+fn deny_paths_rejects_self_protection_categories_and_both_rename_sides() {
     let cases = [
+        (
+            ".github/workflows/application.yml",
+            DenyRule::FactorySelfProtection,
+        ),
+        (
+            "infra/digitalocean/main.tf",
+            DenyRule::FactorySelfProtection,
+        ),
+        ("policy/routing.json", DenyRule::FactorySelfProtection),
+        (
+            "crates/factory-verify/src/deny_paths.rs",
+            DenyRule::FactorySelfProtection,
+        ),
         ("mysql_files/2026.sql", DenyRule::SchemaOrMigration),
         (
             "mfieldbook/auth/login.php",
@@ -103,7 +116,7 @@ fn deny_paths_rejects_every_constitution_category_and_both_rename_sides() {
         ("mfieldbook/email/send.php", DenyRule::OutboundOrScheduled),
         ("customerweb/index.php", DenyRule::CustomerFacing),
         ("composer.lock", DenyRule::DependencyOrLockfile),
-        (".github/workflows/test.yml", DenyRule::Ci),
+        (".github/dependabot.yml", DenyRule::Ci),
         ("scripts/deploy-fieldbook.sh", DenyRule::Deploy),
     ];
     for (path, expected) in cases {
@@ -127,6 +140,18 @@ fn deny_paths_rejects_every_constitution_category_and_both_rename_sides() {
         files: vec![renamed],
     };
     assert!(deny_paths::verify(&manifest).is_err());
+
+    let mut renamed = file("infra/digitalocean/main.tf", 1, 1);
+    renamed.change = ChangeKind::Renamed;
+    renamed.old_path = Some("mfieldbook/report.php".to_owned());
+    let manifest = DiffManifest {
+        base_sha: BASE_SHA.to_owned(),
+        files: vec![renamed],
+    };
+    assert!(
+        deny_paths::verify(&manifest).is_err(),
+        "deny-paths accepted a rename into a factory gate path"
+    );
 }
 
 fn sort_evidence() -> SortEvidence {

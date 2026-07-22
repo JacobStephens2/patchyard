@@ -18,7 +18,9 @@ means the patch cannot remain in lane A.
 - `deny-paths --manifest DIFF.json` checks both old and final paths against all
   constitution deny categories: schema/migrations; auth/sessions/permissions/
   secrets; finance; outbound/scheduled work; customer-facing surfaces;
-  dependencies/lockfiles; CI; and deploy paths.
+  dependencies/lockfiles; CI; and deploy paths. It also rejects the factory's
+  own gate surfaces: `.github/workflows/`, `infra/`, `policy/`, and
+  `crates/factory-verify/`.
 - `postconditions --evidence SORT.json` consumes normalized snapshots shaped
   like [`sort-valid.json`](../crates/factory-verify/tests/fixtures/sort-valid.json).
   It requires identical WHERE clauses and shared-getter callers; permits a
@@ -36,7 +38,7 @@ means the patch cannot remain in lane A.
 | Subcommand | Rejected mutations exercised by `cargo test` |
 | --- | --- |
 | `caps` | recorded-base change; whitespace-only padding; third file; rename; mode; binary; generated change |
-| `deny-paths` | one path from every constitution deny category; forbidden rename source |
+| `deny-paths` | one path from every constitution deny category; workflow/infra/policy/verifier-self gate changes; forbidden rename source and destination |
 | `postconditions` | WHERE-clause change; option-value change; option membership; sort-key swap; selected value; shared caller; priority-bearing `listOrder`; sentinel move; duplicate count |
 | `ledger-append` | each of eight provenance fields missing; each malformed; invalid run envelope fields |
 

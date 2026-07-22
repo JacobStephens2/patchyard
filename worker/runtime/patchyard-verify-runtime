@@ -24,6 +24,8 @@ jq -e '
 ' "$MANIFEST" >/dev/null
 [[ "$(sha256sum "$SOURCE" | cut -d' ' -f1)" == "$(jq -r .source_archive_sha256 "$MANIFEST")" ]]
 [[ "$(sha256sum "$PATCH" | cut -d' ' -f1)" == "$(jq -r .patch_sha256 "$MANIFEST")" ]]
+OUTPUT_UID=$(stat -c %u "$MANIFEST")
+OUTPUT_GID=$(stat -c %g "$MANIFEST")
 
 LOCK=/run/lock/patchyard-worker.lock
 exec 9>"$LOCK"
@@ -98,4 +100,4 @@ jq \
     }
   }' "$TEMP_EVIDENCE" >"$OUTPUT"
 chmod 0600 "$OUTPUT"
-chown --reference="$MANIFEST" "$OUTPUT"
+chown "$OUTPUT_UID:$OUTPUT_GID" "$OUTPUT"

@@ -171,6 +171,7 @@ if [[ "$MODE" == provider-qualification ]]; then
   exit 0
 fi
 
+FAILURE=fixture-mysql-initialize-failed
 rm -rf -- /var/lib/mysql/*
 install -d -m 0750 -o mysql -g mysql /var/lib/mysql /run/mysqld
 mysqld --initialize-insecure --user=mysql --datadir=/var/lib/mysql
@@ -186,9 +187,11 @@ CREATE DATABASE fieldbook_training CHARACTER SET latin1 COLLATE latin1_swedish_c
 CREATE USER 'factory'@'127.0.0.1' IDENTIFIED BY 'factory-local-only';
 GRANT ALL ON fieldbook_training.* TO 'factory'@'127.0.0.1';
 SQL
+FAILURE=fixture-snapshot-import-failed
 gzip -cd /input/snapshot.sql.gz \
   | mysql --protocol=socket --socket=/var/lib/mysql/mysql.sock -uroot fieldbook_training
 
+FAILURE=fixture-settings-failed
 install -d -m 0755 /var/www
 ln -sfn /work /var/www/html
 cp /work/mfieldbook/system_specific/settings_template.php \
@@ -201,13 +204,16 @@ sed -i \
   /work/mfieldbook/system_specific/settings.php
 chown factory-agent:factory-agent /work/mfieldbook/system_specific/settings.php
 
+FAILURE=fixture-web-start-failed
 systemctl start php-fpm.service
 systemctl start httpd.service
+FAILURE=fixture-web-health-failed
 APP_STATUS=$(curl --silent --output /run/fieldbook-index.html \
   --write-out '%{http_code}' --max-time 20 http://127.0.0.1/index.php)
 [[ "$APP_STATUS" =~ ^(200|302)$ ]]
 
 [[ "$MODE" == fixture && "$PROVIDER" == none ]]
+FAILURE=fixture-agent-failed
 RATIONALE=$(runuser -u factory-agent -- env -i \
   HOME=/home/factory-agent PATH=/usr/local/bin:/usr/bin:/bin \
   PATCHYARD_CAPABILITY_FILE="$CAPABILITY_FILE" \
@@ -215,6 +221,7 @@ RATIONALE=$(runuser -u factory-agent -- env -i \
 rm -f -- "$CAPABILITY_FILE"
 rmdir /run/patchyard-capability >/dev/null 2>&1 || true
 
+FAILURE=fixture-parity-probe-failed
 PROBE_BODY=$(curl --fail --silent --max-time 20 \
   http://127.0.0.1/mfieldbook/patchyard_session4_probe.php)
 [[ "$PROBE_BODY" == 'Session 4 factory worker|redacted-snapshot-row' ]]
@@ -223,12 +230,14 @@ QUERY_ROWS=$(mysql --protocol=socket --socket=/var/lib/mysql/mysql.sock \
   -e 'SELECT COUNT(*) FROM etaFactoryParitySeed')
 [[ "$QUERY_ROWS" -ge 1 ]]
 
+FAILURE=fixture-patch-failed
 runuser -u factory-agent -- git -C /work add -N .
 runuser -u factory-agent -- git -C /work diff --binary --full-index \
   > /result/change.patch
 [[ -s /result/change.patch ]]
 printf '%s\n' "$RATIONALE" > /result/rationale.txt
 
+FAILURE=fixture-evidence-failed
 PHP_ACTUAL=$(php -r 'echo PHP_VERSION;')
 HTTPD_ACTUAL=$(httpd -v | sed -n '1s#Server version: Apache/##; s# (.*##p')
 MYSQL_ACTUAL=$(mysql --protocol=socket --socket=/var/lib/mysql/mysql.sock \

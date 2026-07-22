@@ -112,6 +112,19 @@ if 'WORK_STATUS=$(runuser -u factory-agent -- git -C /work status --porcelain)' 
     errors.append("guest Git status preflight can mask a command failure")
 if "chown factory-agent:factory-agent /work/result.txt" not in guest_runner:
     errors.append("root-run containment probe output is not transferred to the patch identity")
+for fixture_failure in (
+    "fixture-mysql-initialize-failed",
+    "fixture-snapshot-import-failed",
+    "fixture-settings-failed",
+    "fixture-web-start-failed",
+    "fixture-web-health-failed",
+    "fixture-agent-failed",
+    "fixture-parity-probe-failed",
+    "fixture-patch-failed",
+    "fixture-evidence-failed",
+):
+    if f"FAILURE={fixture_failure}" not in guest_runner:
+        errors.append(f"fixture failure stage is missing: {fixture_failure}")
 
 parity_conf = (IMAGE / "patchyard-parity.conf").read_text()
 for directive in (

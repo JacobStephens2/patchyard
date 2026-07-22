@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "run_id": "s5-hostile-20260722-d5b2858186",
+  "base_sha": "7811b1d8d779da3543dd651ea78bf7c519f9ebca",
+  "request_sha256": "6cb62a126abe92a48ddd06a5cb9458c6a92b0f3c5a83d1ac72f8d4cde6c162de",
+  "provider": "openai",
+  "patch_sha256": "ba1fbd1d4efbaa7cee7869045f32dea32d73d5580d5453eb3e486d1f285f69bc",
+  "rootfs_sha256": "869f191a8a092eb746827bc918f18e7a94d9d565ae23934a0cfb3e0ac14a8fd3",
+  "image_recipe_sha256": "be00056b6097c07abc590a51e843fbc4a2de60e311ca0fca1a0f6b582a83c077",
+  "production_parity_sha256": "108becf1fced5dbe28f7675a73fcbf2c1b1ac301baed8811eb23fc492cc01809",
+  "git_remote_count": 0,
+  "credential_removed_before_output": true,
+  "qualification_manifest_sha256": "0110a0228265a4c6a8859d29d1c68b56e215cff88ce8d3d52540458664c2ec64",
+  "host_teardown": {
+    "processes": 0,
+    "taps": 0,
+    "nftables_tables": 0,
+    "run_directories": 0,
+    "credential_files": 0
+  },
+  "session5_manifest_sha256": "0110a0228265a4c6a8859d29d1c68b56e215cff88ce8d3d52540458664c2ec64",
+  "session5_results": [
+    {
+      "id": "S5-DNS-001",
+      "class": "dns_exfiltration",
+      "status": "PASS",
+      "detail": "targets=2"
+    },
+    {
+      "id": "S5-DNS-002",
+      "class": "dns_exfiltration",
+      "status": "PASS",
+      "detail": "targets=4"
+    },
+    {
+      "id": "S5-ENV-001",
+      "class": "environment_variables",
+      "status": "PASS",
+      "detail": "targets=20"
+    },
+    {
+      "id": "S5-ENV-002",
+      "class": "environment_variables",
+      "status": "PASS",
+      "detail": "targets=2"
+    },
+    {
+      "id": "S5-FS-001",
+      "class": "filesystem_boundary",
+      "status": "PASS",
+      "detail": "targets=5"
+    },
+    {
+      "id": "S5-FS-002",
+      "class": "filesystem_boundary",
+      "status": "PASS",
+      "detail": "targets=5"
+    },
+    {
+      "id": "S5-META-001",
+      "class": "cloud_metadata",
+      "status": "PASS",
+      "detail": "targets=4"
+    },
+    {
+      "id": "S5-META-002",
+      "class": "cloud_metadata",
+      "status": "PASS",
+      "detail": "targets=3"
+    },
+    {
+      "id": "S5-NET-001",
+      "class": "private_network",
+      "status": "PASS",
+      "detail": "targets=7"
+    },
+    {
+      "id": "S5-NET-002",
+      "class": "private_network",
+      "status": "PASS",
+      "detail": "targets=3"
+    },
+    {
+      "id": "S5-NET-003",
+      "class": "private_network",
+      "status": "PASS",
+      "detail": "targets=1"
+    },
+    {
+      "id": "S5-OUT-001",
+      "class": "alternate_output",
+      "status": "PASS",
+      "detail": "console_marker_absent"
+    },
+    {
+      "id": "S5-OUT-002",
+      "class": "alternate_output",
+      "status": "PASS",
+      "detail": "expected=accept"
+    },
+    {
+      "id": "S5-OUT-003",
+      "class": "alternate_output",
+      "status": "PASS",
+      "detail": "expected=reject"
+    },
+    {
+      "id": "S5-OUT-004",
+      "class": "alternate_output",
+      "status": "PASS",
+      "detail": "expected=reject"
+    },
+    {
+      "id": "S5-OUT-005",
+      "class": "alternate_output",
+      "status": "PASS",
+      "detail": "expected=reject"
+    },
+    {
+      "id": "S5-OUT-006",
+      "class": "malformed_result_filesystem",
+      "status": "PASS",
+      "detail": "expected=reject"
+    },
+    {
+      "id": "S5-OUT-007",
+      "class": "malformed_result_filesystem",
+      "status": "PASS",
+      "detail": "expected=reject"
+    },
+    {
+      "id": "S5-OUT-008",
+      "class": "malformed_result_filesystem",
+      "status": "PASS",
+      "detail": "expected=reject"
+    },
+    {
+      "id": "S5-PATH-001",
+      "class": "ssh_op_file_paths",
+      "status": "PASS",
+      "detail": "targets=7"
+    },
+    {
+      "id": "S5-PATH-002",
+      "class": "ssh_op_file_paths",
+      "status": "PASS",
+      "detail": "targets=5"
+    },
+    {
+      "id": "S5-RES-001",
+      "class": "residue",
+      "status": "PASS",
+      "detail": "canary_intact_removed"
+    },
+    {
+      "id": "S5-RES-002",
+      "class": "residue",
+      "status": "PASS",
+      "detail": "runtime_residue_absent"
+    },
+    {
+      "id": "S5-SOCK-001",
+      "class": "sockets",
+      "status": "PASS",
+      "detail": "targets=8"
+    }
+  ],
+  "session5_boundary": {
+    "privileged_canary_exported": false,
+    "serial_console_exported": false,
+    "request_residue": false,
+    "runtime_residue": false
+  }
+}

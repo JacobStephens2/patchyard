@@ -21,7 +21,8 @@ firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="9100"'
 firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="9187"'
 firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="5432"'
 firewall-cmd --list-rich-rules | grep -Fq "source address=\"$CONTROL_PLANE_PRIVATE_CIDR\" service name=\"ssh\" accept"
-test "$(git -C /opt/patchyard rev-parse HEAD)" = "$EXPECTED_REVISION"
+test "$(runuser -u factory-manager -- git -C /opt/patchyard rev-parse HEAD)" = \
+  "$EXPECTED_REVISION"
 
 FACTORY_GID=$(getent group factory | cut -d: -f3)
 IFS=: read -r _ _ FACTORY_WEB_UID FACTORY_WEB_GID _ FACTORY_WEB_HOME FACTORY_WEB_SHELL \

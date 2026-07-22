@@ -103,6 +103,10 @@ image_builder = (IMAGE / "build-parity-image").read_text()
 if "--setopt=localpkg_gpgcheck=True" not in image_builder:
     errors.append("checksum-pinned PHP RPM signatures are not enforced")
 
+guest_runner = (IMAGE / "patchyard-guest-run").read_text()
+if "chown factory-agent:factory-agent /work/result.txt" not in guest_runner:
+    errors.append("root-run containment probe output is not transferred to the patch identity")
+
 parity_conf = (IMAGE / "patchyard-parity.conf").read_text()
 for directive in (
     "DocumentRoot /var/www/html",

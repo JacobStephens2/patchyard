@@ -123,6 +123,9 @@ if [[ "$MODE" == provider-qualification ]]; then
     FAILURE="containment-probe-failed-$FAILED_PROBES"
     exit 1
   fi
+  FAILURE=containment-probe-patch-failed
+  [[ -f /work/result.txt && ! -L /work/result.txt ]]
+  chown factory-agent:factory-agent /work/result.txt
   runuser -u factory-agent -- git -C /work add -N .
   runuser -u factory-agent -- git -C /work diff --binary --full-index \
     > /result/change.patch

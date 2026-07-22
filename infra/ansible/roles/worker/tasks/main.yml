@@ -73,6 +73,13 @@
     group: root
     mode: "0644"
 
+- name: Remove retired parity image recipe entries
+  ansible.builtin.file:
+    path: "/usr/local/share/patchyard-worker/image/{{ item }}"
+    state: absent
+  loop:
+    - 10-eth0.network
+
 - name: Make parity image recipe entry points executable
   ansible.builtin.file:
     path: "/usr/local/share/patchyard-worker/image/{{ item }}"
@@ -81,6 +88,7 @@
     mode: "0755"
   loop:
     - build-parity-image
+    - patchyard-guest-network
     - patchyard-guest-run
     - patchyard-toy-agent
 

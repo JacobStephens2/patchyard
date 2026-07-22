@@ -184,7 +184,7 @@ chroot "$MOUNT_ROOT" /usr/sbin/groupadd --gid 1000 factory-agent
 chroot "$MOUNT_ROOT" /usr/sbin/useradd \
   --uid 1000 --gid 1000 --home-dir /home/factory-agent \
   --create-home --shell /bin/bash factory-agent
-chroot "$MOUNT_ROOT" /usr/bin/passwd --lock factory-agent >/dev/null
+chroot "$MOUNT_ROOT" /usr/sbin/usermod --lock factory-agent
 
 systemctl --root="$MOUNT_ROOT" enable systemd-networkd.service >/dev/null
 systemctl --root="$MOUNT_ROOT" enable patchyard-guest-run.service >/dev/null

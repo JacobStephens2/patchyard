@@ -12,6 +12,16 @@ if [[ -n "$(git -C "$REPO_ROOT" status --porcelain)" ]]; then
   exit 1
 fi
 
+INVENTORY_JSON=$("$ANSIBLE_ROOT/inventory/tofu.sh")
+jq -e '
+  (.control_plane.hosts | length) == 1
+  and (.worker.hosts | length) == 1
+  and (._meta.hostvars | length) == 2
+' <<<"$INVENTORY_JSON" >/dev/null || {
+  echo "converge requires exactly one control-plane and one worker host" >&2
+  exit 1
+}
+
 CONVERGE_TEMP=$(mktemp -d /tmp/patchyard-converge.XXXXXX)
 trap 'rm -r -- "$CONVERGE_TEMP"' EXIT
 FACTORY_BUNDLE="$CONVERGE_TEMP/factory.bundle"

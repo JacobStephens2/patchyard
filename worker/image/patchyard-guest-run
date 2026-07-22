@@ -199,7 +199,9 @@ gzip -cd /input/snapshot.sql.gz \
 
 FAILURE=fixture-settings-failed
 install -d -m 0755 /var/www
-ln -sfn /work /var/www/html
+rmdir /var/www/html
+ln -sT /work /var/www/html
+[[ "$(readlink /var/www/html)" == /work ]]
 cp /work/mfieldbook/system_specific/settings_template.php \
   /work/mfieldbook/system_specific/settings.php
 sed -i \

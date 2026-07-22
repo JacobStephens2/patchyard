@@ -1,0 +1,48 @@
+# factory-verify contract
+
+`factory-verify` is the deterministic gate vocabulary used after an isolated
+implement worker returns a candidate patch. Session 6 supplies pure validation
+over bounded JSON inputs; `ledger-append` additionally performs the ruled
+PostgreSQL write only after validation. Session 7 owns collection of real
+preview DOM and diff evidence.
+
+All JSON inputs reject unknown fields and are capped at 1 MiB. A nonzero exit
+means the patch cannot remain in lane A.
+
+## Commands
+
+- `caps --manifest DIFF.json --expected-base-sha SHA` counts additions plus
+  deletions against the recorded 40-hex base. Tests and whitespace-only lines
+  count. Renames, mode changes, binary changes, and generated changes are
+  explicit fields and fail closed. The open-PR cap remains publisher state.
+- `deny-paths --manifest DIFF.json` checks both old and final paths against all
+  constitution deny categories: schema/migrations; auth/sessions/permissions/
+  secrets; finance; outbound/scheduled work; customer-facing surfaces;
+  dependencies/lockfiles; CI; and deploy paths. It also rejects the factory's
+  own gate surfaces: `.github/workflows/`, `infra/`, `policy/`, and
+  `crates/factory-verify/`.
+- `postconditions --evidence SORT.json` consumes normalized snapshots shaped
+  like [`sort-valid.json`](../crates/factory-verify/tests/fixtures/sort-valid.json).
+  It requires identical WHERE clauses and shared-getter callers; permits a
+  `listOrder` replacement only when recorded as presentation order; preserves
+  the exact option multiset, values, selected flags, duplicates, and blank
+  sentinel positions; and requires a stable Unicode NFKC-case-folded first-name
+  order.
+- `ledger-append --record RUN.json --database-url URL` requires run/request UUIDs,
+  base SHA, branch, lane, skill, and all eight canonical SHA-256 provenance
+  fields. Only a validated record can connect. The run and `run.queued` event
+  commit in one transaction.
+
+## A10 mutation inventory
+
+| Subcommand | Rejected mutations exercised by `cargo test` |
+| --- | --- |
+| `caps` | recorded-base change; whitespace-only padding; third file; rename; mode; binary; generated change |
+| `deny-paths` | one path from every constitution deny category; workflow/infra/policy/verifier-self gate changes; forbidden rename source and destination |
+| `postconditions` | WHERE-clause change; option-value change; option membership; sort-key swap; selected value; shared caller; priority-bearing `listOrder`; sentinel move; duplicate count |
+| `ledger-append` | each of eight provenance fields missing; each malformed; invalid run envelope fields |
+
+`tools/check-factory-verify-release.sh` creates two clean release target trees
+and requires byte-identical binary SHA-256 values. It then installs one only
+after checksum verification and rolls back to a distinct runnable prior binary,
+again checksum-verified. The hosted application workflow runs this drill.

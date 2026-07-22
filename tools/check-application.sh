@@ -8,6 +8,7 @@ tools/check-constitution.sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
+tools/check-factory-verify-release.sh
 cargo audit --deny warnings
 cargo deny check --allow license-not-encountered
 cargo vet --locked

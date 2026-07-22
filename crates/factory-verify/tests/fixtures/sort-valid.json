@@ -1,0 +1,56 @@
+{
+  "baseline": {
+    "source": {
+      "where_clause": "WHERE active = 1 AND role = 'guide'",
+      "order_by": "listOrder",
+      "sort_key": "list_order",
+      "list_order_role": "presentation"
+    },
+    "callers": ["create-or-assign-school", "simple-sales-report"],
+    "selects": [
+      {
+        "id": "guide",
+        "options": [
+          {"label": "", "value": "", "selected": true, "blank_sentinel": true},
+          {"label": "Zoe Adams", "value": "17", "selected": false},
+          {"label": "amy Baker", "value": "22", "selected": false},
+          {"label": "Amy Baker", "value": "23", "selected": false}
+        ]
+      },
+      {
+        "id": "leader",
+        "options": [
+          {"label": "Cara Diaz", "value": "31", "selected": false},
+          {"label": "bob Chen", "value": "30", "selected": true}
+        ]
+      }
+    ]
+  },
+  "candidate": {
+    "source": {
+      "where_clause": "WHERE active = 1 AND role = 'guide'",
+      "order_by": "first_name_casefolded",
+      "sort_key": "first_name_casefolded",
+      "list_order_role": "presentation"
+    },
+    "callers": ["simple-sales-report", "create-or-assign-school"],
+    "selects": [
+      {
+        "id": "guide",
+        "options": [
+          {"label": "", "value": "", "selected": true, "blank_sentinel": true},
+          {"label": "amy Baker", "value": "22", "selected": false},
+          {"label": "Amy Baker", "value": "23", "selected": false},
+          {"label": "Zoe Adams", "value": "17", "selected": false}
+        ]
+      },
+      {
+        "id": "leader",
+        "options": [
+          {"label": "bob Chen", "value": "30", "selected": true},
+          {"label": "Cara Diaz", "value": "31", "selected": false}
+        ]
+      }
+    ]
+  }
+}

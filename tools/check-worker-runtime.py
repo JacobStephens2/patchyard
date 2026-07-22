@@ -113,7 +113,11 @@ if 'WORK_STATUS=$(runuser -u factory-agent -- git -C /work status --porcelain)' 
 if "chown factory-agent:factory-agent /work/result.txt" not in guest_runner:
     errors.append("root-run containment probe output is not transferred to the patch identity")
 for fixture_failure in (
-    "fixture-mysql-initialize-failed",
+    "fixture-mysql-prepare-failed",
+    "fixture-mysql-datadir-init-failed",
+    "fixture-mysql-service-start-failed",
+    "fixture-mysql-ready-failed",
+    "fixture-mysql-grants-failed",
     "fixture-snapshot-import-failed",
     "fixture-settings-failed",
     "fixture-web-start-failed",

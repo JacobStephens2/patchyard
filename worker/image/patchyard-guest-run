@@ -171,17 +171,22 @@ if [[ "$MODE" == provider-qualification ]]; then
   exit 0
 fi
 
-FAILURE=fixture-mysql-initialize-failed
+FAILURE=fixture-mysql-prepare-failed
 rm -rf -- /var/lib/mysql/*
 install -d -m 0750 -o mysql -g mysql /var/lib/mysql /run/mysqld
+install -m 0640 -o mysql -g mysql /dev/null /var/log/mysqld.log
+FAILURE=fixture-mysql-datadir-init-failed
 mysqld --initialize-insecure --user=mysql --datadir=/var/lib/mysql
+FAILURE=fixture-mysql-service-start-failed
 systemctl start mysqld.service
+FAILURE=fixture-mysql-ready-failed
 for _ in $(seq 1 120); do
   mysqladmin --protocol=socket --socket=/var/lib/mysql/mysql.sock ping \
     >/dev/null 2>&1 && break
   sleep 0.25
 done
 mysqladmin --protocol=socket --socket=/var/lib/mysql/mysql.sock ping >/dev/null
+FAILURE=fixture-mysql-grants-failed
 mysql --protocol=socket --socket=/var/lib/mysql/mysql.sock -uroot <<'SQL'
 CREATE DATABASE fieldbook_training CHARACTER SET latin1 COLLATE latin1_swedish_ci;
 CREATE USER 'factory'@'127.0.0.1' IDENTIFIED BY 'factory-local-only';

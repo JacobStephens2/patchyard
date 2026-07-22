@@ -28,6 +28,7 @@ SSH=(
 )
 
 BREAKGLASS_RULE='rule priority="-100" family="ipv4" source address="{{ orchestration_public_cidr }}" service name="ssh" reject'
+printf -v QUOTED_BREAKGLASS_RULE '%q' "$BREAKGLASS_RULE"
 
 case "$OPERATION" in
   probe)
@@ -47,16 +48,17 @@ case "$OPERATION" in
       echo "break-glass isolation probe is valid only for the worker target" >&2
       exit 2
     }
-    "${SSH[@]}" sudo /usr/bin/firewall-cmd \
-      --add-rich-rule="$BREAKGLASS_RULE" --timeout=45
+    "${SSH[@]}" \
+      "sudo /usr/bin/firewall-cmd --add-rich-rule=$QUOTED_BREAKGLASS_RULE --timeout=45"
     ;;
   unblock-breakglass)
     [[ "$TARGET" == worker ]] || {
       echo "break-glass isolation probe is valid only for the worker target" >&2
       exit 2
     }
-    "${SSH[@]}" sudo /usr/bin/firewall-cmd \
-      --remove-rich-rule="$BREAKGLASS_RULE" >/dev/null 2>&1 || true
+    "${SSH[@]}" \
+      "sudo /usr/bin/firewall-cmd --remove-rich-rule=$QUOTED_BREAKGLASS_RULE" \
+      >/dev/null 2>&1 || true
     ;;
   *)
     echo "usage: $0 <control|worker> <probe|qualify|block-breakglass|unblock-breakglass>" >&2

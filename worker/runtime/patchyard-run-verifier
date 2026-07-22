@@ -16,16 +16,10 @@ shift 5
 TESTS=("$@")
 [[ "$SOURCE_REPO" == /* && "$PATCH" == /* && "$IMPLEMENT_EVIDENCE" == /* && "$OUTPUT_DIR" == /* ]]
 [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
-[[ -f "$PATCH" && -f "$IMPLEMENT_EVIDENCE" ]]
+sudo test -f "$PATCH"
+sudo test -f "$IMPLEMENT_EVIDENCE"
 sudo test ! -e "$OUTPUT_DIR"
 [[ "$(git -C "$SOURCE_REPO" rev-parse "$BASE_SHA^{commit}")" == "$BASE_SHA" ]]
-jq -e '
-  .host_teardown.run_directories == 0
-  and .host_teardown.processes == 0
-  and .host_teardown.taps == 0
-  and .host_teardown.nftables_tables == 0
-  and .host_teardown.credential_files == 0
-' "$IMPLEMENT_EVIDENCE" >/dev/null
 
 WORKER_IP={{ hostvars[groups['worker'][0]].private_ip }}
 SSH_ARGS=(
@@ -43,6 +37,20 @@ cleanup() {
   rm -r -- "$RUN_TEMP"
 }
 trap cleanup EXIT
+
+sudo install -m 0600 -o {{ factory_manager_user }} -g {{ factory_manager_user }} \
+  "$PATCH" "$RUN_TEMP/change.patch"
+sudo install -m 0600 -o {{ factory_manager_user }} -g {{ factory_manager_user }} \
+  "$IMPLEMENT_EVIDENCE" "$RUN_TEMP/implement-evidence.json"
+PATCH="$RUN_TEMP/change.patch"
+IMPLEMENT_EVIDENCE="$RUN_TEMP/implement-evidence.json"
+jq -e '
+  .host_teardown.run_directories == 0
+  and .host_teardown.processes == 0
+  and .host_teardown.taps == 0
+  and .host_teardown.nftables_tables == 0
+  and .host_teardown.credential_files == 0
+' "$IMPLEMENT_EVIDENCE" >/dev/null
 
 git -C "$SOURCE_REPO" archive --format=tar "$BASE_SHA" | gzip -n -9 >"$RUN_TEMP/source.tar.gz"
 SOURCE_SHA256=$(sha256sum "$RUN_TEMP/source.tar.gz" | cut -d' ' -f1)

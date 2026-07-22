@@ -88,6 +88,8 @@ fetch_pinned "$REMI_RELEASE_URL" "$REMI_RELEASE_SHA256" \
   "$CACHE_ROOT/remi-release-9.rpm"
 fetch_pinned "$MYSQL_RELEASE_URL" "$MYSQL_RELEASE_SHA256" \
   "$CACHE_ROOT/mysql84-community-release-el9-2.noarch.rpm"
+fetch_pinned "$EPEL_GPG_KEY_URL" "$EPEL_GPG_KEY_SHA256" \
+  "$CACHE_ROOT/RPM-GPG-KEY-EPEL-9"
 install -d -m 0755 "$CACHE_ROOT/php-rpms"
 PHP_RPMS=()
 while read -r expected filename; do
@@ -128,6 +130,13 @@ sed -i \
 "${DNF[@]}" module enable php:remi-8.4
 rpm --root "$MOUNT_ROOT" --import \
   "$MOUNT_ROOT/etc/pki/rpm-gpg/RPM-GPG-KEY-remi2026"
+# DNF resolves file:// repository keys in the host namespace even with an
+# installroot. Import every staged repository key into the image RPM database
+# explicitly so package verification never depends on keys installed on host.
+rpm --root "$MOUNT_ROOT" --import "$CACHE_ROOT/RPM-GPG-KEY-EPEL-9"
+for key in RPM-GPG-KEY-mysql-{2022,2023,2025}; do
+  rpm --root "$MOUNT_ROOT" --import "$MOUNT_ROOT/etc/pki/rpm-gpg/$key"
+done
 
 mapfile -t HTTPD_PACKAGES <"$RECIPE_ROOT/httpd-packages.txt"
 mapfile -t MYSQL_PACKAGES <"$RECIPE_ROOT/mysql-packages.txt"

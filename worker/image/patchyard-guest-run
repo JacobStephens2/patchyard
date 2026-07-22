@@ -209,8 +209,9 @@ sed -i \
   /work/mfieldbook/system_specific/settings.php
 chown factory-agent:factory-agent /work/mfieldbook/system_specific/settings.php
 
-FAILURE=fixture-web-start-failed
+FAILURE=fixture-php-start-failed
 systemctl start php-fpm.service
+FAILURE=fixture-httpd-start-failed
 systemctl start httpd.service
 FAILURE=fixture-web-health-failed
 APP_STATUS=$(curl --silent --output /run/fieldbook-index.html \

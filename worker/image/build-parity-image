@@ -84,6 +84,16 @@ DNF=(
 "${DNF[@]}" --nogpgcheck install \
   "$CACHE_ROOT/remi-release-9.rpm" \
   "$CACHE_ROOT/mysql84-community-release-el9-2.noarch.rpm"
+# Oracle's EL9 repository is published at the major-version path while this
+# image deliberately resolves Rocky at release 9.8. Keep Rocky precise and
+# translate only the MySQL repository's release segment. Disable unrelated
+# enabled channels so they cannot widen or break package resolution.
+MYSQL_REPO="$MOUNT_ROOT/etc/yum.repos.d/mysql-community.repo"
+sed -i \
+  -e 's#el/\$releasever/#el/9/#g' \
+  -e '/^\[mysql-connectors-community\]$/,/^$/ s/^enabled=1$/enabled=0/' \
+  -e '/^\[mysql-tools-8\.4-lts-community\]$/,/^$/ s/^enabled=1$/enabled=0/' \
+  "$MYSQL_REPO"
 "${DNF[@]}" module reset php
 "${DNF[@]}" module enable php:remi-8.4
 

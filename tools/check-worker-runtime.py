@@ -79,6 +79,30 @@ for field, pin in (
     if parity.get(field) != pin_values.get(pin):
         errors.append(f"production parity {field} differs from {pin}")
 
+php_nevras = {
+    line for line in (IMAGE / "php-packages.txt").read_text().splitlines() if line
+}
+php_rpm_records = [
+    line.split()
+    for line in (IMAGE / "php-rpms.sha256").read_text().splitlines()
+    if line
+]
+php_rpm_nevras = {
+    filename.removesuffix(".x86_64.rpm") for _, filename in php_rpm_records
+}
+if php_nevras != php_rpm_nevras:
+    errors.append("checksum-pinned PHP RPM set differs from production NEVRA set")
+for digest, filename in php_rpm_records:
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        errors.append(f"invalid PHP RPM SHA-256: {filename}")
+if len(php_rpm_records) != len({filename for _, filename in php_rpm_records}):
+    errors.append("checksum-pinned PHP RPM manifest contains duplicates")
+if "REMI_SNAPSHOT_BASE_URLS=(" not in pins:
+    errors.append("checksum-pinned PHP RPM mirror set is missing")
+image_builder = (IMAGE / "build-parity-image").read_text()
+if "--setopt=localpkg_gpgcheck=True" not in image_builder:
+    errors.append("checksum-pinned PHP RPM signatures are not enforced")
+
 parity_conf = (IMAGE / "patchyard-parity.conf").read_text()
 for directive in (
     "DocumentRoot /var/www/html",

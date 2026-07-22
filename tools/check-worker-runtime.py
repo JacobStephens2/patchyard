@@ -61,7 +61,9 @@ for provider, item in providers.items():
     if not hosts or any(not hostname_pattern.fullmatch(host) for host in hosts):
         errors.append(f"{provider}: invalid or empty hostname allowlist")
     if item.get("credential_qualified") is not False:
-        errors.append(f"{provider}: credential eligibility advanced before Session 5 evidence")
+        errors.append(
+            f"{provider}: credential eligibility advanced before per-provider A-5 qualification"
+        )
 
 expected_recipe = recipe_sha256()
 pins = (IMAGE / "pins.env").read_text()

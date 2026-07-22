@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SNAPSHOT_DIR=${1:?snapshot directory required}
+POLICY=${2:-/usr/local/share/patchyard-worker/snapshot/snapshot-policy.json}
+[[ -d "$SNAPSHOT_DIR" ]]
+MANIFEST=$SNAPSHOT_DIR/snapshot.json
+SNAPSHOT_SQL=$SNAPSHOT_DIR/snapshot.sql.gz
+[[ -f "$MANIFEST" && -f "$SNAPSHOT_SQL" ]]
+jq -e '.schema_version == 1 and (.snapshot_date | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"))' \
+  "$MANIFEST" >/dev/null
+echo "$(jq -r .snapshot_sql_sha256 "$MANIFEST")  $SNAPSHOT_SQL" \
+  | sha256sum --check --status
+[[ "$(jq -r .snapshot_policy_sha256 "$MANIFEST")" == \
+  "$(sha256sum "$POLICY" | cut -d' ' -f1)" ]]
+gzip -t "$SNAPSHOT_SQL"
+
+SNAPSHOT_DATE=$(jq -r .snapshot_date "$MANIFEST")
+SNAPSHOT_EPOCH=$(date -u -d "$SNAPSHOT_DATE" +%s)
+NOW_EPOCH=$(date -u +%s)
+AGE_DAYS=$(((NOW_EPOCH - SNAPSHOT_EPOCH) / 86400))
+WARN_DAYS=$(jq -r .warn_after_days "$POLICY")
+MAX_DAYS=$(jq -r .ineligible_after_days "$POLICY")
+
+[[ "$AGE_DAYS" -ge 0 ]]
+if [[ "$AGE_DAYS" -gt "$MAX_DAYS" ]]; then
+  echo "snapshot ineligible: age=${AGE_DAYS}d ceiling=${MAX_DAYS}d" >&2
+  exit 1
+fi
+if [[ "$AGE_DAYS" -gt "$WARN_DAYS" ]]; then
+  echo "snapshot stale: age=${AGE_DAYS}d warning=${WARN_DAYS}d" >&2
+fi
+echo "snapshot eligible: age=${AGE_DAYS}d version=$(jq -r .snapshot_version "$MANIFEST")"

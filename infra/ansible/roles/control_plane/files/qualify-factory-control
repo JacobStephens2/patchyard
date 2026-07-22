@@ -4,6 +4,7 @@ umask 077
 
 EXPECTED_REVISION=${1:?expected repository revision required}
 PRIVATE_IP=${2:?private address required}
+CONTROL_PLANE_PRIVATE_CIDR=${3:?control-plane private CIDR required}
 QUALIFICATION_TEMP=$(mktemp -d /tmp/patchyard-control-qualification.XXXXXX)
 trap 'rm -r -- "$QUALIFICATION_TEMP"' EXIT
 
@@ -11,6 +12,7 @@ systemctl is-active --quiet node-exporter.service
 systemctl is-active --quiet postgres-exporter.service
 systemctl is-active --quiet postgresql.service
 systemctl is-active --quiet patchyard-postgresql-tls-metric.timer
+systemctl is-active --quiet patchyard-snapshot-metric.timer
 ss -lntH | grep -Fq "$PRIVATE_IP:9100"
 ss -lntH | grep -Fq "$PRIVATE_IP:9187"
 ss -lntH | grep -Fq "$PRIVATE_IP:5432"
@@ -18,7 +20,9 @@ ss -lntH | grep -Fq "$PRIVATE_IP:5432"
 firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="9100"'
 firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="9187"'
 firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="5432"'
-test "$(git -C /opt/patchyard rev-parse HEAD)" = "$EXPECTED_REVISION"
+firewall-cmd --list-rich-rules | grep -Fq "source address=\"$CONTROL_PLANE_PRIVATE_CIDR\" service name=\"ssh\" accept"
+test "$(runuser -u factory-manager -- git -C /opt/patchyard rev-parse HEAD)" = \
+  "$EXPECTED_REVISION"
 
 FACTORY_GID=$(getent group factory | cut -d: -f3)
 IFS=: read -r _ _ FACTORY_WEB_UID FACTORY_WEB_GID _ FACTORY_WEB_HOME FACTORY_WEB_SHELL \
@@ -28,7 +32,13 @@ test "$FACTORY_WEB_UID" -lt 1000
 test "$FACTORY_WEB_GID" = "$FACTORY_GID"
 test "$FACTORY_WEB_HOME" = /var/lib/patchyard
 test "$FACTORY_WEB_SHELL" = /usr/sbin/nologin
-id -nG conductor | tr ' ' '\n' | grep -Fxq factory
+id -nG factory-manager | tr ' ' '\n' | grep -Fxq factory
+test "$(getent passwd conductor | cut -d: -f5)" = 'Patchyard orchestration bootstrap and break-glass identity'
+test "$(getent passwd factory-manager | cut -d: -f6)" = /var/lib/patchyard-manager
+test "$(getent passwd factory-manager | cut -d: -f7)" = /bin/bash
+test "$(stat -c '%U:%G:%a' /var/lib/patchyard-manager/.ssh/id_ed25519)" = factory-manager:factory-manager:600
+test "$(stat -c '%U:%G:%a' /var/lib/patchyard-manager/.ssh/known_hosts)" = factory-manager:factory-manager:600
+grep -Eq '^AllowUsers conductor factory-manager$' /etc/ssh/sshd_config.d/60-patchyard.conf
 passwd -S factory-web | grep -Eq '^factory-web (L|LK) '
 test ! -e /var/lib/patchyard/.ssh
 
@@ -45,12 +55,22 @@ assert_path() {
 assert_path /var/lib/patchyard root factory 750
 assert_path /var/lib/patchyard/artifacts factory-web factory 700
 assert_path /var/lib/patchyard/spool factory-web factory 700
-assert_path /var/lib/patchyard/worktrees conductor factory 750
+assert_path /var/lib/patchyard/worktrees factory-manager factory 750
 assert_path /run/patchyard-postgres postgres factory 770
 assert_path /var/lib/pgsql/patchyard-tls postgres postgres 700
 assert_path /var/lib/pgsql/patchyard-tls/server.key postgres postgres 600
 assert_path /var/lib/pgsql/patchyard-tls/server.crt postgres postgres 644
 assert_path /etc/patchyard/postgresql-server-ca.crt root root 644
+assert_path /etc/patchyard/management-inventory.yml root factory-manager 640
+assert_path /var/lib/patchyard/snapshots factory-manager factory 700
+test -x /usr/local/sbin/build-redacted-snapshot
+test -x /usr/local/sbin/check-snapshot-eligibility
+test -x /usr/local/sbin/patchyard-run-fixture
+test -x /usr/local/sbin/patchyard-run-isolation-probe
+grep -Eq '^patchyard_parity_snapshot_age_days -?[0-9]+$' \
+  /var/lib/node_exporter/textfile_collector/patchyard_snapshot.prom
+grep -Eq '^patchyard_parity_snapshot_eligible [01]$' \
+  /var/lib/node_exporter/textfile_collector/patchyard_snapshot.prom
 
 test "$(postgres --version)" = 'postgres (PostgreSQL) 16.14'
 openssl x509 -checkend 2592000 -noout \
@@ -78,7 +98,7 @@ test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \
   --dbname=patchyard --tuples-only --no-align \
   --command="SELECT count(*) FROM pg_roles WHERE rolname IN ('patchyard_worker', 'factory_worker')")" = 0
 
-runuser -u conductor -- psql --host=/run/patchyard-postgres \
+runuser -u factory-manager -- psql --host=/run/patchyard-postgres \
   --username=patchyard_supervisor --dbname=patchyard \
   --set=ON_ERROR_STOP=1 --command='SELECT 1' >/dev/null
 runuser -u factory-web -- psql --host=/run/patchyard-postgres \

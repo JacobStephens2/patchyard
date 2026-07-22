@@ -12,6 +12,8 @@ runtime_inputs = [
 ]
 forbidden = {
     "/srv/orchestration": "orchestration-host filesystem",
+    "/var/lib/conductor": "orchestration-host identity material",
+    "conductor": "orchestration-host runtime identity",
     "status.example.com": "status-dashboard runtime",
     "env.tpl": "orchestration secret injection",
     "op.env": "orchestration secret injection",

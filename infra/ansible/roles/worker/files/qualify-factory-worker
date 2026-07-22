@@ -2,6 +2,8 @@
 set -euo pipefail
 
 PRIVATE_IP=${1:?private address required}
+CONTROL_PLANE_PRIVATE_CIDR=${2:?control-plane private CIDR required}
+EXPECTED_RECIPE_SHA256=${3:?worker image recipe SHA-256 required}
 
 FACTORY_WORKER_GID=$(getent group factory-worker | cut -d: -f3)
 IFS=: read -r _ _ FACTORY_WORKER_UID FACTORY_WORKER_PRIMARY_GID _ FACTORY_WORKER_HOME FACTORY_WORKER_SHELL \
@@ -14,6 +16,12 @@ test "$FACTORY_WORKER_SHELL" = /bin/bash
 passwd -S factory-worker | grep -Eq '^factory-worker (L|LK) '
 test "$(stat -c '%U:%G:%a' /var/lib/patchyard-worker)" = factory-worker:factory-worker:700
 test ! -e /var/lib/patchyard-worker/.ssh
+test "$(getent passwd conductor | cut -d: -f5)" = 'Patchyard orchestration bootstrap and break-glass identity'
+test "$(getent passwd factory-manager | cut -d: -f6)" = /var/lib/patchyard-manager
+test "$(getent passwd factory-manager | cut -d: -f7)" = /bin/bash
+test -s /var/lib/patchyard-manager/.ssh/authorized_keys
+test ! -e /var/lib/patchyard-manager/.ssh/id_ed25519
+grep -Eq '^AllowUsers conductor factory-manager$' /etc/ssh/sshd_config.d/60-patchyard.conf
 systemctl is-active --quiet node-exporter.service
 systemctl is-active --quiet postgres-exporter.service
 systemctl is-active --quiet patchyard-worker-egress.service
@@ -24,6 +32,7 @@ ss -lntH | grep -Fq "$PRIVATE_IP:9100"
 ss -lntH | grep -Fq "$PRIVATE_IP:9187"
 firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="9100"'
 firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="9187"'
+firewall-cmd --list-rich-rules | grep -Fq "source address=\"$CONTROL_PLANE_PRIVATE_CIDR\" service name=\"ssh\" accept"
 ! ss -lntH | grep -Eq '(^|[[:space:]])([^[:space:]]*:)?5432'
 test ! -e /run/patchyard-postgres
 ! rpm --quiet --query postgresql-server
@@ -31,7 +40,31 @@ test ! -e /run/patchyard-postgres
 ! systemctl list-unit-files --no-legend | grep -Eq 'gha-runner|tempo|otelcol'
 test ! -S /var/run/docker.sock
 ! command -v podman >/dev/null
-! command -v firecracker >/dev/null
+/usr/local/bin/firecracker --version | grep -Fxq 'Firecracker v1.15.1'
+/usr/local/bin/jailer --version | grep -Fxq 'Jailer v1.15.1'
+test "$(rpm -q e2fsprogs)" = 'e2fsprogs-1.46.5-8.el9.x86_64'
+test "$(rpm -q e2fsprogs-libs)" = 'e2fsprogs-libs-1.46.5-8.el9.x86_64'
+test "$(rpm -q libcom_err)" = 'libcom_err-1.46.5-8.el9.x86_64'
+test -c /dev/kvm
+id -nG factory-worker | tr ' ' '\n' | grep -Fxq kvm
+echo 'e20e46d0c36c55c0d1014eb20576171b3f3d922260d9f792017aeff53af3d4f2  /opt/patchyard-worker/images/vmlinux' \
+  | sha256sum --check --status
+echo "$(</opt/patchyard-worker/images/fieldbook-parity.sha256)  /opt/patchyard-worker/images/fieldbook-parity.ext4" \
+  | sha256sum --check --status
+e2fsck -fn /opt/patchyard-worker/images/fieldbook-parity.ext4 >/dev/null
+test "$(</opt/patchyard-worker/images/fieldbook-parity.recipe-sha256)" = \
+  "$EXPECTED_RECIPE_SHA256"
+jq -e '[.providers[].credential_qualified] | all(. == false)' \
+  /etc/patchyard-worker/provider-egress.json >/dev/null
+jq -e '.schema_version == 1 and .run_max_seconds == 300 and .worker_host_max_age_days == 30' \
+  /etc/patchyard-worker/worker-lifecycle.json >/dev/null
+BOOT_EPOCH=$(stat -c %Y /var/lib/cloud/instance/boot-finished)
+MAX_AGE_DAYS=$(jq -r .worker_host_max_age_days \
+  /etc/patchyard-worker/worker-lifecycle.json)
+test "$(( ($(date -u +%s) - BOOT_EPOCH) / 86400 ))" -le "$MAX_AGE_DAYS"
+test "$(find /run/patchyard-worker -mindepth 1 | wc -l)" -eq 0
+test "$(find /var/tmp/patchyard-worker -mindepth 1 | wc -l)" -eq 0
+test ! -e /var/lib/patchyard-worker/BOUNDARY_TAINTED
 
 if timeout 3 bash -c '</dev/tcp/10.132.0.14/9090' 2>/dev/null; then
   echo "worker private-network egress probe unexpectedly succeeded" >&2
@@ -39,7 +72,8 @@ if timeout 3 bash -c '</dev/tcp/10.132.0.14/9090' 2>/dev/null; then
 fi
 
 SECRET_FILES=$(find \
-  /etc/environment /etc/profile.d /etc/systemd/system /home /root /var/lib/patchyard-worker \
+  /etc/environment /etc/profile.d /etc/systemd/system /home /root \
+  /var/lib/patchyard-manager /var/lib/patchyard-worker \
   -xdev -type f -readable -size -1M -print0 2>/dev/null \
   | xargs -0 -r grep -I -l -E \
     'DO_API_TOKEN|AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY)|GH_TOKEN|OP_SERVICE_ACCOUNT_TOKEN|BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY' \

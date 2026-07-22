@@ -29,7 +29,7 @@ variable "worker_size" {
 }
 
 variable "management_ssh_public_key" {
-  description = "Versioned public half of the orchestration management identity; private material stays on orchestration."
+  description = "Versioned public half of the orchestration bootstrap/break-glass identity; private material stays on orchestration and is never used by factory runtime paths."
   type        = string
   default     = "ssh-ed25519 REDACTED-BREAK-GLASS-KEY-BODY operator@example.com"
 
@@ -51,7 +51,7 @@ variable "existing_eta_tag_names" {
 }
 
 variable "orchestration_public_cidr" {
-  description = "Only source allowed to manage either host over SSH."
+  description = "Bootstrap/break-glass SSH source retained for orchestration; normal factory management originates from the control plane over the private VPC."
   type        = string
   default     = "142.93.121.94/32"
 }

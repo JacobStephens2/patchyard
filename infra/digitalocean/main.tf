@@ -3,7 +3,7 @@ data "digitalocean_vpc" "factory" {
 }
 
 resource "digitalocean_ssh_key" "management" {
-  name       = "patchyard-conductor"
+  name       = "patchyard-orchestration-break-glass"
   public_key = var.management_ssh_public_key
 }
 
@@ -35,6 +35,9 @@ resource "digitalocean_droplet" "control_plane" {
 
   lifecycle {
     prevent_destroy = true
+    # Cloud-init is a create-time bootstrap input. Ansible owns later identity
+    # metadata, so template-only changes must never replace a durable host.
+    ignore_changes = [user_data]
   }
 }
 
@@ -54,6 +57,9 @@ resource "digitalocean_droplet" "worker" {
 
   lifecycle {
     create_before_destroy = true
+    # New workers receive the current template; existing workers converge via
+    # Ansible instead of being replaced for bootstrap metadata alone.
+    ignore_changes = [user_data]
   }
 }
 
@@ -62,9 +68,12 @@ resource "digitalocean_firewall" "control_plane" {
   droplet_ids = [digitalocean_droplet.control_plane.id]
 
   inbound_rule {
-    protocol         = "tcp"
-    port_range       = "22"
-    source_addresses = [var.orchestration_public_cidr]
+    protocol   = "tcp"
+    port_range = "22"
+    source_addresses = [
+      var.orchestration_public_cidr,
+      "${digitalocean_droplet.control_plane.ipv4_address_private}/32",
+    ]
   }
 
   inbound_rule {
@@ -120,9 +129,12 @@ resource "digitalocean_firewall" "worker" {
   droplet_ids = [digitalocean_droplet.worker.id]
 
   inbound_rule {
-    protocol         = "tcp"
-    port_range       = "22"
-    source_addresses = [var.orchestration_public_cidr]
+    protocol   = "tcp"
+    port_range = "22"
+    source_addresses = [
+      var.orchestration_public_cidr,
+      "${digitalocean_droplet.control_plane.ipv4_address_private}/32",
+    ]
   }
 
   inbound_rule {

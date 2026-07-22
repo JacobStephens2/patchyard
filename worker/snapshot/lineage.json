@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "repository": "example-org/manager-fieldbooks",
+  "revision": "1ea18e33c37d054265ef21796d96437a391ecbfe",
+  "training_scrub_path": "scripts/training-scrub.sql",
+  "training_scrub_sha256": "580cbe4a9b5456006f6614271312890493aaf7ef487543918afa5a29f4938bd4",
+  "training_validate_path": "scripts/training-validate.sql",
+  "training_validate_sha256": "59b9ff644a9e04ad097952c036d67115982f1c6c2d24090f3bc59e93b7d551b0"
+}

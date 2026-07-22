@@ -1,7 +1,7 @@
 {
   "$schema": "./factory-model.schema.json",
-  "schemaVersion": 5,
-  "modelVersion": 11,
+  "schemaVersion": 6,
+  "modelVersion": 12,
   "updated": "2026-07-21",
   "rulings": [
     "A39",
@@ -10,7 +10,10 @@
     "A50",
     "A52",
     "A57",
-    "A86"
+    "A85",
+    "A86",
+    "A91",
+    "A101"
   ],
   "topology": {
     "kind": "hierarchical-pipeline",
@@ -39,11 +42,15 @@
       "fleetCredentials": false,
       "executionPrivateNetworkAccess": false,
       "runtimeCredential": "short-lived-spend-capped-model-only",
-      "executionBoundary": "firecracker-or-rootless-podman"
+      "executionBoundary": "firecracker-1.15.1",
+      "qualifiedFallback": "rootless-podman-5.8.2",
+      "parityDatabase": "mysql-8.4-per-run-redacted-snapshot"
     },
     "management": {
       "bootstrapController": "orchestration-vm-agents",
-      "runtimeController": "self",
+      "bootstrapRole": "bootstrap-break-glass-only",
+      "runtimeController": "control-plane-factory-manager",
+      "runtimeTransport": "private-vpc-ssh",
       "provisioner": "opentofu",
       "configurationManager": "ansible",
       "desiredStateRepository": "factory"
@@ -51,7 +58,10 @@
     "rulings": [
       "A57",
       "A67",
-      "A68"
+      "A68",
+      "A85",
+      "A91",
+      "A101"
     ],
     "supervisorRuntime": "rust-daemon",
     "independence": "no-runtime-dependency-on-orchestration-host"

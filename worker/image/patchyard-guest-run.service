@@ -1,0 +1,14 @@
+[Unit]
+Description=Patchyard Factory one-run parity guest
+After=local-fs.target systemd-udev-settle.service
+Wants=systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/usr/local/sbin/patchyard-guest-network
+ExecStart=/usr/local/sbin/patchyard-guest-run
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

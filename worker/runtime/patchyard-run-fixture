@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+usage() {
+  echo "usage: $0 /absolute/git-repo BASE_SHA /absolute/request.md /absolute/snapshot-dir /absolute/output-dir" >&2
+  exit 2
+}
+
+[[ $# -eq 5 ]] || usage
+SOURCE_REPO=$1
+BASE_SHA=$2
+REQUEST=$3
+SNAPSHOT_DIR=$(readlink -f -- "$4")
+OUTPUT_DIR=$5
+[[ "$SOURCE_REPO" == /* && "$REQUEST" == /* && "$SNAPSHOT_DIR" == /* && "$OUTPUT_DIR" == /* ]] || usage
+[[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+[[ -f "$REQUEST" && -f "$SNAPSHOT_DIR/snapshot.sql.gz" && -f "$SNAPSHOT_DIR/snapshot.json" ]]
+sudo test ! -e "$OUTPUT_DIR"
+[[ "$(git -C "$SOURCE_REPO" rev-parse "$BASE_SHA^{commit}")" == "$BASE_SHA" ]]
+
+WORKER_IP={{ hostvars[groups['worker'][0]].private_ip }}
+SSH_ARGS=(
+  -i {{ factory_manager_private_key }}
+  -o BatchMode=yes
+  -o IdentitiesOnly=yes
+  -o StrictHostKeyChecking=yes
+  -o UserKnownHostsFile={{ factory_manager_home }}/.ssh/known_hosts
+  -o ConnectTimeout=10
+)
+RUN_ID="s4-$(date -u +%Y%m%d)-$(openssl rand -hex 6)"
+REMOTE_ROOT="/var/tmp/patchyard-incoming/$RUN_ID"
+RUN_TEMP=$(mktemp -d /var/tmp/patchyard-control-run.XXXXXX)
+
+remote_ssh() {
+  ssh "${SSH_ARGS[@]}" {{ factory_manager_user }}@"$WORKER_IP" "$@"
+}
+
+cleanup() {
+  remote_ssh rm -r -- "$REMOTE_ROOT" >/dev/null 2>&1 || true
+  rm -r -- "$RUN_TEMP"
+}
+trap cleanup EXIT
+
+git -C "$SOURCE_REPO" archive --format=tar "$BASE_SHA" \
+  | gzip -n -9 >"$RUN_TEMP/source.tar.gz"
+SOURCE_SHA256=$(sha256sum "$RUN_TEMP/source.tar.gz" | cut -d' ' -f1)
+REQUEST_SHA256=$(sha256sum "$REQUEST" | cut -d' ' -f1)
+SNAPSHOT_SQL_SHA256=$(sha256sum "$SNAPSHOT_DIR/snapshot.sql.gz" | cut -d' ' -f1)
+SNAPSHOT_MANIFEST_SHA256=$(sha256sum "$SNAPSHOT_DIR/snapshot.json" | cut -d' ' -f1)
+
+/usr/local/sbin/check-snapshot-eligibility "$SNAPSHOT_DIR"
+jq -n \
+  --arg run_id "$RUN_ID" \
+  --arg base_sha "$BASE_SHA" \
+  --arg source_archive_sha256 "$SOURCE_SHA256" \
+  --arg request_sha256 "$REQUEST_SHA256" \
+  --arg snapshot_sql_sha256 "$SNAPSHOT_SQL_SHA256" \
+  --arg snapshot_manifest_sha256 "$SNAPSHOT_MANIFEST_SHA256" \
+  '{
+    schema_version: 1,
+    run_id: $run_id,
+    base_sha: $base_sha,
+    source_archive_sha256: $source_archive_sha256,
+    request_sha256: $request_sha256,
+    snapshot_sql_sha256: $snapshot_sql_sha256,
+    snapshot_manifest_sha256: $snapshot_manifest_sha256,
+    provider: "none",
+    mode: "fixture",
+    credential_required: false,
+    capability_sha256: null,
+    spend_cap_cents: 0
+  }' >"$RUN_TEMP/run.json"
+
+remote_ssh install -d -m 0700 "$REMOTE_ROOT/snapshot"
+scp "${SSH_ARGS[@]}" \
+  "$RUN_TEMP/run.json" "$RUN_TEMP/source.tar.gz" "$REQUEST" \
+  {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/"
+scp "${SSH_ARGS[@]}" \
+  "$SNAPSHOT_DIR/snapshot.sql.gz" "$SNAPSHOT_DIR/snapshot.json" \
+  {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/snapshot/"
+
+remote_ssh sudo /usr/local/sbin/patchyard-firecracker-run \
+  "$REMOTE_ROOT/run.json" \
+  "$REMOTE_ROOT/source.tar.gz" \
+  "$REMOTE_ROOT/$(basename "$REQUEST")" \
+  "$REMOTE_ROOT/snapshot" \
+  "$REMOTE_ROOT/output"
+
+install -d -m 0700 "$RUN_TEMP/result"
+scp "${SSH_ARGS[@]}" \
+  {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/output/change.patch" \
+  {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/output/rationale.txt" \
+  {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/output/evidence.json" \
+  "$RUN_TEMP/result/"
+[[ "$(find "$RUN_TEMP/result" -mindepth 1 -maxdepth 1 -type f | wc -l)" -eq 3 ]]
+jq -e --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
+  '.run_id == $run_id and .base_sha == $base_sha and .host_teardown.run_directories == 0' \
+  "$RUN_TEMP/result/evidence.json" >/dev/null
+git -C "$SOURCE_REPO" apply --check "$RUN_TEMP/result/change.patch"
+
+sudo chown -R factory-web:factory "$RUN_TEMP/result"
+sudo find "$RUN_TEMP/result" -type d -exec chmod 0700 {} +
+sudo find "$RUN_TEMP/result" -type f -exec chmod 0600 {} +
+sudo mv -- "$RUN_TEMP/result" "$OUTPUT_DIR"
+echo "fixture_result=$OUTPUT_DIR run_id=$RUN_ID"

@@ -30,3 +30,19 @@ access. At the Session 0 pre-apply check, no live DigitalOcean firewall targeted
 the existing `production` tag, so attaching that tag introduced no inherited
 firewall-rule union. Re-run that read-only check before later applies and during
 drift review.
+
+## Session 4 residual risk: guest-result filesystem parser
+
+The production launcher does not mount the guest-written result ext4 image into
+the host kernel. It bounds the image at 16 MiB, verifies its structure with
+version-pinned e2fsprogs 1.46.5-8, and extracts only four fixed regular-file
+names with `debugfs` under the unprivileged `factory-worker` identity and an
+empty environment. This relocates the residual parser risk from a host-kernel
+filesystem attack to the user-space e2fsprogs parser. A parser exploit can
+compromise the disposable, secret-free worker identity or deny service, but it
+does not run as root; the root-owned launcher still validates names, types,
+sizes, hashes, provenance, and patch applicability before accepting output.
+
+Session 5 should include malformed-result-filesystem cases in its hostile-test
+manifest and treat unexpected parser behavior or residue as a boundary failure
+requiring worker replacement and requalification.

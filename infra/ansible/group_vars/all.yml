@@ -1,6 +1,18 @@
 ---
-management_public_key_path: /var/lib/conductor/.ssh/id_ed25519.pub
+breakglass_public_key: ssh-ed25519 REDACTED-BREAK-GLASS-KEY-BODY operator@example.com
+factory_manager_user: factory-manager
+factory_manager_home: /var/lib/patchyard-manager
+factory_manager_private_key: /var/lib/patchyard-manager/.ssh/id_ed25519
 worker_dns_resolver_ipv4: 10.132.255.254
+firecracker_version: 1.15.1
+firecracker_release_url: https://github.com/firecracker-microvm/firecracker/releases/download/v1.15.1/firecracker-v1.15.1-x86_64.tgz
+firecracker_release_sha256: d4a32ab2322d887ca1bc4a4e7afa9cc35393e6362dfc2b3becb389d362e4275a
+firecracker_guest_kernel_url: https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.15/x86_64/vmlinux-6.1.155
+firecracker_guest_kernel_sha256: e20e46d0c36c55c0d1014eb20576171b3f3d922260d9f792017aeff53af3d4f2
+worker_image_recipe_sha256: 269184aad89e13e9b61482f3e039c6d77978f7097bc5bfa2bff04fe791687836
+worker_e2fsprogs_nevra: e2fsprogs-1.46.5-8.el9.x86_64
+worker_e2fsprogs_libs_nevra: e2fsprogs-libs-1.46.5-8.el9.x86_64
+worker_libcom_err_nevra: libcom_err-1.46.5-8.el9.x86_64
 
 node_exporter_version: 1.12.1
 node_exporter_sha256: b51d8a76aa2a9156a55d501aca6276fae09e262259a5e4e831d2c2222f084e63

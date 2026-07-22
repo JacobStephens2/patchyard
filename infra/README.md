@@ -11,7 +11,7 @@ Ansible owns host configuration. No console edit is part of the operating path.
 | `digitalocean/` | two droplets, VPC placement, existing-tag attachment, cloud firewalls, SSH public identity, inventory outputs | `factory/digitalocean/tofu.tfstate` |
 | `aws/` | A96 bucket configuration and IAM adoption, Route 53 lifecycle policy, `factory.example.com` | `factory/aws/tofu.tfstate` |
 | `github/` | repository settings and `master` branch protection | `factory/github/tofu.tfstate` |
-| `ansible/` | both Rocky 9 hosts, identities, host firewall, exporters, control prerequisites, PostgreSQL/roles/migrations, worker transient state | n/a |
+| `ansible/` | both Rocky 9 hosts, bootstrap/break-glass and factory-management identities, host firewall, exporters, control prerequisites, PostgreSQL/roles/migrations, Firecracker parity runtime and worker transient state | n/a |
 
 Each OpenTofu root pins OpenTofu 1.12.0 and its provider, enables native S3
 lockfiles without DynamoDB, requests SSE-S3, and enforces PBKDF2/AES-GCM
@@ -63,6 +63,20 @@ infra/ansible/converge.sh
 infra/ansible/qualify.sh
 ```
 
+The first converge connects from orchestration with the `conductor` bootstrap
+identity. It creates `factory-manager` on both hosts, generates the only private
+management key on the control plane, pins both host keys, and opens SSH from the
+control plane's private address. Normal host convergence can then run from the
+control plane with `/usr/local/sbin/patchyard-converge-hosts`; that path uses
+only the private VPC and the credential-free checkout. OpenTofu/cloud changes
+remain orchestration-owned and human-reviewed. `conductor` remains authorized
+solely for bootstrap and break-glass use.
+
+Cloud-init is a create-time bootstrap input and is ignored for updates after a
+droplet exists. New/replacement hosts receive the current template; Ansible owns
+the converged identity metadata. This prevents a comment or bootstrap-package
+change from silently turning into a host replacement.
+
 DigitalOcean planning fails closed if any live cloud firewall targets a desired
 host tag. This prevents a tag-attached firewall's rule union from silently
 widening either host before a reviewer sees the resource plan.
@@ -99,7 +113,8 @@ PATCHYARD_REPLACE_APPROVED=yes \
 ```
 
 The script replaces only `digitalocean_droplet.worker`, converges twice, and
-runs qualification. No old worker state is restored.
+runs host qualification, the production Firecracker isolation probe, and
+post-probe no-residue qualification. No old worker state is restored.
 
 ## Rollback
 
@@ -115,8 +130,13 @@ rollback in later sessions is a binary/config revision, not host replacement.
 
 The installed control plane receives a valid Git checkout through a temporary
 credential-free bundle. Runtime roles contain no orchestration-host path,
-status-dashboard dependency, secret-injection reference, or orchestration IP.
-The orchestration public IP appears only in the bootstrap management firewall.
+identity, status-dashboard dependency, secret-injection reference, or
+orchestration IP. The orchestration public IP and public key appear only in the
+bootstrap/break-glass surface. `qualify.sh` temporarily rejects the orchestration
+source at the worker host firewall, proves that a fresh break-glass SSH
+connection fails, and proves in the same window that `factory-manager` still
+qualifies the worker over the private VPC. The timed reject expires after 45
+seconds even if the qualification process is interrupted.
 
 Full serve/authenticate/run independence cannot be exercised until the runtime
 exists in Sessions 1-14; Session 0 proves the topology and static half without

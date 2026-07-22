@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "owner": "Patchyard IT Manager",
+  "source": "manager-sandbox fieldbook_training schema-only export",
+  "refresh_triggers": [
+    "every applied Fieldbook migration",
+    "every manager-sandbox redaction-lineage change"
+  ],
+  "warn_after_days": 7,
+  "ineligible_after_days": 30,
+  "failure_mode": "retain the last valid artifact; mark it stale after the warning threshold and refuse new runs only after the ineligible ceiling",
+  "pull_request_contract": "Every Fieldbook PR records the parity snapshot version and snapshot date used for verification."
+}

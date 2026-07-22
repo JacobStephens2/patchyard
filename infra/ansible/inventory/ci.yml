@@ -6,6 +6,7 @@ all:
     private_ip: 192.0.2.10
     monitoring_private_cidr: 192.0.2.20/32
     orchestration_public_cidr: 192.0.2.30/32
+    control_plane_private_cidr: 192.0.2.10/32
     factory_repo_bundle: /tmp/factory.bundle
     factory_repo_revision: 0000000000000000000000000000000000000000
   children:

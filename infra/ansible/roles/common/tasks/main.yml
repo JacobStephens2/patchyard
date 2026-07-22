@@ -24,27 +24,128 @@
       - unzip
     state: present
 
-- name: Create the orchestration management identity
+- name: Create the orchestration bootstrap and break-glass identity
   ansible.builtin.user:
     name: conductor
-    comment: Patchyard orchestration management identity
+    comment: Patchyard orchestration bootstrap and break-glass identity
     groups: wheel
     append: true
     create_home: true
     password_lock: true
     shell: /bin/bash
 
-- name: Authorize the orchestration public key
+- name: Authorize the orchestration break-glass public key
   ansible.posix.authorized_key:
     user: conductor
-    key: "{{ lookup('ansible.builtin.file', management_public_key_path) }}"
+    key: "{{ breakglass_public_key }}"
     exclusive: true
     state: present
 
-- name: Grant the management identity passwordless sudo
+- name: Grant the break-glass identity passwordless sudo
   ansible.builtin.copy:
     dest: /etc/sudoers.d/patchyard-conductor
     content: "conductor ALL=(ALL) NOPASSWD:ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Create the factory management group
+  ansible.builtin.group:
+    name: "{{ factory_manager_user }}"
+    system: true
+
+- name: Create the factory management identity
+  ansible.builtin.user:
+    name: "{{ factory_manager_user }}"
+    comment: Patchyard Factory control-plane management identity
+    groups: wheel
+    group: "{{ factory_manager_user }}"
+    append: true
+    create_home: true
+    home: "{{ factory_manager_home }}"
+    password_lock: true
+    shell: /bin/bash
+    system: true
+
+- name: Create the factory management SSH directory
+  ansible.builtin.file:
+    path: "{{ factory_manager_home }}/.ssh"
+    state: directory
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
+    mode: "0700"
+
+- name: Generate the control-plane-owned factory management key
+  ansible.builtin.command:
+    argv:
+      - ssh-keygen
+      - -q
+      - -t
+      - ed25519
+      - -N
+      - ""
+      - -C
+      - factory-manager@factory-control.example.com
+      - -f
+      - "{{ factory_manager_private_key }}"
+    creates: "{{ factory_manager_private_key }}"
+  become: true
+  become_user: "{{ factory_manager_user }}"
+  when: inventory_hostname in groups['control_plane']
+
+- name: Enforce factory management private-key permissions
+  ansible.builtin.file:
+    path: "{{ factory_manager_private_key }}"
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
+    mode: "0600"
+  when: inventory_hostname in groups['control_plane']
+
+- name: Read the factory management public key from the control plane
+  ansible.builtin.slurp:
+    src: "{{ factory_manager_private_key }}.pub"
+  delegate_to: "{{ groups['control_plane'][0] }}"
+  run_once: true
+  register: factory_manager_public_key
+
+- name: Authorize only the factory control-plane management key
+  ansible.posix.authorized_key:
+    user: "{{ factory_manager_user }}"
+    key: "{{ factory_manager_public_key.content | b64decode | trim }}"
+    exclusive: true
+    state: present
+
+- name: Read each factory host SSH public key
+  ansible.builtin.slurp:
+    src: /etc/ssh/ssh_host_ed25519_key.pub
+  register: factory_host_ssh_public_key
+
+- name: Pin each factory host key for control-plane management
+  ansible.builtin.known_hosts:
+    path: "{{ factory_manager_home }}/.ssh/known_hosts"
+    name: "{{ private_ip }}"
+    key: >-
+      {{ private_ip }}
+      {{ (factory_host_ssh_public_key.content | b64decode).split()[0] }}
+      {{ (factory_host_ssh_public_key.content | b64decode).split()[1] }}
+    state: present
+  delegate_to: "{{ groups['control_plane'][0] }}"
+  throttle: 1
+
+- name: Restrict the factory management known-hosts file
+  ansible.builtin.file:
+    path: "{{ factory_manager_home }}/.ssh/known_hosts"
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
+    mode: "0600"
+  delegate_to: "{{ groups['control_plane'][0] }}"
+  run_once: true
+
+- name: Grant the factory management identity passwordless sudo
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/patchyard-manager
+    content: "{{ factory_manager_user }} ALL=(ALL) NOPASSWD:ALL\n"
     owner: root
     group: root
     mode: "0440"
@@ -104,11 +205,21 @@
     permanent: true
     immediate: true
 
-- name: Allow SSH only from orchestration
+- name: Allow bootstrap and break-glass SSH from orchestration
   ansible.posix.firewalld:
     zone: public
     rich_rule: >-
       rule family="ipv4" source address="{{ orchestration_public_cidr }}"
+      service name="ssh" accept
+    state: enabled
+    permanent: true
+    immediate: true
+
+- name: Allow normal factory management only from the control-plane VPC address
+  ansible.posix.firewalld:
+    zone: public
+    rich_rule: >-
+      rule family="ipv4" source address="{{ control_plane_private_cidr }}"
       service name="ssh" accept
     state: enabled
     permanent: true

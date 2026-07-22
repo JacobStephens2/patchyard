@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+SNAPSHOT_DIR=$(readlink -f -- "${1:-/var/lib/patchyard/snapshots/current}")
+OUTPUT_DIR=${2:?absolute output directory required}
+[[ "$SNAPSHOT_DIR" == /* && "$OUTPUT_DIR" == /* ]]
+[[ -f "$SNAPSHOT_DIR/snapshot.sql.gz" && -f "$SNAPSHOT_DIR/snapshot.json" ]]
+sudo test ! -e "$OUTPUT_DIR"
+
+WORKER_IP={{ hostvars[groups['worker'][0]].private_ip }}
+SSH_ARGS=(
+  -i {{ factory_manager_private_key }}
+  -o BatchMode=yes
+  -o IdentitiesOnly=yes
+  -o StrictHostKeyChecking=yes
+  -o UserKnownHostsFile={{ factory_manager_home }}/.ssh/known_hosts
+  -o ConnectTimeout=10
+)
+RUN_ID="s4-probe-$(date -u +%Y%m%d)-$(openssl rand -hex 5)"
+REMOTE_ROOT="/var/tmp/patchyard-incoming/$RUN_ID"
+RUN_TEMP=$(mktemp -d /var/tmp/patchyard-control-probe.XXXXXX)
+FIXTURE_REPO="$RUN_TEMP/repo"
+
+remote_ssh() {
+  ssh "${SSH_ARGS[@]}" {{ factory_manager_user }}@"$WORKER_IP" "$@"
+}
+
+cleanup() {
+  remote_ssh rm -r -- "$REMOTE_ROOT" >/dev/null 2>&1 || true
+  rm -r -- "$RUN_TEMP"
+}
+trap cleanup EXIT
+
+install -d -m 0700 "$FIXTURE_REPO"
+printf 'session-4-isolation-base\n' >"$FIXTURE_REPO/base.txt"
+git -C "$FIXTURE_REPO" init --quiet
+git -C "$FIXTURE_REPO" config user.name 'Patchyard Factory isolation fixture'
+git -C "$FIXTURE_REPO" config user.email 'factory@example.invalid'
+git -C "$FIXTURE_REPO" add base.txt
+GIT_AUTHOR_DATE=2000-01-01T00:00:00Z GIT_COMMITTER_DATE=2000-01-01T00:00:00Z \
+  git -C "$FIXTURE_REPO" commit --quiet -m 'Session 4 isolation fixture'
+BASE_SHA=$(git -C "$FIXTURE_REPO" rev-parse HEAD)
+printf 'Session 4 immutable request fixture.\n' >"$RUN_TEMP/request.md"
+git -C "$FIXTURE_REPO" archive --format=tar "$BASE_SHA" \
+  | gzip -n -9 >"$RUN_TEMP/source.tar.gz"
+
+SOURCE_SHA256=$(sha256sum "$RUN_TEMP/source.tar.gz" | cut -d' ' -f1)
+REQUEST_SHA256=$(sha256sum "$RUN_TEMP/request.md" | cut -d' ' -f1)
+SNAPSHOT_SQL_SHA256=$(sha256sum "$SNAPSHOT_DIR/snapshot.sql.gz" | cut -d' ' -f1)
+SNAPSHOT_MANIFEST_SHA256=$(sha256sum "$SNAPSHOT_DIR/snapshot.json" | cut -d' ' -f1)
+
+jq -n \
+  --arg run_id "$RUN_ID" \
+  --arg base_sha "$BASE_SHA" \
+  --arg source_archive_sha256 "$SOURCE_SHA256" \
+  --arg request_sha256 "$REQUEST_SHA256" \
+  --arg snapshot_sql_sha256 "$SNAPSHOT_SQL_SHA256" \
+  --arg snapshot_manifest_sha256 "$SNAPSHOT_MANIFEST_SHA256" \
+  '{
+    schema_version: 1,
+    run_id: $run_id,
+    base_sha: $base_sha,
+    source_archive_sha256: $source_archive_sha256,
+    request_sha256: $request_sha256,
+    snapshot_sql_sha256: $snapshot_sql_sha256,
+    snapshot_manifest_sha256: $snapshot_manifest_sha256,
+    provider: "openai",
+    mode: "provider-qualification",
+    credential_required: false,
+    capability_sha256: null,
+    spend_cap_cents: 0
+  }' >"$RUN_TEMP/run.json"
+
+remote_ssh install -d -m 0700 "$REMOTE_ROOT/snapshot"
+scp "${SSH_ARGS[@]}" \
+  "$RUN_TEMP/run.json" "$RUN_TEMP/source.tar.gz" "$RUN_TEMP/request.md" \
+  {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/"
+scp "${SSH_ARGS[@]}" \
+  "$SNAPSHOT_DIR/snapshot.sql.gz" "$SNAPSHOT_DIR/snapshot.json" \
+  {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/snapshot/"
+remote_ssh sudo /usr/local/sbin/patchyard-firecracker-run \
+  "$REMOTE_ROOT/run.json" "$REMOTE_ROOT/source.tar.gz" \
+  "$REMOTE_ROOT/request.md" "$REMOTE_ROOT/snapshot" "$REMOTE_ROOT/output"
+
+install -d -m 0700 "$RUN_TEMP/result"
+scp "${SSH_ARGS[@]}" \
+  {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/output/change.patch" \
+  {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/output/rationale.txt" \
+  {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/output/evidence.json" \
+  "$RUN_TEMP/result/"
+jq -e '
+  .provider == "openai"
+  and (.session3_probe_log | contains("P4=PASS"))
+  and (.session3_probe_log | contains("P5=PASS"))
+  and (.session3_probe_log | contains("P6=PASS"))
+  and (.session3_probe_log | contains("P7=PASS"))
+  and (.session3_probe_log | contains("P8=PASS"))
+  and (.session3_probe_log | contains("P9=PASS"))
+  and .host_teardown.run_directories == 0
+' "$RUN_TEMP/result/evidence.json" >/dev/null
+
+sudo chown -R factory-web:factory "$RUN_TEMP/result"
+sudo find "$RUN_TEMP/result" -type d -exec chmod 0700 {} +
+sudo find "$RUN_TEMP/result" -type f -exec chmod 0600 {} +
+sudo mv -- "$RUN_TEMP/result" "$OUTPUT_DIR"
+echo "isolation_probe_result=$OUTPUT_DIR run_id=$RUN_ID"

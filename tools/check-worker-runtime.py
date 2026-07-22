@@ -166,6 +166,10 @@ if "incomplete guest result: file_count=%s expected_mask=%s" not in launcher:
     errors.append("incomplete guest results omit the bounded expected-file mask")
 if 'VMM_PID=$(<"$VMM_PID_FILE")' not in launcher:
     errors.append("launcher does not assume lifecycle ownership of jailer's Firecracker PID")
+if 'VMM_CMDLINE=$(tr \'\\0\' \' \' <"/proc/$VMM_PID/cmdline")' not in launcher:
+    errors.append("launcher PID ownership check can fail from a short-circuited pipeline")
+if '[[ "$VMM_CMDLINE" == *"--id $RUN_ID"* ]]' not in launcher:
+    errors.append("launcher does not bind the captured Firecracker PID to the run id")
 if '"--id[ =]$RUN_ID"' not in launcher:
     errors.append("cleanup does not match Firecracker's separated run-id argument")
 

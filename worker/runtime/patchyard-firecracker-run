@@ -363,7 +363,8 @@ while [[ ! -s "$VMM_PID_FILE" ]]; do
 done
 VMM_PID=$(<"$VMM_PID_FILE")
 [[ "$VMM_PID" =~ ^[0-9]+$ ]]
-tr '\0' ' ' <"/proc/$VMM_PID/cmdline" | grep -Fq -- "--id $RUN_ID"
+VMM_CMDLINE=$(tr '\0' ' ' <"/proc/$VMM_PID/cmdline")
+[[ "$VMM_CMDLINE" == *"--id $RUN_ID"* ]]
 wait "$JAILER_PID" || {
   tail -n 80 "$RUNTIME_ROOT/console-$RUN_ID.log" >&2
   exit 1

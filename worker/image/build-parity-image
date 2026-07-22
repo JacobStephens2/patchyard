@@ -126,7 +126,8 @@ sed -i \
   "$MYSQL_REPO"
 "${DNF[@]}" module reset php
 "${DNF[@]}" module enable php:remi-8.4
-rpm --root "$MOUNT_ROOT" --import /etc/pki/rpm-gpg/RPM-GPG-KEY-remi2026
+rpm --root "$MOUNT_ROOT" --import \
+  "$MOUNT_ROOT/etc/pki/rpm-gpg/RPM-GPG-KEY-remi2026"
 
 mapfile -t HTTPD_PACKAGES <"$RECIPE_ROOT/httpd-packages.txt"
 mapfile -t MYSQL_PACKAGES <"$RECIPE_ROOT/mysql-packages.txt"

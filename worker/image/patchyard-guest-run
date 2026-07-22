@@ -48,6 +48,7 @@ mount -o ro,nosuid,nodev,noexec /dev/disk/by-label/ETA_INPUT /input
 INPUT_MOUNTED=true
 mount -o rw,nosuid,nodev /dev/disk/by-label/ETA_WORK /work
 WORK_MOUNTED=true
+chown factory-agent:factory-agent /work
 mount -o rw,nosuid,nodev,noexec /dev/disk/by-label/ETA_RESULT /result
 RESULT_MOUNTED=true
 
@@ -86,8 +87,10 @@ PRODUCTION_PARITY_SHA=$(jq -r .production_parity_sha256 "$IMAGE_MANIFEST")
 [[ "$(sha256sum /input/snapshot.json | cut -d' ' -f1)" == "$SNAPSHOT_MANIFEST_SHA" ]]
 [[ "$(</work/.patchyard-base-sha)" == "$BASE_SHA" ]]
 [[ -d /work/.git ]]
-[[ -z "$(runuser -u factory-agent -- git -C /work remote)" ]]
-[[ -z "$(runuser -u factory-agent -- git -C /work status --porcelain)" ]]
+WORK_REMOTES=$(runuser -u factory-agent -- git -C /work remote)
+WORK_STATUS=$(runuser -u factory-agent -- git -C /work status --porcelain)
+[[ -z "$WORK_REMOTES" ]]
+[[ -z "$WORK_STATUS" ]]
 
 if [[ -s /input/provider-hosts ]]; then
   while read -r address hostname extra; do

@@ -185,7 +185,8 @@ git -C "$SOURCE_STAGE" config user.email 'factory@example.invalid'
 git -C "$SOURCE_STAGE" add -A
 GIT_AUTHOR_DATE=2000-01-01T00:00:00Z GIT_COMMITTER_DATE=2000-01-01T00:00:00Z \
   git -C "$SOURCE_STAGE" commit --quiet -m 'Exact transferred base tree'
-printf '.patchyard-base-sha\n' >>"$SOURCE_STAGE/.git/info/exclude"
+printf '%s\n' '.patchyard-base-sha' 'lost+found/' \
+  >>"$SOURCE_STAGE/.git/info/exclude"
 printf '%s\n' "$BASE_SHA" >"$SOURCE_STAGE/.patchyard-base-sha"
 chown -R 1000:1000 "$SOURCE_STAGE"
 

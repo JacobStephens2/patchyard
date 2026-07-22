@@ -104,6 +104,12 @@ if "--setopt=localpkg_gpgcheck=True" not in image_builder:
     errors.append("checksum-pinned PHP RPM signatures are not enforced")
 
 guest_runner = (IMAGE / "patchyard-guest-run").read_text()
+if "chown factory-agent:factory-agent /work" not in guest_runner:
+    errors.append("mounted worktree root is not transferred to the agent identity")
+if 'WORK_REMOTES=$(runuser -u factory-agent -- git -C /work remote)' not in guest_runner:
+    errors.append("guest Git remote preflight can mask a command failure")
+if 'WORK_STATUS=$(runuser -u factory-agent -- git -C /work status --porcelain)' not in guest_runner:
+    errors.append("guest Git status preflight can mask a command failure")
 if "chown factory-agent:factory-agent /work/result.txt" not in guest_runner:
     errors.append("root-run containment probe output is not transferred to the patch identity")
 
@@ -134,6 +140,8 @@ if len(lifecycle_policy.get("readmission_gates", [])) != 4:
     errors.append("worker replacement readmission gates are incomplete")
 
 launcher = (REPO / "worker" / "runtime" / "patchyard-firecracker-run").read_text()
+if "'.patchyard-base-sha' 'lost+found/'" not in launcher:
+    errors.append("ext4 metadata directory is not excluded from guest Git traversal")
 if "debugfs -R 'ls -p /'" not in launcher:
     errors.append("worker result filesystem lacks bounded user-space extraction")
 if re.search(r"mount[^\n]*result\.ext4", launcher):

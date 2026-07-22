@@ -27,6 +27,8 @@ POLICY=/etc/patchyard-worker/provider-egress.json
 LIFECYCLE_POLICY=/etc/patchyard-worker/worker-lifecycle.json
 FIRECRACKER=/usr/local/bin/firecracker
 JAILER=/usr/local/bin/jailer
+FIRECRACKER_EXECUTABLE=$(readlink -f -- "$FIRECRACKER")
+FIRECRACKER_JAIL_NAME=$(basename -- "$FIRECRACKER_EXECUTABLE")
 KERNEL="$IMAGE_ROOT/vmlinux"
 ROOTFS_TEMPLATE="$IMAGE_ROOT/fieldbook-parity.ext4"
 ROOTFS_SHA_FILE="$IMAGE_ROOT/fieldbook-parity.sha256"
@@ -87,7 +89,7 @@ NFT_TABLE="eta_fc_${SHORT_ID}"
 HOST_IP=172.16.0.1
 GUEST_IP=172.16.0.2
 JAIL_BASE="$RUNTIME_ROOT/jailer"
-JAIL_ROOT="$JAIL_BASE/firecracker/$RUN_ID/root"
+JAIL_ROOT="$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID/root"
 SOURCE_STAGE="$RUNTIME_ROOT/source-$RUN_ID"
 INPUT_STAGE="$RUNTIME_ROOT/input-$RUN_ID"
 RUN_TMPFS="$TMPFS_ROOT/$RUN_ID"
@@ -108,8 +110,11 @@ remove_runtime() {
   nft delete table inet "$NFT_TABLE" >/dev/null 2>&1 || true
   ip link delete "$TAP" >/dev/null 2>&1 || true
   sysctl -q -w "net.ipv4.ip_forward=$BASE_FORWARD" >/dev/null
-  rm -rf -- "$JAIL_BASE/firecracker/$RUN_ID" "$SOURCE_STAGE" "$INPUT_STAGE" \
+  rm -rf -- "$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID" \
+    "$SOURCE_STAGE" "$INPUT_STAGE" \
     "$RUN_TMPFS" "$RESULT_EXTRACT" "$RUNTIME_ROOT/console-$RUN_ID.log"
+  rmdir "$JAIL_BASE/$FIRECRACKER_JAIL_NAME" "$JAIL_BASE" \
+    >/dev/null 2>&1 || true
 }
 
 cleanup_and_taint() {
@@ -123,7 +128,7 @@ cleanup_and_taint() {
   pgrep -u factory-worker -f -- "--id=$RUN_ID" >/dev/null 2>&1 && residue=1
   ip -o link show "$TAP" >/dev/null 2>&1 && residue=1
   nft list table inet "$NFT_TABLE" >/dev/null 2>&1 && residue=1
-  [[ -e "$JAIL_BASE/firecracker/$RUN_ID" || -e "$RUN_TMPFS" \
+  [[ -e "$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID" || -e "$RUN_TMPFS" \
     || -e "$RUNTIME_ROOT/console-$RUN_ID.log" ]] && residue=1
   local reason=
   [[ "$residue" -ne 0 ]] && reason=cleanup-residue
@@ -296,7 +301,7 @@ nft add rule inet "$NFT_TABLE" postrouting ip saddr 172.16.0.0/30 oifname != "$T
 
 setsid "$JAILER" \
   --id "$RUN_ID" \
-  --exec-file "$FIRECRACKER" \
+  --exec-file "$FIRECRACKER_EXECUTABLE" \
   --uid "$FACTORY_UID" \
   --gid "$FACTORY_GID" \
   --chroot-base-dir "$JAIL_BASE" \
@@ -381,7 +386,7 @@ remove_runtime
 [[ "$(pgrep -u factory-worker -f -- "--id=$RUN_ID" | wc -l)" -eq 0 ]]
 [[ "$(ip -o link show "$TAP" 2>/dev/null | wc -l)" -eq 0 ]]
 [[ "$(nft list table inet "$NFT_TABLE" 2>/dev/null | wc -l)" -eq 0 ]]
-[[ ! -e "$JAIL_BASE/firecracker/$RUN_ID" && ! -e "$RUN_TMPFS" ]]
+[[ ! -e "$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID" && ! -e "$RUN_TMPFS" ]]
 trap - EXIT
 
 jq '. + {host_teardown: {processes: 0, taps: 0, nftables_tables: 0, run_directories: 0, credential_files: 0}}' \

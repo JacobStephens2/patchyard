@@ -140,6 +140,10 @@ if "RESULT_IMAGE_MAX_BYTES=16777216" not in launcher:
     errors.append("guest-written result image is not bounded before parsing")
 if "runuser -u factory-worker" not in launcher:
     errors.append("guest-written result image parser does not drop root")
+if 'FIRECRACKER_EXECUTABLE=$(readlink -f -- "$FIRECRACKER")' not in launcher:
+    errors.append("jailer path is not derived from the resolved Firecracker executable")
+if 'JAIL_ROOT="$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID/root"' not in launcher:
+    errors.append("staged runtime path does not match jailer's executable-name layout")
 
 group_vars = GROUP_VARS.read_text()
 for package_pin in (

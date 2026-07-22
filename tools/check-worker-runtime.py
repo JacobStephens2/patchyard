@@ -148,6 +148,10 @@ for fixture_failure in (
     if f"FAILURE={fixture_failure}" not in guest_runner:
         errors.append(f"fixture failure stage is missing: {fixture_failure}")
 
+toy_agent = (IMAGE / "patchyard-toy-agent").read_text()
+if 'chmod 0644 "$WORKTREE/mfieldbook/patchyard_session4_probe.php"' not in toy_agent:
+    errors.append("fixture agent output is not readable by the parity web identity")
+
 parity_conf = (IMAGE / "patchyard-parity.conf").read_text()
 for directive in (
     "DocumentRoot /var/www/html",
@@ -175,6 +179,10 @@ if len(lifecycle_policy.get("readmission_gates", [])) != 4:
     errors.append("worker replacement readmission gates are incomplete")
 
 launcher = (REPO / "worker" / "runtime" / "patchyard-firecracker-run").read_text()
+if 'find "$SOURCE_STAGE" -type d -exec chmod 0755 {} +' not in launcher:
+    errors.append("credential-free source directories are not normalized for web traversal")
+if 'find "$SOURCE_STAGE" -type f ! -perm /0111 -exec chmod 0644 {} +' not in launcher:
+    errors.append("credential-free source files are not normalized for web reads")
 if "'.patchyard-base-sha' 'lost+found/'" not in launcher:
     errors.append("ext4 metadata directory is not excluded from guest Git traversal")
 if "debugfs -R 'ls -p /'" not in launcher:

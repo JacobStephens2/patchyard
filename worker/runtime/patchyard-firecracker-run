@@ -179,6 +179,12 @@ if [[ "$MODE" == fixture ]]; then
 else
   [[ -f "$SOURCE_STAGE/base.txt" ]]
 fi
+# The launcher umask protects host staging, but the guest's Apache identity
+# must be able to traverse and read the credential-free source projection.
+# Normalize only archive content before private Git metadata is created.
+find "$SOURCE_STAGE" -type d -exec chmod 0755 {} +
+find "$SOURCE_STAGE" -type f -perm /0111 -exec chmod 0755 {} +
+find "$SOURCE_STAGE" -type f ! -perm /0111 -exec chmod 0644 {} +
 git -C "$SOURCE_STAGE" init --quiet
 git -C "$SOURCE_STAGE" config user.name 'Patchyard Factory base'
 git -C "$SOURCE_STAGE" config user.email 'factory@example.invalid'

@@ -64,7 +64,11 @@ jq -e '
   and (.request_sha256 | test("^[0-9a-f]{64}$"))
   and (.snapshot_sql_sha256 | test("^[0-9a-f]{64}$"))
   and (.snapshot_manifest_sha256 | test("^[0-9a-f]{64}$"))
-  and (.mode == "fixture" or .mode == "provider-qualification")
+  and (.mode == "fixture" or .mode == "provider-qualification" or .mode == "adversarial-qualification")
+  and (if .mode == "adversarial-qualification" then
+    (.qualification_manifest_sha256 | test("^[0-9a-f]{64}$"))
+    and (.canary_sha256 | test("^[0-9a-f]{64}$"))
+  else true end)
 ' "$MANIFEST" >/dev/null
 
 RUN_ID=$(jq -r .run_id "$MANIFEST")
@@ -116,6 +120,79 @@ if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
   umount /credential
   CREDENTIAL_MOUNTED=false
   CAPABILITY_FILE=/run/patchyard-capability/capability.json
+fi
+
+if [[ "$MODE" == adversarial-qualification ]]; then
+  [[ "$PROVIDER" == openai && "$CREDENTIAL_REQUIRED" == false ]]
+  [[ -f /work/base.txt ]]
+  QUALIFICATION_MANIFEST=/input/hostile-test-manifest.json
+  QUALIFICATION_MANIFEST_SHA=$(jq -r .qualification_manifest_sha256 "$MANIFEST")
+  CANARY_SHA=$(jq -r .canary_sha256 "$MANIFEST")
+  [[ -f "$QUALIFICATION_MANIFEST" && ! -L "$QUALIFICATION_MANIFEST" ]]
+  [[ "$(sha256sum "$QUALIFICATION_MANIFEST" | cut -d' ' -f1)" \
+    == "$QUALIFICATION_MANIFEST_SHA" ]]
+
+  FAILURE=adversarial-qualification-probe-failed
+  if ! /usr/local/sbin/patchyard-hostile-probe \
+    "$QUALIFICATION_MANIFEST" "$CANARY_SHA" \
+    /run/session5-guest-results.json; then
+    FAILED_TEST=$(jq -r \
+      '[.[] | select(.status != "PASS") | .id | ascii_downcase][0] // "unknown"' \
+      /run/session5-guest-results.json 2>/dev/null || true)
+    [[ "$FAILED_TEST" =~ ^[a-z0-9-]{1,32}$ ]] || FAILED_TEST=unknown
+    # Preserve only the fixed four-entry internal result shape so the host can
+    # report the bounded failed-test ID without accepting any guest output.
+    : >/result/change.patch
+    printf 'Session 5 qualification failed closed.\n' >/result/rationale.txt
+    printf '{}\n' >/result/evidence.json
+    FAILURE="adversarial-qualification-failed-$FAILED_TEST"
+    exit 1
+  fi
+
+  FAILURE=adversarial-qualification-patch-failed
+  printf 'session-5-hostile-qualification\n' >/work/session5-qualified.txt
+  chown factory-agent:factory-agent /work/session5-qualified.txt
+  runuser -u factory-agent -- git -C /work add -N .
+  runuser -u factory-agent -- git -C /work diff --binary --full-index \
+    >/result/change.patch
+  [[ -s /result/change.patch ]]
+  printf '%s\n' \
+    'Exercised the enumerated Session 5 hostile-test manifest inside the production Firecracker image; the host independently qualified the result parser and teardown boundary.' \
+    >/result/rationale.txt
+
+  FAILURE=adversarial-qualification-evidence-failed
+  PATCH_SHA=$(sha256sum /result/change.patch | cut -d' ' -f1)
+  GUEST_RESULTS=$(jq -c . /run/session5-guest-results.json)
+  jq -n \
+    --arg run_id "$RUN_ID" \
+    --arg base_sha "$BASE_SHA" \
+    --arg request_sha256 "$REQUEST_SHA" \
+    --arg provider "$PROVIDER" \
+    --arg patch_sha256 "$PATCH_SHA" \
+    --arg rootfs_sha256 "$ROOTFS_SHA" \
+    --arg image_recipe_sha256 "$IMAGE_RECIPE_SHA" \
+    --arg production_parity_sha256 "$PRODUCTION_PARITY_SHA" \
+    --arg qualification_manifest_sha256 "$QUALIFICATION_MANIFEST_SHA" \
+    --argjson session5_guest_results "$GUEST_RESULTS" \
+    '{
+      schema_version: 1,
+      run_id: $run_id,
+      base_sha: $base_sha,
+      request_sha256: $request_sha256,
+      provider: $provider,
+      patch_sha256: $patch_sha256,
+      rootfs_sha256: $rootfs_sha256,
+      image_recipe_sha256: $image_recipe_sha256,
+      production_parity_sha256: $production_parity_sha256,
+      git_remote_count: 0,
+      credential_removed_before_output: true,
+      qualification_manifest_sha256: $qualification_manifest_sha256,
+      session5_guest_results: $session5_guest_results
+    }' >/result/evidence.json
+  printf 'success\n' >/result/status
+  STATUS=success
+  FAILURE=
+  exit 0
 fi
 
 if [[ "$MODE" == provider-qualification ]]; then

@@ -90,6 +90,7 @@
     - build-parity-image
     - patchyard-guest-network
     - patchyard-guest-run
+    - patchyard-hostile-probe
     - patchyard-toy-agent
 
 - name: Install the unchanged Session 3 candidate probe
@@ -123,6 +124,41 @@
     owner: root
     group: root
     mode: "0750"
+
+- name: Install the non-root guest-result extractor
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../worker/runtime/patchyard-extract-result-image"
+    dest: /usr/local/libexec/patchyard-extract-result-image
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create the hostile-qualification desired-state directory
+  ansible.builtin.file:
+    path: /usr/local/share/patchyard-worker/qualification
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the hostile-test manifest
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../worker/qualification/hostile-test-manifest.json"
+    dest: /usr/local/share/patchyard-worker/qualification/hostile-test-manifest.json
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install worker-side hostile-qualification operations
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../worker/qualification/{{ item }}"
+    dest: "/usr/local/sbin/{{ item }}"
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - patchyard-hostile-launch
+    - patchyard-test-result-contract
 
 - name: Install the snapshot eligibility guard
   ansible.builtin.copy:

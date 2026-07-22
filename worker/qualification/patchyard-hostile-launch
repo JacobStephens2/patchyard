@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+[[ $# -eq 5 ]]
+MANIFEST=$1
+CANARY_FILE=/run/patchyard-session5-canary
+TAINT_FILE=/var/lib/patchyard-worker/BOUNDARY_TAINTED
+CANARY=
+CANARY_SHA256=
+CANARY_ACTIVE=false
+
+cleanup() {
+  local rc=$?
+  local canary_intact=true
+  if $CANARY_ACTIVE; then
+    if [[ ! -f "$CANARY_FILE" || -L "$CANARY_FILE" \
+      || "$(sha256sum "$CANARY_FILE" | cut -d' ' -f1)" != "$CANARY_SHA256" ]]; then
+      canary_intact=false
+    fi
+  fi
+  unset PATCHYARD_SESSION5_CANARY CANARY
+  [[ ! -e "$CANARY_FILE" ]] || unlink "$CANARY_FILE"
+  if [[ "$canary_intact" != true ]]; then
+    printf 'reason=session5-privileged-canary-mutated detected_at=%s\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$TAINT_FILE"
+    rc=1
+  fi
+  trap - EXIT
+  exit "$rc"
+}
+trap cleanup EXIT
+
+[[ -f "$MANIFEST" && ! -L "$MANIFEST" ]]
+[[ ! -e "$CANARY_FILE" ]]
+CANARY=$(dd if=/dev/stdin bs=128 count=1 status=none)
+[[ "$CANARY" =~ ^session5-[0-9a-f]{64}$ ]]
+CANARY_SHA256=$(printf '%s' "$CANARY" | sha256sum | cut -d' ' -f1)
+EXPECTED_SHA256=$(jq -r '.canary_sha256' "$MANIFEST")
+[[ "$CANARY_SHA256" == "$EXPECTED_SHA256" ]]
+install -m 0600 -o root -g root /dev/null "$CANARY_FILE"
+printf '%s' "$CANARY" >"$CANARY_FILE"
+CANARY_ACTIVE=true
+
+export PATCHYARD_SESSION5_CANARY="$CANARY"
+/usr/local/sbin/patchyard-firecracker-run "$@"

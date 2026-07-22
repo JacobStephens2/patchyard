@@ -29,9 +29,11 @@ mapping into the read-only input, and permits the tap to those addresses on TCP
 guest-to-host traffic are rejected. A `provider: none` fixture gets no egress.
 Every A61 provider is represented in
 [`provider-egress.json`](../policy/provider-egress.json), but all remain
-credential-ineligible until Session 5 proves issuance, delivery, expiry,
-revocation, crash cleanup, and provider-side spend enforcement. The launcher
-will not treat a standing key as a fallback.
+credential-ineligible until their provider-native issuance, delivery, expiry,
+revocation, crash-cleanup, and spend-enforcement contracts are implemented and
+qualified. Session 5's synthetic-canary boundary test deliberately does not
+advance that eligibility. The launcher will not treat a standing key as a
+fallback.
 
 Successful intake accepts exactly three files: a patch of at most 1 MiB, a
 rationale of at most 64 KiB, and evidence of at most 128 KiB. It validates the

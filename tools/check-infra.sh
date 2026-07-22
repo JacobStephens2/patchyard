@@ -33,3 +33,4 @@ done
 python3 "$REPO_ROOT/tools/check-stack.py"
 python3 "$REPO_ROOT/tools/check-independence.py"
 python3 "$REPO_ROOT/tools/check-worker-runtime.py"
+python3 "$REPO_ROOT/tools/check-worker-qualification.py"

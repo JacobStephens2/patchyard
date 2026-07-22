@@ -61,7 +61,9 @@ for provider, item in providers.items():
     if not hosts or any(not hostname_pattern.fullmatch(host) for host in hosts):
         errors.append(f"{provider}: invalid or empty hostname allowlist")
     if item.get("credential_qualified") is not False:
-        errors.append(f"{provider}: credential eligibility advanced before Session 5 evidence")
+        errors.append(
+            f"{provider}: credential eligibility advanced before per-provider A-5 qualification"
+        )
 
 expected_recipe = recipe_sha256()
 pins = (IMAGE / "pins.env").read_text()
@@ -181,6 +183,9 @@ if len(lifecycle_policy.get("readmission_gates", [])) != 4:
     errors.append("worker replacement readmission gates are incomplete")
 
 launcher = (REPO / "worker" / "runtime" / "patchyard-firecracker-run").read_text()
+extractor = (
+    REPO / "worker" / "runtime" / "patchyard-extract-result-image"
+).read_text()
 if 'find "$SOURCE_STAGE" -type d -exec chmod 0755 {} +' not in launcher:
     errors.append("credential-free source directories are not normalized for web traversal")
 if 'find "$SOURCE_STAGE" -type f ! -perm /0111 -exec chmod 0644 {} +' not in launcher:
@@ -189,15 +194,17 @@ if 'install -m 0400 -o 1000 -g 1000 "$REQUEST" "$INPUT_STAGE/request.md"' not in
     errors.append("the isolated agent cannot read its root-staged request")
 if "'.patchyard-base-sha' 'lost+found/'" not in launcher:
     errors.append("ext4 metadata directory is not excluded from guest Git traversal")
-if "debugfs -R 'ls -p /'" not in launcher:
+if "/usr/local/libexec/patchyard-extract-result-image" not in launcher:
+    errors.append("worker launcher does not use the shared result extractor")
+if "debugfs -R 'ls -p /'" not in extractor:
     errors.append("worker result filesystem lacks bounded user-space extraction")
-if re.search(r"mount[^\n]*result\.ext4", launcher):
+if re.search(r"mount[^\n]*result\.ext4", launcher + extractor):
     errors.append("guest-written result filesystem must never be host-mounted")
 if 'mount --bind "$RUN_TMPFS/credential.ext4"' not in launcher:
     errors.append("credential drive is not kept on host tmpfs")
-if "RESULT_IMAGE_MAX_BYTES=16777216" not in launcher:
+if "RESULT_IMAGE_MAX_BYTES=16777216" not in extractor:
     errors.append("guest-written result image is not bounded before parsing")
-if "runuser -u factory-worker" not in launcher:
+if "runuser -u factory-worker" not in extractor:
     errors.append("guest-written result image parser does not drop root")
 if 'FIRECRACKER_EXECUTABLE=$(readlink -f -- "$FIRECRACKER")' not in launcher:
     errors.append("jailer path is not derived from the resolved Firecracker executable")
@@ -209,8 +216,12 @@ if 'factory worker run failed: stage=%s line=%s status=%s' not in launcher:
     errors.append("fail-closed runtime diagnostics omit the bounded failing stage")
 if '[[ "$RESULT_STATUS" =~ ^[a-z0-9,-]{1,128}$ ]]' not in launcher:
     errors.append("guest failure status is not sanitized before diagnostics")
-if "incomplete guest result: file_count=%s expected_mask=%s" not in launcher:
+if "incomplete guest result: file_count=%s expected_mask=%s" not in extractor:
     errors.append("incomplete guest results omit the bounded expected-file mask")
+if "tail -n" in launcher or "console-$RUN_ID.log\" >&2" in launcher:
+    errors.append("guest serial-console content can cross launcher diagnostics")
+if 'setsid env -i PATH=/usr/local/bin:/usr/bin:/bin "$JAILER"' not in launcher:
+    errors.append("jailer and Firecracker do not start from an empty environment")
 if 'VMM_PID=$(<"$VMM_PID_FILE")' not in launcher:
     errors.append("launcher does not assume lifecycle ownership of jailer's Firecracker PID")
 if 'VMM_CMDLINE=$(tr \'\\0\' \' \' <"/proc/$VMM_PID/cmdline")' not in launcher:
@@ -223,6 +234,7 @@ if '"--id[ =]$RUN_ID"' not in launcher:
 for result_runner_name in (
     "patchyard-run-isolation-probe",
     "patchyard-run-fixture",
+    "../qualification/patchyard-run-hostile-qualification",
 ):
     result_runner = (REPO / "worker" / "runtime" / result_runner_name).read_text()
     if 'sudo test ! -e "$OUTPUT_DIR"' not in result_runner:

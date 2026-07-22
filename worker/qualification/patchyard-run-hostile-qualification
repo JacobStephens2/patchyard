@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+SNAPSHOT_DIR=$(readlink -f -- "${1:-/var/lib/patchyard/snapshots/current}")
+OUTPUT_DIR=${2:?absolute output directory required}
+[[ "$SNAPSHOT_DIR" == /* && "$OUTPUT_DIR" == /* ]]
+[[ -f "$SNAPSHOT_DIR/snapshot.sql.gz" && -f "$SNAPSHOT_DIR/snapshot.json" ]]
+sudo test ! -e "$OUTPUT_DIR"
+
+WORKER_IP={{ hostvars[groups['worker'][0]].private_ip }}
+SSH_ARGS=(
+  -i {{ factory_manager_private_key }}
+  -o BatchMode=yes
+  -o IdentitiesOnly=yes
+  -o StrictHostKeyChecking=yes
+  -o UserKnownHostsFile={{ factory_manager_home }}/.ssh/known_hosts
+  -o ConnectTimeout=10
+)
+MANIFEST=/opt/patchyard/worker/qualification/hostile-test-manifest.json
+[[ -f "$MANIFEST" && ! -L "$MANIFEST" ]]
+MANIFEST_SHA256=$(sha256sum "$MANIFEST" | cut -d' ' -f1)
+RUN_ID="s5-hostile-$(date -u +%Y%m%d)-$(openssl rand -hex 5)"
+REMOTE_ROOT="/var/tmp/patchyard-incoming/$RUN_ID"
+RUN_TEMP=$(mktemp -d /var/tmp/patchyard-control-hostile.XXXXXX)
+FIXTURE_REPO="$RUN_TEMP/repo"
+CANARY="session5-$(openssl rand -hex 32)"
+CANARY_SHA256=$(printf '%s' "$CANARY" | sha256sum | cut -d' ' -f1)
+REMOTE_CREATED=false
+
+remote_ssh() {
+  ssh "${SSH_ARGS[@]}" {{ factory_manager_user }}@"$WORKER_IP" "$@"
+}
+
+cleanup() {
+  local rc=$?
+  if [[ "$rc" -ne 0 && -f "$RUN_TEMP/launcher.stderr" ]]; then
+    if grep -F -q -- "$CANARY" "$RUN_TEMP/launcher.stderr" \
+      || grep -F -q -- "$CANARY_SHA256" "$RUN_TEMP/launcher.stderr"; then
+      echo "qualification failed; canary-bearing diagnostics suppressed" >&2
+    else
+      tail -n 20 "$RUN_TEMP/launcher.stderr" >&2
+    fi
+  fi
+  if $REMOTE_CREATED; then
+    remote_ssh rm -r -- "$REMOTE_ROOT" >/dev/null 2>&1 || true
+  fi
+  unset CANARY CANARY_SHA256
+  rm -r -- "$RUN_TEMP"
+  exit "$rc"
+}
+trap cleanup EXIT
+
+install -d -m 0700 "$FIXTURE_REPO"
+printf 'session-5-hostile-base\n' >"$FIXTURE_REPO/base.txt"
+git -C "$FIXTURE_REPO" init --quiet
+git -C "$FIXTURE_REPO" config user.name 'Patchyard Factory hostile fixture'
+git -C "$FIXTURE_REPO" config user.email 'factory@example.invalid'
+git -C "$FIXTURE_REPO" add base.txt
+GIT_AUTHOR_DATE=2000-01-01T00:00:00Z GIT_COMMITTER_DATE=2000-01-01T00:00:00Z \
+  git -C "$FIXTURE_REPO" commit --quiet -m 'Session 5 hostile fixture'
+BASE_SHA=$(git -C "$FIXTURE_REPO" rev-parse HEAD)
+printf 'Session 5 immutable hostile qualification request.\n' >"$RUN_TEMP/request.md"
+git -C "$FIXTURE_REPO" archive --format=tar "$BASE_SHA" \
+  | gzip -n -9 >"$RUN_TEMP/source.tar.gz"
+
+SOURCE_SHA256=$(sha256sum "$RUN_TEMP/source.tar.gz" | cut -d' ' -f1)
+REQUEST_SHA256=$(sha256sum "$RUN_TEMP/request.md" | cut -d' ' -f1)
+SNAPSHOT_SQL_SHA256=$(sha256sum "$SNAPSHOT_DIR/snapshot.sql.gz" | cut -d' ' -f1)
+SNAPSHOT_MANIFEST_SHA256=$(sha256sum "$SNAPSHOT_DIR/snapshot.json" | cut -d' ' -f1)
+
+jq -n \
+  --arg run_id "$RUN_ID" \
+  --arg base_sha "$BASE_SHA" \
+  --arg source_archive_sha256 "$SOURCE_SHA256" \
+  --arg request_sha256 "$REQUEST_SHA256" \
+  --arg snapshot_sql_sha256 "$SNAPSHOT_SQL_SHA256" \
+  --arg snapshot_manifest_sha256 "$SNAPSHOT_MANIFEST_SHA256" \
+  --arg qualification_manifest_sha256 "$MANIFEST_SHA256" \
+  --arg canary_sha256 "$CANARY_SHA256" \
+  '{
+    schema_version: 1,
+    run_id: $run_id,
+    base_sha: $base_sha,
+    source_archive_sha256: $source_archive_sha256,
+    request_sha256: $request_sha256,
+    snapshot_sql_sha256: $snapshot_sql_sha256,
+    snapshot_manifest_sha256: $snapshot_manifest_sha256,
+    provider: "openai",
+    mode: "adversarial-qualification",
+    credential_required: false,
+    capability_sha256: null,
+    spend_cap_cents: 0,
+    qualification_manifest_sha256: $qualification_manifest_sha256,
+    canary_sha256: $canary_sha256
+  }' >"$RUN_TEMP/run.json"
+
+remote_ssh install -d -m 0700 "$REMOTE_ROOT/snapshot"
+REMOTE_CREATED=true
+scp "${SSH_ARGS[@]}" \
+  "$RUN_TEMP/run.json" "$RUN_TEMP/source.tar.gz" "$RUN_TEMP/request.md" \
+  {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/"
+scp "${SSH_ARGS[@]}" \
+  "$SNAPSHOT_DIR/snapshot.sql.gz" "$SNAPSHOT_DIR/snapshot.json" \
+  {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/snapshot/"
+
+printf '%s' "$CANARY" \
+  | remote_ssh sudo /usr/local/sbin/patchyard-hostile-launch \
+    "$REMOTE_ROOT/run.json" "$REMOTE_ROOT/source.tar.gz" \
+    "$REMOTE_ROOT/request.md" "$REMOTE_ROOT/snapshot" "$REMOTE_ROOT/output" \
+    >"$RUN_TEMP/launcher.stdout" 2>"$RUN_TEMP/launcher.stderr"
+
+install -d -m 0700 "$RUN_TEMP/result"
+scp "${SSH_ARGS[@]}" \
+  {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/output/change.patch" \
+  {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/output/rationale.txt" \
+  {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/output/evidence.json" \
+  "$RUN_TEMP/result/"
+[[ "$(find "$RUN_TEMP/result" -mindepth 1 -maxdepth 1 -type f | wc -l)" -eq 3 ]]
+
+# The guest deliberately writes the hash to its serial console. Neither that
+# marker nor the root-only canary may cross the accepted output boundary.
+if grep -R -F -q -- "$CANARY" \
+  "$RUN_TEMP/launcher.stdout" "$RUN_TEMP/launcher.stderr" "$RUN_TEMP/result"; then
+  echo "privileged canary crossed the output boundary" >&2
+  exit 1
+fi
+if grep -R -F -q -- "$CANARY_SHA256" \
+  "$RUN_TEMP/launcher.stdout" "$RUN_TEMP/launcher.stderr" "$RUN_TEMP/result"; then
+  echo "serial-console canary crossed the output boundary" >&2
+  exit 1
+fi
+
+remote_ssh sudo /usr/local/sbin/patchyard-test-result-contract \
+  /usr/local/share/patchyard-worker/qualification/hostile-test-manifest.json \
+  >"$RUN_TEMP/host-result-tests.json"
+
+remote_ssh rm -r -- "$REMOTE_ROOT"
+REMOTE_CREATED=false
+[[ -z "$(remote_ssh sudo find /run/patchyard-worker -mindepth 1 -print -quit)" ]]
+[[ -z "$(remote_ssh sudo find /var/tmp/patchyard-worker -mindepth 1 -print -quit)" ]]
+[[ -z "$(remote_ssh sudo find /var/tmp/patchyard-incoming -mindepth 1 -print -quit)" ]]
+remote_ssh sudo test ! -e /run/patchyard-session5-canary
+remote_ssh sudo test ! -e /var/lib/patchyard-worker/BOUNDARY_TAINTED
+if remote_ssh sudo pgrep -u factory-worker -f -- firecracker >/dev/null; then
+  echo "Firecracker process residue remains" >&2
+  exit 1
+fi
+if remote_ssh sudo ip -o link show \
+  | grep -Eq '(^|[[:space:]])ef[0-9a-f]{8}:'; then
+  echo "Firecracker TAP residue remains" >&2
+  exit 1
+fi
+if remote_ssh sudo nft list tables \
+  | grep -Eq 'table inet eta_fc_[0-9a-f]{10}'; then
+  echo "Firecracker nftables residue remains" >&2
+  exit 1
+fi
+
+jq -n \
+  '[
+    {id: "S5-OUT-001", class: "alternate_output", status: "PASS", detail: "console_marker_absent"},
+    {id: "S5-RES-001", class: "residue", status: "PASS", detail: "canary_intact_removed"},
+    {id: "S5-RES-002", class: "residue", status: "PASS", detail: "runtime_residue_absent"}
+  ]' >"$RUN_TEMP/control-boundary-tests.json"
+
+jq -s 'add | sort_by(.id)' \
+  <(jq .session5_guest_results "$RUN_TEMP/result/evidence.json") \
+  "$RUN_TEMP/host-result-tests.json" \
+  "$RUN_TEMP/control-boundary-tests.json" \
+  >"$RUN_TEMP/session5-results.json"
+EXPECTED_IDS=$(jq -c '[.tests[].id] | sort' "$MANIFEST")
+ACTUAL_IDS=$(jq -c '[.[].id] | sort' "$RUN_TEMP/session5-results.json")
+[[ "$ACTUAL_IDS" == "$EXPECTED_IDS" ]]
+jq -e 'length == 24 and all(.status == "PASS")' \
+  "$RUN_TEMP/session5-results.json" >/dev/null
+
+jq --arg manifest_sha256 "$MANIFEST_SHA256" \
+  --slurpfile results "$RUN_TEMP/session5-results.json" \
+  'del(.session5_guest_results)
+    | . + {
+      session5_manifest_sha256: $manifest_sha256,
+      session5_results: $results[0],
+      session5_boundary: {
+        privileged_canary_exported: false,
+        serial_console_exported: false,
+        request_residue: false,
+        runtime_residue: false
+      }
+    }' "$RUN_TEMP/result/evidence.json" \
+  >"$RUN_TEMP/result/evidence.json.final"
+mv "$RUN_TEMP/result/evidence.json.final" "$RUN_TEMP/result/evidence.json"
+
+if grep -R -F -q -- "$CANARY" "$RUN_TEMP/result" \
+  || grep -R -F -q -- "$CANARY_SHA256" "$RUN_TEMP/result"; then
+  echo "canary material entered the final evidence artifact" >&2
+  exit 1
+fi
+git -C "$FIXTURE_REPO" apply --check "$RUN_TEMP/result/change.patch"
+rm -f -- "$RUN_TEMP/launcher.stdout" "$RUN_TEMP/launcher.stderr"
+unset CANARY CANARY_SHA256
+
+sudo chown -R factory-web:factory "$RUN_TEMP/result"
+sudo find "$RUN_TEMP/result" -type d -exec chmod 0700 {} +
+sudo find "$RUN_TEMP/result" -type f -exec chmod 0600 {} +
+sudo mv -- "$RUN_TEMP/result" "$OUTPUT_DIR"
+echo "hostile_qualification_result=$OUTPUT_DIR run_id=$RUN_ID"

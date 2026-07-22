@@ -116,6 +116,8 @@ if 'find "$MOUNT_ROOT/var/log" -mindepth 1 ! -type d -delete' not in image_build
 guest_runner = (IMAGE / "patchyard-guest-run").read_text()
 if "chown factory-agent:factory-agent /work" not in guest_runner:
     errors.append("mounted worktree root is not transferred to the agent identity")
+if "context=system_u:object_r:httpd_sys_content_t:s0" not in guest_runner:
+    errors.append("mounted worktree is not labelled read-only to the parity web stack")
 if 'WORK_REMOTES=$(runuser -u factory-agent -- git -C /work remote)' not in guest_runner:
     errors.append("guest Git remote preflight can mask a command failure")
 if 'WORK_STATUS=$(runuser -u factory-agent -- git -C /work status --porcelain)' not in guest_runner:

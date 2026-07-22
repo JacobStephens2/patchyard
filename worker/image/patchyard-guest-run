@@ -46,7 +46,8 @@ done
 install -d -m 0755 /input /work /result
 mount -o ro,nosuid,nodev,noexec /dev/disk/by-label/ETA_INPUT /input
 INPUT_MOUNTED=true
-mount -o rw,nosuid,nodev /dev/disk/by-label/ETA_WORK /work
+mount -o rw,nosuid,nodev,context=system_u:object_r:httpd_sys_content_t:s0 \
+  /dev/disk/by-label/ETA_WORK /work
 WORK_MOUNTED=true
 chown factory-agent:factory-agent /work
 mount -o rw,nosuid,nodev,noexec /dev/disk/by-label/ETA_RESULT /result

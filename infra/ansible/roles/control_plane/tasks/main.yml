@@ -524,6 +524,36 @@
     mode: "0755"
   register: factoryctl_install
 
+- name: Require the reviewed factory-verify build artifact
+  ansible.builtin.assert:
+    that:
+      - factory_verify_binary is defined
+      - factory_verify_binary | length > 0
+      - factory_verify_sha256 is defined
+      - factory_verify_sha256 is match('^[0-9a-f]{64}$')
+
+- name: Hash the local factory-verify build artifact
+  ansible.builtin.stat:
+    path: "{{ factory_verify_binary }}"
+    checksum_algorithm: sha256
+  delegate_to: localhost
+  become: false
+  register: local_factory_verify
+
+- name: Require the exact factory-verify build artifact
+  ansible.builtin.assert:
+    that:
+      - local_factory_verify.stat.exists
+      - local_factory_verify.stat.checksum == factory_verify_sha256
+
+- name: Install the reviewed factory-verify binary on the control plane
+  ansible.builtin.copy:
+    src: "{{ factory_verify_binary }}"
+    dest: /usr/local/bin/factory-verify
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Count applied SQLx migrations before convergence
   ansible.builtin.command:
     argv:
@@ -841,6 +871,35 @@
     owner: "{{ factory_manager_user }}"
     group: "{{ factory_manager_user }}"
     mode: "0750"
+
+- name: Install the Session 7 verifier runner
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../../worker/runtime/patchyard-run-verifier"
+    dest: /usr/local/sbin/patchyard-run-verifier
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
+    mode: "0750"
+
+- name: Install the Session 7 preview capture helpers
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../preview/{{ item.source }}"
+    dest: "{{ item.destination }}"
+    owner: root
+    group: "{{ factory_manager_user }}"
+    mode: "0750"
+  loop:
+    - source: patchyard-headless.py
+      destination: /usr/local/libexec/patchyard-headless
+    - source: patchyard-preview-capture.py
+      destination: /usr/local/sbin/patchyard-preview-capture
+
+- name: Publish the expected PHPUnit checksum to the verifier coordinator
+  ansible.builtin.copy:
+    dest: /usr/local/share/patchyard/phpunit.sha256
+    content: "{{ phpunit_sha256 }}\n"
+    owner: root
+    group: root
+    mode: "0644"
 
 - name: Remove the transferred repository bundle
   ansible.builtin.file:

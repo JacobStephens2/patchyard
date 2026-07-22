@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+REPO_ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
+INVENTORY=$($REPO_ROOT/infra/ansible/inventory/tofu.sh)
+CONTROL_HOST=$(jq -r '.control_plane.hosts[0]' <<<"$INVENTORY")
+CONTROL_PUBLIC_IP=$(jq -r --arg host "$CONTROL_HOST" '._meta.hostvars[$host].ansible_host' <<<"$INVENTORY")
+CONTROL_PRIVATE_IP=$(jq -r --arg host "$CONTROL_HOST" '._meta.hostvars[$host].private_ip' <<<"$INVENTORY")
+[[ "$CONTROL_PRIVATE_IP" =~ ^10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]
+SSH_ARGS=(-i /var/lib/conductor/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+PREVIEW_HOST=preview.example.dev
+PREVIEW_PRIVATE_IP=$(ssh "${SSH_ARGS[@]}" conductor@"$PREVIEW_HOST" \
+  "ip -4 -o address show | awk '\$4 ~ /^10\\.132\\./ {sub(/\\/.*/, \"\", \$4); print \$4}'")
+[[ "$PREVIEW_PRIVATE_IP" =~ ^10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]
+TEMP_ROOT=$(mktemp -d /tmp/patchyard-preview-bootstrap.XXXXXX)
+cleanup() {
+  ssh "${SSH_ARGS[@]}" conductor@"$PREVIEW_HOST" rm -rf -- "/tmp/patchyard-preview-bootstrap-$$" >/dev/null 2>&1 || true
+  rm -r -- "$TEMP_ROOT"
+}
+trap cleanup EXIT
+REMOTE_TEMP="/tmp/patchyard-preview-bootstrap-$$"
+ssh "${SSH_ARGS[@]}" conductor@"$CONTROL_PUBLIC_IP" \
+  sudo -u factory-manager cat /var/lib/patchyard-manager/.ssh/id_ed25519.pub \
+  >"$TEMP_ROOT/control.pub"
+grep -Eq '^ssh-ed25519 [A-Za-z0-9+/]+=* .+$' "$TEMP_ROOT/control.pub"
+ssh "${SSH_ARGS[@]}" conductor@"$PREVIEW_HOST" install -d -m 0700 "$REMOTE_TEMP"
+scp "${SSH_ARGS[@]}" \
+  "$REPO_ROOT/preview/patchyard-preview-lease.py" \
+  "$REPO_ROOT/preview/patchyard-preview-access" \
+  "$REPO_ROOT/preview/patchyard-preview-access.service" \
+  "$REPO_ROOT/preview/patchyard-preview-sweep.service" \
+  "$REPO_ROOT/preview/patchyard-preview-sweep.timer" \
+  "$TEMP_ROOT/control.pub" \
+  conductor@"$PREVIEW_HOST:$REMOTE_TEMP/"
+
+ssh "${SSH_ARGS[@]}" conductor@"$PREVIEW_HOST" sudo /bin/bash -s -- \
+  "$REMOTE_TEMP" "$CONTROL_PRIVATE_IP" <<'REMOTE'
+set -euo pipefail
+umask 077
+SOURCE=$1
+CONTROL_PRIVATE_IP=$2
+CONTROL_KEY=$(<"$SOURCE/control.pub")
+install -m 0755 -o root -g root "$SOURCE/patchyard-preview-lease.py" /usr/local/sbin/patchyard-preview-lease
+install -m 0755 -o root -g root "$SOURCE/patchyard-preview-access" /usr/local/sbin/patchyard-preview-access
+install -m 0644 -o root -g root "$SOURCE/patchyard-preview-access.service" /etc/systemd/system/patchyard-preview-access.service
+install -m 0644 -o root -g root "$SOURCE/patchyard-preview-sweep.service" /etc/systemd/system/patchyard-preview-sweep.service
+install -m 0644 -o root -g root "$SOURCE/patchyard-preview-sweep.timer" /etc/systemd/system/patchyard-preview-sweep.timer
+install -d -m 0755 -o root -g root /etc/patchyard-preview
+printf '%s\n' "$CONTROL_PRIVATE_IP" >/etc/patchyard-preview/control-private-ip
+chmod 0644 /etc/patchyard-preview/control-private-ip
+AUTHORIZED=/home/conductor/.ssh/authorized_keys
+TEMP=$(mktemp /home/conductor/.ssh/authorized_keys.factory.XXXXXX)
+grep -v 'patchyard-preview-bridge$' "$AUTHORIZED" >"$TEMP" || true
+printf 'restrict,command="/usr/local/sbin/patchyard-preview-lease" %s patchyard-preview-bridge\n' "$CONTROL_KEY" >>"$TEMP"
+chown conductor:conductor "$TEMP"
+chmod 0600 "$TEMP"
+mv "$TEMP" "$AUTHORIZED"
+systemctl daemon-reload
+systemctl enable --now patchyard-preview-access.service patchyard-preview-sweep.timer
+REMOTE
+
+CONTROL_TEMP="/var/tmp/patchyard-preview-bootstrap-$$"
+ssh "${SSH_ARGS[@]}" conductor@"$CONTROL_PUBLIC_IP" install -d -m 0700 "$CONTROL_TEMP"
+ssh "${SSH_ARGS[@]}" conductor@"$CONTROL_PUBLIC_IP" \
+  ssh-keyscan -T 10 "$PREVIEW_PRIVATE_IP" >"$TEMP_ROOT/known_hosts"
+ssh "${SSH_ARGS[@]}" conductor@"$PREVIEW_HOST" \
+  "awk -F= '\$1 == \"ETA_API_KEY\" {sub(/^[^=]*=/, \"\"); print; exit}' /opt/preview-fieldbooks/.env" \
+  >"$TEMP_ROOT/bearer"
+[[ -s "$TEMP_ROOT/bearer" ]]
+scp "${SSH_ARGS[@]}" "$TEMP_ROOT/known_hosts" "$TEMP_ROOT/bearer" \
+  conductor@"$CONTROL_PUBLIC_IP:$CONTROL_TEMP/"
+ssh "${SSH_ARGS[@]}" conductor@"$CONTROL_PUBLIC_IP" sudo /bin/bash -s -- \
+  "$CONTROL_TEMP" "$PREVIEW_PRIVATE_IP" <<'CONTROL'
+set -euo pipefail
+umask 077
+SOURCE=$1
+PREVIEW_PRIVATE_IP=$2
+install -d -m 0755 -o root -g root /etc/patchyard
+install -d -m 0700 -o factory-manager -g factory-manager /var/lib/patchyard/preview
+install -m 0600 -o factory-manager -g factory-manager "$SOURCE/known_hosts" /var/lib/patchyard-manager/.ssh/preview_known_hosts
+install -m 0600 -o factory-manager -g factory-manager "$SOURCE/bearer" /var/lib/patchyard/preview/bearer
+printf '%s\n' \
+  'Host patchyard-preview' \
+  "  HostName $PREVIEW_PRIVATE_IP" \
+  '  User conductor' \
+  '  IdentityFile /var/lib/patchyard-manager/.ssh/id_ed25519' \
+  '  IdentitiesOnly yes' \
+  '  BatchMode yes' \
+  '  StrictHostKeyChecking yes' \
+  '  UserKnownHostsFile /var/lib/patchyard-manager/.ssh/preview_known_hosts' \
+  '  ConnectTimeout 10' \
+  >/etc/patchyard/preview-ssh.conf
+chmod 0644 /etc/patchyard/preview-ssh.conf
+rm -rf -- "$SOURCE"
+CONTROL
+
+ssh "${SSH_ARGS[@]}" conductor@"$CONTROL_PUBLIC_IP" \
+  sudo -u factory-manager env -i HOME=/var/lib/patchyard-manager PATH=/usr/bin:/bin \
+  ssh -F /etc/patchyard/preview-ssh.conf patchyard-preview sweep >/dev/null
+echo "preview_bridge=ready control=$CONTROL_HOST preview_private_ip=$PREVIEW_PRIVATE_IP"

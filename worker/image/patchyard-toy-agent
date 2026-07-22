@@ -4,7 +4,7 @@ set -euo pipefail
 REQUEST=${1:?request path required}
 WORKTREE=${2:?worktree path required}
 
-grep -Fxq 'Add the Session 4 parity probe page.' "$REQUEST"
+if grep -Fxq 'Add the Session 4 parity probe page.' "$REQUEST"; then
 cat >"$WORKTREE/mfieldbook/patchyard_session4_probe.php" <<'PHP'
 <?php
 require_once __DIR__ . '/system_specific/settings.php';
@@ -14,5 +14,15 @@ $row = $result->fetch_assoc();
 header('Content-Type: text/plain');
 echo "Session 4 factory worker|" . $row['marker'] . "\n";
 PHP
-chmod 0644 "$WORKTREE/mfieldbook/patchyard_session4_probe.php"
-printf '%s\n' 'Added one deterministic PHP parity endpoint that reads the per-run local MySQL seed.'
+  chmod 0644 "$WORKTREE/mfieldbook/patchyard_session4_probe.php"
+  printf '%s\n' 'Added one deterministic PHP parity endpoint that reads the per-run local MySQL seed.'
+elif grep -Fxq 'Alphabetize the two salesperson dropdown data sources for Session 7.' "$REQUEST"; then
+  sed -i "/DEV_TWO_USERNAME/a\\\t\t\tORDER BY firstName ASC, lastName ASC" \
+    "$WORKTREE/mfieldbook/common_functions.php"
+  sed -i '0,/ORDER BY listOrder ASC/s//ORDER BY firstName ASC, lastName ASC/' \
+    "$WORKTREE/mfieldbook/leads/assign.php"
+  printf '%s\n' 'Alphabetized both ruled salesperson data sources by first name, then last name.'
+else
+  echo 'unsupported deterministic fixture request' >&2
+  exit 1
+fi

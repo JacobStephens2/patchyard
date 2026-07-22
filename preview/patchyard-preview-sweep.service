@@ -1,0 +1,11 @@
+[Unit]
+Description=Release expired Patchyard Factory preview leases
+
+[Service]
+Type=oneshot
+User=conductor
+Group=conductor
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/local/sbin/patchyard-preview-lease sweep
+PrivateTmp=true
+NoNewPrivileges=true

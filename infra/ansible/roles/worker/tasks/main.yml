@@ -240,6 +240,71 @@
        != worker_image_recipe_sha256
   changed_when: true
 
+- name: Install the checksum-pinned Remi repository definition for verifier PHP
+  ansible.builtin.dnf:
+    name: /var/cache/patchyard-worker/remi-release-9.rpm
+    state: present
+    disable_gpg_check: false
+
+- name: Reset the host PHP module before selecting the parity stream
+  ansible.builtin.command:
+    argv: [dnf, -y, module, reset, php]
+  changed_when: false
+
+- name: Enable the PHP 8.4 parity stream for verifier dependencies
+  ansible.builtin.command:
+    argv: [dnf, -y, module, enable, php:remi-8.4]
+  changed_when: false
+
+- name: Install checksum-pinned targeted-PHPUnit runtime packages
+  ansible.builtin.dnf:
+    name:
+      - /var/cache/patchyard-worker/php-rpms/php-cli-8.4.21-1.module_php.8.4.el9.remi.x86_64.rpm
+      - /var/cache/patchyard-worker/php-rpms/php-common-8.4.21-1.module_php.8.4.el9.remi.x86_64.rpm
+      - /var/cache/patchyard-worker/php-rpms/php-mbstring-8.4.21-1.module_php.8.4.el9.remi.x86_64.rpm
+      - /var/cache/patchyard-worker/php-rpms/php-xml-8.4.21-1.module_php.8.4.el9.remi.x86_64.rpm
+    state: present
+    disable_gpg_check: false
+
+- name: Download the checksum-pinned PHPUnit PHAR
+  ansible.builtin.get_url:
+    url: "{{ phpunit_url }}"
+    dest: /usr/local/bin/phpunit
+    checksum: "sha256:{{ phpunit_sha256 }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Hash the local factory-verify build artifact for the worker
+  ansible.builtin.stat:
+    path: "{{ factory_verify_binary }}"
+    checksum_algorithm: sha256
+  delegate_to: localhost
+  become: false
+  register: worker_local_factory_verify
+
+- name: Require the exact factory-verify build artifact for the worker
+  ansible.builtin.assert:
+    that:
+      - worker_local_factory_verify.stat.exists
+      - worker_local_factory_verify.stat.checksum == factory_verify_sha256
+
+- name: Install the reviewed factory-verify binary on the worker
+  ansible.builtin.copy:
+    src: "{{ factory_verify_binary }}"
+    dest: /usr/local/bin/factory-verify
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the root verifier runtime harness
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../worker/runtime/patchyard-verify-runtime"
+    dest: /usr/local/sbin/patchyard-verify-runtime
+    owner: root
+    group: root
+    mode: "0750"
+
 - name: Install worker qualification probe
   ansible.builtin.copy:
     src: qualify-factory-worker

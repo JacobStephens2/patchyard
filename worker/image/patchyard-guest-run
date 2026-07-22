@@ -203,7 +203,8 @@ FAILURE=fixture-settings-failed
 [[ -d /var/www/html && ! -L /var/www/html ]]
 mount --bind /work /var/www/html
 WEBROOT_MOUNTED=true
-cp /work/mfieldbook/system_specific/settings_template.php \
+install -m 0640 -o factory-agent -g apache \
+  /work/mfieldbook/system_specific/settings_template.php \
   /work/mfieldbook/system_specific/settings.php
 sed -i \
   -e "/'db.example.com' => \[/,/^[[:space:]]*\],/ s/'host'[[:space:]]*=>[[:space:]]*'[^']*'/'host'     => '127.0.0.1'/" \
@@ -211,7 +212,6 @@ sed -i \
   -e "/'db.example.com' => \[/,/^[[:space:]]*\],/ s/'password'[[:space:]]*=>[[:space:]]*'[^']*'/'password' => 'factory-local-only'/" \
   -e "/'db.example.com' => \[/,/^[[:space:]]*\],/ s/'database'[[:space:]]*=>[[:space:]]*'[^']*'/'database' => 'fieldbook_training'/" \
   /work/mfieldbook/system_specific/settings.php
-chown factory-agent:factory-agent /work/mfieldbook/system_specific/settings.php
 
 FAILURE=fixture-web-prepare-failed
 install -d -m 0755 /var/log/php-fpm

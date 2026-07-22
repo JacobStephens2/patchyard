@@ -122,6 +122,8 @@ if "mount --bind /work /var/www/html" not in guest_runner:
     errors.append("package webroot is not overlaid by the labelled parity worktree")
 if "$WEBROOT_MOUNTED && umount /var/www/html" not in guest_runner:
     errors.append("parity webroot bind mount is not explicitly torn down")
+if "install -m 0640 -o factory-agent -g apache" not in guest_runner:
+    errors.append("local-only parity settings are not readable by the PHP runtime group")
 if 'WORK_REMOTES=$(runuser -u factory-agent -- git -C /work remote)' not in guest_runner:
     errors.append("guest Git remote preflight can mask a command failure")
 if 'WORK_STATUS=$(runuser -u factory-agent -- git -C /work status --porcelain)' not in guest_runner:

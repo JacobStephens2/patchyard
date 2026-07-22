@@ -197,7 +197,10 @@ printf '%s\n' "$BASE_SHA" >"$SOURCE_STAGE/.patchyard-base-sha"
 chown -R 1000:1000 "$SOURCE_STAGE"
 
 install -m 0400 "$MANIFEST" "$INPUT_STAGE/run.json"
-install -m 0400 "$REQUEST" "$INPUT_STAGE/request.md"
+# The guest runner validates every input as root, but the requested work is
+# intentionally executed by the unprivileged factory-agent identity (UID 1000).
+# Project only its request to that identity; snapshots and manifests stay root-only.
+install -m 0400 -o 1000 -g 1000 "$REQUEST" "$INPUT_STAGE/request.md"
 install -m 0400 "$SNAPSHOT_DIR/snapshot.sql.gz" "$INPUT_STAGE/snapshot.sql.gz"
 install -m 0400 "$SNAPSHOT_DIR/snapshot.json" "$INPUT_STAGE/snapshot.json"
 : >"$INPUT_STAGE/provider-hosts"

@@ -183,6 +183,8 @@ if 'find "$SOURCE_STAGE" -type d -exec chmod 0755 {} +' not in launcher:
     errors.append("credential-free source directories are not normalized for web traversal")
 if 'find "$SOURCE_STAGE" -type f ! -perm /0111 -exec chmod 0644 {} +' not in launcher:
     errors.append("credential-free source files are not normalized for web reads")
+if 'install -m 0400 -o 1000 -g 1000 "$REQUEST" "$INPUT_STAGE/request.md"' not in launcher:
+    errors.append("the isolated agent cannot read its root-staged request")
 if "'.patchyard-base-sha' 'lost+found/'" not in launcher:
     errors.append("ext4 metadata directory is not excluded from guest Git traversal")
 if "debugfs -R 'ls -p /'" not in launcher:

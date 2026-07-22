@@ -102,6 +102,10 @@ if "REMI_SNAPSHOT_BASE_URLS=(" not in pins:
 image_builder = (IMAGE / "build-parity-image").read_text()
 if "--setopt=localpkg_gpgcheck=True" not in image_builder:
     errors.append("checksum-pinned PHP RPM signatures are not enforced")
+if 'disable "$service"' not in image_builder:
+    errors.append("parity services are not disabled independently")
+if 'is-enabled "$service"' not in image_builder or "== disabled" not in image_builder:
+    errors.append("parity service disabled state is not asserted before image sealing")
 
 guest_runner = (IMAGE / "patchyard-guest-run").read_text()
 if "chown factory-agent:factory-agent /work" not in guest_runner:

@@ -187,9 +187,17 @@ chroot "$MOUNT_ROOT" /usr/sbin/useradd \
 chroot "$MOUNT_ROOT" /usr/sbin/usermod --lock factory-agent
 
 systemctl --root="$MOUNT_ROOT" enable patchyard-guest-run.service >/dev/null
-systemctl --root="$MOUNT_ROOT" disable \
-  firewalld.service sshd.service mysqld.service httpd.service php-fpm.service \
-  >/dev/null 2>&1 || true
+for service in \
+  firewalld.service sshd.service mysqld.service httpd.service php-fpm.service; do
+  # Some intentionally absent units make systemctl return nonzero. Disable
+  # each independently so an absent network service cannot leave a parity
+  # daemon preset-enabled and racing the one-run guest initializer.
+  systemctl --root="$MOUNT_ROOT" disable "$service" >/dev/null 2>&1 || true
+done
+for service in mysqld.service httpd.service php-fpm.service; do
+  [[ "$(systemctl --root="$MOUNT_ROOT" is-enabled "$service" 2>/dev/null || true)" \
+    == disabled ]]
+done
 
 rm -f -- "$MOUNT_ROOT/etc/machine-id"
 touch "$MOUNT_ROOT/etc/machine-id"

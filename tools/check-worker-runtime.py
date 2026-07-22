@@ -108,6 +108,8 @@ if 'is-enabled "$service"' not in image_builder or "== disabled" not in image_bu
     errors.append("parity service disabled state is not asserted before image sealing")
 if '"$MOUNT_ROOT/etc/httpd/conf.d/ssl.conf"' not in image_builder:
     errors.append("unused guest TLS vhost is not removed from the parity image")
+if 'find "$MOUNT_ROOT/var/log" -mindepth 1 ! -type d -delete' not in image_builder:
+    errors.append("image sealing does not preserve labelled parity log directories")
 
 guest_runner = (IMAGE / "patchyard-guest-run").read_text()
 if "chown factory-agent:factory-agent /work" not in guest_runner:

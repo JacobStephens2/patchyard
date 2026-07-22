@@ -207,8 +207,11 @@ rm -f -- "$MOUNT_ROOT/etc/machine-id"
 touch "$MOUNT_ROOT/etc/machine-id"
 rm -rf -- \
   "$MOUNT_ROOT/var/cache/dnf" \
-  "$MOUNT_ROOT/var/lib/dnf/history" \
-  "$MOUNT_ROOT/var/log"/*
+  "$MOUNT_ROOT/var/lib/dnf/history"
+# Remove build logs without deleting the package-owned, SELinux-labelled log
+# directories required when the parity daemons start inside the guest.
+find "$MOUNT_ROOT/var/log" -mindepth 1 ! -type d -delete
+[[ -d "$MOUNT_ROOT/var/log/php-fpm" && -d "$MOUNT_ROOT/var/log/httpd" ]]
 
 sync
 umount "$MOUNT_ROOT"

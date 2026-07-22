@@ -128,12 +128,14 @@ sed -i \
   "$MYSQL_REPO"
 "${DNF[@]}" module reset php
 "${DNF[@]}" module enable php:remi-8.4
-rpm --root "$MOUNT_ROOT" --import \
-  "$MOUNT_ROOT/etc/pki/rpm-gpg/RPM-GPG-KEY-remi2026"
 # DNF resolves file:// repository keys in the host namespace even with an
 # installroot. Import every staged repository key into the image RPM database
 # explicitly so package verification never depends on keys installed on host.
 rpm --root "$MOUNT_ROOT" --import "$CACHE_ROOT/RPM-GPG-KEY-EPEL-9"
+for key in \
+  RPM-GPG-KEY-remi RPM-GPG-KEY-remi.el9 RPM-GPG-KEY-remi{2017..2026}; do
+  rpm --root "$MOUNT_ROOT" --import "$MOUNT_ROOT/etc/pki/rpm-gpg/$key"
+done
 for key in RPM-GPG-KEY-mysql-{2022,2023,2025}; do
   rpm --root "$MOUNT_ROOT" --import "$MOUNT_ROOT/etc/pki/rpm-gpg/$key"
 done

@@ -5,6 +5,7 @@ umask 077
 RESULT_MOUNTED=false
 INPUT_MOUNTED=false
 WORK_MOUNTED=false
+WEBROOT_MOUNTED=false
 CREDENTIAL_MOUNTED=false
 STATUS=error
 FAILURE=guest-runner-failed
@@ -24,6 +25,7 @@ finish() {
     sync /result
   fi
   $CREDENTIAL_MOUNTED && umount /credential
+  $WEBROOT_MOUNTED && umount /var/www/html
   $WORK_MOUNTED && umount /work
   $INPUT_MOUNTED && umount /input
   $RESULT_MOUNTED && umount /result
@@ -198,10 +200,9 @@ gzip -cd /input/snapshot.sql.gz \
   | mysql --protocol=socket --socket=/var/lib/mysql/mysql.sock -uroot fieldbook_training
 
 FAILURE=fixture-settings-failed
-install -d -m 0755 /var/www
-rmdir /var/www/html
-ln -sT /work /var/www/html
-[[ "$(readlink /var/www/html)" == /work ]]
+[[ -d /var/www/html && ! -L /var/www/html ]]
+mount --bind /work /var/www/html
+WEBROOT_MOUNTED=true
 cp /work/mfieldbook/system_specific/settings_template.php \
   /work/mfieldbook/system_specific/settings.php
 sed -i \

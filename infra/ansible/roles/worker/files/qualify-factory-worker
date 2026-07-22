@@ -40,8 +40,8 @@ test ! -e /run/patchyard-postgres
 ! systemctl list-unit-files --no-legend | grep -Eq 'gha-runner|tempo|otelcol'
 test ! -S /var/run/docker.sock
 ! command -v podman >/dev/null
-test "$(/usr/local/bin/firecracker --version)" = 'Firecracker v1.15.1'
-test "$(/usr/local/bin/jailer --version)" = 'Jailer v1.15.1'
+/usr/local/bin/firecracker --version | grep -Fxq 'Firecracker v1.15.1'
+/usr/local/bin/jailer --version | grep -Fxq 'Jailer v1.15.1'
 test "$(rpm -q e2fsprogs)" = 'e2fsprogs-1.46.5-8.el9.x86_64'
 test "$(rpm -q e2fsprogs-libs)" = 'e2fsprogs-libs-1.46.5-8.el9.x86_64'
 test "$(rpm -q libcom_err)" = 'libcom_err-1.46.5-8.el9.x86_64'

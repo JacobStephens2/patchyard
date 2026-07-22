@@ -6,7 +6,7 @@ SNAPSHOT_DIR=$(readlink -f -- "${1:-/var/lib/patchyard/snapshots/current}")
 OUTPUT_DIR=${2:?absolute output directory required}
 [[ "$SNAPSHOT_DIR" == /* && "$OUTPUT_DIR" == /* ]]
 [[ -f "$SNAPSHOT_DIR/snapshot.sql.gz" && -f "$SNAPSHOT_DIR/snapshot.json" ]]
-[[ ! -e "$OUTPUT_DIR" ]]
+sudo test ! -e "$OUTPUT_DIR"
 
 WORKER_IP={{ hostvars[groups['worker'][0]].private_ip }}
 SSH_ARGS=(
@@ -100,5 +100,8 @@ jq -e '
   and .host_teardown.run_directories == 0
 ' "$RUN_TEMP/result/evidence.json" >/dev/null
 
-mv "$RUN_TEMP/result" "$OUTPUT_DIR"
+sudo chown -R factory-web:factory "$RUN_TEMP/result"
+sudo find "$RUN_TEMP/result" -type d -exec chmod 0700 {} +
+sudo find "$RUN_TEMP/result" -type f -exec chmod 0600 {} +
+sudo mv -- "$RUN_TEMP/result" "$OUTPUT_DIR"
 echo "isolation_probe_result=$OUTPUT_DIR run_id=$RUN_ID"

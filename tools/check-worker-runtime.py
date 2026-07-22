@@ -169,6 +169,18 @@ if 'VMM_PID=$(<"$VMM_PID_FILE")' not in launcher:
 if '"--id[ =]$RUN_ID"' not in launcher:
     errors.append("cleanup does not match Firecracker's separated run-id argument")
 
+for result_runner_name in (
+    "patchyard-run-isolation-probe",
+    "patchyard-run-fixture",
+):
+    result_runner = (REPO / "worker" / "runtime" / result_runner_name).read_text()
+    if 'sudo test ! -e "$OUTPUT_DIR"' not in result_runner:
+        errors.append(f"{result_runner_name} does not check the protected destination")
+    if 'sudo chown -R factory-web:factory "$RUN_TEMP/result"' not in result_runner:
+        errors.append(f"{result_runner_name} does not transfer result ownership")
+    if 'sudo mv -- "$RUN_TEMP/result" "$OUTPUT_DIR"' not in result_runner:
+        errors.append(f"{result_runner_name} cannot publish into the private artifact store")
+
 group_vars = GROUP_VARS.read_text()
 for package_pin in (
     "worker_e2fsprogs_nevra: e2fsprogs-1.46.5-8.el9.x86_64",

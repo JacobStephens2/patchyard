@@ -37,8 +37,10 @@ Successful intake accepts exactly three files: a patch of at most 1 MiB, a
 rationale of at most 64 KiB, and evidence of at most 128 KiB. It validates the
 run/base identity, patch hash, zero Git remotes, capability removal, and
 `git apply --check` before moving those files into the caller's output
-directory. The host extracts the fixed result names with `debugfs`; it never
-mounts the guest-written filesystem into the host kernel. The microVM, jail,
+directory. The host bounds the result image at 16 MiB and extracts the fixed
+result names with version-pinned `debugfs` as the unprivileged worker identity;
+it never mounts the guest-written filesystem into the host kernel or parses it
+as root. The microVM, jail,
 tap, nftables table, temporary drives, logs, and credential material are
 removed first.
 

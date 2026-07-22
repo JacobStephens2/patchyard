@@ -112,6 +112,19 @@ if re.search(r"mount[^\n]*result\.ext4", launcher):
     errors.append("guest-written result filesystem must never be host-mounted")
 if 'mount --bind "$RUN_TMPFS/credential.ext4"' not in launcher:
     errors.append("credential drive is not kept on host tmpfs")
+if "RESULT_IMAGE_MAX_BYTES=16777216" not in launcher:
+    errors.append("guest-written result image is not bounded before parsing")
+if "runuser -u factory-worker" not in launcher:
+    errors.append("guest-written result image parser does not drop root")
+
+group_vars = GROUP_VARS.read_text()
+for package_pin in (
+    "worker_e2fsprogs_nevra: e2fsprogs-1.46.5-8.el9.x86_64",
+    "worker_e2fsprogs_libs_nevra: e2fsprogs-libs-1.46.5-8.el9.x86_64",
+    "worker_libcom_err_nevra: libcom_err-1.46.5-8.el9.x86_64",
+):
+    if package_pin not in group_vars:
+        errors.append(f"host result-parser pin missing: {package_pin}")
 
 probe_pin = re.search(r"^CANDIDATE_PROBE_SHA256=([0-9a-f]{64})$", pins, re.MULTILINE)
 probe_actual = hashlib.sha256(CANDIDATE_PROBE.read_bytes()).hexdigest()

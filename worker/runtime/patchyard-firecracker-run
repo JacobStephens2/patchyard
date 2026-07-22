@@ -31,6 +31,7 @@ KERNEL="$IMAGE_ROOT/vmlinux"
 ROOTFS_TEMPLATE="$IMAGE_ROOT/fieldbook-parity.ext4"
 ROOTFS_SHA_FILE="$IMAGE_ROOT/fieldbook-parity.sha256"
 ROOTFS_RECIPE_FILE="$IMAGE_ROOT/fieldbook-parity.recipe-sha256"
+RESULT_IMAGE_MAX_BYTES=16777216
 LOCK_FILE=/run/lock/patchyard-worker.lock
 TAINT_FILE=/var/lib/patchyard-worker/BOUNDARY_TAINTED
 [[ ! -e "$TAINT_FILE" ]] || {
@@ -139,7 +140,7 @@ trap cleanup_and_taint EXIT
 
 install -d -m 0750 "$RUNTIME_ROOT" "$JAIL_ROOT" "$SOURCE_STAGE" "$INPUT_STAGE"
 install -d -m 0700 "$RUN_TMPFS"
-install -d -m 0700 "$RESULT_EXTRACT"
+install -d -m 0700 -o factory-worker -g factory-worker "$RESULT_EXTRACT"
 
 tar -xzf "$SOURCE_ARCHIVE" -C "$SOURCE_STAGE" --no-same-owner --no-same-permissions
 if [[ "$MODE" == fixture ]]; then
@@ -219,7 +220,7 @@ truncate -s 256M "$JAIL_ROOT/input.ext4"
 mkfs.ext4 -q -F -L ETA_INPUT -d "$INPUT_STAGE" "$JAIL_ROOT/input.ext4"
 truncate -s 4G "$JAIL_ROOT/work.ext4"
 mkfs.ext4 -q -F -L ETA_WORK -d "$SOURCE_STAGE" "$JAIL_ROOT/work.ext4"
-truncate -s 16M "$JAIL_ROOT/result.ext4"
+truncate -s "$RESULT_IMAGE_MAX_BYTES" "$JAIL_ROOT/result.ext4"
 mkfs.ext4 -q -F -L ETA_RESULT "$JAIL_ROOT/result.ext4"
 if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
   install -d -m 0700 "$RUN_TMPFS/credential-root"
@@ -326,18 +327,26 @@ wait "$JAILER_PID" || {
 JAILER_PID=
 
 # The guest controls this filesystem's bytes. Parse it in bounded user space;
-# never mount a guest-written filesystem into the host kernel.
-e2fsck -fn "$JAIL_ROOT/result.ext4" >/dev/null
+# never mount a guest-written filesystem into the host kernel or parse it as
+# root. A parser exploit reaches only the disposable factory-worker identity.
+[[ -f "$JAIL_ROOT/result.ext4" && ! -L "$JAIL_ROOT/result.ext4" ]]
+RESULT_IMAGE_BYTES=$(stat -c %s "$JAIL_ROOT/result.ext4")
+[[ "$RESULT_IMAGE_BYTES" -gt 0 && "$RESULT_IMAGE_BYTES" -le "$RESULT_IMAGE_MAX_BYTES" ]]
+runuser -u factory-worker -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+  /usr/sbin/e2fsck -fn "$JAIL_ROOT/result.ext4" >/dev/null
 mapfile -t RESULT_ENTRIES < <(
-  debugfs -R 'ls -p /' "$JAIL_ROOT/result.ext4" 2>/dev/null \
+  runuser -u factory-worker -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+    /usr/sbin/debugfs -R 'ls -p /' "$JAIL_ROOT/result.ext4" 2>/dev/null \
     | awk -F/ 'NF >= 7 && $6 != "." && $6 != ".." && $6 != "lost+found" {print $6}' \
     | LC_ALL=C sort
 )
 [[ "${RESULT_ENTRIES[*]}" == 'change.patch evidence.json rationale.txt status' ]]
 for expected in change.patch rationale.txt evidence.json status; do
-  debugfs -R "stat /$expected" "$JAIL_ROOT/result.ext4" 2>/dev/null \
+  runuser -u factory-worker -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+    /usr/sbin/debugfs -R "stat /$expected" "$JAIL_ROOT/result.ext4" 2>/dev/null \
     | grep -Eq 'Type:[[:space:]]+regular'
-  debugfs -R "dump -p /$expected $RESULT_EXTRACT/$expected" \
+  runuser -u factory-worker -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+    /usr/sbin/debugfs -R "dump -p /$expected $RESULT_EXTRACT/$expected" \
     "$JAIL_ROOT/result.ext4" >/dev/null 2>&1
   [[ -f "$RESULT_EXTRACT/$expected" && ! -L "$RESULT_EXTRACT/$expected" ]]
 done

@@ -90,11 +90,13 @@ DNF=(
 mapfile -t HTTPD_PACKAGES <"$RECIPE_ROOT/httpd-packages.txt"
 mapfile -t PHP_PACKAGES <"$RECIPE_ROOT/php-packages.txt"
 mapfile -t MYSQL_PACKAGES <"$RECIPE_ROOT/mysql-packages.txt"
+mapfile -t E2FSPROGS_PACKAGES <"$RECIPE_ROOT/e2fsprogs-packages.txt"
 "${DNF[@]}" install \
-  bash bind-utils ca-certificates coreutils curl-minimal diffutils e2fsprogs findutils \
+  bash bind-utils ca-certificates coreutils curl-minimal diffutils findutils \
   gawk git gzip hostname iproute iputils jq procps-ng shadow-utils systemd \
   systemd-udev tar util-linux \
-  "${HTTPD_PACKAGES[@]}" "${PHP_PACKAGES[@]}" "${MYSQL_PACKAGES[@]}"
+  "${HTTPD_PACKAGES[@]}" "${PHP_PACKAGES[@]}" "${MYSQL_PACKAGES[@]}" \
+  "${E2FSPROGS_PACKAGES[@]}"
 "${DNF[@]}" clean all
 
 install -d -m 0755 \

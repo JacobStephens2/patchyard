@@ -8,12 +8,15 @@
   ansible.builtin.dnf:
     name:
       - dnf-plugins-core
-      - e2fsprogs
+      - "{{ worker_e2fsprogs_nevra }}"
+      - "{{ worker_e2fsprogs_libs_nevra }}"
       - gzip
+      - "{{ worker_libcom_err_nevra }}"
       - openssl
       - procps-ng
       - util-linux
     state: present
+    allow_downgrade: true
 
 - name: Create the unprivileged worker identity
   ansible.builtin.user:

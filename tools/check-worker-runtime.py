@@ -142,8 +142,10 @@ if "runuser -u factory-worker" not in launcher:
     errors.append("guest-written result image parser does not drop root")
 if 'FIRECRACKER_EXECUTABLE=$(readlink -f -- "$FIRECRACKER")' not in launcher:
     errors.append("jailer path is not derived from the resolved Firecracker executable")
-if 'JAIL_ROOT="$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID/root"' not in launcher:
+if 'JAIL_RUN_ROOT="$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID"' not in launcher:
     errors.append("staged runtime path does not match jailer's executable-name layout")
+if 'chown root:factory-worker \\' not in launcher:
+    errors.append("non-root result parser cannot traverse the root-owned jail path")
 if 'VMM_PID=$(<"$VMM_PID_FILE")' not in launcher:
     errors.append("launcher does not assume lifecycle ownership of jailer's Firecracker PID")
 if '"--id[ =]$RUN_ID"' not in launcher:

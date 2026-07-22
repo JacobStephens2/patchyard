@@ -89,7 +89,8 @@ NFT_TABLE="eta_fc_${SHORT_ID}"
 HOST_IP=172.16.0.1
 GUEST_IP=172.16.0.2
 JAIL_BASE="$RUNTIME_ROOT/jailer"
-JAIL_ROOT="$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID/root"
+JAIL_RUN_ROOT="$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID"
+JAIL_ROOT="$JAIL_RUN_ROOT/root"
 SOURCE_STAGE="$RUNTIME_ROOT/source-$RUN_ID"
 INPUT_STAGE="$RUNTIME_ROOT/input-$RUN_ID"
 RUN_TMPFS="$TMPFS_ROOT/$RUN_ID"
@@ -152,6 +153,13 @@ trap cleanup_and_taint EXIT
 install -d -m 0750 "$RUNTIME_ROOT" "$JAIL_ROOT" "$SOURCE_STAGE" "$INPUT_STAGE"
 install -d -m 0700 "$RUN_TMPFS"
 install -d -m 0700 -o factory-worker -g factory-worker "$RESULT_EXTRACT"
+# Jailer creates the path above its chroot as root. Keep those directories
+# root-owned, but let the dedicated parser identity traverse the exact run path
+# after the VMM exits so e2fsck/debugfs can inspect the guest-written image.
+chown root:factory-worker \
+  "$JAIL_BASE" "$JAIL_BASE/$FIRECRACKER_JAIL_NAME" "$JAIL_RUN_ROOT"
+chmod 0750 \
+  "$JAIL_BASE" "$JAIL_BASE/$FIRECRACKER_JAIL_NAME" "$JAIL_RUN_ROOT"
 
 tar -xzf "$SOURCE_ARCHIVE" -C "$SOURCE_STAGE" --no-same-owner --no-same-permissions
 if [[ "$MODE" == fixture ]]; then

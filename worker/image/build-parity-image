@@ -162,6 +162,8 @@ install -d -m 0755 \
 
 install -m 0755 "$RECIPE_ROOT/patchyard-guest-run" \
   "$MOUNT_ROOT/usr/local/sbin/patchyard-guest-run"
+install -m 0755 "$RECIPE_ROOT/patchyard-guest-network" \
+  "$MOUNT_ROOT/usr/local/sbin/patchyard-guest-network"
 install -m 0755 "$RECIPE_ROOT/patchyard-toy-agent" \
   "$MOUNT_ROOT/usr/local/bin/patchyard-toy-agent"
 echo "$CANDIDATE_PROBE_SHA256  /usr/local/share/patchyard-worker/probes/candidate-probe.sh" \
@@ -172,8 +174,6 @@ install -m 0644 "$RECIPE_ROOT/patchyard-guest-run.service" \
   "$MOUNT_ROOT/etc/systemd/system/patchyard-guest-run.service"
 install -m 0644 "$RECIPE_ROOT/patchyard-parity.conf" \
   "$MOUNT_ROOT/etc/httpd/conf.d/patchyard-parity.conf"
-install -m 0644 "$RECIPE_ROOT/10-eth0.network" \
-  "$MOUNT_ROOT/etc/systemd/network/10-eth0.network"
 
 printf 'nameserver 127.0.0.1\noptions attempts:1 timeout:1\n' \
   >"$MOUNT_ROOT/etc/resolv.conf"
@@ -186,7 +186,6 @@ chroot "$MOUNT_ROOT" /usr/sbin/useradd \
   --create-home --shell /bin/bash factory-agent
 chroot "$MOUNT_ROOT" /usr/sbin/usermod --lock factory-agent
 
-systemctl --root="$MOUNT_ROOT" enable systemd-networkd.service >/dev/null
 systemctl --root="$MOUNT_ROOT" enable patchyard-guest-run.service >/dev/null
 systemctl --root="$MOUNT_ROOT" disable \
   firewalld.service sshd.service mysqld.service httpd.service php-fpm.service \

@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Firecracker supplies exactly one fixed-address tap-backed interface. Configure
+# it without a guest network manager so the one-run VM has no extra daemon or
+# DHCP client and cannot accept network configuration from an untrusted peer.
+for _ in $(seq 1 100); do
+  [[ -e /sys/class/net/eth0 ]] && break
+  sleep 0.05
+done
+[[ -e /sys/class/net/eth0 ]]
+
+ip link set dev eth0 up
+ip address replace 172.16.0.2/30 dev eth0
+ip route replace default via 172.16.0.1 dev eth0

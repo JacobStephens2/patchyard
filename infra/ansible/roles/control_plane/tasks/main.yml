@@ -696,6 +696,14 @@
     path: /opt/patchyard/.git
   register: factory_checkout
 
+- name: Transfer the existing checkout to the factory management identity
+  ansible.builtin.file:
+    path: /opt/patchyard
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
+    recurse: true
+  when: factory_checkout.stat.exists
+
 - name: Read the installed desired-state revision
   ansible.builtin.command:
     argv:
@@ -825,13 +833,6 @@
     owner: "{{ factory_manager_user }}"
     group: "{{ factory_manager_user }}"
     mode: "0750"
-
-- name: Make the factory management identity owner of the checkout
-  ansible.builtin.file:
-    path: /opt/patchyard
-    owner: "{{ factory_manager_user }}"
-    group: "{{ factory_manager_user }}"
-    recurse: true
 
 - name: Remove the transferred repository bundle
   ansible.builtin.file:

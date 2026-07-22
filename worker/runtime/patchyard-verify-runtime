@@ -38,14 +38,24 @@ AGENT_JAILER_BEFORE=$( (pgrep -u factory-worker -x jailer || true) | wc -l)
 RUN_ID=$(jq -r .run_id "$MANIFEST")
 BASE_SHA=$(jq -r .base_sha "$MANIFEST")
 VERIFY_ROOT="/var/tmp/patchyard-worker/verify-$RUN_ID"
+INPUT_ROOT="/run/patchyard-worker/verify-input-$RUN_ID"
 TEMP_EVIDENCE=$(mktemp /var/tmp/patchyard-verify-evidence.XXXXXX)
 cleanup() {
   rm -rf -- "$VERIFY_ROOT"
+  rm -rf -- "$INPUT_ROOT"
   rm -f -- "$TEMP_EVIDENCE"
 }
 trap cleanup EXIT
 [[ ! -e "$VERIFY_ROOT" ]]
+[[ ! -e "$INPUT_ROOT" ]]
 install -d -m 0700 -o factory-worker -g factory-worker "$VERIFY_ROOT"
+install -d -m 0700 -o factory-worker -g factory-worker "$INPUT_ROOT"
+install -m 0400 -o factory-worker -g factory-worker "$MANIFEST" "$INPUT_ROOT/runtime.json"
+install -m 0400 -o factory-worker -g factory-worker "$SOURCE" "$INPUT_ROOT/source.tar.gz"
+install -m 0400 -o factory-worker -g factory-worker "$PATCH" "$INPUT_ROOT/change.patch"
+MANIFEST="$INPUT_ROOT/runtime.json"
+SOURCE="$INPUT_ROOT/source.tar.gz"
+PATCH="$INPUT_ROOT/change.patch"
 
 tar -tzf "$SOURCE" | awk '
   /^\// || /(^|\/)\.\.($|\/)/ || length($0) > 300 { bad=1 }

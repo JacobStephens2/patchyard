@@ -71,7 +71,7 @@
     dest: /usr/local/share/patchyard-worker/image/
     owner: root
     group: root
-    mode: "0644"
+    mode: preserve
 
 - name: Remove retired parity image recipe entries
   ansible.builtin.file:

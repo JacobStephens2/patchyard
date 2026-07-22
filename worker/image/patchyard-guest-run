@@ -86,8 +86,8 @@ PRODUCTION_PARITY_SHA=$(jq -r .production_parity_sha256 "$IMAGE_MANIFEST")
 [[ "$(sha256sum /input/snapshot.json | cut -d' ' -f1)" == "$SNAPSHOT_MANIFEST_SHA" ]]
 [[ "$(</work/.patchyard-base-sha)" == "$BASE_SHA" ]]
 [[ -d /work/.git ]]
-[[ -z "$(git -C /work remote)" ]]
-[[ -z "$(git -C /work status --porcelain)" ]]
+[[ -z "$(runuser -u factory-agent -- git -C /work remote)" ]]
+[[ -z "$(runuser -u factory-agent -- git -C /work status --porcelain)" ]]
 
 if [[ -s /input/provider-hosts ]]; then
   while read -r address hostname extra; do

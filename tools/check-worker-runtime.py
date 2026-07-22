@@ -150,6 +150,8 @@ if 'factory worker run failed: stage=%s line=%s status=%s' not in launcher:
     errors.append("fail-closed runtime diagnostics omit the bounded failing stage")
 if '[[ "$RESULT_STATUS" =~ ^[a-z0-9,-]{1,128}$ ]]' not in launcher:
     errors.append("guest failure status is not sanitized before diagnostics")
+if "incomplete guest result: file_count=%s expected_mask=%s" not in launcher:
+    errors.append("incomplete guest results omit the bounded expected-file mask")
 if 'VMM_PID=$(<"$VMM_PID_FILE")' not in launcher:
     errors.append("launcher does not assume lifecycle ownership of jailer's Firecracker PID")
 if '"--id[ =]$RUN_ID"' not in launcher:

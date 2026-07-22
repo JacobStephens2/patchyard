@@ -393,7 +393,29 @@ mapfile -t RESULT_ENTRIES < <(
     | awk -F/ 'NF >= 7 && $6 != "." && $6 != ".." && $6 != "lost+found" {print $6}' \
     | LC_ALL=C sort
 )
-[[ "${RESULT_ENTRIES[*]}" == 'change.patch evidence.json rationale.txt status' ]]
+if [[ "${RESULT_ENTRIES[*]}" != 'change.patch evidence.json rationale.txt status' ]]; then
+  RESULT_ENTRY_MASK=
+  for expected in change.patch evidence.json rationale.txt status; do
+    for actual in "${RESULT_ENTRIES[@]}"; do
+      if [[ "$actual" == "$expected" ]]; then
+        RESULT_ENTRY_MASK+="${expected:0:1}"
+        break
+      fi
+    done
+  done
+  printf 'incomplete guest result: file_count=%s expected_mask=%s\n' \
+    "${#RESULT_ENTRIES[@]}" "${RESULT_ENTRY_MASK:-none}" >&2
+  if [[ "$RESULT_ENTRY_MASK" == *s* ]]; then
+    runuser -u factory-worker -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+      /usr/sbin/debugfs -R "dump /status $RESULT_EXTRACT/status" \
+      "$JAIL_ROOT/result.ext4" >/dev/null 2>&1
+    INCOMPLETE_STATUS=$(<"$RESULT_EXTRACT/status")
+    if [[ "$INCOMPLETE_STATUS" =~ ^[a-z0-9,-]{1,128}$ ]]; then
+      printf 'guest returned incomplete status=%s\n' "$INCOMPLETE_STATUS" >&2
+    fi
+  fi
+  false
+fi
 FAILURE_STAGE=result-file-extraction
 for expected in change.patch rationale.txt evidence.json status; do
   runuser -u factory-worker -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \

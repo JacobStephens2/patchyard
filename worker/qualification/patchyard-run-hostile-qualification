@@ -34,6 +34,14 @@ remote_ssh() {
 
 cleanup() {
   local rc=$?
+  if [[ "$rc" -ne 0 && -f "$RUN_TEMP/launcher.stderr" ]]; then
+    if grep -F -q -- "$CANARY" "$RUN_TEMP/launcher.stderr" \
+      || grep -F -q -- "$CANARY_SHA256" "$RUN_TEMP/launcher.stderr"; then
+      echo "qualification failed; canary-bearing diagnostics suppressed" >&2
+    else
+      tail -n 20 "$RUN_TEMP/launcher.stderr" >&2
+    fi
+  fi
   if $REMOTE_CREATED; then
     remote_ssh rm -r -- "$REMOTE_ROOT" >/dev/null 2>&1 || true
   fi

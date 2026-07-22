@@ -136,11 +136,16 @@ if [[ "$MODE" == adversarial-qualification ]]; then
   if ! /usr/local/sbin/patchyard-hostile-probe \
     "$QUALIFICATION_MANIFEST" "$CANARY_SHA" \
     /run/session5-guest-results.json; then
-    FAILED_TESTS=$(jq -r \
-      '[.[] | select(.status != "PASS") | .id] | join(",")' \
+    FAILED_TEST=$(jq -r \
+      '[.[] | select(.status != "PASS") | .id | ascii_downcase][0] // "unknown"' \
       /run/session5-guest-results.json 2>/dev/null || true)
-    [[ "$FAILED_TESTS" =~ ^[A-Z0-9,-]{1,192}$ ]] || FAILED_TESTS=unknown
-    FAILURE="adversarial-qualification-failed-$FAILED_TESTS"
+    [[ "$FAILED_TEST" =~ ^[a-z0-9-]{1,32}$ ]] || FAILED_TEST=unknown
+    # Preserve only the fixed four-entry internal result shape so the host can
+    # report the bounded failed-test ID without accepting any guest output.
+    : >/result/change.patch
+    printf 'Session 5 qualification failed closed.\n' >/result/rationale.txt
+    printf '{}\n' >/result/evidence.json
+    FAILURE="adversarial-qualification-failed-$FAILED_TEST"
     exit 1
   fi
 

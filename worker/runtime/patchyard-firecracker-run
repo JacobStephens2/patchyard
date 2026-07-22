@@ -25,6 +25,7 @@ TMPFS_ROOT=/run/patchyard-worker
 IMAGE_ROOT=/opt/patchyard-worker/images
 POLICY=/etc/patchyard-worker/provider-egress.json
 LIFECYCLE_POLICY=/etc/patchyard-worker/worker-lifecycle.json
+QUALIFICATION_MANIFEST=/usr/local/share/patchyard-worker/qualification/hostile-test-manifest.json
 FIRECRACKER=/usr/local/bin/firecracker
 JAILER=/usr/local/bin/jailer
 FIRECRACKER_EXECUTABLE=$(readlink -f -- "$FIRECRACKER")
@@ -52,9 +53,13 @@ jq -e '
   and (.snapshot_sql_sha256 | test("^[0-9a-f]{64}$"))
   and (.snapshot_manifest_sha256 | test("^[0-9a-f]{64}$"))
   and (.provider | test("^(none|[a-z0-9][a-z0-9-]{0,31})$"))
-  and (.mode == "fixture" or .mode == "provider-qualification")
+  and (.mode == "fixture" or .mode == "provider-qualification" or .mode == "adversarial-qualification")
   and (.credential_required | type == "boolean")
   and (.spend_cap_cents | type == "number" and . >= 0 and . <= 5000)
+  and (if .mode == "adversarial-qualification" then
+    (.qualification_manifest_sha256 | test("^[0-9a-f]{64}$"))
+    and (.canary_sha256 | test("^[0-9a-f]{64}$"))
+  else true end)
 ' "$MANIFEST" >/dev/null
 
 RUN_ID=$(jq -r .run_id "$MANIFEST")
@@ -72,6 +77,11 @@ SNAPSHOT_MANIFEST_EXPECTED=$(jq -r .snapshot_manifest_sha256 "$MANIFEST")
 [[ "$(sha256sum "$SNAPSHOT_DIR/snapshot.sql.gz" | cut -d' ' -f1)" == "$SNAPSHOT_SQL_EXPECTED" ]]
 [[ "$(sha256sum "$SNAPSHOT_DIR/snapshot.json" | cut -d' ' -f1)" == "$SNAPSHOT_MANIFEST_EXPECTED" ]]
 [[ "$(jq -r .snapshot_sql_sha256 "$SNAPSHOT_DIR/snapshot.json")" == "$SNAPSHOT_SQL_EXPECTED" ]]
+if [[ "$MODE" == adversarial-qualification ]]; then
+  [[ -f "$QUALIFICATION_MANIFEST" && ! -L "$QUALIFICATION_MANIFEST" ]]
+  [[ "$(sha256sum "$QUALIFICATION_MANIFEST" | cut -d' ' -f1)" \
+    == "$(jq -r .qualification_manifest_sha256 "$MANIFEST")" ]]
+fi
 /usr/local/sbin/check-snapshot-eligibility "$SNAPSHOT_DIR" >/dev/null
 ROOTFS_SHA256=$(<"$ROOTFS_SHA_FILE")
 IMAGE_RECIPE_SHA256=$(<"$ROOTFS_RECIPE_FILE")
@@ -141,7 +151,7 @@ cleanup_and_taint() {
   local reason=
   if [[ "$residue" -ne 0 ]]; then
     reason=cleanup-residue
-  elif [[ "$MODE" == provider-qualification && "$rc" -ne 0 ]]; then
+  elif [[ "$MODE" =~ ^(provider|adversarial)-qualification$ && "$rc" -ne 0 ]]; then
     reason=containment-qualification-failed
   fi
   if [[ -n "$reason" ]]; then
@@ -203,6 +213,10 @@ install -m 0400 "$MANIFEST" "$INPUT_STAGE/run.json"
 install -m 0400 -o 1000 -g 1000 "$REQUEST" "$INPUT_STAGE/request.md"
 install -m 0400 "$SNAPSHOT_DIR/snapshot.sql.gz" "$INPUT_STAGE/snapshot.sql.gz"
 install -m 0400 "$SNAPSHOT_DIR/snapshot.json" "$INPUT_STAGE/snapshot.json"
+if [[ "$MODE" == adversarial-qualification ]]; then
+  install -m 0400 "$QUALIFICATION_MANIFEST" \
+    "$INPUT_STAGE/hostile-test-manifest.json"
+fi
 : >"$INPUT_STAGE/provider-hosts"
 jq -n \
   --arg rootfs_sha256 "$ROOTFS_SHA256" \
@@ -220,7 +234,7 @@ if [[ "$PROVIDER" == none ]]; then
   [[ "$MODE" == fixture && "$CREDENTIAL_REQUIRED" == false ]]
 else
   jq -e --arg provider "$PROVIDER" '.providers[$provider] != null' "$POLICY" >/dev/null
-  if [[ "$MODE" != provider-qualification ]]; then
+  if [[ ! "$MODE" =~ ^(provider|adversarial)-qualification$ ]]; then
     jq -e --arg provider "$PROVIDER" '.providers[$provider].credential_qualified == true' \
       "$POLICY" >/dev/null
   fi
@@ -336,7 +350,7 @@ nft add rule inet "$NFT_TABLE" forward iifname "$TAP" ip6 daddr ::/0 counter rej
 nft add rule inet "$NFT_TABLE" postrouting ip saddr 172.16.0.0/30 oifname != "$TAP" masquerade
 
 FAILURE_STAGE=microvm-execution
-setsid "$JAILER" \
+setsid env -i PATH=/usr/local/bin:/usr/bin:/bin "$JAILER" \
   --id "$RUN_ID" \
   --exec-file "$FIRECRACKER_EXECUTABLE" \
   --uid "$FACTORY_UID" \
@@ -360,7 +374,6 @@ while [[ ! -s "$VMM_PID_FILE" ]]; do
   if ! kill -0 "$JAILER_PID" >/dev/null 2>&1; then
     [[ -s "$VMM_PID_FILE" ]] && break
     wait "$JAILER_PID" || true
-    tail -n 80 "$RUNTIME_ROOT/console-$RUN_ID.log" >&2
     echo "jailer exited before publishing the Firecracker PID" >&2
     exit 1
   fi
@@ -375,13 +388,12 @@ VMM_PID=$(<"$VMM_PID_FILE")
 VMM_CMDLINE=$(tr '\0' ' ' <"/proc/$VMM_PID/cmdline")
 [[ "$VMM_CMDLINE" == *"--id $RUN_ID"* ]]
 wait "$JAILER_PID" || {
-  tail -n 80 "$RUNTIME_ROOT/console-$RUN_ID.log" >&2
+  echo "jailer exited before transferring lifecycle ownership" >&2
   exit 1
 }
 JAILER_PID=
 while kill -0 "$VMM_PID" >/dev/null 2>&1; do
   if [[ "$SECONDS" -ge "$DEADLINE" ]]; then
-    tail -n 80 "$RUNTIME_ROOT/console-$RUN_ID.log" >&2
     echo "microVM exceeded ${RUN_MAX_SECONDS}-second run ceiling" >&2
     exit 1
   fi
@@ -389,54 +401,12 @@ while kill -0 "$VMM_PID" >/dev/null 2>&1; do
 done
 VMM_PID=
 
-# The guest controls this filesystem's bytes. Parse it in bounded user space;
-# never mount a guest-written filesystem into the host kernel or parse it as
-# root. A parser exploit reaches only the disposable factory-worker identity.
+# The guest controls this filesystem's bytes. The shared extractor parses it
+# in bounded user space and is exercised directly by Session 5 hostile cases.
+# It never host-mounts the image or invokes a filesystem parser as root.
 FAILURE_STAGE=result-filesystem-validation
-[[ -f "$JAIL_ROOT/result.ext4" && ! -L "$JAIL_ROOT/result.ext4" ]]
-RESULT_IMAGE_BYTES=$(stat -c %s "$JAIL_ROOT/result.ext4")
-[[ "$RESULT_IMAGE_BYTES" -gt 0 && "$RESULT_IMAGE_BYTES" -le "$RESULT_IMAGE_MAX_BYTES" ]]
-runuser -u factory-worker -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
-  /usr/sbin/e2fsck -fn "$JAIL_ROOT/result.ext4" >/dev/null
-mapfile -t RESULT_ENTRIES < <(
-  runuser -u factory-worker -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
-    /usr/sbin/debugfs -R 'ls -p /' "$JAIL_ROOT/result.ext4" 2>/dev/null \
-    | awk -F/ 'NF >= 7 && $6 != "." && $6 != ".." && $6 != "lost+found" {print $6}' \
-    | LC_ALL=C sort
-)
-if [[ "${RESULT_ENTRIES[*]}" != 'change.patch evidence.json rationale.txt status' ]]; then
-  RESULT_ENTRY_MASK=
-  for expected in change.patch evidence.json rationale.txt status; do
-    for actual in "${RESULT_ENTRIES[@]}"; do
-      if [[ "$actual" == "$expected" ]]; then
-        RESULT_ENTRY_MASK+="${expected:0:1}"
-        break
-      fi
-    done
-  done
-  printf 'incomplete guest result: file_count=%s expected_mask=%s\n' \
-    "${#RESULT_ENTRIES[@]}" "${RESULT_ENTRY_MASK:-none}" >&2
-  if [[ "$RESULT_ENTRY_MASK" == *s* ]]; then
-    runuser -u factory-worker -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
-      /usr/sbin/debugfs -R "dump /status $RESULT_EXTRACT/status" \
-      "$JAIL_ROOT/result.ext4" >/dev/null 2>&1
-    INCOMPLETE_STATUS=$(<"$RESULT_EXTRACT/status")
-    if [[ "$INCOMPLETE_STATUS" =~ ^[a-z0-9,-]{1,128}$ ]]; then
-      printf 'guest returned incomplete status=%s\n' "$INCOMPLETE_STATUS" >&2
-    fi
-  fi
-  false
-fi
-FAILURE_STAGE=result-file-extraction
-for expected in change.patch rationale.txt evidence.json status; do
-  runuser -u factory-worker -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
-    /usr/sbin/debugfs -R "stat /$expected" "$JAIL_ROOT/result.ext4" 2>/dev/null \
-    | grep -Eq 'Type:[[:space:]]+regular'
-  runuser -u factory-worker -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
-    /usr/sbin/debugfs -R "dump -p /$expected $RESULT_EXTRACT/$expected" \
-    "$JAIL_ROOT/result.ext4" >/dev/null 2>&1
-  [[ -f "$RESULT_EXTRACT/$expected" && ! -L "$RESULT_EXTRACT/$expected" ]]
-done
+/usr/local/libexec/patchyard-extract-result-image \
+  "$JAIL_ROOT/result.ext4" "$RESULT_EXTRACT"
 FAILURE_STAGE=guest-result-status
 RESULT_STATUS=$(<"$RESULT_EXTRACT/status")
 [[ "$RESULT_STATUS" =~ ^[a-z0-9,-]{1,128}$ ]]
@@ -445,9 +415,6 @@ if [[ "$RESULT_STATUS" != success ]]; then
   false
 fi
 FAILURE_STAGE=result-evidence-validation
-[[ "$(stat -c %s "$RESULT_EXTRACT/change.patch")" -le 1048576 ]]
-[[ "$(stat -c %s "$RESULT_EXTRACT/rationale.txt")" -le 65536 ]]
-[[ "$(stat -c %s "$RESULT_EXTRACT/evidence.json")" -le 131072 ]]
 jq -e --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
   --arg rootfs_sha256 "$ROOTFS_SHA256" \
   --arg image_recipe_sha256 "$IMAGE_RECIPE_SHA256" \

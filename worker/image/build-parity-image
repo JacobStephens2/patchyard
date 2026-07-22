@@ -166,6 +166,8 @@ install -m 0755 "$RECIPE_ROOT/patchyard-guest-network" \
   "$MOUNT_ROOT/usr/local/sbin/patchyard-guest-network"
 install -m 0755 "$RECIPE_ROOT/patchyard-toy-agent" \
   "$MOUNT_ROOT/usr/local/bin/patchyard-toy-agent"
+install -m 0755 "$RECIPE_ROOT/patchyard-hostile-probe" \
+  "$MOUNT_ROOT/usr/local/sbin/patchyard-hostile-probe"
 echo "$CANDIDATE_PROBE_SHA256  /usr/local/share/patchyard-worker/probes/candidate-probe.sh" \
   | sha256sum --check --status
 install -m 0755 /usr/local/share/patchyard-worker/probes/candidate-probe.sh \

@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+MANIFEST=${1:?hostile-test manifest required}
+[[ "$MANIFEST" == /* && -f "$MANIFEST" && ! -L "$MANIFEST" ]]
+jq -e '.schema_version == 1 and .session == 5' "$MANIFEST" >/dev/null
+
+TEMP_ROOT=$(mktemp -d /var/tmp/patchyard-session5-result.XXXXXX)
+chown root:factory-worker "$TEMP_ROOT"
+chmod 0750 "$TEMP_ROOT"
+RESULTS="$TEMP_ROOT/results.jsonl"
+cleanup() {
+  find "$TEMP_ROOT" -depth -delete
+}
+trap cleanup EXIT
+
+record() {
+  local id=$1
+  local class=$2
+  local status=$3
+  local detail=$4
+  jq -nc \
+    --arg id "$id" \
+    --arg class "$class" \
+    --arg status "$status" \
+    --arg detail "$detail" \
+    '{id: $id, class: $class, status: $status, detail: $detail}' \
+    >>"$RESULTS"
+}
+
+prepare_root() {
+  local root=$1
+  install -d -m 0700 "$root"
+  printf 'diff --git a/base.txt b/base.txt\n' >"$root/change.patch"
+  printf '{}\n' >"$root/evidence.json"
+  printf 'bounded rationale\n' >"$root/rationale.txt"
+  printf 'success\n' >"$root/status"
+}
+
+build_image() {
+  local root=$1
+  local image=$2
+  truncate -s 16777216 "$image"
+  mkfs.ext4 -q -F -L ETA_RESULT -d "$root" "$image"
+  chown factory-worker:factory-worker "$image"
+}
+
+extract_result() {
+  local image=$1
+  local extract=$2
+  install -d -m 0700 -o factory-worker -g factory-worker "$extract"
+  /usr/local/libexec/patchyard-extract-result-image "$image" "$extract" \
+    >"$extract.stdout" 2>"$extract.stderr"
+}
+
+while IFS=$'\t' read -r id class assertion; do
+  case_root="$TEMP_ROOT/$id-root"
+  image="$TEMP_ROOT/$id.ext4"
+  extract="$TEMP_ROOT/$id-extract"
+  prepare_root "$case_root"
+  expected=reject
+
+  case "$assertion" in
+    baseline_result_accepted)
+      expected=accept
+      build_image "$case_root" "$image"
+      ;;
+    extra_result_rejected)
+      printf 'not accepted\n' >"$case_root/alternate-output.bin"
+      build_image "$case_root" "$image"
+      ;;
+    missing_result_rejected)
+      unlink "$case_root/evidence.json"
+      build_image "$case_root" "$image"
+      ;;
+    symlink_result_rejected)
+      unlink "$case_root/change.patch"
+      ln -s status "$case_root/change.patch"
+      build_image "$case_root" "$image"
+      ;;
+    corrupt_filesystem_rejected)
+      truncate -s 16777216 "$image"
+      chown factory-worker:factory-worker "$image"
+      ;;
+    oversized_image_rejected)
+      truncate -s 16777217 "$image"
+      chown factory-worker:factory-worker "$image"
+      ;;
+    oversized_file_rejected)
+      truncate -s 65537 "$case_root/rationale.txt"
+      build_image "$case_root" "$image"
+      ;;
+    *)
+      record "$id" "$class" FAIL unknown_assertion
+      continue
+      ;;
+  esac
+
+  accepted=false
+  if extract_result "$image" "$extract"; then
+    accepted=true
+  fi
+  status=FAIL
+  if [[ "$expected" == accept && "$accepted" == true ]]; then
+    actual=$(find "$extract" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' \
+      | LC_ALL=C sort | paste -sd, -)
+    [[ "$actual" == 'change.patch,evidence.json,rationale.txt,status' ]] \
+      && status=PASS
+  elif [[ "$expected" == reject && "$accepted" == false ]]; then
+    status=PASS
+  fi
+  record "$id" "$class" "$status" "expected=${expected}"
+done < <(jq -r \
+  '.tests[] | select(.executor == "host_result") | [.id, .class, .assertion] | @tsv' \
+  "$MANIFEST")
+
+jq -s 'sort_by(.id)' "$RESULTS" >"$TEMP_ROOT/results.json"
+EXPECTED_IDS=$(jq -c \
+  '[.tests[] | select(.executor == "host_result") | .id] | sort' "$MANIFEST")
+ACTUAL_IDS=$(jq -c '[.[].id] | sort' "$TEMP_ROOT/results.json")
+[[ "$ACTUAL_IDS" == "$EXPECTED_IDS" ]]
+jq -e 'all(.status == "PASS")' "$TEMP_ROOT/results.json" >/dev/null
+cat "$TEMP_ROOT/results.json"

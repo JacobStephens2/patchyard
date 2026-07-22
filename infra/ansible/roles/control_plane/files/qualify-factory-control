@@ -67,6 +67,7 @@ test -x /usr/local/sbin/build-redacted-snapshot
 test -x /usr/local/sbin/check-snapshot-eligibility
 test -x /usr/local/sbin/patchyard-run-fixture
 test -x /usr/local/sbin/patchyard-run-isolation-probe
+test -x /usr/local/sbin/patchyard-run-hostile-qualification
 grep -Eq '^patchyard_parity_snapshot_age_days -?[0-9]+$' \
   /var/lib/node_exporter/textfile_collector/patchyard_snapshot.prom
 grep -Eq '^patchyard_parity_snapshot_eligible [01]$' \

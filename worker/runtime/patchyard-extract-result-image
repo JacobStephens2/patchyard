@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+IMAGE=${1:?result ext4 image required}
+EXTRACT_DIR=${2:?result extraction directory required}
+RESULT_IMAGE_MAX_BYTES=16777216
+
+[[ "$IMAGE" == /* && "$EXTRACT_DIR" == /* ]]
+[[ -f "$IMAGE" && ! -L "$IMAGE" ]]
+[[ -d "$EXTRACT_DIR" && ! -L "$EXTRACT_DIR" ]]
+[[ "$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 | wc -l)" -eq 0 ]]
+IMAGE_BYTES=$(stat -c %s "$IMAGE")
+[[ "$IMAGE_BYTES" -gt 0 && "$IMAGE_BYTES" -le "$RESULT_IMAGE_MAX_BYTES" ]]
+
+if ! runuser -u factory-worker -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+  /usr/sbin/e2fsck -fn "$IMAGE" >/dev/null 2>&1; then
+  echo "result filesystem integrity check failed" >&2
+  exit 1
+fi
+
+mapfile -t RESULT_ENTRIES < <(
+  runuser -u factory-worker -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+    /usr/sbin/debugfs -R 'ls -p /' "$IMAGE" 2>/dev/null \
+    | awk -F/ 'NF >= 7 && $6 != "." && $6 != ".." && $6 != "lost+found" {print $6}' \
+    | LC_ALL=C sort
+)
+if [[ "${RESULT_ENTRIES[*]}" != 'change.patch evidence.json rationale.txt status' ]]; then
+  RESULT_ENTRY_MASK=
+  for expected in change.patch evidence.json rationale.txt status; do
+    for actual in "${RESULT_ENTRIES[@]}"; do
+      if [[ "$actual" == "$expected" ]]; then
+        RESULT_ENTRY_MASK+="${expected:0:1}"
+        break
+      fi
+    done
+  done
+  printf 'incomplete guest result: file_count=%s expected_mask=%s\n' \
+    "${#RESULT_ENTRIES[@]}" "${RESULT_ENTRY_MASK:-none}" >&2
+  if [[ "$RESULT_ENTRY_MASK" == *s* ]]; then
+    runuser -u factory-worker -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+      /usr/sbin/debugfs -R "dump /status $EXTRACT_DIR/status" \
+      "$IMAGE" >/dev/null 2>&1 || true
+    if [[ -f "$EXTRACT_DIR/status" ]]; then
+      INCOMPLETE_STATUS=$(<"$EXTRACT_DIR/status")
+      if [[ "$INCOMPLETE_STATUS" =~ ^[a-z0-9,-]{1,128}$ ]]; then
+        printf 'guest returned incomplete status=%s\n' "$INCOMPLETE_STATUS" >&2
+      fi
+    fi
+  fi
+  exit 1
+fi
+
+for expected in change.patch rationale.txt evidence.json status; do
+  if ! runuser -u factory-worker -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+    /usr/sbin/debugfs -R "stat /$expected" "$IMAGE" 2>/dev/null \
+    | grep -Eq 'Type:[[:space:]]+regular'; then
+    echo "result entry type rejected" >&2
+    exit 1
+  fi
+  runuser -u factory-worker -- env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+    /usr/sbin/debugfs -R "dump -p /$expected $EXTRACT_DIR/$expected" \
+    "$IMAGE" >/dev/null 2>&1
+  [[ -f "$EXTRACT_DIR/$expected" && ! -L "$EXTRACT_DIR/$expected" ]]
+done
+
+[[ "$(stat -c %s "$EXTRACT_DIR/change.patch")" -le 1048576 ]]
+[[ "$(stat -c %s "$EXTRACT_DIR/rationale.txt")" -le 65536 ]]
+[[ "$(stat -c %s "$EXTRACT_DIR/evidence.json")" -le 131072 ]]

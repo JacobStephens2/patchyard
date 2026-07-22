@@ -1,0 +1,292 @@
+{
+  "schema_version": 1,
+  "session": 5,
+  "description": "Automated hostile qualification of the production Firecracker worker boundary.",
+  "tests": [
+    {
+      "id": "S5-ENV-001",
+      "class": "environment_variables",
+      "executor": "guest",
+      "assertion": "sensitive_environment_absent",
+      "targets": [
+        "ANTHROPIC_API_KEY",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "AWS_WEB_IDENTITY_TOKEN_FILE",
+        "AZURE_CLIENT_SECRET",
+        "COHERE_API_KEY",
+        "DATABASE_URL",
+        "DIGITALOCEAN_TOKEN",
+        "DO_API_TOKEN",
+        "PATCHYARD_CAPABILITY_FILE",
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "MYSQL_PWD",
+        "OPENAI_API_KEY",
+        "OP_SERVICE_ACCOUNT_TOKEN",
+        "SSH_AGENT_PID",
+        "SSH_AUTH_SOCK"
+      ],
+      "expected": "Every named variable is absent from the guest environment."
+    },
+    {
+      "id": "S5-ENV-002",
+      "class": "environment_variables",
+      "executor": "guest",
+      "assertion": "privileged_canary_absent",
+      "targets": [
+        "PATCHYARD_SESSION5_CANARY",
+        "/run/patchyard-session5-canary"
+      ],
+      "expected": "Neither the privileged launcher's synthetic canary name nor any environment value matching its SHA-256 is visible in the guest."
+    },
+    {
+      "id": "S5-PATH-001",
+      "class": "ssh_op_file_paths",
+      "executor": "guest",
+      "assertion": "paths_absent",
+      "targets": [
+        "/root/.ssh/id_ed25519",
+        "/root/.ssh/id_rsa",
+        "/home/factory-agent/.ssh",
+        "/srv/orchestration",
+        "/var/lib/conductor/.ssh",
+        "/var/lib/patchyard-manager/.ssh",
+        "/var/lib/patchyard-worker/.ssh"
+      ],
+      "expected": "No SSH client key or management SSH directory is visible in the guest."
+    },
+    {
+      "id": "S5-PATH-002",
+      "class": "ssh_op_file_paths",
+      "executor": "guest",
+      "assertion": "op_surface_absent",
+      "targets": [
+        "/etc/op.env",
+        "/etc/orchestration/op.env",
+        "/root/.config/op",
+        "/home/factory-agent/.config/op",
+        "/var/lib/patchyard-worker/.config/op"
+      ],
+      "expected": "No 1Password file path or op executable is visible in the guest."
+    },
+    {
+      "id": "S5-SOCK-001",
+      "class": "sockets",
+      "executor": "guest",
+      "assertion": "sockets_absent",
+      "targets": [
+        "/run/containerd/containerd.sock",
+        "/run/onepassword/agent.sock",
+        "/run/podman/podman.sock",
+        "/run/postgresql/.s.PGSQL.5432",
+        "/run/ssh-agent.sock",
+        "/var/run/docker.sock",
+        "/var/run/libvirt/libvirt-sock",
+        "/var/run/mysqld/mysqld.sock"
+      ],
+      "expected": "No host authority, database, container, or SSH-agent socket is visible in the guest."
+    },
+    {
+      "id": "S5-META-001",
+      "class": "cloud_metadata",
+      "executor": "guest",
+      "assertion": "tcp_targets_denied",
+      "targets": [
+        {"host": "169.254.169.254", "port": 80},
+        {"host": "169.254.169.254", "port": 443},
+        {"host": "169.254.170.2", "port": 80},
+        {"host": "169.254.169.253", "port": 53}
+      ],
+      "expected": "Representative DigitalOcean, AWS, Azure, and link-local metadata paths are unreachable."
+    },
+    {
+      "id": "S5-META-002",
+      "class": "cloud_metadata",
+      "executor": "guest",
+      "assertion": "metadata_names_and_ipv6_denied",
+      "targets": [
+        "metadata.google.internal",
+        "instance-data.ec2.internal",
+        "fd00:ec2::254"
+      ],
+      "expected": "Metadata hostnames do not resolve and the IPv6 metadata address is unreachable or IPv6 is disabled."
+    },
+    {
+      "id": "S5-NET-001",
+      "class": "private_network",
+      "executor": "guest",
+      "assertion": "tcp_targets_denied",
+      "targets": [
+        {"host": "10.0.0.1", "port": 443},
+        {"host": "10.132.0.14", "port": 9090},
+        {"host": "172.16.0.1", "port": 22},
+        {"host": "172.31.255.254", "port": 443},
+        {"host": "192.168.0.1", "port": 443},
+        {"host": "100.64.0.1", "port": 443},
+        {"host": "169.254.1.1", "port": 80}
+      ],
+      "expected": "RFC1918, the Firecracker host gateway, CGNAT, and link-local IPv4 targets are unreachable."
+    },
+    {
+      "id": "S5-NET-002",
+      "class": "private_network",
+      "executor": "guest",
+      "assertion": "tcp_targets_denied",
+      "targets": [
+        {"host": "fd00::1", "port": 443},
+        {"host": "fe80::1", "port": 443},
+        {"host": "2606:4700:4700::1111", "port": 443}
+      ],
+      "expected": "IPv6 ULA, link-local, and public targets are unreachable or IPv6 is disabled."
+    },
+    {
+      "id": "S5-NET-003",
+      "class": "private_network",
+      "executor": "guest",
+      "assertion": "selected_provider_reachable",
+      "targets": ["https://api.openai.com/v1/models"],
+      "expected": "The sole boot-selected provider endpoint returns an HTTP response through the pre-resolved allowlist."
+    },
+    {
+      "id": "S5-DNS-001",
+      "class": "dns_exfiltration",
+      "executor": "guest",
+      "assertion": "dns_names_denied",
+      "targets": [
+        "example.net",
+        "metadata.google.internal"
+      ],
+      "expected": "Forbidden runtime names do not resolve."
+    },
+    {
+      "id": "S5-DNS-002",
+      "class": "dns_exfiltration",
+      "executor": "guest",
+      "assertion": "direct_dns_denied",
+      "targets": [
+        "1.1.1.1",
+        "8.8.8.8",
+        "10.132.255.254",
+        "169.254.169.253"
+      ],
+      "expected": "Direct DNS over UDP and TCP receives no response from public, VPC, or link-local resolvers."
+    },
+    {
+      "id": "S5-FS-001",
+      "class": "filesystem_boundary",
+      "executor": "guest",
+      "assertion": "input_files_immutable",
+      "targets": [
+        "/input/request.md",
+        "/input/run.json",
+        "/input/snapshot.json",
+        "/input/snapshot.sql.gz",
+        "/input/hostile-test-manifest.json"
+      ],
+      "expected": "Every input remains readable and hash-stable while append, chmod, rename, and delete operations fail."
+    },
+    {
+      "id": "S5-FS-002",
+      "class": "filesystem_boundary",
+      "executor": "guest",
+      "assertion": "host_paths_absent",
+      "targets": [
+        "/host",
+        "/proc/1/root/host",
+        "/proc/1/root/var/lib/patchyard-worker",
+        "/dev/kvm",
+        "/var/lib/patchyard-worker/BOUNDARY_TAINTED"
+      ],
+      "expected": "Host paths and devices are absent; guest-local mount and device operations cannot mutate the host."
+    },
+    {
+      "id": "S5-OUT-001",
+      "class": "alternate_output",
+      "executor": "control_boundary",
+      "assertion": "console_canary_not_exported",
+      "targets": ["serial console", "launcher stdout", "launcher stderr"],
+      "expected": "A guest-written synthetic marker is absent from accepted artifacts and launcher output, and its transient console file is deleted."
+    },
+    {
+      "id": "S5-OUT-002",
+      "class": "alternate_output",
+      "executor": "host_result",
+      "assertion": "baseline_result_accepted",
+      "targets": ["change.patch", "evidence.json", "rationale.txt", "status"],
+      "expected": "The exact four-file guest result filesystem is accepted for further validation."
+    },
+    {
+      "id": "S5-OUT-003",
+      "class": "alternate_output",
+      "executor": "host_result",
+      "assertion": "extra_result_rejected",
+      "targets": ["alternate-output.bin"],
+      "expected": "Any fifth root entry rejects the entire result filesystem."
+    },
+    {
+      "id": "S5-OUT-004",
+      "class": "alternate_output",
+      "executor": "host_result",
+      "assertion": "missing_result_rejected",
+      "targets": ["evidence.json"],
+      "expected": "A result filesystem missing one required entry is rejected."
+    },
+    {
+      "id": "S5-OUT-005",
+      "class": "alternate_output",
+      "executor": "host_result",
+      "assertion": "symlink_result_rejected",
+      "targets": ["change.patch"],
+      "expected": "A required result name represented by a symlink is rejected."
+    },
+    {
+      "id": "S5-OUT-006",
+      "class": "malformed_result_filesystem",
+      "executor": "host_result",
+      "assertion": "corrupt_filesystem_rejected",
+      "targets": ["result.ext4"],
+      "expected": "A corrupt guest result filesystem is rejected by the pinned non-root parser."
+    },
+    {
+      "id": "S5-OUT-007",
+      "class": "malformed_result_filesystem",
+      "executor": "host_result",
+      "assertion": "oversized_image_rejected",
+      "targets": ["result.ext4"],
+      "expected": "A guest result image larger than 16 MiB is rejected before parsing."
+    },
+    {
+      "id": "S5-OUT-008",
+      "class": "malformed_result_filesystem",
+      "executor": "host_result",
+      "assertion": "oversized_file_rejected",
+      "targets": ["rationale.txt"],
+      "expected": "A structurally valid image with an oversized bounded output file is rejected."
+    },
+    {
+      "id": "S5-RES-001",
+      "class": "residue",
+      "executor": "control_boundary",
+      "assertion": "privileged_canary_unchanged",
+      "targets": ["launcher environment", "/run/patchyard-session5-canary"],
+      "expected": "The root-only synthetic canary remains hash-identical until cleanup and never reaches an artifact."
+    },
+    {
+      "id": "S5-RES-002",
+      "class": "residue",
+      "executor": "control_boundary",
+      "assertion": "request_and_runtime_residue_absent",
+      "targets": [
+        "/run/patchyard-worker",
+        "/var/tmp/patchyard-worker",
+        "/var/tmp/patchyard-incoming",
+        "/run/patchyard-session5-canary"
+      ],
+      "expected": "No request, canary, Firecracker process, TAP, nftables table, console log, credential file, or run directory remains after teardown."
+    }
+  ]
+}

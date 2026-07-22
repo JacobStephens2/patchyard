@@ -45,6 +45,13 @@ test ! -S /var/run/docker.sock
 test "$(rpm -q e2fsprogs)" = 'e2fsprogs-1.46.5-8.el9.x86_64'
 test "$(rpm -q e2fsprogs-libs)" = 'e2fsprogs-libs-1.46.5-8.el9.x86_64'
 test "$(rpm -q libcom_err)" = 'libcom_err-1.46.5-8.el9.x86_64'
+test -x /usr/local/libexec/patchyard-extract-result-image
+test -x /usr/local/sbin/patchyard-hostile-launch
+test -x /usr/local/sbin/patchyard-test-result-contract
+test -x /usr/local/sbin/patchyard-hostile-probe
+test -f /usr/local/share/patchyard-worker/qualification/hostile-test-manifest.json
+jq -e '.schema_version == 1 and .session == 5 and (.tests | length == 24)' \
+  /usr/local/share/patchyard-worker/qualification/hostile-test-manifest.json >/dev/null
 test -c /dev/kvm
 id -nG factory-worker | tr ' ' '\n' | grep -Fxq kvm
 echo 'e20e46d0c36c55c0d1014eb20576171b3f3d922260d9f792017aeff53af3d4f2  /opt/patchyard-worker/images/vmlinux' \

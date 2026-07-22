@@ -834,6 +834,14 @@
     group: "{{ factory_manager_user }}"
     mode: "0750"
 
+- name: Install the Session 5 hostile-qualification runner
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../../worker/qualification/patchyard-run-hostile-qualification"
+    dest: /usr/local/sbin/patchyard-run-hostile-qualification
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
+    mode: "0750"
+
 - name: Remove the transferred repository bundle
   ansible.builtin.file:
     path: /var/tmp/patchyard.bundle

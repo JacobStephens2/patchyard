@@ -144,6 +144,10 @@ if 'FIRECRACKER_EXECUTABLE=$(readlink -f -- "$FIRECRACKER")' not in launcher:
     errors.append("jailer path is not derived from the resolved Firecracker executable")
 if 'JAIL_ROOT="$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID/root"' not in launcher:
     errors.append("staged runtime path does not match jailer's executable-name layout")
+if 'VMM_PID=$(<"$VMM_PID_FILE")' not in launcher:
+    errors.append("launcher does not assume lifecycle ownership of jailer's Firecracker PID")
+if '"--id[ =]$RUN_ID"' not in launcher:
+    errors.append("cleanup does not match Firecracker's separated run-id argument")
 
 group_vars = GROUP_VARS.read_text()
 for package_pin in (

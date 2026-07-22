@@ -96,16 +96,21 @@ RUN_TMPFS="$TMPFS_ROOT/$RUN_ID"
 RESULT_EXTRACT="$RUNTIME_ROOT/result-extract-$RUN_ID"
 ACCEPT_TEMP=
 JAILER_PID=
+VMM_PID=
 BASE_FORWARD=$(sysctl -n net.ipv4.ip_forward)
 
 remove_runtime() {
   set +e
+  if [[ -n "$VMM_PID" ]]; then
+    kill -KILL -- "-$VMM_PID" >/dev/null 2>&1 || true
+    kill -KILL "$VMM_PID" >/dev/null 2>&1 || true
+  fi
   if [[ -n "$JAILER_PID" ]]; then
     kill -KILL -- "-$JAILER_PID" >/dev/null 2>&1 || true
     kill -KILL "$JAILER_PID" >/dev/null 2>&1 || true
     wait "$JAILER_PID" >/dev/null 2>&1 || true
   fi
-  pkill -KILL -u factory-worker -f -- "--id=$RUN_ID" >/dev/null 2>&1 || true
+  pkill -KILL -u factory-worker -f -- "--id[ =]$RUN_ID" >/dev/null 2>&1 || true
   mountpoint -q "$JAIL_ROOT/credential.ext4" && umount "$JAIL_ROOT/credential.ext4"
   nft delete table inet "$NFT_TABLE" >/dev/null 2>&1 || true
   ip link delete "$TAP" >/dev/null 2>&1 || true
@@ -125,14 +130,15 @@ cleanup_and_taint() {
     ACCEPT_TEMP=
   fi
   local residue=0
-  pgrep -u factory-worker -f -- "--id=$RUN_ID" >/dev/null 2>&1 && residue=1
+  pgrep -u factory-worker -f -- "--id[ =]$RUN_ID" >/dev/null 2>&1 && residue=1
   ip -o link show "$TAP" >/dev/null 2>&1 && residue=1
   nft list table inet "$NFT_TABLE" >/dev/null 2>&1 && residue=1
   [[ -e "$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID" || -e "$RUN_TMPFS" \
     || -e "$RUNTIME_ROOT/console-$RUN_ID.log" ]] && residue=1
   local reason=
-  [[ "$residue" -ne 0 ]] && reason=cleanup-residue
-  if [[ "$MODE" == provider-qualification && "$rc" -ne 0 ]]; then
+  if [[ "$residue" -ne 0 ]]; then
+    reason=cleanup-residue
+  elif [[ "$MODE" == provider-qualification && "$rc" -ne 0 ]]; then
     reason=containment-qualification-failed
   fi
   if [[ -n "$reason" ]]; then
@@ -318,18 +324,38 @@ JAILER_PID=$!
 RUN_MAX_SECONDS=$(jq -r .run_max_seconds "$LIFECYCLE_POLICY")
 [[ "$RUN_MAX_SECONDS" =~ ^[0-9]+$ && "$RUN_MAX_SECONDS" -ge 1 && "$RUN_MAX_SECONDS" -le 900 ]]
 DEADLINE=$((SECONDS + RUN_MAX_SECONDS))
-while kill -0 "$JAILER_PID" >/dev/null 2>&1; do
-  if [[ "$SECONDS" -ge "$DEADLINE" ]]; then
-    echo "microVM exceeded ${RUN_MAX_SECONDS}-second run ceiling" >&2
+VMM_PID_FILE="$JAIL_ROOT/$FIRECRACKER_JAIL_NAME.pid"
+while [[ ! -s "$VMM_PID_FILE" ]]; do
+  if ! kill -0 "$JAILER_PID" >/dev/null 2>&1; then
+    [[ -s "$VMM_PID_FILE" ]] && break
+    wait "$JAILER_PID" || true
+    tail -n 80 "$RUNTIME_ROOT/console-$RUN_ID.log" >&2
+    echo "jailer exited before publishing the Firecracker PID" >&2
     exit 1
   fi
-  sleep 0.25
+  if [[ "$SECONDS" -ge "$DEADLINE" ]]; then
+    echo "jailer exceeded the ${RUN_MAX_SECONDS}-second startup ceiling" >&2
+    exit 1
+  fi
+  sleep 0.05
 done
+VMM_PID=$(<"$VMM_PID_FILE")
+[[ "$VMM_PID" =~ ^[0-9]+$ ]]
+tr '\0' ' ' <"/proc/$VMM_PID/cmdline" | grep -Fq -- "--id $RUN_ID"
 wait "$JAILER_PID" || {
   tail -n 80 "$RUNTIME_ROOT/console-$RUN_ID.log" >&2
   exit 1
 }
 JAILER_PID=
+while kill -0 "$VMM_PID" >/dev/null 2>&1; do
+  if [[ "$SECONDS" -ge "$DEADLINE" ]]; then
+    tail -n 80 "$RUNTIME_ROOT/console-$RUN_ID.log" >&2
+    echo "microVM exceeded ${RUN_MAX_SECONDS}-second run ceiling" >&2
+    exit 1
+  fi
+  sleep 0.25
+done
+VMM_PID=
 
 # The guest controls this filesystem's bytes. Parse it in bounded user space;
 # never mount a guest-written filesystem into the host kernel or parse it as
@@ -383,7 +409,7 @@ install -m 0600 "$RESULT_EXTRACT/evidence.json" "$ACCEPT_TEMP/evidence.json"
 
 remove_runtime
 
-[[ "$(pgrep -u factory-worker -f -- "--id=$RUN_ID" | wc -l)" -eq 0 ]]
+[[ "$(pgrep -u factory-worker -f -- "--id[ =]$RUN_ID" | wc -l)" -eq 0 ]]
 [[ "$(ip -o link show "$TAP" 2>/dev/null | wc -l)" -eq 0 ]]
 [[ "$(nft list table inet "$NFT_TABLE" 2>/dev/null | wc -l)" -eq 0 ]]
 [[ ! -e "$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID" && ! -e "$RUN_TMPFS" ]]

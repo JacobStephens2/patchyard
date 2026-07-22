@@ -413,6 +413,19 @@ dependencies = [
 [[package]]
 name = "factory-verify"
 version = "0.0.0"
+dependencies = [
+ "clap",
+ "hex",
+ "proptest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "stringprep",
+ "thiserror",
+ "tokio",
+ "unicode-normalization",
+ "uuid",
+]
 
 [[package]]
 name = "factory-web"

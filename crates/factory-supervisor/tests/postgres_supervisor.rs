@@ -247,6 +247,67 @@ async fn publisher_lease_serializes_cap_check_and_creation() -> Result<(), Box<d
     Ok(())
 }
 
+#[tokio::test]
+async fn sweep_skips_ready_for_review_request_and_claims_queued_work() -> Result<(), Box<dyn Error>>
+{
+    let Some((runtime_url, admin_url)) = urls() else {
+        eprintln!("skipped: disposable PostgreSQL URLs are not set");
+        return Ok(());
+    };
+    let admin = PostgresRepository::connect(&admin_url).await?;
+    let store = PgPipelineStore::connect(&runtime_url).await?;
+    store
+        .set_claiming_state(false, false, "integration-test")
+        .await?;
+    let ready_request = request(&format!("ready-sweep-{}", Uuid::new_v4()));
+    let queued_request = request(&format!("queued-sweep-{}", Uuid::new_v4()));
+    admin.create_request(&ready_request).await?;
+    admin.create_request(&queued_request).await?;
+    let limits = DailyLimits {
+        per_submitter: 100,
+        global: 10_000,
+    };
+    store
+        .claim_specific(
+            ready_request.id,
+            "ready-holder",
+            Duration::from_secs(60),
+            limits,
+        )
+        .await?;
+    let ready_run = fixture_run(ready_request.id);
+    store.append_run(&ready_run).await?;
+    store
+        .finish_run(
+            ready_request.id,
+            ready_run.record().id,
+            "ready_for_review",
+            "run.ready_for_review",
+            serde_json::json!({"pull_request": 244}),
+        )
+        .await?;
+    store
+        .release_lease(ready_request.id, "ready-holder")
+        .await?;
+
+    // The request remains claimed for the later evidence lifecycle, but it is
+    // terminal for this pipeline and must not starve genuinely queued work.
+    assert_eq!(
+        store.load_request(ready_request.id).await?.status,
+        "claimed"
+    );
+    let next = store
+        .claim_next("sweep-holder", Duration::from_secs(60), limits)
+        .await?
+        .expect("queued work remains claimable behind a ready-for-review run");
+    assert_eq!(next.request_id, queued_request.id);
+    store
+        .release_lease(queued_request.id, "sweep-holder")
+        .await?;
+    store.close().await;
+    Ok(())
+}
+
 fn fixture_run(request_id: Uuid) -> ledger::ValidatedRunRecord {
     let run_id = Uuid::new_v4();
     ledger::validate(RunRecord {

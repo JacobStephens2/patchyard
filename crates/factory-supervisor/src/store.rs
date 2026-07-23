@@ -534,6 +534,19 @@ impl PgPipelineStore {
                 WHERE candidate.status IN ('queued', 'claimed')
                   AND NOT EXISTS (
                     SELECT 1
+                    FROM factory.runs AS terminal_run
+                    WHERE terminal_run.request_id = candidate.id
+                      AND terminal_run.state IN (
+                        'dry_run_complete',
+                        'closed',
+                        'ready_for_review',
+                        'killed',
+                        'failed',
+                        'escalated'
+                      )
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1
                     FROM factory.leases
                     WHERE leases.request_id = candidate.id
                       AND leases.released_at IS NULL

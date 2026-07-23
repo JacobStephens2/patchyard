@@ -31,6 +31,7 @@ use crate::{
 pub struct RuntimeComponents {
     pub store: PgPipelineStore,
     pub pipeline: Pipeline<PgPipelineStore>,
+    pub reconciler: Reconciler<PgPipelineStore>,
     pub daemon: DaemonConfig,
 }
 
@@ -162,6 +163,12 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         live_network: false,
     });
     let store = PgPipelineStore::connect(&database_url).await?;
+    let reconciler = Reconciler::new(
+        store.clone(),
+        github_from_environment(scratch.join("github-private"))?,
+        repository_scope(),
+        deployed_version_config()?,
+    )?;
     let (repository, publisher): (PathBuf, Option<Arc<dyn PublishService>>) = match mode {
         RunMode::DryRun => (required_path("FACTORY_TARGET_REPOSITORY")?, None),
         RunMode::PrePublish => {
@@ -235,10 +242,13 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         }
         .validate()?,
         max_active: usize_env("FACTORY_MAX_ACTIVE", 2)?,
+        reconcile_abandoned_after: duration_env("FACTORY_RECONCILE_ABANDONED_SECONDS", 300)?,
+        reconcile_sweep_limit: usize_env("FACTORY_RECONCILE_SWEEP_LIMIT", 10)?,
     };
     Ok(RuntimeComponents {
         store,
         pipeline,
+        reconciler,
         daemon,
     })
 }
@@ -252,14 +262,18 @@ pub async fn reconciler_from_environment(
         store.clone(),
         github_from_environment(scratch.join("github-private"))?,
         repository_scope(),
-        DeployedVersionConfig {
-            program: required_path("FACTORY_DEPLOYED_VERSION_PROGRAM")?,
-            arguments: os_args_json("FACTORY_DEPLOYED_VERSION_ARGUMENTS_JSON")?,
-            timeout: duration_env("FACTORY_DEPLOYED_VERSION_TIMEOUT_SECONDS", 30)?,
-            output_limit: usize_env("FACTORY_DEPLOYED_VERSION_OUTPUT_BYTES", 64 * 1024)?,
-        },
+        deployed_version_config()?,
     )?;
     Ok(ReconcileComponents { store, reconciler })
+}
+
+fn deployed_version_config() -> Result<DeployedVersionConfig, BootstrapError> {
+    Ok(DeployedVersionConfig {
+        program: required_path("FACTORY_DEPLOYED_VERSION_PROGRAM")?,
+        arguments: os_args_json("FACTORY_DEPLOYED_VERSION_ARGUMENTS_JSON")?,
+        timeout: duration_env("FACTORY_DEPLOYED_VERSION_TIMEOUT_SECONDS", 30)?,
+        output_limit: usize_env("FACTORY_DEPLOYED_VERSION_OUTPUT_BYTES", 64 * 1024)?,
+    })
 }
 
 fn github_from_environment(scratch: PathBuf) -> Result<Arc<GhGitHub>, BootstrapError> {
@@ -287,12 +301,12 @@ fn repository_scope() -> RepositoryScope {
 }
 
 async fn ensure_private_roots(scratch: &Path, artifacts: &Path) -> Result<(), BootstrapError> {
-    for path in [scratch, artifacts] {
+    for (path, mode) in [(scratch, 0o700), (artifacts, 0o2750)] {
         let path = path.to_path_buf();
         blocking(move || {
             use std::os::unix::fs::PermissionsExt as _;
             std::fs::create_dir_all(&path)?;
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
         })
         .await??;
     }

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Bench // Patchyard Factory{% endblock %}
+{% block content %}
+<h1>Canonical model × harness bench</h1>
+<p>Source: <code>docs/bench.json</code> // updated {{ bench.last_updated }} // AA {{ bench.aa_index_version }}</p>
+<table>
+  <thead><tr><th>model</th><th>effort</th><th>harness</th><th>provider</th><th>floor</th><th>image</th><th>standing</th></tr></thead>
+  <tbody>
+  {% for pair in bench.pairs %}
+    <tr><td>{{ pair.model }}</td><td>{{ pair.effort }}</td><td>{{ pair.harness }}</td><td>{{ pair.host }}</td><td>{{ pair.floor.status }} {{ pair.floor.detail }}</td><td>{{ pair.image_input.status }} {{ pair.image_input.detail }}</td><td>{{ pair.standing }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

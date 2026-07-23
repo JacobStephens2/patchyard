@@ -12,6 +12,15 @@ erDiagram
         timestamptz expires_at nullable
         timestamptz deleted_at nullable
     }
+    audit_events {
+        bigint id PK
+        uuid user_id nullable
+        text action
+        text subject
+        text client_key
+        jsonb metadata
+        timestamptz occurred_at
+    }
     controls {
         uuid id PK
         text command
@@ -50,6 +59,20 @@ erDiagram
         timestamptz expires_at
         timestamptz released_at nullable
     }
+    login_attempts {
+        bigint id PK
+        text username
+        text client_key
+        boolean succeeded
+        timestamptz occurred_at
+    }
+    login_challenges {
+        bytea token_hash PK
+        bytea csrf_hash
+        timestamptz created_at
+        timestamptz expires_at
+        timestamptz used_at nullable
+    }
     pr_state {
         integer number PK
         uuid request_id nullable
@@ -81,6 +104,17 @@ erDiagram
         timestamptz acquired_at
         timestamptz expires_at
         timestamptz released_at nullable
+    }
+    reconcile_requests {
+        uuid id PK
+        uuid request_id
+        uuid requested_by
+        text status
+        timestamptz requested_at
+        uuid claim_token nullable
+        timestamptz claimed_at nullable
+        timestamptz executed_at nullable
+        jsonb outcome
     }
     requests {
         uuid id PK
@@ -122,6 +156,17 @@ erDiagram
         text effort nullable
         text routing_config_version nullable
     }
+    sessions {
+        bytea token_hash PK
+        uuid user_id
+        bytea csrf_hash
+        bigint session_version
+        timestamptz created_at
+        timestamptz last_seen_at
+        timestamptz idle_expires_at
+        timestamptz absolute_expires_at
+        timestamptz revoked_at nullable
+    }
     side_effects {
         text idempotency_key PK
         uuid request_id
@@ -141,8 +186,23 @@ erDiagram
         timestamptz updated_at
         text updated_by
     }
+    users {
+        uuid id PK
+        text username UK
+        text display_name
+        text password_hash
+        factory_account_role role
+        boolean enabled
+        boolean password_reset_required
+        bigint session_version
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz disabled_at nullable
+        timestamptz password_reset_at nullable
+    }
     requests ||--o{ artifacts : "artifacts_request_id_fkey"
     runs o|--o{ artifacts : "artifacts_run_id_fkey"
+    users o|--o{ audit_events : "audit_events_user_id_fkey"
     runs o|--o{ controls : "controls_target_run_id_fkey"
     requests ||--o{ events : "events_request_id_fkey"
     runs o|--o{ events : "events_run_id_fkey"
@@ -151,6 +211,9 @@ erDiagram
     runs o|--o{ pr_state : "pr_state_run_id_fkey"
     requests ||--o{ publisher_leases : "publisher_leases_request_id_fkey"
     runs ||--o{ publisher_leases : "publisher_leases_run_id_fkey"
+    requests ||--o{ reconcile_requests : "reconcile_requests_request_id_fkey"
+    users ||--o{ reconcile_requests : "reconcile_requests_requested_by_fkey"
     requests ||--o{ runs : "runs_request_id_fkey"
+    users ||--o{ sessions : "sessions_user_id_fkey"
     requests ||--o{ side_effects : "side_effects_request_id_fkey"
     runs o|--o{ side_effects : "side_effects_run_id_fkey"

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "authoritative control-plane deployed-version source is not configured" >&2
+exit 78

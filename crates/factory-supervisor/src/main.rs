@@ -42,6 +42,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let daemon = SupervisorDaemon::new(
         runtime.store.clone(),
         runtime.pipeline.clone(),
+        runtime.reconciler.clone(),
         runtime.daemon.clone(),
     );
     let result = daemon.run(&shutdown).await;

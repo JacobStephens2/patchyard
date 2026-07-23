@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Patchyard Factory{% endblock %}</title>
+  <link rel="stylesheet" href="/assets/terminal.css">
+  <link rel="stylesheet" href="/assets/patchyard-theme.css">
+</head>
+<body class="terminal">
+  <div class="container">
+    <header>
+      <div class="logo">Patchyard FACTORY // CONTROL PLANE</div>
+      {% if chrome.authenticated %}
+      <nav aria-label="Factory">
+        {% if chrome.admin %}<a href="/">requests</a> <a href="/bench">bench</a> <a href="/schema">schema</a>{% endif %}
+        <a href="/model">model</a> <a href="/decisions">decisions</a> <a href="/codebase">codebase</a>
+        {% if chrome.submit %}<a href="/new">submit</a>{% endif %}
+        <span class="nav-user">{{ chrome.display_name }}</span>
+        <form class="inline" method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="{{ chrome.csrf_token }}">
+          <button type="submit">logout</button>
+        </form>
+      </nav>
+      {% endif %}
+    </header>
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  {% block script %}{% endblock %}
+</body>
+</html>

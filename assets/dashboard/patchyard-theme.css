@@ -26,6 +26,30 @@
 
 /* ---- factory widgets ---------------------------------------------------- */
 
+.container { max-width: 88rem; padding: 0 1.25rem 3rem; }
+header { border-bottom: 1px solid var(--primary-color); margin-bottom: 2rem; }
+nav { display: flex; flex-wrap: wrap; align-items: center; gap: 0.7rem; padding: 0.8rem 0; }
+.nav-user { margin-left: auto; color: var(--tertiary-color); }
+.inline { display: inline-block; margin: 0 0.35rem 0.35rem 0; }
+.box { border: 1px solid #304137; padding: 1rem; margin: 1rem 0; background: var(--block-background-color); }
+.error, .btn-error { color: var(--error-color); border-color: var(--error-color); }
+input, textarea, select, button {
+  background: var(--background-color);
+  color: var(--font-color);
+  border-color: var(--secondary-color);
+}
+textarea { width: 100%; resize: vertical; }
+pre.untrusted { white-space: pre-wrap; overflow-wrap: anywhere; border-left: 3px solid #ffb300; }
+table { display: block; max-width: 100%; overflow-x: auto; }
+.markdown { overflow-wrap: anywhere; }
+.model-frame { border: 1px solid var(--secondary-color); padding: 1rem; overflow-x: auto; }
+.model-frame img { display: block; width: 100%; min-width: 48rem; }
+.stage-rail { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 1px;
+              border: 1px solid var(--secondary-color); background: var(--secondary-color); }
+.stage-cell { min-height: 6rem; padding: 0.75rem; background: var(--background-color); }
+.stage-cell .t-actor { display: block; margin-top: 0.7rem; color: var(--tertiary-color); }
+.run-dot { color: var(--primary-color); }
+
 /* Stage badge row: one cell per model stage, boxy */
 .stage-badge {
   display: inline-block;
@@ -43,7 +67,9 @@
 .timeline { border-left: 1px solid var(--secondary-color); margin-left: 0.5em;
             padding-left: 1em; list-style: none; }
 .timeline li { margin: 0.35em 0; }
+.timeline li.current { border-left: 3px solid var(--primary-color); padding-left: 0.7em; }
 .timeline .t-when  { color: var(--secondary-color); }
+.timeline .t-duration, .timeline .t-elapsed { color: #ffb300; }
 .timeline .t-actor { border: 1px solid var(--secondary-color); padding: 0 0.35em;
                      font-size: 0.85em; color: var(--tertiary-color); }
 .timeline .t-actor.human         { border-color: var(--primary-color); }
@@ -54,3 +80,7 @@
 .live::before { content: "▮"; animation: live-blink 1.1s steps(1) infinite; margin-right: 0.4em; }
 @keyframes live-blink { 50% { opacity: 0.15; } }
 @media (prefers-reduced-motion: reduce) { .live::before { animation: none; } }
+@media (max-width: 42rem) {
+  .nav-user { width: 100%; margin-left: 0; }
+  .model-frame img { min-width: 36rem; }
+}

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Requests // Patchyard Factory{% endblock %}
+{% block content %}
+<h1>Request ledger</h1>
+<p>Durable factory state. Request content is shown only on its detail page.</p>
+<table>
+  <thead><tr><th>received</th><th>request</th><th>source</th><th>request state</th><th>run state</th><th>events</th></tr></thead>
+  <tbody>
+  {% for request in requests %}
+    <tr>
+      <td>{{ request.received_at }}</td>
+      <td><a href="/request/{{ request.id }}">{{ request.id }}</a></td>
+      <td>{{ request.source }}</td>
+      <td><span class="stage-badge">{{ request.status }}</span></td>
+      <td>{% match request.run_state %}{% when Some with (state) %}<span class="stage-badge active">{{ state }}</span>{% when None %}-{% endmatch %}</td>
+      <td>{{ request.event_count }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -61,9 +61,14 @@ Measurement scripts live under [`tools/`](tools/) (see [`tools/README.md`](tools
 
 ## Build and run
 
-Phase 1 is **under construction on live infrastructure**: sessions 0-2 are merged (two drift-checked hosts, the Rust workspace and hosted CI, and the PostgreSQL state layer), and session 3's Firecracker isolation decision is at its A97 human checkpoint. The build runs under the A97-A100 operating contract: continuous sessions with hard human checkpoints at 3/5/10/16, one adversarial review per PR, every merge human. The dashboard and verifier remain intentional
-shells; `factory-core` and `factoryctl` contain the state-layer behavior. On a Linux x86-64 development
-host, install a C linker (`gcc` on Rocky Linux), then use the repository pins:
+Phase 1 is **under construction on live infrastructure**: sessions 0-10 are
+merged, covering desired state, durable PostgreSQL state, worker isolation,
+the verifier, supervisor, and draft-only publisher. Session 11 adds the
+server-rendered dashboard and its factory-native auth boundary. The build runs
+under the A97-A100 operating contract: continuous sessions with hard human
+checkpoints at 3/5/10/16, one adversarial review per PR, every merge human. On
+a Linux x86-64 development host, install a C linker (`gcc` on Rocky Linux),
+then use the repository pins:
 
 ```bash
 tools/install-rustup.sh

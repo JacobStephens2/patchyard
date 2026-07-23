@@ -4,7 +4,7 @@
 use std::{collections::BTreeMap, fmt::Write as _};
 
 use serde::Serialize;
-use sqlx::{AssertSqlSafe, PgPool, Row};
+use sqlx::{PgPool, Row};
 use thiserror::Error;
 
 /// Complete state-schema catalog needed by both projections.
@@ -135,16 +135,15 @@ pub async fn introspect(pool: &PgPool) -> Result<SchemaCatalog, SchemaError> {
         });
     }
 
-    for relation in relations.values_mut() {
-        let query = format!(
-            "SELECT count(*)::bigint AS row_count FROM factory.{}",
-            quote_identifier(&relation.name)
-        );
-        // `relation.name` came from pg_catalog and is quoted as one identifier;
-        // PostgreSQL cannot bind an identifier in this count projection.
-        relation.row_count = sqlx::query_scalar(AssertSqlSafe(query))
-            .fetch_one(pool)
+    let count_rows =
+        sqlx::query("SELECT relation_name,row_count FROM factory.schema_relation_counts()")
+            .fetch_all(pool)
             .await?;
+    for row in count_rows {
+        let name: String = row.try_get("relation_name")?;
+        if let Some(relation) = relations.get_mut(&name) {
+            relation.row_count = row.try_get("row_count")?;
+        }
     }
 
     let foreign_keys = sqlx::query(
@@ -337,10 +336,6 @@ pub fn render_mermaid(catalog: &SchemaCatalog) -> String {
         );
     }
     output
-}
-
-fn quote_identifier(identifier: &str) -> String {
-    format!("\"{}\"", identifier.replace('"', "\"\""))
 }
 
 fn mermaid_identifier(value: &str) -> String {

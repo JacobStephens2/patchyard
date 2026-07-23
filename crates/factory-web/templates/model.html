@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Model // Patchyard Factory{% endblock %}
+{% block content %}
+<h1>Factory model {{ model_version }}</h1>
+<p><a href="/projection/factory-model.json">canonical JSON</a> // <a href="/projection/factory-model.mmd">generated Mermaid</a> // <a href="/projection/factory-model.schema.json">schema</a></p>
+<div class="model-frame"><img src="/projection/factory-model.svg" alt="Generated Patchyard Factory model"></div>
+<section>
+  <h2>Live run overlay</h2>
+  <div class="stage-rail">
+    {% for stage in stages %}<div class="stage-cell" data-stage="{{ stage.id }}"><strong>{{ stage.name }}</strong><span class="t-actor {{ stage.actor }}">{{ stage.actor }}</span></div>{% endfor %}
+  </div>
+  <ul id="run-dots">
+  {% for run in runs %}<li class="run-dot" data-request="{{ run.request_id }}" data-state="{{ run.state }}">● <a href="/request/{{ run.request_id }}">{{ run.request_id }}</a> <span>{{ run.state }}</span></li>{% endfor %}
+  </ul>
+</section>
+{% endblock %}
+{% block script %}
+{% if has_runs %}
+<script nonce="{{ chrome.nonce }}">
+(() => {
+  document.querySelectorAll(".run-dot").forEach((dot) => {
+    const request = dot.dataset.request;
+    const label = dot.querySelector("span");
+    const stream = new EventSource("/request/" + request + "/events");
+    stream.addEventListener("ledger", (message) => {
+      const event = JSON.parse(message.data);
+      if (event.to_state) {
+        dot.dataset.state = event.to_state;
+        label.textContent = event.to_state;
+      }
+      if (event.terminal) stream.close();
+    });
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

@@ -2,6 +2,7 @@ use std::{error::Error, time::Duration};
 
 use factory_core::{
     RequestBody,
+    auth::hash_password,
     state::{FactoryRepository as _, NewRequest, PostgresRepository, Sha256Digest, TraceId},
 };
 use factory_supervisor::store::{
@@ -189,6 +190,73 @@ async fn durable_sweep_claims_recovery_limits_and_control_rows() -> Result<(), B
     .fetch_one(store.pool())
     .await?;
     assert!(lease_released);
+    store.close().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn reconcile_queue_recovers_with_a_fenced_claim() -> Result<(), Box<dyn Error>> {
+    let Some((runtime_url, admin_url)) = urls() else {
+        eprintln!("skipped: disposable PostgreSQL URLs are not set");
+        return Ok(());
+    };
+    let admin = PostgresRepository::connect(&admin_url).await?;
+    let store = PgPipelineStore::connect(&runtime_url).await?;
+    let request = request(&format!("reconcile-queue-{}", Uuid::new_v4()));
+    admin.create_request(&request).await?;
+    let user_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO factory.users (id,username,display_name,password_hash,role) VALUES ($1,$2,'Reconcile fixture',$3,'factory_admin')",
+    )
+    .bind(user_id)
+    .bind(format!("{user_id}@example.test"))
+    .bind(hash_password("reconcile-fixture-password")?)
+    .execute(admin.pool())
+    .await?;
+    let reconcile_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO factory.reconcile_requests (id,request_id,requested_by) VALUES ($1,$2,$3)",
+    )
+    .bind(reconcile_id)
+    .bind(request.id)
+    .bind(user_id)
+    .execute(admin.pool())
+    .await?;
+
+    let first = store
+        .claim_next_reconcile(Duration::from_secs(30))
+        .await?
+        .expect("pending refresh claim");
+    assert_eq!(first.id, reconcile_id);
+    sqlx::query(
+        "UPDATE factory.reconcile_requests SET claimed_at=clock_timestamp()-interval '31 seconds' WHERE id=$1",
+    )
+    .bind(reconcile_id)
+    .execute(admin.pool())
+    .await?;
+    let recovered = store
+        .claim_next_reconcile(Duration::from_secs(30))
+        .await?
+        .expect("abandoned refresh recovery");
+    assert_eq!(recovered.id, reconcile_id);
+    assert_ne!(recovered.claim_token, first.claim_token);
+    assert!(matches!(
+        store
+            .complete_reconcile(&first, true, serde_json::json!({"stale": true}))
+            .await,
+        Err(StoreError::ReconcileClaimLost(id)) if id == reconcile_id
+    ));
+    store
+        .complete_reconcile(&recovered, true, serde_json::json!({"bounded": true}))
+        .await?;
+    let (status, bounded): (String, bool) = sqlx::query_as(
+        "SELECT status,(outcome->>'bounded')::boolean FROM factory.reconcile_requests WHERE id=$1",
+    )
+    .bind(reconcile_id)
+    .fetch_one(admin.pool())
+    .await?;
+    assert_eq!(status, "completed");
+    assert!(bounded);
     store.close().await;
     Ok(())
 }

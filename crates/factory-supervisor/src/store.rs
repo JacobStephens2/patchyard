@@ -91,6 +91,13 @@ pub struct ControlRow {
     pub status: String,
 }
 
+#[derive(Clone, Debug)]
+pub struct ReconcileRequest {
+    pub id: Uuid,
+    pub request_id: Uuid,
+    pub claim_token: Uuid,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SideEffectDisposition {
     Start,
@@ -469,6 +476,90 @@ impl PgPipelineStore {
 
     pub async fn close(&self) {
         self.pool.close().await;
+    }
+
+    /// Atomically fence one pending (or abandoned) dashboard Refresh request.
+    ///
+    /// The dashboard role can only insert this row. Claiming and completion are
+    /// supervisor-only operations, so no browser request gains reconciliation
+    /// or GitHub authority.
+    pub async fn claim_next_reconcile(
+        &self,
+        abandoned_after: Duration,
+    ) -> Result<Option<ReconcileRequest>, StoreError> {
+        let abandoned_seconds = i32::try_from(abandoned_after.as_secs())
+            .map_err(|_| StoreError::InvalidReconcileTimeout)?;
+        if abandoned_seconds == 0 {
+            return Err(StoreError::InvalidReconcileTimeout);
+        }
+        let claim_token = Uuid::new_v4();
+        let row = sqlx::query(
+            r#"
+            WITH candidate AS (
+                SELECT id
+                FROM factory.reconcile_requests
+                WHERE status = 'pending'
+                   OR (
+                       status = 'executing'
+                       AND claimed_at <
+                           clock_timestamp() - make_interval(secs => $1)
+                   )
+                ORDER BY requested_at,id
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+            )
+            UPDATE factory.reconcile_requests AS request
+            SET
+                status='executing',
+                claim_token=$2,
+                claimed_at=clock_timestamp(),
+                outcome='{}'::jsonb
+            FROM candidate
+            WHERE request.id=candidate.id
+            RETURNING request.id,request.request_id,request.claim_token
+            "#,
+        )
+        .bind(abandoned_seconds)
+        .bind(claim_token)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|row| {
+            Ok(ReconcileRequest {
+                id: row.try_get("id")?,
+                request_id: row.try_get("request_id")?,
+                claim_token: row.try_get("claim_token")?,
+            })
+        })
+        .transpose()
+    }
+
+    pub async fn complete_reconcile(
+        &self,
+        reconcile: &ReconcileRequest,
+        success: bool,
+        outcome: serde_json::Value,
+    ) -> Result<(), StoreError> {
+        let affected = sqlx::query(
+            r#"
+            UPDATE factory.reconcile_requests
+            SET
+                status=CASE WHEN $3 THEN 'completed' ELSE 'failed' END,
+                executed_at=clock_timestamp(),
+                outcome=$4
+            WHERE id=$1 AND claim_token=$2 AND status='executing'
+            "#,
+        )
+        .bind(reconcile.id)
+        .bind(reconcile.claim_token)
+        .bind(success)
+        .bind(outcome)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        if affected != 1 {
+            return Err(StoreError::ReconcileClaimLost(reconcile.id));
+        }
+        Ok(())
     }
 
     async fn claim(
@@ -1720,6 +1811,10 @@ pub enum StoreError {
     InvalidControlTarget,
     #[error("control sweep limit is invalid")]
     InvalidControlLimit,
+    #[error("reconcile recovery timeout is invalid")]
+    InvalidReconcileTimeout,
+    #[error("reconcile claim was lost before completion: {0}")]
+    ReconcileClaimLost(Uuid),
     #[error("control is not executing: {0}")]
     ControlNotExecuting(Uuid),
     #[error("awaited worker teardown failed for killed run: {0}")]

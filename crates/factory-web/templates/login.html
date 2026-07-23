@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Sign in // Patchyard Factory{% endblock %}
+{% block content %}
+<h1>Factory sign in</h1>
+{% if error != "" %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="/login">
+  <input type="hidden" name="csrf_token" value="{{ login_csrf }}">
+  <fieldset>
+    <legend>Factory-native account</legend>
+    <label for="username">Email</label>
+    <input id="username" name="username" type="text" autocomplete="username" maxlength="{{ username_max }}" required autofocus>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" maxlength="{{ password_max }}" required>
+    <button type="submit">sign in</button>
+  </fieldset>
+</form>
+{% endblock %}

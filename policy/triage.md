@@ -43,4 +43,3 @@ Output contract:
   "confidence_basis_points": 0
 }
 ```
-

@@ -14,4 +14,3 @@
     {"id": "missing-exact-target", "request": "fixtures/triage/requests/missing-target.md", "output": "fixtures/triage/missing-target.json", "expected_lane": "D"}
   ]
 }
-

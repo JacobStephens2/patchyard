@@ -48,4 +48,3 @@ The disposable-PostgreSQL test
 their request states, exact ledger rows, idempotent B approval, D's untrusted
 label, approved-B TaskSpec retrieval, and the generic claim/close bypass guard.
 Hosted application CI runs it with the real migration and supervisor grants.
-

@@ -124,6 +124,7 @@ Session 0 covers the worker desired-state component; sessions 1-2 cover the cont
 - Egress profile is the preview, enforced at the network layer: the leased preview host plus required DNS only; cloud metadata and the private fleet denied; redirect targets re-evaluated against the allowlist. It never shares the implement worker's model-provider boot profile.
 - One-use, short-lived preview bearer delivered in tmpfs and destroyed at teardown; helper contract fixed (allowed URL, bounded selectors/actions, timeouts, maximum output sizes, expected SHA; no caller-supplied JavaScript outside reviewed tests).
 - Exit: adversarial fixtures each land in their named fail-closed state - redirect chains, DNS rebinding, subresource exfiltration, popups, downloads, oversized pages, bearer-disclosure probes, browser crashes; a probe from inside the evidence environment proves no credential, socket, or artifact path is reachable; teardown leaves nothing behind.
+- **Isolation-spawn design (A104)**: session 13 resolves reviewer isolation (A87) and evidence-browser isolation (A89) with ONE spawn mechanism under the hardened `factory-supervisor` unit (which cannot create unprivileged user namespaces) - a scoped privileged helper, `systemd-run` transient scopes, or the worker's Firecracker. Exit proves the hardened daemon completes a review-bearing run (closing the session-10 decision-3 gap) as well as an isolated evidence capture.
 
 ### Session 14 - evidence lifecycle
 

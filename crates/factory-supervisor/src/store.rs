@@ -102,9 +102,41 @@ pub enum SideEffectDisposition {
 pub struct ExistingRun {
     pub id: Uuid,
     pub base_sha: String,
+    pub branch: String,
     pub state: String,
     pub lane: String,
     pub skill: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PublisherLease {
+    pub resource: String,
+    pub holder: String,
+    pub fencing_token: i64,
+    pub expires_at: OffsetDateTime,
+}
+
+#[derive(Clone, Debug)]
+pub struct PullRequestRecord {
+    pub number: i32,
+    pub request_id: Uuid,
+    pub run_id: Uuid,
+    pub branch: String,
+    pub head_sha: String,
+    pub ci_state: String,
+    pub review_state: String,
+    pub state: String,
+    pub is_draft: bool,
+    pub author_login: String,
+    pub html_url: String,
+    pub github_updated_at: OffsetDateTime,
+    pub merged_at: Option<OffsetDateTime>,
+    pub merge_commit_sha: Option<String>,
+    pub merged_by: Option<String>,
+    pub deployed_sha: Option<String>,
+    pub admin_bypassed: bool,
+    pub passing_run: bool,
+    pub reconcile_error: Option<String>,
 }
 
 /// Store contract used identically by the daemon and `factoryctl run`.
@@ -255,6 +287,160 @@ pub trait PipelineStore: Clone + Send + Sync + 'static {
         &self,
         run_id: Uuid,
     ) -> impl Future<Output = Result<Option<Uuid>, StoreError>> + Send;
+}
+
+/// Durable serialization and observations for the credentialed publisher.
+///
+/// The global publisher lease is acquired in a short database transaction;
+/// no database lock or Rust lock is held across a GitHub or Git subprocess
+/// await.
+pub trait PublisherStore: Clone + Send + Sync + 'static {
+    fn acquire_publisher_lease(
+        &self,
+        resource: &str,
+        request_id: Uuid,
+        run_id: Uuid,
+        holder: &str,
+        ttl: Duration,
+    ) -> impl Future<Output = Result<PublisherLease, StoreError>> + Send;
+
+    fn release_publisher_lease(
+        &self,
+        lease: &PublisherLease,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    fn record_github_success(
+        &self,
+        repository: &str,
+        observed_at: OffsetDateTime,
+        open_pr_count: usize,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    fn record_github_failure(
+        &self,
+        repository: &str,
+        error: &str,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    fn upsert_pull_request(
+        &self,
+        record: &PullRequestRecord,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+}
+
+/// Minimal durable run/effect surface needed by the credentialed publisher.
+/// Keeping this narrower than the worker pipeline makes the state machine
+/// independently testable without granting it intake or control-row powers.
+pub trait PublicationStore: Clone + Send + Sync + 'static {
+    fn transition_publication(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+        event_type: &str,
+        to_state: &str,
+        idempotency_key: &str,
+        payload: serde_json::Value,
+    ) -> impl Future<Output = Result<bool, StoreError>> + Send;
+
+    fn begin_publication_effect(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+        key: &str,
+        effect_type: &str,
+    ) -> impl Future<Output = Result<SideEffectDisposition, StoreError>> + Send;
+
+    fn finish_publication_effect(
+        &self,
+        key: &str,
+        status: &str,
+        external_ref: Option<&str>,
+        facts: serde_json::Value,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+}
+
+/// Minimal read/update surface for bounded GitHub reconciliation.
+pub trait ReconcileStore: Clone + Send + Sync + 'static {
+    fn reconcile_run(
+        &self,
+        request_id: Uuid,
+    ) -> impl Future<Output = Result<Option<ExistingRun>, StoreError>> + Send;
+
+    fn record_reconcile_github_failure(
+        &self,
+        repository: &str,
+        error: &str,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    fn record_reconciled_pull_request(
+        &self,
+        record: &PullRequestRecord,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+}
+
+impl<T: PipelineStore> PublicationStore for T {
+    async fn transition_publication(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+        event_type: &str,
+        to_state: &str,
+        idempotency_key: &str,
+        payload: serde_json::Value,
+    ) -> Result<bool, StoreError> {
+        self.transition_run(
+            request_id,
+            run_id,
+            event_type,
+            to_state,
+            idempotency_key,
+            payload,
+        )
+        .await
+    }
+
+    async fn begin_publication_effect(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+        key: &str,
+        effect_type: &str,
+    ) -> Result<SideEffectDisposition, StoreError> {
+        self.begin_side_effect(request_id, Some(run_id), key, effect_type, 0)
+            .await
+    }
+
+    async fn finish_publication_effect(
+        &self,
+        key: &str,
+        status: &str,
+        external_ref: Option<&str>,
+        facts: serde_json::Value,
+    ) -> Result<(), StoreError> {
+        self.finish_side_effect(key, status, external_ref, facts)
+            .await
+    }
+}
+
+impl<T: PipelineStore + PublisherStore> ReconcileStore for T {
+    async fn reconcile_run(&self, request_id: Uuid) -> Result<Option<ExistingRun>, StoreError> {
+        self.existing_run(request_id).await
+    }
+
+    async fn record_reconcile_github_failure(
+        &self,
+        repository: &str,
+        error: &str,
+    ) -> Result<(), StoreError> {
+        self.record_github_failure(repository, error).await
+    }
+
+    async fn record_reconciled_pull_request(
+        &self,
+        record: &PullRequestRecord,
+    ) -> Result<(), StoreError> {
+        self.upsert_pull_request(record).await
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -581,7 +767,7 @@ impl PipelineStore for PgPipelineStore {
 
     async fn existing_run(&self, request_id: Uuid) -> Result<Option<ExistingRun>, StoreError> {
         let row = sqlx::query(
-            "SELECT id, base_sha, state::text AS state, lane, skill FROM factory.runs WHERE request_id=$1 ORDER BY queued_at DESC LIMIT 1",
+            "SELECT id, base_sha, branch, state::text AS state, lane, skill FROM factory.runs WHERE request_id=$1 ORDER BY queued_at DESC LIMIT 1",
         )
         .bind(request_id)
         .fetch_optional(&self.pool)
@@ -590,6 +776,7 @@ impl PipelineStore for PgPipelineStore {
             Ok(ExistingRun {
                 id: row.try_get("id")?,
                 base_sha: row.try_get("base_sha")?,
+                branch: row.try_get("branch")?,
                 state: row.try_get("state")?,
                 lane: row.try_get("lane")?,
                 skill: row.try_get("skill")?,
@@ -1164,6 +1351,257 @@ impl PipelineStore for PgPipelineStore {
     }
 }
 
+impl PublisherStore for PgPipelineStore {
+    async fn acquire_publisher_lease(
+        &self,
+        resource: &str,
+        request_id: Uuid,
+        run_id: Uuid,
+        holder: &str,
+        ttl: Duration,
+    ) -> Result<PublisherLease, StoreError> {
+        validate_label("publisher resource", resource, 256)?;
+        validate_label("publisher holder", holder, 256)?;
+        let ttl_seconds =
+            i64::try_from(ttl.as_secs()).map_err(|_| StoreError::InvalidPublisherLeaseTtl)?;
+        if !(1..=3_600).contains(&ttl_seconds) {
+            return Err(StoreError::InvalidPublisherLeaseTtl);
+        }
+        let mut transaction = self.pool.begin().await?;
+        let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
+            .fetch_one(&mut *transaction)
+            .await?;
+        let expires_at = now + time::Duration::seconds(ttl_seconds);
+        let existing = sqlx::query(
+            "SELECT request_id,run_id,holder,fencing_token,expires_at,released_at FROM factory.publisher_leases WHERE resource=$1 FOR UPDATE",
+        )
+        .bind(resource)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        let fencing_token = if let Some(existing) = existing {
+            let existing_request: Uuid = existing.try_get("request_id")?;
+            let existing_run: Uuid = existing.try_get("run_id")?;
+            let existing_holder: String = existing.try_get("holder")?;
+            let current_token: i64 = existing.try_get("fencing_token")?;
+            let current_expiry: OffsetDateTime = existing.try_get("expires_at")?;
+            let released_at: Option<OffsetDateTime> = existing.try_get("released_at")?;
+            if released_at.is_none() && current_expiry > now {
+                if existing_request == request_id
+                    && existing_run == run_id
+                    && existing_holder == holder
+                {
+                    transaction.commit().await?;
+                    return Ok(PublisherLease {
+                        resource: resource.to_owned(),
+                        holder: holder.to_owned(),
+                        fencing_token: current_token,
+                        expires_at: current_expiry,
+                    });
+                }
+                transaction.commit().await?;
+                return Err(StoreError::PublisherLeaseHeld {
+                    resource: resource.to_owned(),
+                    holder: existing_holder,
+                });
+            }
+            let next = current_token
+                .checked_add(1)
+                .ok_or(StoreError::FencingExhausted)?;
+            sqlx::query(
+                "UPDATE factory.publisher_leases SET request_id=$2,run_id=$3,holder=$4,fencing_token=$5,acquired_at=$6,expires_at=$7,released_at=NULL WHERE resource=$1",
+            )
+            .bind(resource)
+            .bind(request_id)
+            .bind(run_id)
+            .bind(holder)
+            .bind(next)
+            .bind(now)
+            .bind(expires_at)
+            .execute(&mut *transaction)
+            .await?;
+            next
+        } else {
+            sqlx::query(
+                "INSERT INTO factory.publisher_leases (resource,request_id,run_id,holder,fencing_token,acquired_at,expires_at) VALUES ($1,$2,$3,$4,1,$5,$6)",
+            )
+            .bind(resource)
+            .bind(request_id)
+            .bind(run_id)
+            .bind(holder)
+            .bind(now)
+            .bind(expires_at)
+            .execute(&mut *transaction)
+            .await?;
+            1
+        };
+        transaction.commit().await?;
+        Ok(PublisherLease {
+            resource: resource.to_owned(),
+            holder: holder.to_owned(),
+            fencing_token,
+            expires_at,
+        })
+    }
+
+    async fn release_publisher_lease(&self, lease: &PublisherLease) -> Result<(), StoreError> {
+        let affected = sqlx::query(
+            "UPDATE factory.publisher_leases SET released_at=clock_timestamp() WHERE resource=$1 AND holder=$2 AND fencing_token=$3 AND released_at IS NULL",
+        )
+        .bind(&lease.resource)
+        .bind(&lease.holder)
+        .bind(lease.fencing_token)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        if affected == 1 {
+            return Ok(());
+        }
+        let released: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM factory.publisher_leases WHERE resource=$1 AND holder=$2 AND fencing_token=$3 AND released_at IS NOT NULL)",
+        )
+        .bind(&lease.resource)
+        .bind(&lease.holder)
+        .bind(lease.fencing_token)
+        .fetch_one(&self.pool)
+        .await?;
+        if released {
+            Ok(())
+        } else {
+            Err(StoreError::PublisherLeaseReleaseFailed(
+                lease.resource.clone(),
+            ))
+        }
+    }
+
+    async fn record_github_success(
+        &self,
+        repository: &str,
+        observed_at: OffsetDateTime,
+        open_pr_count: usize,
+    ) -> Result<(), StoreError> {
+        validate_label("GitHub repository", repository, 256)?;
+        let open_pr_count =
+            i32::try_from(open_pr_count).map_err(|_| StoreError::GitHubCountOverflow)?;
+        sqlx::query(
+            r#"
+            INSERT INTO factory.github_state
+                (repository,observed_at,failed_at,last_error,open_pr_count)
+            VALUES ($1,$2,NULL,NULL,$3)
+            ON CONFLICT (repository) DO UPDATE
+            SET observed_at=EXCLUDED.observed_at,
+                failed_at=NULL,
+                last_error=NULL,
+                open_pr_count=EXCLUDED.open_pr_count
+            "#,
+        )
+        .bind(repository)
+        .bind(observed_at)
+        .bind(open_pr_count)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn record_github_failure(&self, repository: &str, error: &str) -> Result<(), StoreError> {
+        validate_label("GitHub repository", repository, 256)?;
+        validate_label("GitHub observation error", error, 2_000)?;
+        sqlx::query(
+            r#"
+            INSERT INTO factory.github_state
+                (repository,failed_at,last_error)
+            VALUES ($1,clock_timestamp(),$2)
+            ON CONFLICT (repository) DO UPDATE
+            SET failed_at=clock_timestamp(),last_error=EXCLUDED.last_error
+            "#,
+        )
+        .bind(repository)
+        .bind(error)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn upsert_pull_request(&self, record: &PullRequestRecord) -> Result<(), StoreError> {
+        if record.number <= 0 {
+            return Err(StoreError::MalformedPullRequest);
+        }
+        validate_git_sha("pull request head", &record.head_sha)?;
+        validate_label("pull request branch", &record.branch, 256)?;
+        validate_label("pull request CI state", &record.ci_state, 64)?;
+        validate_label("pull request review state", &record.review_state, 64)?;
+        validate_label("pull request state", &record.state, 16)?;
+        validate_label("pull request author", &record.author_login, 256)?;
+        validate_label("pull request URL", &record.html_url, 2_000)?;
+        if let Some(sha) = &record.merge_commit_sha {
+            validate_git_sha("merge commit", sha)?;
+        }
+        if let Some(sha) = &record.deployed_sha {
+            validate_git_sha("deployed commit", sha)?;
+        }
+        if let Some(actor) = &record.merged_by {
+            validate_label("merge actor", actor, 256)?;
+        }
+        if let Some(error) = &record.reconcile_error {
+            validate_label("reconcile error", error, 2_000)?;
+        }
+        sqlx::query(
+            r#"
+            INSERT INTO factory.pr_state (
+                number,request_id,run_id,head_sha,ci_state,review_state,
+                reconciled_at,merged_at,deployed_sha,branch,state,is_draft,
+                author_login,html_url,merge_commit_sha,merged_by,
+                github_updated_at,admin_bypassed,passing_run,reconcile_error
+            ) VALUES (
+                $1,$2,$3,$4,$5,$6,clock_timestamp(),$7,$8,$9,$10,$11,
+                $12,$13,$14,$15,$16,$17,$18,$19
+            )
+            ON CONFLICT (number) DO UPDATE SET
+                request_id=EXCLUDED.request_id,
+                run_id=EXCLUDED.run_id,
+                head_sha=EXCLUDED.head_sha,
+                ci_state=EXCLUDED.ci_state,
+                review_state=EXCLUDED.review_state,
+                reconciled_at=clock_timestamp(),
+                merged_at=EXCLUDED.merged_at,
+                deployed_sha=EXCLUDED.deployed_sha,
+                branch=EXCLUDED.branch,
+                state=EXCLUDED.state,
+                is_draft=EXCLUDED.is_draft,
+                author_login=EXCLUDED.author_login,
+                html_url=EXCLUDED.html_url,
+                merge_commit_sha=EXCLUDED.merge_commit_sha,
+                merged_by=EXCLUDED.merged_by,
+                github_updated_at=EXCLUDED.github_updated_at,
+                admin_bypassed=EXCLUDED.admin_bypassed,
+                passing_run=EXCLUDED.passing_run,
+                reconcile_error=EXCLUDED.reconcile_error
+            "#,
+        )
+        .bind(record.number)
+        .bind(record.request_id)
+        .bind(record.run_id)
+        .bind(&record.head_sha)
+        .bind(&record.ci_state)
+        .bind(&record.review_state)
+        .bind(record.merged_at)
+        .bind(&record.deployed_sha)
+        .bind(&record.branch)
+        .bind(&record.state)
+        .bind(record.is_draft)
+        .bind(&record.author_login)
+        .bind(&record.html_url)
+        .bind(&record.merge_commit_sha)
+        .bind(&record.merged_by)
+        .bind(record.github_updated_at)
+        .bind(record.admin_bypassed)
+        .bind(record.passing_run)
+        .bind(&record.reconcile_error)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn append_event(
     transaction: &mut Transaction<'_, Postgres>,
@@ -1197,6 +1635,18 @@ fn validate_label(field: &'static str, value: &str, maximum: usize) -> Result<()
     Ok(())
 }
 
+fn validate_git_sha(field: &'static str, value: &str) -> Result<(), StoreError> {
+    if value.len() == 40
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        Ok(())
+    } else {
+        Err(StoreError::InvalidLabel(field))
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum StoreError {
     #[error("PostgreSQL supervisor operation failed: {0}")]
@@ -1209,6 +1659,8 @@ pub enum StoreError {
     InvalidDailyLimits,
     #[error("lease TTL must be 1..=86400 seconds")]
     InvalidLeaseTtl,
+    #[error("publisher lease TTL must be 1..=3600 seconds")]
+    InvalidPublisherLeaseTtl,
     #[error("claiming is paused")]
     ClaimingPaused,
     #[error("global daily run limit reached")]
@@ -1223,6 +1675,14 @@ pub enum StoreError {
     LeaseHeld(Uuid),
     #[error("lease fencing token exhausted")]
     FencingExhausted,
+    #[error("publisher lease {resource} is held by {holder}")]
+    PublisherLeaseHeld { resource: String, holder: String },
+    #[error("publisher lease release did not match the fenced lease: {0}")]
+    PublisherLeaseReleaseFailed(String),
+    #[error("GitHub open-PR count exceeds the database representation")]
+    GitHubCountOverflow,
+    #[error("pull request state does not match its typed contract")]
+    MalformedPullRequest,
     #[error("run does not exist: {0}")]
     RunNotFound(Uuid),
     #[error("run id conflicts with another durable record: {0}")]

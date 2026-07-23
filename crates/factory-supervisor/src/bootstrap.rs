@@ -4,6 +4,7 @@ use std::{
     collections::BTreeMap,
     env,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 
@@ -15,6 +16,10 @@ use crate::{
     config::RoutingConfig,
     daemon::DaemonConfig,
     pipeline::{Pipeline, PipelineConfig, RunMode},
+    publisher::{
+        GhGitHub, GhGitHubConfig, PublishService, Publisher, PublisherConfig, RepositoryScope,
+    },
+    reconcile::{DeployedVersionConfig, Reconciler},
     review::{ReviewSandboxConfig, SandboxedReviewer},
     stages::{
         ProcessAgentBackend, ProcessVerifierBackend, ProcessWorkerBackend, StageCommand,
@@ -29,6 +34,17 @@ pub struct RuntimeComponents {
     pub daemon: DaemonConfig,
 }
 
+pub struct ReconcileComponents {
+    pub store: PgPipelineStore,
+    pub reconciler: Reconciler<PgPipelineStore>,
+}
+
+impl ReconcileComponents {
+    pub async fn close(self) {
+        self.store.close().await;
+    }
+}
+
 impl RuntimeComponents {
     /// Explicitly close the SQLx pool. Pool Drop is best effort only.
     pub async fn close(self) {
@@ -38,11 +54,26 @@ impl RuntimeComponents {
 
 pub async fn from_environment(database_url: String) -> Result<RuntimeComponents, BootstrapError> {
     let root = path_env("FACTORY_INSTALL_ROOT", "/opt/patchyard");
-    let repository = required_path("FACTORY_TARGET_REPOSITORY")?;
     let base_sha = required("FACTORY_BASE_SHA")?;
     let scratch = path_env("FACTORY_SCRATCH_ROOT", "/var/lib/patchyard/supervisor");
     let artifact_root = path_env("FACTORY_ARTIFACT_ROOT", "/var/lib/patchyard/artifacts");
     let holder = env::var("FACTORY_HOLDER").unwrap_or_else(|_| "factory-supervisor".to_owned());
+    let mode = match required_or("FACTORY_RUN_MODE", "dry_run").as_str() {
+        "dry_run" => RunMode::DryRun,
+        "pre_publish" => RunMode::PrePublish,
+        _ => return Err(BootstrapError::InvalidEnvironment("FACTORY_RUN_MODE")),
+    };
+    let publish_branch_suffix = required_or("FACTORY_PUBLISH_BRANCH_SUFFIX", "change");
+    if publish_branch_suffix.is_empty()
+        || publish_branch_suffix.len() > 64
+        || !publish_branch_suffix
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    {
+        return Err(BootstrapError::InvalidEnvironment(
+            "FACTORY_PUBLISH_BRANCH_SUFFIX",
+        ));
+    }
 
     let routing_path = root.join("policy/routing.json");
     let bench_path = root.join("docs/bench.json");
@@ -131,12 +162,48 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         live_network: false,
     });
     let store = PgPipelineStore::connect(&database_url).await?;
+    let (repository, publisher): (PathBuf, Option<Arc<dyn PublishService>>) = match mode {
+        RunMode::DryRun => (required_path("FACTORY_TARGET_REPOSITORY")?, None),
+        RunMode::PrePublish => {
+            let github = github_from_environment(scratch.join("github-private"))?;
+            let publisher = Publisher::new(
+                store.clone(),
+                github,
+                PublisherConfig {
+                    repository: repository_scope(),
+                    base_branch: required_or("FACTORY_GITHUB_BASE_BRANCH", "master"),
+                    worktree_root: path_env(
+                        "FACTORY_PUBLISHER_WORKTREE_ROOT",
+                        "/var/lib/patchyard/worktrees",
+                    ),
+                    git_program: path_env("FACTORY_GIT_PROGRAM", "/bin/git"),
+                    git_askpass: path_env(
+                        "FACTORY_GIT_ASKPASS",
+                        "/usr/local/libexec/patchyard-git-askpass",
+                    ),
+                    holder: holder.clone(),
+                    max_open_prs: 2,
+                    github_freshness: duration_env("FACTORY_GITHUB_FRESHNESS_SECONDS", 30)?,
+                    lease_ttl: duration_env("FACTORY_PUBLISHER_LEASE_SECONDS", 3_600)?,
+                    fault_after: None,
+                    #[cfg(test)]
+                    test_remote: None,
+                },
+            )?;
+            publisher
+                .prepare_base(&base_sha, &tokio_util::sync::CancellationToken::new())
+                .await?;
+            let repository = publisher.repository_path();
+            (repository, Some(Arc::new(publisher)))
+        }
+    };
     let config = PipelineConfig {
         repository,
         base_sha,
         scratch,
         holder: holder.clone(),
-        mode: RunMode::DryRun,
+        mode,
+        publish_branch_suffix,
         reviewer_count: usize_env("FACTORY_REVIEWER_COUNT", 1)?,
         builder_cli_version: required_or("FACTORY_BUILDER_CLI_VERSION", "fixture-worker/1"),
         constitution: root.join("AGENTS.md"),
@@ -155,6 +222,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         worker,
         verifier,
         reviewer,
+        publisher,
     );
     let daemon = DaemonConfig {
         database_url,
@@ -173,6 +241,48 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         pipeline,
         daemon,
     })
+}
+
+pub async fn reconciler_from_environment(
+    database_url: String,
+) -> Result<ReconcileComponents, BootstrapError> {
+    let scratch = path_env("FACTORY_SCRATCH_ROOT", "/var/lib/patchyard/supervisor");
+    let store = PgPipelineStore::connect(&database_url).await?;
+    let reconciler = Reconciler::new(
+        store.clone(),
+        github_from_environment(scratch.join("github-private"))?,
+        repository_scope(),
+        DeployedVersionConfig {
+            program: required_path("FACTORY_DEPLOYED_VERSION_PROGRAM")?,
+            arguments: os_args_json("FACTORY_DEPLOYED_VERSION_ARGUMENTS_JSON")?,
+            timeout: duration_env("FACTORY_DEPLOYED_VERSION_TIMEOUT_SECONDS", 30)?,
+            output_limit: usize_env("FACTORY_DEPLOYED_VERSION_OUTPUT_BYTES", 64 * 1024)?,
+        },
+    )?;
+    Ok(ReconcileComponents { store, reconciler })
+}
+
+fn github_from_environment(scratch: PathBuf) -> Result<Arc<GhGitHub>, BootstrapError> {
+    Ok(Arc::new(GhGitHub::new(GhGitHubConfig {
+        gh_program: path_env("FACTORY_GH_PROGRAM", "/bin/gh"),
+        openssl_program: path_env("FACTORY_OPENSSL_PROGRAM", "/bin/openssl"),
+        app_id: u64_env("GH_PATCHYARD_APP_ID")?,
+        installation_id: u64_env("GH_PATCHYARD_APP_INSTALLATION_ID")?,
+        app_slug: required_or("GH_PATCHYARD_APP_SLUG", "patchyard"),
+        private_key: required_path("GH_PATCHYARD_APP_PRIVATE_KEY_FILE")?,
+        scratch,
+        timeout: duration_env("FACTORY_GITHUB_TIMEOUT_SECONDS", 60)?,
+    })?))
+}
+
+fn repository_scope() -> RepositoryScope {
+    RepositoryScope {
+        owner: required_or(
+            "FACTORY_GITHUB_REPOSITORY_OWNER",
+            "example-org",
+        ),
+        name: required_or("FACTORY_GITHUB_REPOSITORY_NAME", "fieldbook"),
+    }
 }
 
 async fn ensure_private_roots(scratch: &Path, artifacts: &Path) -> Result<(), BootstrapError> {
@@ -243,6 +353,12 @@ fn u32_env(name: &'static str, default: u32) -> Result<u32, BootstrapError> {
         .map_err(|_| BootstrapError::InvalidEnvironment(name))
 }
 
+fn u64_env(name: &'static str) -> Result<u64, BootstrapError> {
+    required(name)?
+        .parse::<u64>()
+        .map_err(|_| BootstrapError::InvalidEnvironment(name))
+}
+
 fn split_env(name: &'static str) -> Vec<String> {
     env::var(name)
         .ok()
@@ -256,6 +372,15 @@ fn split_env(name: &'static str) -> Vec<String> {
                 .collect::<Vec<_>>()
         })
         .collect()
+}
+
+fn os_args_json(name: &'static str) -> Result<Vec<std::ffi::OsString>, BootstrapError> {
+    let values: Vec<String> = serde_json::from_str(&required_or(name, "[]"))
+        .map_err(|_| BootstrapError::InvalidEnvironment(name))?;
+    if values.len() > 64 || values.iter().any(|value| value.contains('\0')) {
+        return Err(BootstrapError::InvalidEnvironment(name));
+    }
+    Ok(values.into_iter().map(std::ffi::OsString::from).collect())
 }
 
 #[derive(Debug, Error)]
@@ -278,4 +403,10 @@ pub enum BootstrapError {
     Artifact(#[from] crate::artifacts::ArtifactError),
     #[error("PostgreSQL store failed: {0}")]
     Store(#[from] crate::store::StoreError),
+    #[error("GitHub API setup failed: {0}")]
+    GitHub(#[from] crate::publisher::GitHubError),
+    #[error("publisher setup failed: {0}")]
+    Publisher(#[from] crate::publisher::PublisherError),
+    #[error("reconcile setup failed: {0}")]
+    Reconcile(#[from] crate::reconcile::ReconcileError),
 }

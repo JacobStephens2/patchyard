@@ -14,7 +14,7 @@ while (($#)); do
 done
 test -n "$output"
 test -r "$task"
-test "$(jq -er '.dry_run' "$task")" = true
+jq -e '.dry_run | type == "boolean"' "$task" >/dev/null
 jq -e 'has("untrusted_request") | not' "$task" >/dev/null
 mkdir -m 700 -- "$output"
 cp -- "$fixture_root/alphabetize.patch" "$output/change.patch"

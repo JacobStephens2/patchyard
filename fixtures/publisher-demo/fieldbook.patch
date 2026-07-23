@@ -1,0 +1,23 @@
+diff --git a/mfieldbook/common_functions.php b/mfieldbook/common_functions.php
+--- a/mfieldbook/common_functions.php
++++ b/mfieldbook/common_functions.php
+@@ -12516,6 +12516,7 @@
+ 			AND userStatus = 1
+ 			AND username != '" . DEV_USERNAME . "'
+ 			AND username != '" . DEV_TWO_USERNAME . "'
++			ORDER BY firstName ASC, lastName ASC
+ 		");
+ 	}
+ 
+diff --git a/mfieldbook/leads/assign.php b/mfieldbook/leads/assign.php
+--- a/mfieldbook/leads/assign.php
++++ b/mfieldbook/leads/assign.php
+@@ -1803,7 +1803,7 @@
+                             FROM tblUser
+                             WHERE employeePositions LIKE '%sales%'
+                             AND userStatus = 1
+-                            ORDER BY listOrder ASC
++                            ORDER BY firstName ASC, lastName ASC
+                         ");
+                         $suggested_id = $suggested_salesperson['userID'] ?? null;
+                         foreach($sales_people as $sales_person) {

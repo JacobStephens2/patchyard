@@ -5,7 +5,7 @@ use factory_core::{
     state::{FactoryRepository as _, NewRequest, PostgresRepository, Sha256Digest, TraceId},
 };
 use factory_supervisor::store::{
-    ControlKind, DailyLimits, PgPipelineStore, PipelineStore, StoreError,
+    ControlKind, DailyLimits, PgPipelineStore, PipelineStore, PublisherStore, StoreError,
 };
 use factory_verify::ledger::{self, Provenance, RunRecord};
 use uuid::Uuid;
@@ -191,6 +191,74 @@ async fn durable_sweep_claims_recovery_limits_and_control_rows() -> Result<(), B
     assert!(lease_released);
     store.close().await;
     Ok(())
+}
+
+#[tokio::test]
+async fn publisher_lease_serializes_cap_check_and_creation() -> Result<(), Box<dyn Error>> {
+    let Some((runtime_url, admin_url)) = urls() else {
+        eprintln!("skipped: disposable PostgreSQL URLs are not set");
+        return Ok(());
+    };
+    let admin = PostgresRepository::connect(&admin_url).await?;
+    let store = PgPipelineStore::connect(&runtime_url).await?;
+    let first_request = request(&format!("publisher-lease-{}", Uuid::new_v4()));
+    let second_request = request(&format!("publisher-lease-{}", Uuid::new_v4()));
+    admin.create_request(&first_request).await?;
+    admin.create_request(&second_request).await?;
+    let first_run = fixture_run(first_request.id);
+    let second_run = fixture_run(second_request.id);
+    store.append_run(&first_run).await?;
+    store.append_run(&second_run).await?;
+    let resource = "publisher:example-org/fieldbook";
+    let first = store
+        .acquire_publisher_lease(
+            resource,
+            first_request.id,
+            first_run.record().id,
+            "publisher-one",
+            Duration::from_secs(60),
+        )
+        .await?;
+    assert!(matches!(
+        store
+            .acquire_publisher_lease(
+                resource,
+                second_request.id,
+                second_run.record().id,
+                "publisher-two",
+                Duration::from_secs(60),
+            )
+            .await,
+        Err(StoreError::PublisherLeaseHeld { .. })
+    ));
+    store.release_publisher_lease(&first).await?;
+    let second = store
+        .acquire_publisher_lease(
+            resource,
+            second_request.id,
+            second_run.record().id,
+            "publisher-two",
+            Duration::from_secs(60),
+        )
+        .await?;
+    assert!(second.fencing_token > first.fencing_token);
+    store.release_publisher_lease(&second).await?;
+    store.close().await;
+    Ok(())
+}
+
+fn fixture_run(request_id: Uuid) -> ledger::ValidatedRunRecord {
+    let run_id = Uuid::new_v4();
+    ledger::validate(RunRecord {
+        id: run_id,
+        request_id,
+        base_sha: "a".repeat(40),
+        branch: format!("factory/{request_id}-publisher-lease-{}", run_id.simple()),
+        lane: "A".to_owned(),
+        skill: "ui.sort-dropdown".to_owned(),
+        provenance: fixture_provenance(),
+    })
+    .expect("valid run")
 }
 
 fn fixture_provenance() -> Provenance {

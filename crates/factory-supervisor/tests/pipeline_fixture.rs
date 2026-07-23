@@ -17,6 +17,7 @@ use factory_supervisor::{
     config::RoutingConfig,
     contracts::InvocationUsage,
     pipeline::{Pipeline, PipelineConfig, PipelineOutcome, RunMode},
+    publisher::{PublishInput, PublishService, PublishedPullRequest, PublisherFuture},
     review::{ReviewSandboxConfig, SandboxedReviewer},
     stages::{
         ProcessAgentBackend, ProcessVerifierBackend, ProcessWorkerBackend, StageCommand,
@@ -155,6 +156,7 @@ impl PipelineStore for MemoryStore {
         Ok(state.run.as_ref().map(|run| ExistingRun {
             id: run.id,
             base_sha: run.base_sha.clone(),
+            branch: run.branch.clone(),
             state: state
                 .run_state
                 .clone()
@@ -365,6 +367,23 @@ struct Fixture {
 
 impl Fixture {
     async fn build(review_harness: &str, verifier_harness: &str, reviewers: usize) -> Self {
+        Self::build_mode(
+            review_harness,
+            verifier_harness,
+            reviewers,
+            RunMode::DryRun,
+            None,
+        )
+        .await
+    }
+
+    async fn build_mode(
+        review_harness: &str,
+        verifier_harness: &str,
+        reviewers: usize,
+        mode: RunMode,
+        publisher: Option<Arc<dyn PublishService>>,
+    ) -> Self {
         let project = project_root();
         let temp = tempfile::tempdir().expect("fixture tempdir");
         let repository = temp.path().join("repository");
@@ -512,7 +531,8 @@ impl Fixture {
                 base_sha,
                 scratch,
                 holder: "fixture-supervisor".to_owned(),
-                mode: RunMode::DryRun,
+                mode,
+                publish_branch_suffix: "session-10-publisher-demo".to_owned(),
                 reviewer_count: reviewers,
                 builder_cli_version: "fixture-worker/1".to_owned(),
                 constitution: project.join("AGENTS.md"),
@@ -528,6 +548,7 @@ impl Fixture {
             worker,
             verifier,
             reviewer,
+            publisher,
         );
         Self {
             _temp: temp,
@@ -554,6 +575,34 @@ impl Fixture {
             .run_claim(claim, &CancellationToken::new())
             .await
             .expect("recovered fixture pipeline")
+    }
+}
+
+#[derive(Clone, Default)]
+struct RecordingPublisher {
+    inputs: Arc<Mutex<Vec<PublishInput>>>,
+}
+
+impl PublishService for RecordingPublisher {
+    fn publish<'a>(
+        &'a self,
+        input: &'a PublishInput,
+        _patch_path: &'a Path,
+        _cancellation: &'a CancellationToken,
+    ) -> PublisherFuture<'a> {
+        Box::pin(async move {
+            self.inputs
+                .lock()
+                .expect("publisher inputs")
+                .push(input.clone());
+            Ok(PublishedPullRequest {
+                number: 42,
+                url: "https://github.invalid/pull/42".to_owned(),
+                branch: input.branch.clone(),
+                head_sha: "d".repeat(40),
+                author_login: "patchyard[bot]".to_owned(),
+            })
+        })
     }
 }
 
@@ -647,6 +696,45 @@ async fn alphabetize_dry_run_asserts_lane_targets_patch_barrier_and_stop_boundar
         1
     );
     assert!(!snapshot.usage.is_empty());
+}
+
+#[tokio::test]
+async fn verified_pre_publish_contract_opens_draft_before_ready_for_review() {
+    let publisher = RecordingPublisher::default();
+    let fixture = Fixture::build_mode(
+        "review-stub",
+        "verifier-stub",
+        1,
+        RunMode::PrePublish,
+        Some(Arc::new(publisher.clone())),
+    )
+    .await;
+    let outcome = fixture.run().await;
+    assert!(matches!(
+        outcome,
+        PipelineOutcome::PublishedDraft {
+            attempts: 1,
+            ref pull_request,
+            ..
+        } if pull_request.author_login == "patchyard[bot]"
+    ));
+    let snapshot = fixture.store.snapshot();
+    assert_eq!(snapshot.run_state, "ready_for_review");
+    assert_eq!(
+        snapshot
+            .artifacts
+            .iter()
+            .filter(|artifact| artifact.kind == "publish-input")
+            .count(),
+        1
+    );
+    assert!(
+        event_position(&snapshot.events, "run.verified")
+            < event_position(&snapshot.events, "run.ready_for_review")
+    );
+    let inputs = publisher.inputs.lock().expect("publisher inputs");
+    assert_eq!(inputs.len(), 1);
+    assert_eq!(inputs[0].branch, snapshot.run.branch);
 }
 
 #[tokio::test]

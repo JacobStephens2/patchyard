@@ -52,7 +52,7 @@ enum Command {
     Close(CloseArgs),
     /// Delete expired artifacts safely beneath the 0700 artifact root.
     RetentionSweep(RetentionSweepArgs),
-    /// GitHub reconciliation lands in PLAN Session 10.
+    /// Reconcile one factory PR against GitHub and the deployed-version source.
     Reconcile(RequestIdArgs),
     /// Apply the embedded, append-only SQLx migrations.
     Migrate,
@@ -236,6 +236,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             foreground_run(database_url.to_owned(), arguments.request_id).await?;
             return Ok(());
         }
+        Command::Reconcile(arguments) => {
+            reconcile(database_url.to_owned(), arguments.request_id).await?;
+            return Ok(());
+        }
         Command::Pause(arguments) => {
             enqueue_control(database_url, ControlKind::Pause, None, arguments).await?;
             return Ok(());
@@ -270,13 +274,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Command::Claim(arguments) => claim(&repository, arguments).await?,
         Command::Close(arguments) => close(&repository, arguments).await?,
         Command::RetentionSweep(arguments) => retention_sweep(&repository, arguments).await?,
-        Command::Reconcile(arguments) => {
-            return Err(format!(
-                "reconcile for request {} is intentionally unavailable until PLAN Session 10",
-                arguments.request_id
-            )
-            .into());
-        }
         Command::Migrate => {
             sqlx::migrate!("../../migrations")
                 .run(repository.pool())
@@ -299,10 +296,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Command::TriageReplay(_) => unreachable!("handled before database connection"),
         Command::Plan { command } => plan(&repository, command).await?,
         Command::Run(_)
+        | Command::Reconcile(_)
         | Command::Pause(_)
         | Command::Resume(_)
         | Command::Kill(_)
         | Command::FullStop(_) => unreachable!("handled before core repository connection"),
+    }
+    Ok(())
+}
+
+async fn reconcile(database_url: String, request_id: Uuid) -> Result<(), Box<dyn Error>> {
+    let runtime = bootstrap::reconciler_from_environment(database_url).await?;
+    let cancellation = tokio_util::sync::CancellationToken::new();
+    let signal_token = cancellation.clone();
+    let signal = tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        signal_token.cancel();
+    });
+    let result = runtime
+        .reconciler
+        .reconcile(request_id, &cancellation)
+        .await;
+    signal.abort();
+    let _signal_result = signal.await;
+    runtime.close().await;
+    match result {
+        Ok(outcome) => println!("{}", serde_json::to_string_pretty(&outcome)?),
+        Err(error) => return Err(error.into()),
     }
     Ok(())
 }

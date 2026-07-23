@@ -132,42 +132,60 @@ impl DetachedWorktree {
         ];
         spec.timeout = Duration::from_secs(60);
         spec.output_limit = 128 * 1024;
-        let output = run_bounded(&spec, cancellation).await?;
+        let output = match run_bounded(&spec, cancellation).await {
+            Ok(output) => output,
+            Err(error) => {
+                cleanup_partial_worktree(repository, &path).await?;
+                return Err(error.into());
+            }
+        };
         if output.code != 0 {
+            cleanup_partial_worktree(repository, &path).await?;
             return Err(WorktreeError::Git {
                 operation: "worktree-add",
                 code: output.code,
             });
         }
-        let permission_path = path.clone();
-        tokio::task::spawn_blocking(move || {
-            fs::set_permissions(permission_path, fs::Permissions::from_mode(0o700))
-        })
-        .await
-        .map_err(WorktreeError::Join)??;
-        let actual = git_stdout(
-            repository,
-            &[
-                "-C",
-                path.to_str().ok_or(WorktreeError::NonUtf8)?,
-                "rev-parse",
-                "HEAD",
-            ],
-            cancellation,
-        )
-        .await?;
-        if actual.trim() != reviewed_sha {
-            return Err(WorktreeError::WrongSha {
-                expected: reviewed_sha.to_owned(),
-                actual: actual.trim().to_owned(),
-            });
-        }
-        Ok(Self {
+        let worktree = Self {
             repository: repository.to_path_buf(),
             path,
             reviewed_sha: reviewed_sha.to_owned(),
             closed: false,
-        })
+        };
+        let validation = async {
+            let permission_path = worktree.path.clone();
+            tokio::task::spawn_blocking(move || {
+                fs::set_permissions(permission_path, fs::Permissions::from_mode(0o700))
+            })
+            .await
+            .map_err(WorktreeError::Join)??;
+            let actual = git_stdout(
+                repository,
+                &[
+                    "-C",
+                    worktree.path.to_str().ok_or(WorktreeError::NonUtf8)?,
+                    "rev-parse",
+                    "HEAD",
+                ],
+                cancellation,
+            )
+            .await?;
+            if actual.trim() != reviewed_sha {
+                return Err(WorktreeError::WrongSha {
+                    expected: reviewed_sha.to_owned(),
+                    actual: actual.trim().to_owned(),
+                });
+            }
+            Ok(())
+        }
+        .await;
+        match validation {
+            Ok(()) => Ok(worktree),
+            Err(error) => {
+                worktree.close(&CancellationToken::new()).await?;
+                Err(error)
+            }
+        }
     }
 
     #[must_use]
@@ -197,6 +215,28 @@ impl DetachedWorktree {
         self.closed = true;
         Ok(())
     }
+}
+
+async fn cleanup_partial_worktree(repository: &Path, path: &Path) -> Result<(), WorktreeError> {
+    let mut spec = ProcessSpec::new("/usr/bin/git");
+    spec.args = vec![
+        OsString::from("-C"),
+        repository.as_os_str().to_owned(),
+        OsString::from("worktree"),
+        OsString::from("remove"),
+        OsString::from("--force"),
+        path.as_os_str().to_owned(),
+    ];
+    spec.timeout = Duration::from_secs(60);
+    spec.output_limit = 128 * 1024;
+    let output = run_bounded(&spec, &CancellationToken::new()).await?;
+    if output.code != 0 && tokio::fs::try_exists(path).await? {
+        return Err(WorktreeError::Git {
+            operation: "partial-worktree-remove",
+            code: output.code,
+        });
+    }
+    Ok(())
 }
 
 impl Drop for DetachedWorktree {
@@ -513,6 +553,13 @@ async fn git_output(
 async fn create_private_dir(path: PathBuf) -> Result<(), WorktreeError> {
     tokio::task::spawn_blocking(move || {
         fs::create_dir_all(&path)?;
+        let metadata = fs::symlink_metadata(&path)?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "worktree root is not a regular directory",
+            ));
+        }
         fs::set_permissions(path, fs::Permissions::from_mode(0o700))
     })
     .await

@@ -1,0 +1,23 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+output=
+task=
+fixture_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+while (($#)); do
+    case "$1" in
+        --output) output=$2; shift 2 ;;
+        --task) task=$2; shift 2 ;;
+        --bundle|--bundle-sha256|--base-sha|--run-id|--snapshot) shift 2 ;;
+        *) exit 64 ;;
+    esac
+done
+test -n "$output"
+test -r "$task"
+test "$(jq -er '.dry_run' "$task")" = false
+jq -e 'has("untrusted_request") | not' "$task" >/dev/null
+mkdir -m 700 -- "$output"
+cp -- "$fixture_root/fieldbook.patch" "$output/change.patch"
+printf '%s\n' 'Applied the Session 10 publisher demonstration fixture.' >"$output/rationale.txt"
+printf '%s\n' '{"schema_version":1,"claims":[{"id":"sorted-permutation","assertion":"Both salesperson queries use first-name/last-name ordering","evidence_ref":"verify-evidence"}],"usage":{"input_tokens":0,"output_tokens":0,"cost_microusd":0}}' >"$output/evidence.json"
+printf '%s\n' '{"event":"publisher-demo-fixture-complete","live_model":false}' >"$output/transcript.jsonl"

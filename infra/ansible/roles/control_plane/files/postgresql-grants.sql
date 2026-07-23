@@ -29,7 +29,9 @@ GRANT SELECT ON
     factory.leases,
     factory.supervisor_state,
     factory.controls,
-    factory.side_effects
+    factory.side_effects,
+    factory.publisher_leases,
+    factory.github_state
 TO patchyard_supervisor;
 GRANT INSERT (id, fingerprint, source, body, trace_id) ON factory.requests
 TO patchyard_supervisor;
@@ -64,12 +66,25 @@ GRANT INSERT ON factory.artifacts TO patchyard_supervisor;
 GRANT UPDATE (expires_at, deleted_at) ON factory.artifacts TO patchyard_supervisor;
 GRANT INSERT ON factory.pr_state TO patchyard_supervisor;
 GRANT UPDATE (
+    request_id,
+    run_id,
     head_sha,
     ci_state,
     review_state,
     reconciled_at,
     merged_at,
-    deployed_sha
+    deployed_sha,
+    branch,
+    state,
+    is_draft,
+    author_login,
+    html_url,
+    merge_commit_sha,
+    merged_by,
+    github_updated_at,
+    admin_bypassed,
+    passing_run,
+    reconcile_error
 ) ON factory.pr_state TO patchyard_supervisor;
 GRANT INSERT ON factory.leases TO patchyard_supervisor;
 GRANT UPDATE (
@@ -86,6 +101,12 @@ ON factory.controls TO patchyard_supervisor;
 GRANT INSERT, UPDATE (
     status, external_ref, facts, started_at, finished_at
 ) ON factory.side_effects TO patchyard_supervisor;
+GRANT INSERT, UPDATE (
+    request_id, run_id, holder, fencing_token, acquired_at, expires_at, released_at
+) ON factory.publisher_leases TO patchyard_supervisor;
+GRANT INSERT, UPDATE (
+    observed_at, failed_at, last_error, open_pr_count
+) ON factory.github_state TO patchyard_supervisor;
 
 GRANT SELECT ON
     factory.requests,

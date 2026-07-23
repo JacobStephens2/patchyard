@@ -14,7 +14,7 @@ use std::{
 use askama::Template;
 use axum::{
     Form, Router,
-    body::Body,
+    body::{Body, Bytes},
     extract::{DefaultBodyLimit, Path as RoutePath, Query, State},
     http::{
         HeaderMap, HeaderValue, StatusCode,
@@ -116,6 +116,7 @@ impl AppState {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(health))
+        .route("/csp-report", post(csp_report))
         .route("/login", get(login_form).post(login))
         .route("/logout", post(logout))
         .route("/", get(index))
@@ -150,6 +151,16 @@ async fn health(State(state): State<AppState>) -> Response {
         Ok(1) => (StatusCode::OK, "ok\n").into_response(),
         Ok(_) | Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "unavailable\n").into_response(),
     }
+}
+
+async fn csp_report(body: Bytes) -> StatusCode {
+    let digest = Sha256::digest(&body);
+    tracing::warn!(
+        report_bytes = body.len(),
+        report_sha256 = %format!("{digest:x}"),
+        "browser reported a content security policy violation"
+    );
+    StatusCode::NO_CONTENT
 }
 
 async fn login_form(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -1129,7 +1140,7 @@ async fn security_headers(request: axum::extract::Request, next: Next) -> Respon
     headers
         .entry(header::CONTENT_SECURITY_POLICY)
         .or_insert(HeaderValue::from_static(
-            "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+            "default-src 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; report-uri /csp-report",
         ));
     response
 }
@@ -1175,7 +1186,7 @@ async fn render_page_status<T: Template + HasNonce + Send + 'static>(
             .insert(HeaderName::from_static("refresh"), value);
     }
     let policy = format!(
-        "default-src 'self'; script-src 'self' 'nonce-{nonce}'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+        "default-src 'none'; script-src 'nonce-{nonce}'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; report-uri /csp-report"
     );
     if let Ok(value) = HeaderValue::from_str(&policy) {
         response

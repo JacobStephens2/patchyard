@@ -177,6 +177,7 @@ async fn exact_route_by_role_matrix() -> Result<(), Box<dyn Error>> {
     let evidence = &harness.evidence_name;
     let mut cases = vec![
         route(Method::GET, "/healthz", 200, 200, 200),
+        route(Method::POST, "/csp-report", 204, 204, 204),
         route(Method::GET, "/login", 200, 302, 302),
         route(Method::POST, "/login", 403, 403, 403).form(FormKind::Login),
         route(Method::GET, "/", 302, 403, 200),
@@ -325,9 +326,11 @@ async fn hostile_ledger_text_is_inert_and_nonterminal_has_refresh_fallback()
         .get(header::CONTENT_SECURITY_POLICY)
         .and_then(|value| value.to_str().ok())
         .expect("CSP");
-    assert!(csp.contains("default-src 'self'"));
-    assert!(csp.contains("script-src 'self' 'nonce-"));
+    assert!(csp.contains("default-src 'none'"));
+    assert!(csp.contains("script-src 'nonce-"));
+    assert!(!csp.contains("script-src 'self'"));
     assert!(!csp.contains("'unsafe-inline'"));
+    assert!(csp.contains("report-uri /csp-report"));
     let html = String::from_utf8(response.into_body().collect().await?.to_bytes().to_vec())?;
     assert!(html.contains("&#60;script&#62;alert(1)&#60;/script&#62;"));
     assert!(html.contains("&#60;a href=&#34;https://phish.invalid&#34;&#62;"));

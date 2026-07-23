@@ -3,7 +3,7 @@
 
 use std::{collections::BTreeMap, path::Path};
 
-use pulldown_cmark::{CowStr, Event, Options, Parser, html};
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -126,24 +126,56 @@ pub async fn read_model(root: &Path) -> Result<FactoryModel, ProjectionError> {
     Ok(serde_json::from_slice(&bytes)?)
 }
 
-/// Render CommonMark with tables while converting raw HTML tokens to text.
+/// Render CommonMark with tables while dropping raw HTML and images and
+/// allowing only explicitly safe link schemes.
 ///
-/// `push_html` escapes `Event::Text`, so hostile `<script>` or `<a>` input is
-/// displayed inertly. The dashboard never enables pulldown-cmark raw HTML.
+/// Governance Markdown is reviewed but still crosses the browser trust
+/// boundary. Unsupported links become plain link text and image alt text
+/// remains plain text.
 #[must_use]
 pub fn markdown_without_raw_html(source: &str) -> String {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
-    let events = Parser::new_ext(source, options).map(|event| match event {
-        Event::Html(value) | Event::InlineHtml(value) => {
-            Event::Text(CowStr::from(value.into_string()))
+    let mut stripped_links = 0_u32;
+    let mut stripped_images = 0_u32;
+    let events = Parser::new_ext(source, options).filter_map(move |event| match event {
+        Event::Html(_) | Event::InlineHtml(_) => None,
+        Event::Start(Tag::Link { ref dest_url, .. }) if !safe_link_destination(dest_url) => {
+            stripped_links = stripped_links.saturating_add(1);
+            None
         }
-        other => other,
+        Event::End(TagEnd::Link) if stripped_links > 0 => {
+            stripped_links -= 1;
+            None
+        }
+        Event::Start(Tag::Image { .. }) => {
+            stripped_images = stripped_images.saturating_add(1);
+            None
+        }
+        Event::End(TagEnd::Image) if stripped_images > 0 => {
+            stripped_images -= 1;
+            None
+        }
+        other => Some(other),
     });
     let mut output = String::new();
     html::push_html(&mut output, events);
     output
+}
+
+fn safe_link_destination(destination: &str) -> bool {
+    if destination.trim() != destination || destination.chars().any(char::is_control) {
+        return false;
+    }
+    let Some((scheme, remainder)) = destination.split_once(':') else {
+        return false;
+    };
+    !remainder.is_empty()
+        && matches!(
+            scheme.to_ascii_lowercase().as_str(),
+            "http" | "https" | "mailto"
+        )
 }
 
 /// Add stable per-ruling anchors after safe Markdown rendering.
@@ -185,13 +217,28 @@ mod tests {
     use super::{decision_log_html, markdown_without_raw_html};
 
     #[test]
-    fn raw_html_is_inert_and_markdown_tables_still_render() {
+    fn raw_html_is_dropped_and_markdown_tables_still_render() {
         let rendered = markdown_without_raw_html(
             "| name | value |\n| --- | --- |\n| x | <script>alert(1)</script> |\n",
         );
         assert!(rendered.contains("<table>"));
-        assert!(rendered.contains("&lt;script&gt;"));
+        assert!(rendered.contains("alert(1)"));
         assert!(!rendered.contains("<script>"));
+    }
+
+    #[test]
+    fn markdown_allows_only_safe_link_schemes_and_strips_images() {
+        let rendered = markdown_without_raw_html(
+            "[safe](https://example.test) [mail](mailto:factory@example.test) \
+             [bad](javascript:alert(1)) ![tracking](data:image/png;base64,AA==)",
+        );
+        assert!(rendered.contains("href=\"https://example.test\""));
+        assert!(rendered.contains("href=\"mailto:factory@example.test\""));
+        assert!(rendered.contains("bad"));
+        assert!(rendered.contains("tracking"));
+        assert!(!rendered.contains("javascript:"));
+        assert!(!rendered.contains("data:"));
+        assert!(!rendered.contains("<img"));
     }
 
     #[test]

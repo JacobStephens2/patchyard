@@ -7,7 +7,9 @@ cd "$REPO_ROOT"
 tools/check-constitution.sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
+# PostgreSQL integration binaries share singleton supervisor/control state.
+# Keep each binary's cases deterministic under the same command CI executes.
+cargo test --workspace --all-features -- --test-threads=1
 cargo run --locked --quiet --package factoryctl -- triage-replay
 tools/check-factory-verify-release.sh
 cargo audit --deny warnings

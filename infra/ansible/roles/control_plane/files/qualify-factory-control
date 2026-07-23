@@ -102,6 +102,16 @@ assert_path /run/patchyard-dashboard factory-web factory-web 750
 assert_path /run/patchyard-dashboard/dashboard.sock caddy factory-web 660
 curl --fail --silent --unix-socket /run/patchyard-dashboard/dashboard.sock \
   http://localhost/healthz | grep -Fxq ok
+DASHBOARD_HEADERS="$QUALIFICATION_TEMP/dashboard-headers"
+curl --fail --silent --show-error --dump-header "$DASHBOARD_HEADERS" --output /dev/null \
+  --unix-socket /run/patchyard-dashboard/dashboard.sock http://localhost/login
+tr -d '\r' <"$DASHBOARD_HEADERS" | grep -Eiq \
+  "^content-security-policy: default-src 'none'; script-src 'nonce-[A-Za-z0-9_-]+'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; report-uri /csp-report$"
+test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+  --request POST --header 'Content-Type: application/csp-report' \
+  --data '{"csp-report":{"effective-directive":"script-src"}}' \
+  --unix-socket /run/patchyard-dashboard/dashboard.sock \
+  http://localhost/csp-report)" = 204
 /usr/local/bin/caddy validate --config /etc/caddy/Caddyfile
 grep -Fq 'factory.example.com {' /etc/caddy/Caddyfile
 grep -Fq 'flush_interval -1' /etc/caddy/Caddyfile

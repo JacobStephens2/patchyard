@@ -3,7 +3,14 @@
 Session 11 replaces the dashboard shell with the server-rendered factory
 control-plane UI. `factory-web` serves Askama pages and vendored CSS over a
 Unix socket; the Caddy edge owns public HTTP. The browser receives no external
-assets and every HTML response carries a strict per-response nonce CSP.
+assets and every HTML response carries `default-src 'none'` with a
+per-response, nonce-only script policy. A bounded `/csp-report` endpoint
+records only the report size and digest, never attacker-controlled report
+text, and desired-state qualification checks the exact header.
+
+The browser-boundary controls implement both
+[`docs/agent-content-trust.md`](agent-content-trust.md) and the binding
+[`docs/dashboard-security.md`](dashboard-security.md) Session 11 floor.
 
 ## Trust and scribe boundary
 
@@ -15,8 +22,9 @@ assets and every HTML response carries a strict per-response nonce CSP.
   grants independently deny update/delete/truncate of requests, runs, events,
   and controls, and deny event insertion.
 - Request bodies and event payloads remain Askama-escaped text. Live events
-  are appended with `textContent`. The decisions and codebase renderers turn
-  raw Markdown HTML tokens into text before generating the only trusted HTML
+  are appended with `textContent`. The decisions and codebase renderers drop
+  raw Markdown HTML events and images, and retain links only for `http`,
+  `https`, and `mailto` schemes before generating the only trusted HTML
   fragments.
 - Refresh appends a durable reconcile request and wakes the supervisor. The
   supervisor claims that request with a fenced token, runs the existing

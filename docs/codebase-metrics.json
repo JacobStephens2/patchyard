@@ -2,14 +2,14 @@
   "schema_version": 1,
   "generated_by": "tools/check-codebase.sh",
   "tokei_version": "14.0.0",
-  "source_revision": "sha256:fe1778210a2312efd0c0b9398a27b3f1b192545496760963fb028e836e17b243",
+  "source_revision": "sha256:d287b5b0650ea6584a14808a9232d995498bd3a4da2bae1f700edd50f29d2083",
   "roles": [
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 23251,
-      "comments": 416,
-      "blanks": 1583,
+      "code": 23307,
+      "comments": 418,
+      "blanks": 1586,
       "files": 70,
       "languages": [
         {
@@ -43,15 +43,15 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 327,
+          "comments": 329,
           "blanks": 14,
           "files": 37
         },
         {
           "language": "Rust",
-          "code": 21215,
+          "code": 21271,
           "comments": 70,
-          "blanks": 1345,
+          "blanks": 1348,
           "files": 44
         },
         {
@@ -73,14 +73,14 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 7391,
+      "code": 7401,
       "comments": 363,
       "blanks": 803,
       "files": 95,
       "languages": [
         {
           "language": "BASH",
-          "code": 2708,
+          "code": 2718,
           "comments": 82,
           "blanks": 228,
           "files": 27
@@ -161,7 +161,7 @@
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
       "code": 4872,
-      "comments": 227,
+      "comments": 229,
       "blanks": 548,
       "files": 78,
       "languages": [
@@ -210,7 +210,7 @@
         {
           "language": "Shell",
           "code": 476,
-          "comments": 24,
+          "comments": 26,
           "blanks": 86,
           "files": 17
         },
@@ -241,9 +241,9 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8007,
-      "comments": 7705,
-      "blanks": 2413,
-      "files": 94,
+      "comments": 8118,
+      "blanks": 2572,
+      "files": 96,
       "languages": [
         {
           "language": "BASH",
@@ -262,9 +262,9 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 7691,
-          "blanks": 2362,
-          "files": 74
+          "comments": 8104,
+          "blanks": 2521,
+          "files": 76
         },
         {
           "language": "Shell",

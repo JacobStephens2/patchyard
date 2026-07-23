@@ -1,0 +1,17 @@
+{
+  "task_spec": {
+    "schema_version": 1,
+    "rubric_version": "2026-07-23.1",
+    "intent_class": "internal_wording",
+    "objective": "Replace the internal label after identifying which of two similarly named pages is intended.",
+    "named_skill": "ui.sort-dropdown",
+    "targets": [],
+    "allowed_paths": [],
+    "allowed_globs": [],
+    "acceptance_tests": [{"id": "label", "kind": "exact_text", "assertion": "The identified page contains the requested label exactly once."}],
+    "flags": {"dependency_changes": false, "test_changes": false, "ci_changes": false},
+    "budget": {"max_files": 1, "max_changed_lines": 5, "authority": "lane_a_policy"},
+    "guide": {"kind": "skill_playbook", "reference": "ui.sort-dropdown"}
+  },
+  "confidence_basis_points": 6000
+}

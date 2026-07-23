@@ -1,0 +1,17 @@
+{
+  "task_spec": {
+    "schema_version": 1,
+    "rubric_version": "2026-07-23.1",
+    "intent_class": "schema_or_data_model",
+    "objective": "Add a stored field to the trip record.",
+    "named_skill": null,
+    "targets": [{"page": "Trip edit", "path": "mysql_files/add_trip_field.sql", "evidence": "the requested field does not exist in the schema"}],
+    "allowed_paths": ["mysql_files/add_trip_field.sql"],
+    "allowed_globs": [],
+    "acceptance_tests": [{"id": "migration", "kind": "invariant", "assertion": "The migration and application behavior are defined by an approved plan."}],
+    "flags": {"dependency_changes": false, "test_changes": true, "ci_changes": false},
+    "budget": {"max_files": 3, "max_changed_lines": 100, "authority": "triage_estimate"},
+    "guide": null
+  },
+  "confidence_basis_points": 9900
+}

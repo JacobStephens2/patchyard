@@ -81,10 +81,16 @@ tools/check-application.sh
 The individual scaffold binaries can also be exercised directly:
 
 ```bash
-cargo run -p factoryctl
+cargo run -p factoryctl -- triage-replay
+cargo run -p factoryctl -- --help
 cargo run -p factory-verify
 cargo run -p factory-web
 ```
+
+`factoryctl plan approve-b|answer-d|mark-c-executed|reject` applies the four
+human plan-bin decisions through the append-only ledger. B approval accepts a
+schema-valid TaskSpec file; D answers and rejection reasons accept a UTF-8 file
+or `-` for stdin, keeping untrusted content off the command line.
 
 Host provisioning remains under `infra/`; see
 [`infra/README.md`](infra/README.md) for plan, converge, qualification,

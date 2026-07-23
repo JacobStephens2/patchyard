@@ -1,0 +1,17 @@
+{
+  "task_spec": {
+    "schema_version": 1,
+    "rubric_version": "2026-07-23.1",
+    "intent_class": "feature",
+    "objective": "Add a new trip-comparison workflow.",
+    "named_skill": null,
+    "targets": [],
+    "allowed_paths": [],
+    "allowed_globs": ["mfieldbook/trips/**"],
+    "acceptance_tests": [{"id": "workflow", "kind": "invariant", "assertion": "An approved spec defines the complete comparison behavior."}],
+    "flags": {"dependency_changes": false, "test_changes": true, "ci_changes": false},
+    "budget": {"max_files": 8, "max_changed_lines": 400, "authority": "triage_estimate"},
+    "guide": null
+  },
+  "confidence_basis_points": 9200
+}

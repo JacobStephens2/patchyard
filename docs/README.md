@@ -13,6 +13,7 @@ Factory documentation that is not the phase-1 build contract (`SPEC.md` /
 | [`bench.json`](bench.json) | Living ops | Structured source of truth for the Pairs table (schema: [`bench.schema.json`](bench.schema.json)). Edit it, then run `python3 tools/check-bench.py --write` |
 | [`rust-practices.md`](rust-practices.md) | Living ops | Binding Rust rules distilled from the council research; rules activate at tagged sessions |
 | [`agent-content-trust.md`](agent-content-trust.md) | Living ops | Binding content-trust floor (F1-F8) - hostile request content never becomes agent instructions; session-tagged |
+| [`session-8-triage-plan-bin.md`](session-8-triage-plan-bin.md) | Build evidence | Typed triage boundary, provider-free replay, and durable plan-bin transition contract |
 | [`stack.md`](stack.md) | Living ops | Canonical technology stack with ruling anchors; exclusions enforced by `tools/check-stack.py` in CI |
 | [`bedrock-haiku.md`](bedrock-haiku.md) | Living ops | Bedrock Haiku + Claude Code runbook |
 | [`vertex-access.md`](vertex-access.md) | Living ops | Vertex AI project / SA handoff for bench |

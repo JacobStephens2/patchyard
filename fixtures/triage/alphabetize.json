@@ -1,0 +1,23 @@
+{
+  "task_spec": {
+    "schema_version": 1,
+    "rubric_version": "2026-07-23.1",
+    "intent_class": "internal_ordering",
+    "objective": "Sort salesperson selectors by displayed first name then last name while preserving option values and membership.",
+    "named_skill": "ui.sort-dropdown",
+    "targets": [
+      {"page": "Simple Sales Report", "path": "mfieldbook/common_functions.php", "evidence": "get_salespeople_usernames supplies the selector options"},
+      {"page": "Create or Assign School", "path": "mfieldbook/leads/assign.php", "evidence": "the page builds its salesperson selector locally"}
+    ],
+    "allowed_paths": ["mfieldbook/common_functions.php", "mfieldbook/leads/assign.php"],
+    "allowed_globs": [],
+    "acceptance_tests": [
+      {"id": "sorted-permutation", "kind": "sorted_permutation", "assertion": "Labels are case-folded first-name/last-name sorted; values, membership, selected value, and leading blank are unchanged."},
+      {"id": "preview-pages", "kind": "browser_evidence", "assertion": "Both named pages show the same sorted option order."}
+    ],
+    "flags": {"dependency_changes": false, "test_changes": true, "ci_changes": false},
+    "budget": {"max_files": 2, "max_changed_lines": 50, "authority": "lane_a_policy"},
+    "guide": {"kind": "skill_playbook", "reference": "ui.sort-dropdown"}
+  },
+  "confidence_basis_points": 9700
+}

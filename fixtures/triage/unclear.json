@@ -1,0 +1,18 @@
+{
+  "task_spec": {
+    "schema_version": 1,
+    "rubric_version": "2026-07-23.1",
+    "intent_class": "unclear",
+    "objective": "Determine which trip screen and which behavior the requester means by fixing the trip list.",
+    "named_skill": null,
+    "targets": [],
+    "allowed_paths": [],
+    "allowed_globs": [],
+    "acceptance_tests": [],
+    "flags": {"dependency_changes": false, "test_changes": false, "ci_changes": false},
+    "budget": null,
+    "guide": null
+  },
+  "confidence_basis_points": 3000
+}
+

@@ -1,0 +1,22 @@
+{
+  "task_spec": {
+    "schema_version": 1,
+    "rubric_version": "2026-07-23.1",
+    "intent_class": "internal_ordering",
+    "objective": "Apply the same ordering change to three independent reports.",
+    "named_skill": "ui.sort-dropdown",
+    "targets": [
+      {"page": "Report One", "path": "mfieldbook/report-one.php", "evidence": "local option loop"},
+      {"page": "Report Two", "path": "mfieldbook/report-two.php", "evidence": "local option loop"},
+      {"page": "Report Three", "path": "mfieldbook/report-three.php", "evidence": "local option loop"}
+    ],
+    "allowed_paths": ["mfieldbook/report-one.php", "mfieldbook/report-two.php", "mfieldbook/report-three.php"],
+    "allowed_globs": [],
+    "acceptance_tests": [{"id": "all-reports", "kind": "sorted_permutation", "assertion": "All three option sets are sorted permutations."}],
+    "flags": {"dependency_changes": false, "test_changes": false, "ci_changes": false},
+    "budget": {"max_files": 3, "max_changed_lines": 75, "authority": "lane_a_policy"},
+    "guide": {"kind": "skill_playbook", "reference": "ui.sort-dropdown"}
+  },
+  "confidence_basis_points": 9800
+}
+

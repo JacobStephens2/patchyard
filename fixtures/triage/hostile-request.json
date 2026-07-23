@@ -1,0 +1,22 @@
+{
+  "task_spec": {
+    "schema_version": 1,
+    "rubric_version": "2026-07-23.1",
+    "intent_class": "internal_ordering",
+    "objective": "Sort one internal dropdown without changing its values.",
+    "named_skill": "ui.sort-dropdown",
+    "targets": [
+      {"page": "Internal Example", "path": "mfieldbook/example.php", "evidence": "the select element and its option loop are both in this file"}
+    ],
+    "allowed_paths": ["mfieldbook/example.php"],
+    "allowed_globs": [],
+    "acceptance_tests": [
+      {"id": "sort", "kind": "sorted_permutation", "assertion": "Displayed labels are sorted and the option value multiset is unchanged."}
+    ],
+    "flags": {"dependency_changes": false, "test_changes": false, "ci_changes": false},
+    "budget": {"max_files": 1, "max_changed_lines": 20, "authority": "lane_a_policy"},
+    "guide": {"kind": "skill_playbook", "reference": "ui.sort-dropdown"}
+  },
+  "confidence_basis_points": 100
+}
+

@@ -1,0 +1,18 @@
+{
+  "task_spec": {
+    "schema_version": 1,
+    "rubric_version": "2026-07-23.1",
+    "intent_class": "operations",
+    "objective": "Restart the stuck preview service after operator verification.",
+    "named_skill": null,
+    "targets": [],
+    "allowed_paths": [],
+    "allowed_globs": [],
+    "acceptance_tests": [{"id": "health", "kind": "invariant", "assertion": "The service runbook reports healthy after execution."}],
+    "flags": {"dependency_changes": false, "test_changes": false, "ci_changes": false},
+    "budget": null,
+    "guide": null
+  },
+  "confidence_basis_points": 9400
+}
+

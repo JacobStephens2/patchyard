@@ -1,0 +1,17 @@
+{
+  "rubric": "policy/rubric.md",
+  "cases": [
+    {"id": "alphabetize", "request": "fixtures/acceptance/alphabetize/request.md", "output": "fixtures/triage/alphabetize.json", "expected_lane": "A"},
+    {"id": "hostile-request-data", "request": "fixtures/triage/requests/hostile-request.md", "output": "fixtures/triage/hostile-request.json", "expected_lane": "A"},
+    {"id": "feature", "request": "fixtures/triage/requests/feature.md", "output": "fixtures/triage/feature.json", "expected_lane": "B"},
+    {"id": "schema-deny", "request": "fixtures/triage/requests/schema.md", "output": "fixtures/triage/schema.json", "expected_lane": "B"},
+    {"id": "over-cap", "request": "fixtures/triage/requests/over-cap.md", "output": "fixtures/triage/over-cap.json", "expected_lane": "B"},
+    {"id": "dependency-flag", "request": "fixtures/triage/requests/dependency.md", "output": "fixtures/triage/dependency.json", "expected_lane": "B"},
+    {"id": "ci-path", "request": "fixtures/triage/requests/ci.md", "output": "fixtures/triage/ci.json", "expected_lane": "B"},
+    {"id": "data-correction", "request": "fixtures/triage/requests/data-correction.md", "output": "fixtures/triage/data-correction.json", "expected_lane": "C"},
+    {"id": "operations", "request": "fixtures/triage/requests/operations.md", "output": "fixtures/triage/operations.json", "expected_lane": "C"},
+    {"id": "unclear-intent", "request": "fixtures/triage/requests/unclear.md", "output": "fixtures/triage/unclear.json", "expected_lane": "D"},
+    {"id": "missing-exact-target", "request": "fixtures/triage/requests/missing-target.md", "output": "fixtures/triage/missing-target.json", "expected_lane": "D"}
+  ]
+}
+

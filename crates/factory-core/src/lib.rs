@@ -4,6 +4,7 @@ use std::{error::Error, fmt};
 
 pub mod schema;
 pub mod state;
+pub mod triage;
 
 /// HTML `maxlength` and server-side request-body limit, measured in UTF-16
 /// code units as required by the HTML specification.

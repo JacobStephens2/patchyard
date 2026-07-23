@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.example.com/schemas/task-spec-v1.json",
+  "title": "Patchyard Factory triage output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_spec", "confidence_basis_points"],
+  "properties": {
+    "confidence_basis_points": {"type": "integer", "minimum": 0, "maximum": 10000},
+    "task_spec": {"$ref": "#/$defs/taskSpec"}
+  },
+  "$defs": {
+    "taskSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "rubric_version", "intent_class", "objective",
+        "named_skill", "targets", "allowed_paths", "allowed_globs",
+        "acceptance_tests", "flags", "budget", "guide"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "rubric_version": {"type": "string", "minLength": 1, "maxLength": 64},
+        "intent_class": {
+          "enum": [
+            "internal_display", "internal_report", "internal_wording",
+            "internal_ordering", "internal_validation", "feature",
+            "schema_or_data_model", "auth_permissions_or_secrets",
+            "payments_pricing_or_accounting", "outbound_or_scheduled_automation",
+            "customer_facing", "data_correction", "operations", "unclear"
+          ]
+        },
+        "objective": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "named_skill": {"type": ["string", "null"], "maxLength": 128},
+        "targets": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["page", "path", "evidence"],
+            "properties": {
+              "page": {"type": "string", "minLength": 1, "maxLength": 256},
+              "path": {"type": "string", "minLength": 1, "maxLength": 512},
+              "evidence": {"type": "string", "minLength": 1, "maxLength": 1000}
+            }
+          }
+        },
+        "allowed_paths": {"type": "array", "maxItems": 100, "items": {"type": "string", "minLength": 1, "maxLength": 512}},
+        "allowed_globs": {"type": "array", "maxItems": 100, "items": {"type": "string", "minLength": 1, "maxLength": 512}},
+        "acceptance_tests": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "kind", "assertion"],
+            "properties": {
+              "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$"},
+              "kind": {"enum": ["exact_text", "sorted_permutation", "unit_test", "static_analysis", "browser_evidence", "invariant"]},
+              "assertion": {"type": "string", "minLength": 1, "maxLength": 2000}
+            }
+          }
+        },
+        "flags": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["dependency_changes", "test_changes", "ci_changes"],
+          "properties": {
+            "dependency_changes": {"type": "boolean"},
+            "test_changes": {"type": "boolean"},
+            "ci_changes": {"type": "boolean"}
+          }
+        },
+        "budget": {
+          "anyOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["max_files", "max_changed_lines", "authority"],
+              "properties": {
+                "max_files": {"type": "integer", "minimum": 1, "maximum": 10000},
+                "max_changed_lines": {"type": "integer", "minimum": 1, "maximum": 1000000},
+                "authority": {"enum": ["lane_a_policy", "triage_estimate", "human_approved"]}
+              }
+            }
+          ]
+        },
+        "guide": {
+          "anyOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "reference"],
+              "properties": {
+                "kind": {"enum": ["skill_playbook", "approved_plan"]},
+                "reference": {"type": "string", "minLength": 1, "maxLength": 512}
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+

@@ -125,6 +125,14 @@
     group: root
     mode: "0750"
 
+- name: Install the explicit supervisor worker-teardown operation
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../worker/runtime/patchyard-worker-teardown"
+    dest: /usr/local/sbin/patchyard-worker-teardown
+    owner: root
+    group: root
+    mode: "0750"
+
 - name: Install the non-root guest-result extractor
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../../worker/runtime/patchyard-extract-result-image"

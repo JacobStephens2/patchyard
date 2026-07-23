@@ -13,13 +13,16 @@ systemctl is-active --quiet postgres-exporter.service
 systemctl is-active --quiet postgresql.service
 systemctl is-active --quiet patchyard-postgresql-tls-metric.timer
 systemctl is-active --quiet patchyard-snapshot-metric.timer
+systemctl is-active --quiet factory-supervisor.service
 ss -lntH | grep -Fq "$PRIVATE_IP:9100"
 ss -lntH | grep -Fq "$PRIVATE_IP:9187"
 ss -lntH | grep -Fq "$PRIVATE_IP:5432"
+ss -lntH | grep -Fq "$PRIVATE_IP:9464"
 ! ss -lntH | grep -Eq '(^|[[:space:]])(0\.0\.0\.0|\*):5432'
 firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="9100"'
 firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="9187"'
 firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="5432"'
+firewall-cmd --list-rich-rules | grep -Eq '10\.132\.0\.14/32.*port="9464"'
 firewall-cmd --list-rich-rules | grep -Fq "source address=\"$CONTROL_PLANE_PRIVATE_CIDR\" service name=\"ssh\" accept"
 test "$(runuser -u factory-manager -- git -C /opt/patchyard rev-parse HEAD)" = \
   "$EXPECTED_REVISION"
@@ -53,7 +56,8 @@ assert_path() {
 }
 
 assert_path /var/lib/patchyard root factory 750
-assert_path /var/lib/patchyard/artifacts factory-web factory 700
+assert_path /var/lib/patchyard/artifacts factory-manager factory 700
+assert_path /var/lib/patchyard/supervisor factory-manager factory 700
 assert_path /var/lib/patchyard/spool factory-web factory 700
 assert_path /var/lib/patchyard/worktrees factory-manager factory 750
 assert_path /run/patchyard-postgres postgres factory 770
@@ -68,6 +72,9 @@ test -x /usr/local/sbin/check-snapshot-eligibility
 test -x /usr/local/sbin/patchyard-run-fixture
 test -x /usr/local/sbin/patchyard-run-isolation-probe
 test -x /usr/local/sbin/patchyard-run-hostile-qualification
+test -x /usr/local/bin/factory-supervisor
+test -x /usr/local/sbin/patchyard-invoke-worker
+test -x /usr/local/sbin/patchyard-cleanup-worker
 grep -Eq '^patchyard_parity_snapshot_age_days -?[0-9]+$' \
   /var/lib/node_exporter/textfile_collector/patchyard_snapshot.prom
 grep -Eq '^patchyard_parity_snapshot_eligible [01]$' \
@@ -85,7 +92,7 @@ test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \
   --dbname=patchyard --tuples-only --no-align --command='SHOW ssl')" = on
 test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \
   --dbname=patchyard --tuples-only --no-align \
-  --command='SELECT count(*) FROM public._sqlx_migrations WHERE success')" = 1
+  --command='SELECT count(*) FROM public._sqlx_migrations WHERE success')" = 3
 
 for ROLE in patchyard_migrator patchyard_supervisor patchyard_dashboard grafana_ro patchyard_exporter; do
   test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \
@@ -127,10 +134,14 @@ assert_role_denied() {
   fi
 }
 
-for TABLE in requests runs events artifacts pr_state leases; do
+for TABLE in requests runs events artifacts pr_state leases supervisor_state controls; do
   assert_role_allowed patchyard_dashboard "SELECT 1 FROM factory.$TABLE LIMIT 1"
   assert_role_allowed patchyard_supervisor "SELECT 1 FROM factory.$TABLE LIMIT 1"
 done
+assert_role_allowed patchyard_supervisor \
+  "SELECT 1 FROM factory.side_effects LIMIT 1"
+assert_role_denied patchyard_dashboard \
+  "SELECT 1 FROM factory.side_effects LIMIT 1"
 assert_role_allowed patchyard_dashboard \
   "INSERT INTO factory.requests (id, fingerprint, source, body, trace_id) VALUES ('40000000-0000-4000-8000-000000000001', decode(repeat('44', 32), 'hex'), 'qualification', 'dashboard intake', '40000000000000000000000000000001')"
 assert_role_allowed patchyard_supervisor \
@@ -191,6 +202,11 @@ curl --fail --silent --output "$QUALIFICATION_TEMP/node.metrics" \
   "http://$PRIVATE_IP:9100/metrics"
 grep -q '^patchyard_postgresql_tls_certificate_remaining_seconds ' \
   "$QUALIFICATION_TEMP/node.metrics"
+curl --fail --silent --output "$QUALIFICATION_TEMP/supervisor.metrics" \
+  "http://$PRIVATE_IP:9464/metrics"
+grep -Fq '# HELP factory_runs_total Pipeline runs by stage and outcome.' \
+  "$QUALIFICATION_TEMP/supervisor.metrics"
+grep -Eq '^OTEL_EXPORTER_OTLP_ENDPOINT=$' /etc/patchyard/supervisor.env
 
 /usr/local/bin/caddy version
 chromium-browser --version 2>/dev/null || chromium --version

@@ -1,0 +1,22 @@
+diff --git a/mfieldbook/common_functions.php b/mfieldbook/common_functions.php
+index 9689d68..811b3f2 100644
+--- a/mfieldbook/common_functions.php
++++ b/mfieldbook/common_functions.php
+@@ -4,6 +4,6 @@ function get_salespeople_usernames(): array
+ {
+     return [
+-        'zoe' => 'Zoe Adams',
+         'alice' => 'Alice Smith',
++        'zoe' => 'Zoe Adams',
+     ];
+ }
+diff --git a/mfieldbook/leads/assign.php b/mfieldbook/leads/assign.php
+index e70759f..c222fb6 100644
+--- a/mfieldbook/leads/assign.php
++++ b/mfieldbook/leads/assign.php
+@@ -3,4 +3,4 @@
+ $salespeople = [
+-    'zoe' => 'Zoe Adams',
+     'alice' => 'Alice Smith',
++    'zoe' => 'Zoe Adams',
+ ];

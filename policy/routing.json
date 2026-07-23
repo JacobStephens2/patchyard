@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "version": "2026-07-23.1",
+  "bench_sha256": "e9d992df13138551be90a6fe556c8b04c782c428c2039d7813474af7b3d6d25d",
+  "live_provider_execution": false,
+  "rules": {
+    "triage": {
+      "selection_rule": "max_intelligence",
+      "seat": {"model": "Claude Fable 5", "effort": "max", "harness": "Claude Code", "provider": "Anthropic"},
+      "reviewers": []
+    },
+    "implement": {
+      "selection_rule": "best_qualified_builder",
+      "seat": {"model": "GPT-5.6 Sol", "effort": "xhigh", "harness": "Codex", "provider": "OpenAI"},
+      "reviewers": ["implementation_review"]
+    },
+    "implementation_review": {
+      "selection_rule": "cross_family_max_intelligence",
+      "seat": {"model": "Claude Fable 5", "effort": "max", "harness": "Claude Code", "provider": "Anthropic"},
+      "reviewers": []
+    },
+    "author_disposition": {
+      "selection_rule": "same_as_author",
+      "seat": {"model": "GPT-5.6 Sol", "effort": "xhigh", "harness": "Codex", "provider": "OpenAI"},
+      "reviewers": []
+    },
+    "dispute_arbitration": {
+      "selection_rule": "third_family_max_intelligence",
+      "seat": {"model": "Grok 4.5", "effort": "high", "harness": "Grok Build", "provider": "xAI"},
+      "reviewers": []
+    },
+    "repair": {
+      "selection_rule": "same_as_author",
+      "seat": {"model": "GPT-5.6 Sol", "effort": "xhigh", "harness": "Codex", "provider": "OpenAI"},
+      "reviewers": []
+    }
+  }
+}

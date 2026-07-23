@@ -1,0 +1,8 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+output=$5
+mkdir -m 700 -- "$output"
+printf '%s\n' '{"schema_version":1,"status":"failed","gate":"fixture-repair-exhaustion","publish_invoked":false}' >"$output/evidence.json"
+printf 'deterministic verifier fixture failed\n' >&2
+exit 1

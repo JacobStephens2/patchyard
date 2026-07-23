@@ -8,6 +8,7 @@
   ansible.builtin.dnf:
     name:
       - chromium
+      - bubblewrap
       - fontconfig
       - policycoreutils-python-utils
       - python3-pip
@@ -125,16 +126,24 @@
     group: factory
     mode: "0750"
 
-- name: Create dashboard-writable factory state directories
+- name: Create supervisor-owned private factory state directories
   ansible.builtin.file:
     path: "/var/lib/patchyard/{{ item }}"
     state: directory
-    owner: factory-web
+    owner: "{{ factory_manager_user }}"
     group: factory
     mode: "0700"
   loop:
     - artifacts
-    - spool
+    - supervisor
+
+- name: Create dashboard-writable intake spool
+  ansible.builtin.file:
+    path: /var/lib/patchyard/spool
+    state: directory
+    owner: factory-web
+    group: factory
+    mode: "0700"
 
 - name: Create the parity snapshot artifact root
   ansible.builtin.file:
@@ -524,6 +533,37 @@
     mode: "0755"
   register: factoryctl_install
 
+- name: Require the reviewed factory-supervisor build artifact
+  ansible.builtin.assert:
+    that:
+      - factory_supervisor_binary is defined
+      - factory_supervisor_binary | length > 0
+      - factory_supervisor_sha256 is defined
+      - factory_supervisor_sha256 is match('^[0-9a-f]{64}$')
+
+- name: Hash the local factory-supervisor build artifact
+  ansible.builtin.stat:
+    path: "{{ factory_supervisor_binary }}"
+    checksum_algorithm: sha256
+  delegate_to: localhost
+  become: false
+  register: local_factory_supervisor
+
+- name: Require the exact factory-supervisor build artifact
+  ansible.builtin.assert:
+    that:
+      - local_factory_supervisor.stat.exists
+      - local_factory_supervisor.stat.checksum == factory_supervisor_sha256
+
+- name: Install the reviewed factory-supervisor binary
+  ansible.builtin.copy:
+    src: "{{ factory_supervisor_binary }}"
+    dest: /usr/local/bin/factory-supervisor
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart factory supervisor
+
 - name: Require the reviewed factory-verify build artifact
   ansible.builtin.assert:
     that:
@@ -879,6 +919,113 @@
     owner: "{{ factory_manager_user }}"
     group: "{{ factory_manager_user }}"
     mode: "0750"
+
+- name: Install the state-derived Session 9 worker transport
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/usr/local/sbin/{{ item }}"
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
+    mode: "0750"
+  loop:
+    - patchyard-invoke-worker
+    - patchyard-cleanup-worker
+  notify: Restart factory supervisor
+
+- name: Create the provider-free Session 9 dry-run target
+  ansible.builtin.file:
+    path: /var/lib/patchyard/session9-target
+    state: directory
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
+    mode: "0700"
+
+- name: Install the provider-free ALPHABETIZE target files
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../fixtures/pipeline/alphabetize-repo/"
+    dest: /var/lib/patchyard/session9-target/
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
+    mode: preserve
+  register: session9_target_copy
+
+- name: Initialize the Session 9 target repository
+  ansible.builtin.command:
+    argv: [git, -C, /var/lib/patchyard/session9-target, init, --quiet]
+    creates: /var/lib/patchyard/session9-target/.git
+  become: true
+  become_user: "{{ factory_manager_user }}"
+
+- name: Stage the exact Session 9 target tree
+  ansible.builtin.command:
+    argv: [git, -C, /var/lib/patchyard/session9-target, add, --all]
+  become: true
+  become_user: "{{ factory_manager_user }}"
+  changed_when: false
+
+- name: Inspect Session 9 target drift
+  ansible.builtin.command:
+    argv: [git, -C, /var/lib/patchyard/session9-target, diff, --cached, --quiet]
+  become: true
+  become_user: "{{ factory_manager_user }}"
+  register: session9_target_drift
+  changed_when: false
+  failed_when: session9_target_drift.rc not in [0, 1]
+
+- name: Commit the exact Session 9 target tree
+  ansible.builtin.command:
+    argv:
+      - git
+      - -C
+      - /var/lib/patchyard/session9-target
+      - -c
+      - user.name=Patchyard Factory Fixture
+      - -c
+      - user.email=factory@invalid.example
+      - commit
+      - --quiet
+      - -m
+      - Session 9 ALPHABETIZE dry-run target
+  become: true
+  become_user: "{{ factory_manager_user }}"
+  environment:
+    GIT_AUTHOR_DATE: "2000-01-01T00:00:00Z"
+    GIT_COMMITTER_DATE: "2000-01-01T00:00:00Z"
+  when: session9_target_drift.rc == 1
+  changed_when: true
+
+- name: Read the Session 9 target base SHA
+  ansible.builtin.command:
+    argv: [git, -C, /var/lib/patchyard/session9-target, rev-parse, HEAD]
+  become: true
+  become_user: "{{ factory_manager_user }}"
+  register: session9_target_sha
+  changed_when: false
+
+- name: Install the Session 9 dry-run supervisor environment
+  ansible.builtin.template:
+    src: patchyard-supervisor.env.j2
+    dest: /etc/patchyard/supervisor.env
+    owner: root
+    group: "{{ factory_manager_user }}"
+    mode: "0640"
+  notify: Restart factory supervisor
+
+- name: Install the factory supervisor systemd unit
+  ansible.builtin.copy:
+    src: factory-supervisor.service
+    dest: /etc/systemd/system/factory-supervisor.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart factory supervisor
+
+- name: Enable the factory supervisor daemon
+  ansible.builtin.systemd:
+    name: factory-supervisor.service
+    enabled: true
+    state: started
+    daemon_reload: true
 
 - name: Install the Session 7 preview capture helpers
   ansible.builtin.copy:

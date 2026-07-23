@@ -26,7 +26,10 @@ GRANT SELECT ON
     factory.events,
     factory.artifacts,
     factory.pr_state,
-    factory.leases
+    factory.leases,
+    factory.supervisor_state,
+    factory.controls,
+    factory.side_effects
 TO patchyard_supervisor;
 GRANT INSERT (id, fingerprint, source, body, trace_id) ON factory.requests
 TO patchyard_supervisor;
@@ -40,6 +43,12 @@ GRANT UPDATE (
     output_tokens,
     turns,
     eval_scores,
+    model_id,
+    cli_version,
+    harness,
+    provider,
+    effort,
+    routing_config_version,
     model_id_hash,
     cli_version_hash,
     constitution_hash,
@@ -70,6 +79,13 @@ GRANT UPDATE (
     expires_at,
     released_at
 ) ON factory.leases TO patchyard_supervisor;
+GRANT UPDATE (paused, full_stop, updated_at, updated_by)
+ON factory.supervisor_state TO patchyard_supervisor;
+GRANT INSERT, UPDATE (status, executed_at, outcome)
+ON factory.controls TO patchyard_supervisor;
+GRANT INSERT, UPDATE (
+    status, external_ref, facts, started_at, finished_at
+) ON factory.side_effects TO patchyard_supervisor;
 
 GRANT SELECT ON
     factory.requests,
@@ -77,10 +93,14 @@ GRANT SELECT ON
     factory.events,
     factory.artifacts,
     factory.pr_state,
-    factory.leases
+    factory.leases,
+    factory.supervisor_state,
+    factory.controls
 TO patchyard_dashboard;
 GRANT INSERT (id, fingerprint, source, body, trace_id) ON factory.requests
 TO patchyard_dashboard;
+GRANT INSERT (id, command, target_run_id, requested_by, reason)
+ON factory.controls TO patchyard_dashboard;
 
 GRANT SELECT (
     request_id,

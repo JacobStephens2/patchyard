@@ -27,11 +27,14 @@ trap 'rm -r -- "$CONVERGE_TEMP"' EXIT
 FACTORY_BUNDLE="$CONVERGE_TEMP/factory.bundle"
 git -C "$REPO_ROOT" bundle create "$FACTORY_BUNDLE" --all
 
-"$CARGO_BIN" build --locked --release --package factoryctl --package factory-verify
+"$CARGO_BIN" build --locked --release \
+  --package factoryctl --package factory-verify --package factory-supervisor
 FACTORYCTL_BINARY="$REPO_ROOT/target/release/factoryctl"
 FACTORYCTL_SHA256=$(sha256sum "$FACTORYCTL_BINARY" | cut -d' ' -f1)
 FACTORY_VERIFY_BINARY="$REPO_ROOT/target/release/factory-verify"
 FACTORY_VERIFY_SHA256=$(sha256sum "$FACTORY_VERIFY_BINARY" | cut -d' ' -f1)
+FACTORY_SUPERVISOR_BINARY="$REPO_ROOT/target/release/factory-supervisor"
+FACTORY_SUPERVISOR_SHA256=$(sha256sum "$FACTORY_SUPERVISOR_BINARY" | cut -d' ' -f1)
 
 if [[ -x "$ANSIBLE_ROOT/.venv/bin/ansible-playbook" ]]; then
   ANSIBLE_PLAYBOOK="$ANSIBLE_ROOT/.venv/bin/ansible-playbook"
@@ -49,4 +52,6 @@ cd "$ANSIBLE_ROOT"
   -e "factoryctl_sha256=$FACTORYCTL_SHA256" \
   -e "factory_verify_binary=$FACTORY_VERIFY_BINARY" \
   -e "factory_verify_sha256=$FACTORY_VERIFY_SHA256" \
+  -e "factory_supervisor_binary=$FACTORY_SUPERVISOR_BINARY" \
+  -e "factory_supervisor_sha256=$FACTORY_SUPERVISOR_SHA256" \
   "$@"

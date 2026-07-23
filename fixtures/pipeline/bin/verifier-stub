@@ -1,0 +1,19 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+repository=$1
+base_sha=$2
+patch=$3
+implement_evidence=$4
+output=$5
+shift 5
+test -d "$repository"
+test "${#base_sha}" -eq 40
+jq -e '.schema_version == 1' "$implement_evidence" >/dev/null
+grep -q "mfieldbook/common_functions.php" "$patch"
+grep -q "mfieldbook/leads/assign.php" "$patch"
+test "$(grep -c "^+.*'zoe' => 'Zoe Adams'" "$patch")" -eq 2
+test "$(grep -c "^-.*'zoe' => 'Zoe Adams'" "$patch")" -eq 2
+mkdir -m 700 -- "$output"
+printf '%s\n' '{"schema_version":1,"status":"passed","gate":"alphabetize-semantics","publish_invoked":false}' >"$output/evidence.json"
+printf 'deterministic verifier fixture passed\n'

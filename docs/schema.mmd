@@ -12,6 +12,17 @@ erDiagram
         timestamptz expires_at nullable
         timestamptz deleted_at nullable
     }
+    controls {
+        uuid id PK
+        text command
+        uuid target_run_id nullable
+        text requested_by
+        text reason
+        text status
+        timestamptz requested_at
+        timestamptz executed_at nullable
+        jsonb outcome
+    }
     events {
         bigint id PK
         uuid request_id
@@ -76,12 +87,40 @@ erDiagram
         bytea prompt_template_hash nullable
         bytea verifier_binary_hash nullable
         bytea base_tree_hash nullable
+        text model_id nullable
+        text cli_version nullable
+        text harness nullable
+        text provider nullable
+        text effort nullable
+        text routing_config_version nullable
+    }
+    side_effects {
+        text idempotency_key PK
+        uuid request_id
+        uuid run_id nullable
+        text effect_type
+        smallint attempt
+        text status
+        text external_ref nullable
+        jsonb facts
+        timestamptz started_at nullable
+        timestamptz finished_at nullable
+    }
+    supervisor_state {
+        boolean singleton PK
+        boolean paused
+        boolean full_stop
+        timestamptz updated_at
+        text updated_by
     }
     requests ||--o{ artifacts : "artifacts_request_id_fkey"
     runs o|--o{ artifacts : "artifacts_run_id_fkey"
+    runs o|--o{ controls : "controls_target_run_id_fkey"
     requests ||--o{ events : "events_request_id_fkey"
     runs o|--o{ events : "events_run_id_fkey"
     requests ||--o| leases : "leases_request_id_fkey"
     requests o|--o{ pr_state : "pr_state_request_id_fkey"
     runs o|--o{ pr_state : "pr_state_run_id_fkey"
     requests ||--o{ runs : "runs_request_id_fkey"
+    requests ||--o{ side_effects : "side_effects_request_id_fkey"
+    runs o|--o{ side_effects : "side_effects_run_id_fkey"

@@ -1,0 +1,5 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+test "$#" -eq 1
+printf 'teardown complete %s\n' "$1"

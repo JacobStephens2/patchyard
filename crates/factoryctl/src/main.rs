@@ -17,6 +17,10 @@ use factory_core::{
     },
     triage::{Lane, Rubric, TaskSpec, TriageOutput},
 };
+use factory_supervisor::{
+    bootstrap,
+    store::{ControlKind, PgPipelineStore, PipelineStore},
+};
 use serde::Deserialize;
 use sha2::{Digest as _, Sha256};
 use time::OffsetDateTime;
@@ -58,6 +62,16 @@ enum Command {
     SchemaJson,
     /// Provider-free replay of recorded typed triage outputs.
     TriageReplay(TriageReplayArgs),
+    /// Run one request in the foreground through the daemon's exact pipeline.
+    Run(RequestIdArgs),
+    /// Queue a durable pause control row.
+    Pause(ControlReasonArgs),
+    /// Queue a durable resume control row.
+    Resume(ControlReasonArgs),
+    /// Queue a durable kill for one run.
+    Kill(KillArgs),
+    /// Queue a durable full-stop control row.
+    FullStop(ControlReasonArgs),
     /// Apply one human plan-bin decision.
     Plan {
         #[command(subcommand)]
@@ -90,6 +104,21 @@ struct NewRequestArgs {
 #[derive(Debug, Args)]
 struct RequestIdArgs {
     request_id: Uuid,
+}
+
+#[derive(Debug, Args)]
+struct ControlReasonArgs {
+    #[arg(long, default_value = "factoryctl")]
+    actor: String,
+    #[arg(long, default_value = "operator request")]
+    reason: String,
+}
+
+#[derive(Debug, Args)]
+struct KillArgs {
+    run_id: Uuid,
+    #[command(flatten)]
+    control: ControlReasonArgs,
 }
 
 #[derive(Debug, Args)]
@@ -202,6 +231,35 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .database_url
         .as_deref()
         .ok_or("DATABASE_URL or --database-url is required for state commands")?;
+    match &cli.command {
+        Command::Run(arguments) => {
+            foreground_run(database_url.to_owned(), arguments.request_id).await?;
+            return Ok(());
+        }
+        Command::Pause(arguments) => {
+            enqueue_control(database_url, ControlKind::Pause, None, arguments).await?;
+            return Ok(());
+        }
+        Command::Resume(arguments) => {
+            enqueue_control(database_url, ControlKind::Resume, None, arguments).await?;
+            return Ok(());
+        }
+        Command::Kill(arguments) => {
+            enqueue_control(
+                database_url,
+                ControlKind::Kill,
+                Some(arguments.run_id),
+                &arguments.control,
+            )
+            .await?;
+            return Ok(());
+        }
+        Command::FullStop(arguments) => {
+            enqueue_control(database_url, ControlKind::FullStop, None, arguments).await?;
+            return Ok(());
+        }
+        _ => {}
+    }
     let repository = PostgresRepository::connect(database_url).await?;
 
     match cli.command {
@@ -240,7 +298,55 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         Command::TriageReplay(_) => unreachable!("handled before database connection"),
         Command::Plan { command } => plan(&repository, command).await?,
+        Command::Run(_)
+        | Command::Pause(_)
+        | Command::Resume(_)
+        | Command::Kill(_)
+        | Command::FullStop(_) => unreachable!("handled before core repository connection"),
     }
+    Ok(())
+}
+
+async fn foreground_run(database_url: String, request_id: Uuid) -> Result<(), Box<dyn Error>> {
+    let runtime = bootstrap::from_environment(database_url).await?;
+    let claim = runtime
+        .store
+        .claim_specific(
+            request_id,
+            &runtime.daemon.holder,
+            runtime.daemon.lease_ttl,
+            runtime.daemon.limits,
+        )
+        .await?;
+    let cancellation = tokio_util::sync::CancellationToken::new();
+    let signal_token = cancellation.clone();
+    let signal = tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        signal_token.cancel();
+    });
+    let result = runtime.pipeline.run_claim(claim, &cancellation).await;
+    signal.abort();
+    let _signal_result = signal.await;
+    runtime.close().await;
+    match result {
+        Ok(outcome) => println!("{}", serde_json::to_string_pretty(&outcome)?),
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
+async fn enqueue_control(
+    database_url: &str,
+    command: ControlKind,
+    target: Option<Uuid>,
+    arguments: &ControlReasonArgs,
+) -> Result<(), Box<dyn Error>> {
+    let store = PgPipelineStore::connect(database_url).await?;
+    let id = store
+        .enqueue_control(command, target, &arguments.actor, &arguments.reason)
+        .await?;
+    println!("control {id} queued: {}", command.as_str());
+    store.close().await;
     Ok(())
 }
 

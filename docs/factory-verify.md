@@ -29,9 +29,10 @@ means the patch cannot remain in lane A.
   sentinel positions; and requires a stable Unicode NFKC-case-folded first-name
   order.
 - `ledger-append --record RUN.json --database-url URL` requires run/request UUIDs,
-  base SHA, branch, lane, skill, and all eight canonical SHA-256 provenance
-  fields. Only a validated record can connect. The run and `run.queued` event
-  commit in one transaction.
+  base SHA, branch, lane, skill, resolved model/CLI/harness/provider/effort,
+  routing-config version, and all eight canonical SHA-256 provenance fields.
+  Only a validated record can connect. The run and `run.queued` event commit in
+  one transaction.
 - `runtime --manifest RUNTIME.json --worktree TREE --patch PATCH` runs only as
   `factory-worker` from an allowlisted clean environment. The root launcher
   first holds the same nonblocking worker lock used by Firecracker and asserts
@@ -64,7 +65,7 @@ stronger per-run no-authority browser isolation remains Session 13 scope.
 | `caps` | recorded-base change; whitespace-only padding; third file; rename; mode; binary; generated change |
 | `deny-paths` | one path from every constitution deny category; workflow/infra/policy/verifier-self gate changes; forbidden rename source and destination |
 | `postconditions` | WHERE-clause change; option-value change; option membership; sort-key swap; selected value; shared caller; priority-bearing `listOrder`; sentinel move; duplicate count |
-| `ledger-append` | each of eight provenance fields missing; each malformed; invalid run envelope fields |
+| `ledger-append` | each of eight hash fields missing/malformed; each routing field missing/blank; invalid run envelope fields |
 | `runtime` | unsafe/duplicate/unbounded PHPUnit targets; content/mode tree mutation; wrong identity, environment, hashes, or Git remote |
 
 `tools/check-factory-verify-release.sh` creates two clean release target trees

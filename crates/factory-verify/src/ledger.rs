@@ -7,10 +7,16 @@ use uuid::Uuid;
 
 use crate::{InputError, require_lower_hex};
 
-/// The eight provenance fields required on every run.
+/// Human-readable seat resolution plus the eight hashes required on every run.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Provenance {
+    pub model_id: String,
+    pub cli_version: String,
+    pub harness: String,
+    pub provider: String,
+    pub effort: String,
+    pub routing_config_version: String,
     pub model_id_hash: String,
     pub cli_version_hash: String,
     pub constitution_hash: String,
@@ -67,8 +73,17 @@ pub fn validate(record: RunRecord) -> Result<ValidatedRunRecord, LedgerError> {
         ("branch", record.branch.as_str()),
         ("lane", record.lane.as_str()),
         ("skill", record.skill.as_str()),
+        ("model_id", record.provenance.model_id.as_str()),
+        ("cli_version", record.provenance.cli_version.as_str()),
+        ("harness", record.provenance.harness.as_str()),
+        ("provider", record.provenance.provider.as_str()),
+        ("effort", record.provenance.effort.as_str()),
+        (
+            "routing_config_version",
+            record.provenance.routing_config_version.as_str(),
+        ),
     ] {
-        if value.trim().is_empty() {
+        if value.trim().is_empty() || value.len() > 256 {
             return Err(LedgerError::Blank(field));
         }
     }
@@ -116,11 +131,13 @@ pub async fn append(pool: &PgPool, run: &ValidatedRunRecord) -> Result<(), Ledge
         r#"
         INSERT INTO factory.runs (
             id, request_id, base_sha, branch, lane, skill,
+            model_id, cli_version, harness, provider, effort, routing_config_version,
             model_id_hash, cli_version_hash, constitution_hash, rubric_hash,
             skill_hash, prompt_template_hash, verifier_binary_hash, base_tree_hash
         ) VALUES (
             $1, $2, $3, $4, $5, $6,
-            $7, $8, $9, $10, $11, $12, $13, $14
+            $7, $8, $9, $10, $11, $12,
+            $13, $14, $15, $16, $17, $18, $19, $20
         )
         "#,
     )
@@ -130,6 +147,12 @@ pub async fn append(pool: &PgPool, run: &ValidatedRunRecord) -> Result<(), Ledge
     .bind(&run.record.branch)
     .bind(&run.record.lane)
     .bind(&run.record.skill)
+    .bind(&run.record.provenance.model_id)
+    .bind(&run.record.provenance.cli_version)
+    .bind(&run.record.provenance.harness)
+    .bind(&run.record.provenance.provider)
+    .bind(&run.record.provenance.effort)
+    .bind(&run.record.provenance.routing_config_version)
     .bind(run.provenance_bytes[0].as_slice())
     .bind(run.provenance_bytes[1].as_slice())
     .bind(run.provenance_bytes[2].as_slice())

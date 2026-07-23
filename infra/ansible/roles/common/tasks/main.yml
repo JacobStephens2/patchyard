@@ -238,6 +238,17 @@
     - "9100"
     - "9187"
 
+- name: Allow supervisor metric scrapes only from fleet monitoring
+  ansible.posix.firewalld:
+    zone: public
+    rich_rule: >-
+      rule family="ipv4" source address="{{ monitoring_private_cidr }}"
+      port port="9464" protocol="tcp" accept
+    state: enabled
+    permanent: true
+    immediate: true
+  when: factory_role == 'control-plane'
+
 - name: Allow the sole PostgreSQL TCP reader only from fleet monitoring
   ansible.posix.firewalld:
     zone: public

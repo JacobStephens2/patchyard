@@ -1,0 +1,9 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+prompt=$1
+packet=$2
+output=$3
+test -r "$prompt"
+jq '{schema_version:1,review_id:.review_id,reviewed_sha:.reviewed_sha,findings:[{id:"R-1",severity:"blocking",claim:"sorting may be unstable",evidence:"fixture adversarial claim",empirically_checkable:true}],usage:{input_tokens:19,output_tokens:13,cost_microusd:0}}' "$packet" >"$output"
+printf 'adversarial reviewer fixture\n'

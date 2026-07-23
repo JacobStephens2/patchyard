@@ -24,6 +24,8 @@ use crate::{
     worktree::{DetachedWorktree, WorktreeError},
 };
 
+const ISOLATION_ABSENT_MARKER: &[u8] = b"patchyard:isolation-target-absent\n";
+
 #[derive(Clone, Debug)]
 pub struct ReviewSandboxConfig {
     pub bubblewrap: PathBuf,
@@ -249,13 +251,18 @@ impl SandboxedReviewer {
     ) -> Result<bool, ReviewError> {
         let mut spec = self.sandbox_spec(worktree, packet, output);
         spec.args.extend([
-            OsString::from("/usr/bin/stat"),
-            OsString::from("--"),
+            OsString::from("/usr/bin/bash"),
+            OsString::from("-c"),
+            OsString::from(
+                "if [[ -e \"$1\" || -L \"$1\" ]]; then exit 10; fi; \
+                 printf '%s\\n' 'patchyard:isolation-target-absent'",
+            ),
+            OsString::from("patchyard-isolation-probe"),
             OsString::from(target),
         ]);
         spec.output_limit = 64 * 1024;
         let result = run_bounded(&spec, cancellation).await?;
-        Ok(result.code != 0)
+        interpret_isolation_probe(result.code, &result.stdout)
     }
 
     fn sandbox_spec(&self, worktree: &Path, packet: &Path, output: &Path) -> ProcessSpec {
@@ -316,6 +323,15 @@ impl SandboxedReviewer {
     }
 }
 
+fn interpret_isolation_probe(code: i32, stdout: &[u8]) -> Result<bool, ReviewError> {
+    match code {
+        0 if stdout == ISOLATION_ABSENT_MARKER => Ok(true),
+        0 => Err(ReviewError::IsolationProbeProtocol),
+        10 => Ok(false),
+        status => Err(ReviewError::IsolationProbeExecution(status)),
+    }
+}
+
 fn validate_artifact(artifact: &ReviewArtifact, packet: &ReviewPacket) -> Result<(), ReviewError> {
     if artifact.schema_version != 1 || artifact.findings.len() > 100 {
         return Err(ReviewError::MalformedArtifact);
@@ -343,6 +359,10 @@ pub enum ReviewError {
     LiveProviderNotQualified,
     #[error("reviewer sandbox exposed sibling or shared scratch")]
     IsolationProbe,
+    #[error("reviewer isolation probe could not execute in sandbox (status {0})")]
+    IsolationProbeExecution(i32),
+    #[error("reviewer isolation probe returned an invalid marker")]
+    IsolationProbeProtocol,
     #[error("reviewer harness exited with status {0}")]
     HarnessExit(i32),
     #[error("review artifact is malformed")]
@@ -359,4 +379,26 @@ pub enum ReviewError {
     Worktree(#[from] WorktreeError),
     #[error("review task failed: {0}")]
     Join(tokio::task::JoinError),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ReviewError, interpret_isolation_probe};
+
+    #[test]
+    fn isolation_probe_distinguishes_absence_exposure_and_sandbox_failure() {
+        assert!(
+            interpret_isolation_probe(0, b"patchyard:isolation-target-absent\n")
+                .expect("valid absent marker")
+        );
+        assert!(!interpret_isolation_probe(10, b"").expect("visible target"));
+        assert!(matches!(
+            interpret_isolation_probe(1, b""),
+            Err(ReviewError::IsolationProbeExecution(1))
+        ));
+        assert!(matches!(
+            interpret_isolation_probe(0, b"unexpected"),
+            Err(ReviewError::IsolationProbeProtocol)
+        ));
+    }
 }

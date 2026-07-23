@@ -21,9 +21,9 @@ cmp --silent docs/schema.mmd "$STATE_CHECK_TEMP/schema.mmd" || {
 }
 target/debug/factoryctl schema-json \
   | jq --exit-status '
-      (.relations | map(select(.kind == "table")) | length == 9)
-      and (.foreign_keys | length >= 8)
-      and (.indexes | length >= 12)
+      (.relations | map(select(.kind == "table")) | length == 11)
+      and (.foreign_keys | length >= 10)
+      and (.indexes | length >= 13)
       and (.roles | map(.name) | index("grafana_ro") != null)
       and (.grants | map(select(.grantee == "grafana_ro")) | length > 0)
     ' >/dev/null

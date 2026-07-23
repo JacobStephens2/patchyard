@@ -13,6 +13,8 @@ pub mod daemon;
 pub mod observability;
 pub mod pipeline;
 pub mod process;
+pub mod publisher;
+pub mod reconcile;
 pub mod review;
 pub mod stages;
 pub mod store;

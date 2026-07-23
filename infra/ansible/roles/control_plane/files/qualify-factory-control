@@ -73,6 +73,10 @@ test -x /usr/local/sbin/patchyard-run-fixture
 test -x /usr/local/sbin/patchyard-run-isolation-probe
 test -x /usr/local/sbin/patchyard-run-hostile-qualification
 test -x /usr/local/bin/factory-supervisor
+test -x /bin/curl
+gh --version | sed -n '1p' | grep -Eq '^gh version 2\.94\.0 '
+test -x /usr/local/libexec/patchyard-git-askpass
+test "$(stat -c '%U:%G:%a' /etc/patchyard/github-app.pem)" = 'root:factory-manager:440'
 test -x /usr/local/sbin/patchyard-invoke-worker
 test -x /usr/local/sbin/patchyard-cleanup-worker
 grep -Eq '^patchyard_parity_snapshot_age_days -?[0-9]+$' \
@@ -92,7 +96,7 @@ test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \
   --dbname=patchyard --tuples-only --no-align --command='SHOW ssl')" = on
 test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \
   --dbname=patchyard --tuples-only --no-align \
-  --command='SELECT count(*) FROM public._sqlx_migrations WHERE success')" = 3
+  --command='SELECT count(*) FROM public._sqlx_migrations WHERE success')" = 4
 
 for ROLE in patchyard_migrator patchyard_supervisor patchyard_dashboard grafana_ro patchyard_exporter; do
   test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \
@@ -142,6 +146,10 @@ assert_role_allowed patchyard_supervisor \
   "SELECT 1 FROM factory.side_effects LIMIT 1"
 assert_role_denied patchyard_dashboard \
   "SELECT 1 FROM factory.side_effects LIMIT 1"
+for TABLE in publisher_leases github_state; do
+  assert_role_allowed patchyard_supervisor "SELECT 1 FROM factory.$TABLE LIMIT 1"
+  assert_role_denied patchyard_dashboard "SELECT 1 FROM factory.$TABLE LIMIT 1"
+done
 assert_role_allowed patchyard_dashboard \
   "INSERT INTO factory.requests (id, fingerprint, source, body, trace_id) VALUES ('40000000-0000-4000-8000-000000000001', decode(repeat('44', 32), 'hex'), 'qualification', 'dashboard intake', '40000000000000000000000000000001')"
 assert_role_allowed patchyard_supervisor \

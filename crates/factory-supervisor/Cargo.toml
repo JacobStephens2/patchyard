@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+base64.workspace = true
 clap.workspace = true
 factory-core = { path = "../factory-core", version = "=0.0.0" }
 factory-verify = { path = "../factory-verify", version = "=0.0.0" }

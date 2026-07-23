@@ -478,6 +478,7 @@ dependencies = [
 name = "factory-supervisor"
 version = "0.0.0"
 dependencies = [
+ "base64",
  "clap",
  "factory-core",
  "factory-verify",

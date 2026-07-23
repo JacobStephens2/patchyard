@@ -7,6 +7,14 @@ ANSIBLE_ROOT="$REPO_ROOT/infra/ansible"
 FACTORY_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
 CARGO_BIN=${CARGO_BIN:-/var/lib/conductor/.cargo/bin/cargo}
 
+: "${GH_PATCHYARD_APP_ID:?GH_PATCHYARD_APP_ID is required}"
+: "${GH_PATCHYARD_APP_INSTALLATION_ID:?GH_PATCHYARD_APP_INSTALLATION_ID is required}"
+: "${GH_PATCHYARD_APP_PRIVATE_KEY_FILE:?GH_PATCHYARD_APP_PRIVATE_KEY_FILE is required}"
+if [[ ! -f "$GH_PATCHYARD_APP_PRIVATE_KEY_FILE" ]]; then
+  echo "GitHub App private-key file is not a regular file" >&2
+  exit 1
+fi
+
 if [[ -n "$(git -C "$REPO_ROOT" status --porcelain)" ]]; then
   echo "converge requires a committed, clean desired-state revision" >&2
   exit 1
@@ -54,4 +62,7 @@ cd "$ANSIBLE_ROOT"
   -e "factory_verify_sha256=$FACTORY_VERIFY_SHA256" \
   -e "factory_supervisor_binary=$FACTORY_SUPERVISOR_BINARY" \
   -e "factory_supervisor_sha256=$FACTORY_SUPERVISOR_SHA256" \
+  -e "factory_github_app_id=$GH_PATCHYARD_APP_ID" \
+  -e "factory_github_app_installation_id=$GH_PATCHYARD_APP_INSTALLATION_ID" \
+  -e "factory_github_app_private_key_file=$GH_PATCHYARD_APP_PRIVATE_KEY_FILE" \
   "$@"

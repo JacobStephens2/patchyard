@@ -34,6 +34,13 @@ erDiagram
         jsonb payload
         timestamptz occurred_at
     }
+    github_state {
+        text repository PK
+        timestamptz observed_at nullable
+        timestamptz failed_at nullable
+        text last_error nullable
+        integer open_pr_count nullable
+    }
     leases {
         text resource PK
         uuid request_id UK
@@ -53,6 +60,27 @@ erDiagram
         timestamptz reconciled_at
         timestamptz merged_at nullable
         character40 deployed_sha nullable
+        text branch nullable
+        text state nullable
+        boolean is_draft nullable
+        text author_login nullable
+        text html_url nullable
+        character40 merge_commit_sha nullable
+        text merged_by nullable
+        timestamptz github_updated_at nullable
+        boolean admin_bypassed
+        boolean passing_run
+        text reconcile_error nullable
+    }
+    publisher_leases {
+        text resource PK
+        uuid request_id
+        uuid run_id
+        text holder
+        bigint fencing_token
+        timestamptz acquired_at
+        timestamptz expires_at
+        timestamptz released_at nullable
     }
     requests {
         uuid id PK
@@ -121,6 +149,8 @@ erDiagram
     requests ||--o| leases : "leases_request_id_fkey"
     requests o|--o{ pr_state : "pr_state_request_id_fkey"
     runs o|--o{ pr_state : "pr_state_run_id_fkey"
+    requests ||--o{ publisher_leases : "publisher_leases_request_id_fkey"
+    runs ||--o{ publisher_leases : "publisher_leases_run_id_fkey"
     requests ||--o{ runs : "runs_request_id_fkey"
     requests ||--o{ side_effects : "side_effects_request_id_fkey"
     runs o|--o{ side_effects : "side_effects_run_id_fkey"

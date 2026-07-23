@@ -1,0 +1,18 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+repository=$1
+base_sha=$2
+patch=$3
+implement_evidence=$4
+output=$5
+shift 5
+test -d "$repository"
+test "${#base_sha}" -eq 40
+jq -e '.schema_version == 1' "$implement_evidence" >/dev/null
+test "$(grep -c '^+.*ORDER BY firstName ASC, lastName ASC' "$patch")" -eq 2
+test "$(grep -c '^-.*ORDER BY listOrder ASC' "$patch")" -eq 1
+test "$(grep -c '^diff --git ' "$patch")" -eq 2
+mkdir -m 700 -- "$output"
+printf '%s\n' '{"schema_version":1,"status":"passed","gate":"publisher-demo-sql-ordering","publish_invoked":false}' >"$output/evidence.json"
+printf 'Session 10 deterministic publisher fixture passed\n'

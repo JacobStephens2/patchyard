@@ -3,6 +3,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
+    sync::Arc,
     time::Instant,
 };
 
@@ -27,6 +28,9 @@ use crate::{
         ResolvedInvocation, TriageInvocation, VerifyFailure, WorkerClaim, WorkerTaskPacket,
     },
     observability,
+    publisher::{
+        PublishInput, PublishService, PublishedPullRequest, PublisherError, build_pr_body,
+    },
     review::{ReviewError, SandboxedReviewer},
     stages::{
         ProcessAgentBackend, ProcessVerifierBackend, ProcessWorkerBackend, StageError,
@@ -52,6 +56,7 @@ pub struct PipelineConfig {
     pub scratch: PathBuf,
     pub holder: String,
     pub mode: RunMode,
+    pub publish_branch_suffix: String,
     pub reviewer_count: usize,
     pub builder_cli_version: String,
     pub constitution: PathBuf,
@@ -64,11 +69,27 @@ pub struct PipelineConfig {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum PipelineOutcome {
-    PlanBin { lane: String, request_id: Uuid },
-    DryRunComplete { run_id: Uuid, attempts: u8 },
-    VerifiedPrePublish { run_id: Uuid, attempts: u8 },
-    Escalated { run_id: Uuid, reason: String },
-    AlreadyTerminal { run_id: Uuid, state: String },
+    PlanBin {
+        lane: String,
+        request_id: Uuid,
+    },
+    DryRunComplete {
+        run_id: Uuid,
+        attempts: u8,
+    },
+    PublishedDraft {
+        run_id: Uuid,
+        attempts: u8,
+        pull_request: PublishedPullRequest,
+    },
+    Escalated {
+        run_id: Uuid,
+        reason: String,
+    },
+    AlreadyTerminal {
+        run_id: Uuid,
+        state: String,
+    },
 }
 
 #[derive(Clone)]
@@ -82,6 +103,7 @@ pub struct Pipeline<S: PipelineStore> {
     worker: ProcessWorkerBackend,
     verifier: ProcessVerifierBackend,
     reviewer: SandboxedReviewer,
+    publisher: Option<Arc<dyn PublishService>>,
 }
 
 impl<S: PipelineStore> Pipeline<S> {
@@ -97,6 +119,7 @@ impl<S: PipelineStore> Pipeline<S> {
         worker: ProcessWorkerBackend,
         verifier: ProcessVerifierBackend,
         reviewer: SandboxedReviewer,
+        publisher: Option<Arc<dyn PublishService>>,
     ) -> Self {
         Self {
             store,
@@ -108,6 +131,7 @@ impl<S: PipelineStore> Pipeline<S> {
             worker,
             verifier,
             reviewer,
+            publisher,
         }
     }
 
@@ -176,6 +200,9 @@ impl<S: PipelineStore> Pipeline<S> {
                 run_id: run.id,
                 state: run.state,
             });
+        }
+        if matches!(run.state.as_str(), "verified" | "publishing") {
+            return self.resume_publication(claim, &run, cancellation).await;
         }
 
         let bundle = ExactBundle::create(
@@ -299,7 +326,12 @@ impl<S: PipelineStore> Pipeline<S> {
             id: run_id,
             request_id,
             base_sha: self.config.base_sha.clone(),
-            branch: format!("factory/dry-run/{}", run_id.simple()),
+            branch: match self.config.mode {
+                RunMode::DryRun => format!("factory/dry-run/{}", run_id.simple()),
+                RunMode::PrePublish => {
+                    format!("factory/{request_id}-{}", self.config.publish_branch_suffix)
+                }
+            },
             lane: lane.to_string(),
             skill: skill.clone(),
             provenance,
@@ -308,6 +340,7 @@ impl<S: PipelineStore> Pipeline<S> {
         Ok(ExistingRun {
             id: run_id,
             base_sha: self.config.base_sha.clone(),
+            branch: record.record().branch.clone(),
             state: "queued".to_owned(),
             lane: lane.to_string(),
             skill,
@@ -436,38 +469,65 @@ impl<S: PipelineStore> Pipeline<S> {
                 )
                 .await?;
             if verify.passed {
-                let state = match self.config.mode {
-                    RunMode::DryRun => "dry_run_complete",
-                    RunMode::PrePublish => "ready_for_review",
+                if self.config.mode == RunMode::DryRun {
+                    self.store
+                        .finish_run(
+                            claim.request_id,
+                            run.id,
+                            "dry_run_complete",
+                            "run.dry_run_complete",
+                            serde_json::json!({
+                                "dry_run": true,
+                                "publish_invoked": false,
+                                "attempt": attempt,
+                                "accept": acceptance,
+                            }),
+                        )
+                        .await?;
+                    return Ok(PipelineOutcome::DryRunComplete {
+                        run_id: run.id,
+                        attempts: attempt + 1,
+                    });
+                }
+                let input = PublishInput {
+                    schema_version: 1,
+                    request_id: claim.request_id,
+                    run_id: run.id,
+                    attempts: attempt + 1,
+                    branch: run.branch.clone(),
+                    base_sha: run.base_sha.clone(),
+                    patch_relative_path: outputs.patch.relative_path.clone(),
+                    patch_sha256: inspected.patch_sha256,
+                    expected_tree_hash: contract.result_tree_hash.clone(),
+                    title: format!("Factory request {}", claim.request_id),
+                    body: build_pr_body(
+                        claim.request_id,
+                        &claim.source,
+                        &claim.body,
+                        &run.base_sha,
+                        &contract.result_tree_hash,
+                        &contract.patch_sha256,
+                    )?,
                 };
-                let event = match self.config.mode {
-                    RunMode::DryRun => "run.dry_run_complete",
-                    RunMode::PrePublish => "run.verified_pre_publish",
-                };
+                let input = self.persist_publish_input(&input).await?;
                 self.store
-                    .finish_run(
+                    .transition_run(
                         claim.request_id,
                         run.id,
-                        state,
-                        event,
+                        "run.verified",
+                        "verified",
+                        &format!("publisher:{}:verified", run.id),
                         serde_json::json!({
-                            "dry_run": self.config.mode == RunMode::DryRun,
-                            "publish_invoked": false,
                             "attempt": attempt,
-                            "accept": acceptance,
+                            "patch_sha256": input.patch_sha256,
+                            "result_tree_hash": input.expected_tree_hash,
+                            "publish_input": true,
                         }),
                     )
                     .await?;
-                return Ok(match self.config.mode {
-                    RunMode::DryRun => PipelineOutcome::DryRunComplete {
-                        run_id: run.id,
-                        attempts: attempt + 1,
-                    },
-                    RunMode::PrePublish => PipelineOutcome::VerifiedPrePublish {
-                        run_id: run.id,
-                        attempts: attempt + 1,
-                    },
-                });
+                return self
+                    .publish_durable(&input, attempt + 1, cancellation)
+                    .await;
             }
             if attempt == 0 {
                 failure = Some(VerifyFailure {
@@ -1008,6 +1068,129 @@ impl<S: PipelineStore> Pipeline<S> {
         })
     }
 
+    async fn persist_publish_input(
+        &self,
+        intended: &PublishInput,
+    ) -> Result<PublishInput, PipelineError> {
+        if let Some(existing) = self
+            .load_publish_input(intended.request_id, intended.run_id)
+            .await?
+        {
+            if existing != *intended {
+                return Err(PipelineError::PublishInputConflict);
+            }
+            return Ok(existing);
+        }
+        intended.validate()?;
+        self.persist(
+            intended.request_id,
+            Some(intended.run_id),
+            "publisher",
+            "publish-input.json",
+            "publish-input",
+            serde_json::to_vec(intended)?,
+            128 * 1024,
+        )
+        .await?;
+        Ok(intended.clone())
+    }
+
+    async fn load_publish_input(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+    ) -> Result<Option<PublishInput>, PipelineError> {
+        let mut inputs: Vec<_> = self
+            .store
+            .stage_artifacts(request_id, run_id, "publisher")
+            .await?
+            .into_iter()
+            .filter(|artifact| artifact.kind == "publish-input")
+            .collect();
+        if inputs.is_empty() {
+            return Ok(None);
+        }
+        if inputs.len() != 1 {
+            return Err(PipelineError::RecoveredArtifactSet {
+                stage: "publisher".to_owned(),
+                reason: format!("expected one publish-input, found {}", inputs.len()),
+            });
+        }
+        let artifact = inputs.pop().expect("length checked");
+        let bytes = read_bounded_file(
+            self.artifacts.root().join(&artifact.relative_path),
+            128 * 1024,
+        )
+        .await?;
+        if hash_bytes(&bytes) != artifact.sha256 {
+            return Err(PipelineError::RecoveredArtifactDigest {
+                path: artifact.relative_path,
+            });
+        }
+        let input: PublishInput = serde_json::from_slice(&bytes)?;
+        input.validate()?;
+        if input.request_id != request_id || input.run_id != run_id {
+            return Err(PipelineError::PublishInputIdentity);
+        }
+        Ok(Some(input))
+    }
+
+    async fn resume_publication(
+        &self,
+        claim: &WorkClaim,
+        run: &ExistingRun,
+        cancellation: &CancellationToken,
+    ) -> Result<PipelineOutcome, PipelineError> {
+        let input = self
+            .load_publish_input(claim.request_id, run.id)
+            .await?
+            .ok_or(PipelineError::MissingPublishInput)?;
+        if input.base_sha != run.base_sha || input.branch != run.branch {
+            return Err(PipelineError::PublishInputConflict);
+        }
+        self.publish_durable(&input, input.attempts, cancellation)
+            .await
+    }
+
+    async fn publish_durable(
+        &self,
+        input: &PublishInput,
+        attempts: u8,
+        cancellation: &CancellationToken,
+    ) -> Result<PipelineOutcome, PipelineError> {
+        let publisher = self
+            .publisher
+            .as_ref()
+            .ok_or(PipelineError::PublisherUnavailable)?;
+        let patch_path = self.artifacts.root().join(&input.patch_relative_path);
+        let patch = read_bounded_file(patch_path.clone(), 1024 * 1024).await?;
+        if hash_bytes(&patch) != input.patch_sha256 {
+            return Err(PipelineError::RecoveredArtifactDigest {
+                path: input.patch_relative_path.clone(),
+            });
+        }
+        let pull_request = publisher.publish(input, &patch_path, cancellation).await?;
+        self.store
+            .finish_run(
+                input.request_id,
+                input.run_id,
+                "ready_for_review",
+                "run.ready_for_review",
+                serde_json::json!({
+                    "dry_run": false,
+                    "publish_invoked": true,
+                    "attempts": attempts,
+                    "pull_request": pull_request,
+                }),
+            )
+            .await?;
+        Ok(PipelineOutcome::PublishedDraft {
+            run_id: input.run_id,
+            attempts,
+            pull_request,
+        })
+    }
+
     fn invocation(&self, task_class: &str) -> Result<ResolvedInvocation, PipelineError> {
         let rule = self.routing.resolve(task_class)?;
         Ok(ResolvedInvocation {
@@ -1180,4 +1363,14 @@ pub enum PipelineError {
     RecoveredArtifactDigest { path: String },
     #[error("author disposition does not cover each finding exactly once")]
     MalformedDisposition,
+    #[error("publisher is unavailable for a pre-publish run")]
+    PublisherUnavailable,
+    #[error("durable publish input is missing")]
+    MissingPublishInput,
+    #[error("durable publish input conflicts with the verified run")]
+    PublishInputConflict,
+    #[error("durable publish input identifies a different request or run")]
+    PublishInputIdentity,
+    #[error("publisher failed: {0}")]
+    Publisher(#[from] PublisherError),
 }

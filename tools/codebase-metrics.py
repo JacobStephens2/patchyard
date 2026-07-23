@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -109,17 +110,20 @@ def role_metrics(role: str, report: dict[str, Any]) -> dict[str, Any]:
 
 def source_revision(root: Path) -> str:
     digest = hashlib.sha256()
-    paths: set[Path] = set()
-    for entries in ROLE_PATHS.values():
-        for entry in entries:
-            candidate = root / entry
-            if candidate.is_dir():
-                paths.update(path for path in candidate.rglob("*") if path.is_file())
-            elif candidate.is_file():
-                paths.add(candidate)
+    role_paths = sorted({entry for entries in ROLE_PATHS.values() for entry in entries})
+    tracked = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-z", "--", *role_paths],
+        check=True,
+        stdout=subprocess.PIPE,
+    ).stdout
+    paths = {
+        root / Path(encoded.decode())
+        for encoded in tracked.split(b"\0")
+        if encoded
+    }
     excluded = root / "docs/codebase-metrics.json"
     for path in sorted(paths):
-        if path == excluded or ".git" in path.parts or "target" in path.parts:
+        if path == excluded:
             continue
         relative = path.relative_to(root).as_posix().encode()
         digest.update(len(relative).to_bytes(4, "big"))

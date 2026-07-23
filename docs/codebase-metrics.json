@@ -2,7 +2,7 @@
   "schema_version": 1,
   "generated_by": "tools/check-codebase.sh",
   "tokei_version": "14.0.0",
-  "source_revision": "sha256:d287b5b0650ea6584a14808a9232d995498bd3a4da2bae1f700edd50f29d2083",
+  "source_revision": "sha256:f6bfa9dc1f664c160d10078ec4db1899df61e0880218ae334bfeba9b9dc22499",
   "roles": [
     {
       "role": "product",
@@ -160,7 +160,7 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 4872,
+      "code": 4876,
       "comments": 229,
       "blanks": 548,
       "files": 78,
@@ -202,7 +202,7 @@
         },
         {
           "language": "Python",
-          "code": 2791,
+          "code": 2795,
           "comments": 27,
           "blanks": 400,
           "files": 18

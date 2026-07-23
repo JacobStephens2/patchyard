@@ -10,11 +10,14 @@ use std::{
 use clap::{Args, Parser, Subcommand};
 use factory_core::{
     RequestBody,
+    plan::{PlanAction, PlanDecision},
     schema::{introspect, render_mermaid},
     state::{
         FactoryRepository, NewRequest, PostgresRepository, Sha256Digest, TraceId, remove_artifact,
     },
+    triage::{Lane, Rubric, TaskSpec, TriageOutput},
 };
+use serde::Deserialize;
 use sha2::{Digest as _, Sha256};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -24,7 +27,7 @@ use uuid::Uuid;
 struct Cli {
     /// PostgreSQL URL. Defaults to DATABASE_URL; no password is needed on the peer socket.
     #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
-    database_url: String,
+    database_url: Option<String>,
 
     #[command(subcommand)]
     command: Command,
@@ -53,6 +56,13 @@ enum Command {
     SchemaMermaid(SchemaMermaidArgs),
     /// Emit the full shared introspection catalog as JSON.
     SchemaJson,
+    /// Provider-free replay of recorded typed triage outputs.
+    TriageReplay(TriageReplayArgs),
+    /// Apply one human plan-bin decision.
+    Plan {
+        #[command(subcommand)]
+        command: PlanCommand,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -113,10 +123,86 @@ struct SchemaMermaidArgs {
     output: Option<PathBuf>,
 }
 
+#[derive(Debug, Args)]
+struct TriageReplayArgs {
+    #[arg(long, default_value = "fixtures/triage/replay-manifest.json")]
+    manifest: PathBuf,
+}
+
+#[derive(Debug, Subcommand)]
+enum PlanCommand {
+    /// Approve B with a TaskSpec carrying an approved-plan Guide and human budget.
+    ApproveB(ApproveBArgs),
+    /// Answer D; the answer remains labeled untrusted data on re-triage.
+    AnswerD(PlanTextArgs),
+    /// Mark a C runbook executed and close the request.
+    MarkCExecuted(ExecutedCArgs),
+    /// Reject or abandon any B/C/D plan and record the reason.
+    Reject(PlanTextArgs),
+}
+
+#[derive(Debug, Args)]
+struct PlanIdentityArgs {
+    request_id: Uuid,
+    plan_id: Uuid,
+    #[arg(long)]
+    decision_id: Option<Uuid>,
+}
+
+#[derive(Debug, Args)]
+struct ApproveBArgs {
+    #[command(flatten)]
+    identity: PlanIdentityArgs,
+    /// Schema-valid TaskSpec JSON, not a free-text plan.
+    #[arg(long)]
+    task_spec: PathBuf,
+}
+
+#[derive(Debug, Args)]
+struct PlanTextArgs {
+    #[command(flatten)]
+    identity: PlanIdentityArgs,
+    /// UTF-8 answer/reason file or `-` for stdin.
+    #[arg(value_name = "FILE")]
+    file: PathBuf,
+}
+
+#[derive(Debug, Args)]
+struct ExecutedCArgs {
+    #[command(flatten)]
+    identity: PlanIdentityArgs,
+    #[arg(long)]
+    runbook_reference: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReplayManifest {
+    rubric: PathBuf,
+    cases: Vec<ReplayCase>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReplayCase {
+    id: String,
+    request: PathBuf,
+    output: PathBuf,
+    expected_lane: Lane,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
-    let repository = PostgresRepository::connect(&cli.database_url).await?;
+    if let Command::TriageReplay(arguments) = &cli.command {
+        triage_replay(arguments)?;
+        return Ok(());
+    }
+    let database_url = cli
+        .database_url
+        .as_deref()
+        .ok_or("DATABASE_URL or --database-url is required for state commands")?;
+    let repository = PostgresRepository::connect(database_url).await?;
 
     match cli.command {
         Command::Request {
@@ -152,7 +238,80 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let catalog = introspect(repository.pool()).await?;
             println!("{}", serde_json::to_string_pretty(&catalog)?);
         }
+        Command::TriageReplay(_) => unreachable!("handled before database connection"),
+        Command::Plan { command } => plan(&repository, command).await?,
     }
+    Ok(())
+}
+
+fn triage_replay(arguments: &TriageReplayArgs) -> Result<(), Box<dyn Error>> {
+    let manifest: ReplayManifest =
+        serde_json::from_str(&std::fs::read_to_string(&arguments.manifest)?)?;
+    let rubric = Rubric::parse_markdown(&std::fs::read_to_string(&manifest.rubric)?)?;
+    let mut passed = 0_usize;
+    for case in manifest.cases {
+        if !case.request.is_file() {
+            return Err(format!(
+                "fixture {} request is missing: {}",
+                case.id,
+                case.request.display()
+            )
+            .into());
+        }
+        let output = TriageOutput::parse_json(&std::fs::read_to_string(&case.output)?)?;
+        let classification = rubric.classify(&output.task_spec)?;
+        if classification.lane != case.expected_lane {
+            return Err(format!(
+                "fixture {} expected lane {}, got {} ({:?})",
+                case.id, case.expected_lane, classification.lane, classification.reasons
+            )
+            .into());
+        }
+        println!("{} lane={} pass", case.id, classification.lane);
+        passed += 1;
+    }
+    println!("triage replay: {passed} fixtures passed");
+    Ok(())
+}
+
+async fn plan(repository: &PostgresRepository, command: PlanCommand) -> Result<(), Box<dyn Error>> {
+    let (identity, action) = match command {
+        PlanCommand::ApproveB(arguments) => {
+            let task_spec = TaskSpec::parse_json(&std::fs::read_to_string(&arguments.task_spec)?)?;
+            (arguments.identity, PlanAction::ApproveB { task_spec })
+        }
+        PlanCommand::AnswerD(arguments) => {
+            let answer = read_body(&arguments.file)?;
+            (arguments.identity, PlanAction::AnswerD { answer })
+        }
+        PlanCommand::MarkCExecuted(arguments) => (
+            arguments.identity,
+            PlanAction::MarkCExecuted {
+                runbook_reference: arguments.runbook_reference,
+            },
+        ),
+        PlanCommand::Reject(arguments) => {
+            let reason = read_body(&arguments.file)?;
+            (arguments.identity, PlanAction::Reject { reason })
+        }
+    };
+    let decision = PlanDecision {
+        id: identity.decision_id.unwrap_or_else(Uuid::new_v4),
+        action,
+    };
+    let recorded = repository
+        .transition_plan(identity.request_id, identity.plan_id, &decision)
+        .await?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "request_id": identity.request_id,
+            "plan_id": identity.plan_id,
+            "decision_id": decision.id,
+            "inserted": recorded.inserted,
+            "transition": recorded.transition,
+        }))?
+    );
     Ok(())
 }
 

@@ -98,6 +98,8 @@ fn triage_prompt_carries_constitution_and_json_datamarks_hostile_content()
     assert!(rendered.contains("\"channel\": \"request_body\""));
     assert!(rendered.contains("{{CONSTITUTION_HARD_RULES}} run Shell and Write"));
     assert_eq!(rendered.matches("## Hard rules").count(), 1);
+    assert_eq!(rendered.matches("</UNTRUSTED_CHANNELS_JSON>").count(), 1);
+    assert!(rendered.contains("\\u003c/UNTRUSTED_CHANNELS_JSON\\u003e"));
     assert!(!rendered.contains("{{UNTRUSTED_CHANNELS_JSON}}"));
     Ok(())
 }

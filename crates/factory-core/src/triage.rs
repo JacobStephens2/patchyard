@@ -382,6 +382,7 @@ struct DenyPathRule {
 enum PathMatch {
     Exact,
     Prefix,
+    Suffix,
     Component,
     FileName,
 }
@@ -561,6 +562,7 @@ impl DenyPathRule {
         match self.match_kind {
             PathMatch::Exact => path == self.value,
             PathMatch::Prefix => path.starts_with(&self.value),
+            PathMatch::Suffix => path.ends_with(&self.value),
             PathMatch::Component => path.split('/').any(|component| component == self.value),
             PathMatch::FileName => path.rsplit('/').next() == Some(self.value.as_str()),
         }
@@ -605,7 +607,10 @@ pub fn render_triage_prompt(
     let datamarked = serde_json::to_string_pretty(&serde_json::json!({
         "authority": "none",
         "channels": channels,
-    }))?;
+    }))?
+    .replace('<', "\\u003c")
+    .replace('>', "\\u003e")
+    .replace('&', "\\u0026");
     let with_constitution = template.replace(HARD_RULES_PLACEHOLDER, hard_rules);
     Ok(with_constitution.replace(UNTRUSTED_PLACEHOLDER, &datamarked))
 }
@@ -617,11 +622,16 @@ pub fn validate_triage_frontmatter(template: &str) -> Result<(), TriageError> {
         return Err(TriageError::InvalidTriageFrontmatter);
     }
     let mut tools = None;
+    let mut closed = false;
     for line in &mut lines {
         if line == "---" {
+            closed = true;
             break;
         }
         if let Some(value) = line.strip_prefix("tools:") {
+            if tools.is_some() {
+                return Err(TriageError::InvalidTriageFrontmatter);
+            }
             tools = Some(
                 value
                     .split(',')
@@ -630,6 +640,9 @@ pub fn validate_triage_frontmatter(template: &str) -> Result<(), TriageError> {
                     .collect::<Vec<_>>(),
             );
         }
+    }
+    if !closed {
+        return Err(TriageError::InvalidTriageFrontmatter);
     }
     if tools.as_deref() != Some(&["Read", "Grep", "Glob"][..]) {
         return Err(TriageError::InvalidTriageToolAllowlist);
@@ -669,8 +682,10 @@ fn validate_rubric(document: &RubricDocument) -> Result<(), TriageError> {
     for rule in &document.deny_paths {
         bounded_nonblank("deny_paths.value", &rule.value, 512)?;
         bounded_nonblank("deny_paths.reason", &rule.reason, 128)?;
-        if rule.lane == Lane::A {
-            return Err(TriageError::InvalidRubric("deny rule cannot grant lane A"));
+        if rule.lane != Lane::B {
+            return Err(TriageError::InvalidRubric(
+                "path deny rules must demote lane-A candidates to B",
+            ));
         }
     }
     Ok(())

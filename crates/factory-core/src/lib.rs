@@ -2,6 +2,7 @@
 
 use std::{error::Error, fmt};
 
+pub mod plan;
 pub mod schema;
 pub mod state;
 pub mod triage;

@@ -14,7 +14,15 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::RequestBody;
+use crate::{
+    RequestBody,
+    plan::{
+        PlanAction, PlanDecision, PlanError, PlanTransition, PlanTransitionKind, transition_for,
+    },
+    triage::{Classification, Lane, Rubric, TaskSpec, TriageError, TriageOutput},
+};
+
+const PLAN_CLOSE_RETENTION: Duration = Duration::from_secs(90 * 86_400);
 
 /// A validated W3C trace identifier carried by every queued row and event.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -154,6 +162,30 @@ pub struct ExpiredArtifact {
     pub relative_path: PathBuf,
 }
 
+/// One idempotent triage result ready for the append-only ledger.
+#[derive(Clone, Debug)]
+pub struct TriageSubmission {
+    pub id: Uuid,
+    /// Required for B/C/D and forbidden for A.
+    pub plan_id: Option<Uuid>,
+    pub output: TriageOutput,
+}
+
+/// Durable result of recording one schema-validated triage output.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TriageRecorded {
+    pub classification: Classification,
+    pub plan_id: Option<Uuid>,
+    pub inserted: bool,
+}
+
+/// Durable result of a plan-bin decision.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlanTransitionRecorded {
+    pub transition: PlanTransition,
+    pub inserted: bool,
+}
+
 /// Named transaction boundaries used by the crash-convergence suite.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TransitionFault {
@@ -188,6 +220,25 @@ pub trait FactoryRepository {
         request_id: Uuid,
         retention: Duration,
     ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    fn record_triage(
+        &self,
+        request_id: Uuid,
+        submission: &TriageSubmission,
+        rubric: &Rubric,
+    ) -> impl Future<Output = Result<TriageRecorded, RepositoryError>> + Send;
+
+    fn transition_plan(
+        &self,
+        request_id: Uuid,
+        plan_id: Uuid,
+        decision: &PlanDecision,
+    ) -> impl Future<Output = Result<PlanTransitionRecorded, RepositoryError>> + Send;
+
+    fn authoritative_implementation_task_spec(
+        &self,
+        request_id: Uuid,
+    ) -> impl Future<Output = Result<Option<TaskSpec>, RepositoryError>> + Send;
 
     fn expired_artifacts(
         &self,
@@ -279,11 +330,14 @@ impl PostgresRepository {
             append_event(
                 &mut transaction,
                 id,
-                None,
-                "request.queued",
-                None,
-                Some("queued"),
-                request.trace_id.as_str(),
+                EventAppend {
+                    run_id: None,
+                    event_type: "request.queued",
+                    from_state: None,
+                    to_state: Some("queued"),
+                    trace_id: request.trace_id.as_str(),
+                    payload: &serde_json::json!({}),
+                },
             )
             .await?;
         }
@@ -390,6 +444,9 @@ impl FactoryRepository for PostgresRepository {
         if matches!(status.as_str(), "closed" | "failed" | "killed") {
             return Err(RepositoryError::TerminalRequest { request_id, status });
         }
+        if status == "plan_bin" {
+            return Err(RepositoryError::RequestInPlanBin(request_id));
+        }
 
         let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
             .fetch_one(&mut *transaction)
@@ -462,11 +519,14 @@ impl FactoryRepository for PostgresRepository {
             append_event(
                 &mut transaction,
                 request_id,
-                None,
-                "request.claimed",
-                Some(&status),
-                Some("claimed"),
-                &trace_id,
+                EventAppend {
+                    run_id: None,
+                    event_type: "request.claimed",
+                    from_state: Some(&status),
+                    to_state: Some("claimed"),
+                    trace_id: &trace_id,
+                    payload: &serde_json::json!({}),
+                },
             )
             .await?;
             transaction.commit().await?;
@@ -502,11 +562,14 @@ impl FactoryRepository for PostgresRepository {
         append_event(
             &mut transaction,
             request_id,
-            None,
-            "request.claimed",
-            Some(&status),
-            Some("claimed"),
-            &trace_id,
+            EventAppend {
+                run_id: None,
+                event_type: "request.claimed",
+                from_state: Some(&status),
+                to_state: Some("claimed"),
+                trace_id: &trace_id,
+                payload: &serde_json::json!({}),
+            },
         )
         .await?;
         transaction.commit().await?;
@@ -536,6 +599,9 @@ impl FactoryRepository for PostgresRepository {
         if status == "closed" {
             transaction.commit().await?;
             return Ok(false);
+        }
+        if status == "plan_bin" {
+            return Err(RepositoryError::RequestInPlanBin(request_id));
         }
         if matches!(status.as_str(), "failed" | "killed") {
             return Err(RepositoryError::TerminalRequest { request_id, status });
@@ -567,15 +633,359 @@ impl FactoryRepository for PostgresRepository {
         append_event(
             &mut transaction,
             request_id,
-            None,
-            "request.closed",
-            Some(&status),
-            Some("closed"),
-            &trace_id,
+            EventAppend {
+                run_id: None,
+                event_type: "request.closed",
+                from_state: Some(&status),
+                to_state: Some("closed"),
+                trace_id: &trace_id,
+                payload: &serde_json::json!({}),
+            },
         )
         .await?;
         transaction.commit().await?;
         Ok(true)
+    }
+
+    async fn record_triage(
+        &self,
+        request_id: Uuid,
+        submission: &TriageSubmission,
+        rubric: &Rubric,
+    ) -> Result<TriageRecorded, RepositoryError> {
+        submission.output.validate()?;
+        let classification = rubric.classify(&submission.output.task_spec)?;
+        match (classification.lane, submission.plan_id) {
+            (Lane::A, None) => {}
+            (Lane::A, Some(_)) => return Err(RepositoryError::LaneAPlanId),
+            (Lane::B | Lane::C | Lane::D, None) => {
+                return Err(RepositoryError::PlanIdRequired(classification.lane));
+            }
+            (Lane::B | Lane::C | Lane::D, Some(_)) => {}
+        }
+
+        let task_spec_sha256 = hex::encode(submission.output.task_spec.sha256()?);
+        let rubric_sha256 = hex::encode(rubric.source_sha256());
+        let triage_payload = serde_json::json!({
+            "triage_id": submission.id,
+            "plan_id": submission.plan_id,
+            "lane": classification.lane,
+            "reasons": classification.reasons,
+            "confidence_basis_points": submission.output.confidence_basis_points,
+            "task_spec_sha256": task_spec_sha256,
+            "rubric_sha256": rubric_sha256,
+            "task_spec": submission.output.task_spec,
+        });
+
+        let mut transaction = self.pool.begin().await?;
+        let (status, trace_id) =
+            Self::require_request_for_update(&mut transaction, request_id).await?;
+        let existing: Option<serde_json::Value> = sqlx::query_scalar(
+            r#"
+            SELECT payload
+            FROM factory.events
+            WHERE request_id = $1
+              AND event_type = 'triage.classified'
+              AND payload->>'triage_id' = $2
+            ORDER BY id DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(request_id)
+        .bind(submission.id.to_string())
+        .fetch_optional(&mut *transaction)
+        .await?;
+        if let Some(existing) = existing {
+            if existing != triage_payload {
+                return Err(RepositoryError::TriageIdConflict(submission.id));
+            }
+            transaction.commit().await?;
+            return Ok(TriageRecorded {
+                classification,
+                plan_id: submission.plan_id,
+                inserted: false,
+            });
+        }
+        if status != "claimed" {
+            return Err(RepositoryError::UnexpectedRequestStatus {
+                request_id,
+                expected: "claimed",
+                actual: status,
+            });
+        }
+
+        let triage_target = if classification.lane == Lane::A {
+            "implement"
+        } else {
+            "plan_bin"
+        };
+        append_event(
+            &mut transaction,
+            request_id,
+            EventAppend {
+                run_id: None,
+                event_type: "triage.classified",
+                from_state: Some("triaging"),
+                to_state: Some(triage_target),
+                trace_id: &trace_id,
+                payload: &triage_payload,
+            },
+        )
+        .await?;
+
+        if let Some(plan_id) = submission.plan_id {
+            let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
+                .fetch_one(&mut *transaction)
+                .await?;
+            sqlx::query("UPDATE factory.requests SET status = 'plan_bin' WHERE id = $1")
+                .bind(request_id)
+                .execute(&mut *transaction)
+                .await?;
+            sqlx::query(
+                "UPDATE factory.leases SET released_at = $2 WHERE request_id = $1 AND released_at IS NULL",
+            )
+            .bind(request_id)
+            .bind(now)
+            .execute(&mut *transaction)
+            .await?;
+            let plan_payload = serde_json::json!({
+                "plan_id": plan_id,
+                "triage_id": submission.id,
+                "lane": classification.lane,
+                "task_spec_sha256": task_spec_sha256,
+                "rubric_version": submission.output.task_spec.rubric_version,
+            });
+            append_event(
+                &mut transaction,
+                request_id,
+                EventAppend {
+                    run_id: None,
+                    event_type: "plan.entered",
+                    from_state: Some("triaging"),
+                    to_state: Some("plan_bin"),
+                    trace_id: &trace_id,
+                    payload: &plan_payload,
+                },
+            )
+            .await?;
+        }
+
+        transaction.commit().await?;
+        Ok(TriageRecorded {
+            classification,
+            plan_id: submission.plan_id,
+            inserted: true,
+        })
+    }
+
+    async fn transition_plan(
+        &self,
+        request_id: Uuid,
+        plan_id: Uuid,
+        decision: &PlanDecision,
+    ) -> Result<PlanTransitionRecorded, RepositoryError> {
+        let decision_sha256 = hex::encode(decision.sha256()?);
+        let mut transaction = self.pool.begin().await?;
+        let (status, trace_id) =
+            Self::require_request_for_update(&mut transaction, request_id).await?;
+
+        let existing: Option<serde_json::Value> = sqlx::query_scalar(
+            r#"
+            SELECT payload
+            FROM factory.events
+            WHERE request_id = $1
+              AND event_type IN ('plan.reenter.implement', 'plan.reenter.triage', 'plan.closed')
+              AND payload->>'decision_id' = $2
+            ORDER BY id DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(request_id)
+        .bind(decision.id.to_string())
+        .fetch_optional(&mut *transaction)
+        .await?;
+        if let Some(existing) = existing {
+            if existing.get("plan_id").and_then(serde_json::Value::as_str)
+                != Some(plan_id.to_string().as_str())
+                || existing
+                    .get("decision_sha256")
+                    .and_then(serde_json::Value::as_str)
+                    != Some(decision_sha256.as_str())
+            {
+                return Err(RepositoryError::PlanDecisionIdConflict(decision.id));
+            }
+            let transition: PlanTransition = serde_json::from_value(
+                existing
+                    .get("transition")
+                    .cloned()
+                    .ok_or(RepositoryError::MalformedLedgerEvent)?,
+            )?;
+            transaction.commit().await?;
+            return Ok(PlanTransitionRecorded {
+                transition,
+                inserted: false,
+            });
+        }
+
+        if status != "plan_bin" {
+            return Err(RepositoryError::UnexpectedRequestStatus {
+                request_id,
+                expected: "plan_bin",
+                actual: status,
+            });
+        }
+        let plan_event = sqlx::query(
+            r#"
+            SELECT event_type, payload
+            FROM factory.events
+            WHERE request_id = $1
+              AND event_type LIKE 'plan.%'
+              AND payload->>'plan_id' = $2
+            ORDER BY id DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(request_id)
+        .bind(plan_id.to_string())
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(RepositoryError::PlanNotFound(plan_id))?;
+        let event_type: String = plan_event.try_get("event_type")?;
+        if event_type != "plan.entered" {
+            return Err(RepositoryError::PlanAlreadyTransitioned(plan_id));
+        }
+        let entered_payload: serde_json::Value = plan_event.try_get("payload")?;
+        let lane = Lane::parse(
+            entered_payload
+                .get("lane")
+                .and_then(serde_json::Value::as_str)
+                .ok_or(RepositoryError::MalformedLedgerEvent)?,
+        )?;
+        if let PlanAction::ApproveB { task_spec } = &decision.action {
+            let plan_rubric_version = entered_payload
+                .get("rubric_version")
+                .and_then(serde_json::Value::as_str)
+                .ok_or(RepositoryError::MalformedLedgerEvent)?;
+            if task_spec.rubric_version != plan_rubric_version {
+                return Err(RepositoryError::ApprovedPlanRubricMismatch {
+                    plan: plan_rubric_version.to_owned(),
+                    task: task_spec.rubric_version.clone(),
+                });
+            }
+        }
+        let transition = transition_for(lane, decision)?;
+        let decision_data = match &decision.action {
+            PlanAction::ApproveB { task_spec } => serde_json::json!({
+                "task_spec_sha256": hex::encode(task_spec.sha256()?),
+            }),
+            PlanAction::AnswerD { answer } => serde_json::json!({
+                "channel": "clarification_answer",
+                "authority": "none",
+                "content": answer,
+            }),
+            PlanAction::MarkCExecuted { runbook_reference } => serde_json::json!({
+                "runbook_reference": runbook_reference,
+            }),
+            PlanAction::Reject { reason } => serde_json::json!({
+                "reason": reason,
+            }),
+        };
+        let payload = serde_json::json!({
+            "plan_id": plan_id,
+            "decision_id": decision.id,
+            "decision_sha256": decision_sha256,
+            "lane": lane,
+            "transition": transition,
+            "decision_data": decision_data,
+        });
+        let (event_type, to_state) = match transition.kind {
+            PlanTransitionKind::ReenterImplement => ("plan.reenter.implement", "implement"),
+            PlanTransitionKind::Retriage => ("plan.reenter.triage", "triage"),
+            PlanTransitionKind::CloseExecuted | PlanTransitionKind::CloseRejected => {
+                ("plan.closed", "closed")
+            }
+        };
+
+        if transition.outcome.is_some() {
+            close_request_state(
+                &mut transaction,
+                request_id,
+                duration_seconds(PLAN_CLOSE_RETENTION)?,
+            )
+            .await?;
+        } else {
+            sqlx::query("UPDATE factory.requests SET status = 'queued' WHERE id = $1")
+                .bind(request_id)
+                .execute(&mut *transaction)
+                .await?;
+        }
+        append_event(
+            &mut transaction,
+            request_id,
+            EventAppend {
+                run_id: None,
+                event_type,
+                from_state: Some("plan_bin"),
+                to_state: Some(to_state),
+                trace_id: &trace_id,
+                payload: &payload,
+            },
+        )
+        .await?;
+        transaction.commit().await?;
+        Ok(PlanTransitionRecorded {
+            transition,
+            inserted: true,
+        })
+    }
+
+    async fn authoritative_implementation_task_spec(
+        &self,
+        request_id: Uuid,
+    ) -> Result<Option<TaskSpec>, RepositoryError> {
+        let status: Option<String> =
+            sqlx::query_scalar("SELECT status::text FROM factory.requests WHERE id = $1")
+                .bind(request_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        let status = status.ok_or(RepositoryError::RequestNotFound(request_id))?;
+        if matches!(status.as_str(), "closed" | "failed" | "killed" | "plan_bin") {
+            return Ok(None);
+        }
+        let row = sqlx::query(
+            r#"
+            SELECT event_type, payload
+            FROM factory.events
+            WHERE request_id = $1
+              AND (
+                  event_type = 'plan.reenter.implement'
+                  OR (event_type = 'triage.classified' AND payload->>'lane' = 'A')
+              )
+            ORDER BY id DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(request_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let event_type: String = row.try_get("event_type")?;
+        let payload: serde_json::Value = row.try_get("payload")?;
+        let task_spec_value = if event_type == "triage.classified" {
+            payload.get("task_spec")
+        } else {
+            payload
+                .get("transition")
+                .and_then(|transition| transition.get("authoritative_task_spec"))
+        };
+        let Some(task_spec_value) = task_spec_value else {
+            return Err(RepositoryError::MalformedLedgerEvent);
+        };
+        let task_spec: TaskSpec = serde_json::from_value(task_spec_value.clone())?;
+        task_spec.validate()?;
+        Ok(Some(task_spec))
     }
 
     async fn expired_artifacts(
@@ -634,28 +1044,72 @@ impl FactoryRepository for PostgresRepository {
     }
 }
 
+fn duration_seconds(duration: Duration) -> Result<i64, RepositoryError> {
+    i64::try_from(duration.as_secs()).map_err(|_| DomainInputError::InvalidRetention.into())
+}
+
+async fn close_request_state(
+    transaction: &mut Transaction<'_, Postgres>,
+    request_id: Uuid,
+    retention_seconds: i64,
+) -> Result<(), RepositoryError> {
+    if retention_seconds <= 0 {
+        return Err(DomainInputError::InvalidRetention.into());
+    }
+    let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
+        .fetch_one(&mut **transaction)
+        .await?;
+    let expires_at = now + time::Duration::seconds(retention_seconds);
+    sqlx::query("UPDATE factory.requests SET status = 'closed', closed_at = $2 WHERE id = $1")
+        .bind(request_id)
+        .bind(now)
+        .execute(&mut **transaction)
+        .await?;
+    sqlx::query(
+        "UPDATE factory.leases SET released_at = $2 WHERE request_id = $1 AND released_at IS NULL",
+    )
+    .bind(request_id)
+    .bind(now)
+    .execute(&mut **transaction)
+    .await?;
+    sqlx::query(
+        "UPDATE factory.artifacts SET expires_at = COALESCE(expires_at, $2) WHERE request_id = $1",
+    )
+    .bind(request_id)
+    .bind(expires_at)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
+struct EventAppend<'a> {
+    run_id: Option<Uuid>,
+    event_type: &'a str,
+    from_state: Option<&'a str>,
+    to_state: Option<&'a str>,
+    trace_id: &'a str,
+    payload: &'a serde_json::Value,
+}
+
 async fn append_event(
     transaction: &mut Transaction<'_, Postgres>,
     request_id: Uuid,
-    run_id: Option<Uuid>,
-    event_type: &str,
-    from_state: Option<&str>,
-    to_state: Option<&str>,
-    trace_id: &str,
+    event: EventAppend<'_>,
 ) -> Result<(), RepositoryError> {
     sqlx::query(
         r#"
         INSERT INTO factory.events (
-            request_id, run_id, event_type, from_state, to_state, trace_id
-        ) VALUES ($1, $2, $3, $4, $5, $6)
+            request_id, run_id, event_type, from_state, to_state, trace_id, payload
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
         "#,
     )
     .bind(request_id)
-    .bind(run_id)
-    .bind(event_type)
-    .bind(from_state)
-    .bind(to_state)
-    .bind(trace_id)
+    .bind(event.run_id)
+    .bind(event.event_type)
+    .bind(event.from_state)
+    .bind(event.to_state)
+    .bind(event.trace_id)
+    .bind(event.payload)
     .execute(&mut **transaction)
     .await?;
     Ok(())
@@ -735,12 +1189,42 @@ pub enum DomainInputError {
 pub enum RepositoryError {
     #[error("PostgreSQL state operation failed: {0}")]
     Database(#[from] sqlx::Error),
+    #[error("triage contract failed: {0}")]
+    Triage(#[from] TriageError),
+    #[error("plan-bin contract failed: {0}")]
+    Plan(#[from] PlanError),
+    #[error("ledger JSON failed validation: {0}")]
+    LedgerJson(#[from] serde_json::Error),
     #[error("invalid domain input: {0}")]
     InvalidInput(#[from] DomainInputError),
     #[error("request {0} does not exist")]
     RequestNotFound(Uuid),
     #[error("request {request_id} is terminal ({status})")]
     TerminalRequest { request_id: Uuid, status: String },
+    #[error("request {0} is waiting in the plan bin")]
+    RequestInPlanBin(Uuid),
+    #[error("request {request_id} must be {expected}, not {actual}")]
+    UnexpectedRequestStatus {
+        request_id: Uuid,
+        expected: &'static str,
+        actual: String,
+    },
+    #[error("lane A triage must not create a plan id")]
+    LaneAPlanId,
+    #[error("lane {0} triage requires a plan id")]
+    PlanIdRequired(Lane),
+    #[error("triage id {0} was reused with different content")]
+    TriageIdConflict(Uuid),
+    #[error("plan {0} does not exist for this request")]
+    PlanNotFound(Uuid),
+    #[error("plan {0} already left the plan bin")]
+    PlanAlreadyTransitioned(Uuid),
+    #[error("plan decision id {0} was reused with different content")]
+    PlanDecisionIdConflict(Uuid),
+    #[error("approved TaskSpec rubric {task} does not match plan rubric {plan}")]
+    ApprovedPlanRubricMismatch { plan: String, task: String },
+    #[error("ledger event does not match its typed contract")]
+    MalformedLedgerEvent,
     #[error("request {request_id} is held by {holder} until {expires_at}")]
     LeaseHeld {
         request_id: Uuid,

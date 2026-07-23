@@ -53,8 +53,9 @@ text. Rules may remove lane-A authority; no rule can add it.
     {"match": "file_name", "value": "composer.lock", "lane": "B", "reason": "deny.dependencies"},
     {"match": "file_name", "value": "package.json", "lane": "B", "reason": "deny.dependencies"},
     {"match": "file_name", "value": "package-lock.json", "lane": "B", "reason": "deny.dependencies"},
+    {"match": "file_name", "value": "pnpm-lock.yaml", "lane": "B", "reason": "deny.dependencies"},
+    {"match": "suffix", "value": ".lock", "lane": "B", "reason": "deny.dependencies"},
     {"match": "file_name", "value": "Cargo.toml", "lane": "B", "reason": "deny.dependencies"},
-    {"match": "file_name", "value": "Cargo.lock", "lane": "B", "reason": "deny.dependencies"},
     {"match": "file_name", "value": "deploy-fieldbook.sh", "lane": "B", "reason": "deny.deploy"}
   ]
 }
@@ -84,4 +85,3 @@ demote, but remains authoritative downstream and forces test-diff review.
   answer cannot itself authorize an effect.
 - Executed C: close with outcome `executed-not-code` and the runbook reference.
 - Rejected B/C/D: close with outcome `rejected-at-plan` and the human's reason.
-

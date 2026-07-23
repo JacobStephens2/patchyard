@@ -1,0 +1,10 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+prompt=$1
+packet=$2
+output=$3
+test -r "$prompt"
+jq '{schema_version:1,review_id:.review.review_id,dispositions:[.review.findings[] | {finding_id:.id,disposition:"escalate",evidence:"third-family adjudication required"}],usage:{input_tokens:7,output_tokens:7,cost_microusd:0}}' "$packet" >"$output"
+printf 'typed disposition fixture\n'
+printf 'PATCHYARD_USAGE={"input_tokens":7,"output_tokens":7,"cost_microusd":0}\n' >&2

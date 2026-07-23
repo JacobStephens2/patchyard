@@ -13,3 +13,9 @@
   loop:
     - node-exporter.service
     - postgres-exporter.service
+
+- name: Restart factory supervisor
+  ansible.builtin.systemd:
+    name: factory-supervisor.service
+    state: restarted
+    daemon_reload: true

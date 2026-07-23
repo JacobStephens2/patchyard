@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+usage() {
+  echo "usage: $0 --run-id ID --base-sha SHA --bundle FILE --bundle-sha256 SHA256 --task FILE --snapshot DIR --output DIR" >&2
+  exit 2
+}
+
+RUN_ID=
+BASE_SHA=
+BUNDLE=
+BUNDLE_SHA256=
+TASK=
+SNAPSHOT=
+OUTPUT=
+while (($#)); do
+  case "$1" in
+    --run-id) RUN_ID=$2; shift 2 ;;
+    --base-sha) BASE_SHA=$2; shift 2 ;;
+    --bundle) BUNDLE=$2; shift 2 ;;
+    --bundle-sha256) BUNDLE_SHA256=$2; shift 2 ;;
+    --task) TASK=$2; shift 2 ;;
+    --snapshot) SNAPSHOT=$2; shift 2 ;;
+    --output) OUTPUT=$2; shift 2 ;;
+    *) usage ;;
+  esac
+done
+[[ "$RUN_ID" =~ ^[0-9a-f]{32}-a[01]$ ]]
+[[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$BUNDLE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+for path in "$BUNDLE" "$TASK" "$SNAPSHOT" "$OUTPUT"; do [[ "$path" == /* ]] || usage; done
+[[ -f "$BUNDLE" && ! -L "$BUNDLE" && -f "$TASK" && ! -L "$TASK" ]]
+[[ -d "$SNAPSHOT" && -f "$SNAPSHOT/snapshot.sql.gz" && -f "$SNAPSHOT/snapshot.json" ]]
+[[ ! -e "$OUTPUT" ]]
+[[ "$(sha256sum "$BUNDLE" | cut -d' ' -f1)" == "$BUNDLE_SHA256" ]]
+jq -e --arg run_id "${RUN_ID%-a*}" --argjson attempt "${RUN_ID##*-a}" \
+  '.schema_version == 1 and (.run_id | gsub("-"; "")) == $run_id
+    and .attempt == $attempt and .dry_run == true
+    and .task_spec.named_skill == "ui.sort-dropdown"
+    and .task_spec.allowed_paths == ["mfieldbook/common_functions.php", "mfieldbook/leads/assign.php"]' \
+  "$TASK" >/dev/null
+
+WORKER_IP={{ hostvars[groups['worker'][0]].private_ip }}
+SSH_ARGS=(
+  -i {{ factory_manager_private_key }} -o BatchMode=yes -o IdentitiesOnly=yes
+  -o StrictHostKeyChecking=yes
+  -o UserKnownHostsFile={{ factory_manager_home }}/.ssh/known_hosts
+  -o ConnectTimeout=10
+)
+REMOTE_ROOT="/var/tmp/patchyard-incoming/$RUN_ID"
+RUN_TEMP=$(mktemp -d /var/tmp/patchyard-supervisor-worker.XXXXXX)
+cleanup_local() { rm -r -- "$RUN_TEMP"; }
+trap cleanup_local EXIT
+remote_ssh() { ssh "${SSH_ARGS[@]}" {{ factory_manager_user }}@"$WORKER_IP" "$@"; }
+
+gzip -n -9 <"$BUNDLE" >"$RUN_TEMP/source.tar.gz"
+SOURCE_SHA256=$(sha256sum "$RUN_TEMP/source.tar.gz" | cut -d' ' -f1)
+printf '%s\n' 'Alphabetize the two salesperson dropdown data sources for Session 7.' \
+  >"$RUN_TEMP/request.md"
+REQUEST_SHA256=$(sha256sum "$RUN_TEMP/request.md" | cut -d' ' -f1)
+SNAPSHOT_SQL_SHA256=$(sha256sum "$SNAPSHOT/snapshot.sql.gz" | cut -d' ' -f1)
+SNAPSHOT_MANIFEST_SHA256=$(sha256sum "$SNAPSHOT/snapshot.json" | cut -d' ' -f1)
+jq -n \
+  --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
+  --arg source_archive_sha256 "$SOURCE_SHA256" --arg request_sha256 "$REQUEST_SHA256" \
+  --arg snapshot_sql_sha256 "$SNAPSHOT_SQL_SHA256" \
+  --arg snapshot_manifest_sha256 "$SNAPSHOT_MANIFEST_SHA256" \
+  '{schema_version:1,$run_id,$base_sha,$source_archive_sha256,$request_sha256,
+    $snapshot_sql_sha256,$snapshot_manifest_sha256,provider:"none",mode:"fixture",
+    credential_required:false,capability_sha256:null,spend_cap_cents:0}' \
+  >"$RUN_TEMP/run.json"
+
+if ! remote_ssh test -f "$REMOTE_ROOT/output/evidence.json"; then
+  remote_ssh rm -rf -- "$REMOTE_ROOT"
+  remote_ssh install -d -m 0700 "$REMOTE_ROOT/snapshot"
+  scp "${SSH_ARGS[@]}" "$RUN_TEMP/run.json" "$RUN_TEMP/source.tar.gz" "$RUN_TEMP/request.md" \
+    {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/"
+  scp "${SSH_ARGS[@]}" "$SNAPSHOT/snapshot.sql.gz" "$SNAPSHOT/snapshot.json" \
+    {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/snapshot/"
+  remote_ssh sudo /usr/local/sbin/patchyard-firecracker-run \
+    "$REMOTE_ROOT/run.json" "$REMOTE_ROOT/source.tar.gz" \
+    "$REMOTE_ROOT/request.md" "$REMOTE_ROOT/snapshot" "$REMOTE_ROOT/output"
+fi
+
+install -d -m 0700 "$RUN_TEMP/result"
+for name in change.patch rationale.txt evidence.json; do
+  scp "${SSH_ARGS[@]}" \
+    {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/output/$name" "$RUN_TEMP/result/$name"
+done
+jq -ce '.agent_transcript | type == "array" and length >= 1' \
+  "$RUN_TEMP/result/evidence.json" >/dev/null
+jq -c '.agent_transcript[]' "$RUN_TEMP/result/evidence.json" \
+  >"$RUN_TEMP/result/transcript.jsonl"
+[[ "$(stat -c %s "$RUN_TEMP/result/change.patch")" -le 1048576 ]]
+[[ "$(stat -c %s "$RUN_TEMP/result/rationale.txt")" -le 65536 ]]
+[[ "$(stat -c %s "$RUN_TEMP/result/evidence.json")" -le 131072 ]]
+[[ "$(stat -c %s "$RUN_TEMP/result/transcript.jsonl")" -le 8388608 ]]
+mv -- "$RUN_TEMP/result" "$OUTPUT"
+echo "worker_result=$OUTPUT run_id=$RUN_ID"

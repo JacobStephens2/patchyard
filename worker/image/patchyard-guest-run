@@ -304,10 +304,18 @@ APP_STATUS=$(curl --silent --output /run/fieldbook-index.html \
 
 [[ "$MODE" == fixture && "$PROVIDER" == none ]]
 FAILURE=fixture-agent-failed
-RATIONALE=$(runuser -u factory-agent -- env -i \
+AGENT_STDOUT=/run/factory-agent.stdout
+AGENT_STDERR=/run/factory-agent.stderr
+if ! runuser -u factory-agent -- env -i \
   HOME=/home/factory-agent PATH=/usr/local/bin:/usr/bin:/bin \
   PATCHYARD_CAPABILITY_FILE="$CAPABILITY_FILE" \
-  /usr/local/bin/patchyard-toy-agent /input/request.md /work)
+  /usr/local/bin/patchyard-toy-agent /input/request.md /work \
+  >"$AGENT_STDOUT" 2>"$AGENT_STDERR"; then
+  exit 1
+fi
+RATIONALE=$(<"$AGENT_STDOUT")
+jq -Rs '{stream:"stdout",bytes:.}' <"$AGENT_STDOUT" >/run/factory-agent-transcript.jsonl
+jq -Rs '{stream:"stderr",bytes:.}' <"$AGENT_STDERR" >>/run/factory-agent-transcript.jsonl
 rm -f -- "$CAPABILITY_FILE"
 rmdir /run/patchyard-capability >/dev/null 2>&1 || true
 
@@ -334,6 +342,7 @@ MYSQL_ACTUAL=$(mysql --protocol=socket --socket=/var/lib/mysql/mysql.sock \
   -uroot --batch --skip-column-names -e 'SELECT VERSION()')
 SNAPSHOT_VERSION=$(jq -r .snapshot_version /input/snapshot.json)
 PATCH_SHA=$(sha256sum /result/change.patch | cut -d' ' -f1)
+AGENT_TRANSCRIPT=$(jq -s . /run/factory-agent-transcript.jsonl)
 
 jq -n \
   --arg run_id "$RUN_ID" \
@@ -351,6 +360,7 @@ jq -n \
   --arg rootfs_sha256 "$ROOTFS_SHA" \
   --arg image_recipe_sha256 "$IMAGE_RECIPE_SHA" \
   --arg production_parity_sha256 "$PRODUCTION_PARITY_SHA" \
+  --argjson agent_transcript "$AGENT_TRANSCRIPT" \
   '{
     schema_version: 1,
     run_id: $run_id,
@@ -368,6 +378,7 @@ jq -n \
     rootfs_sha256: $rootfs_sha256,
     image_recipe_sha256: $image_recipe_sha256,
     production_parity_sha256: $production_parity_sha256,
+    agent_transcript: $agent_transcript,
     git_remote_count: 0,
     credential_removed_before_output: true
   }' > /result/evidence.json

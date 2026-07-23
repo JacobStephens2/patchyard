@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+RUN_ID=${1:-}
+[[ "$RUN_ID" =~ ^[0-9a-f]{32}-a[01]$ ]] || {
+  echo "usage: $0 RUN_ID" >&2
+  exit 2
+}
+WORKER_IP={{ hostvars[groups['worker'][0]].private_ip }}
+SSH_ARGS=(
+  -i {{ factory_manager_private_key }} -o BatchMode=yes -o IdentitiesOnly=yes
+  -o StrictHostKeyChecking=yes
+  -o UserKnownHostsFile={{ factory_manager_home }}/.ssh/known_hosts
+  -o ConnectTimeout=10
+)
+REMOTE_ROOT="/var/tmp/patchyard-incoming/$RUN_ID"
+ssh "${SSH_ARGS[@]}" {{ factory_manager_user }}@"$WORKER_IP" \
+  sudo /usr/local/sbin/patchyard-worker-teardown "$RUN_ID" "$REMOTE_ROOT"
+ssh "${SSH_ARGS[@]}" {{ factory_manager_user }}@"$WORKER_IP" \
+  rm -rf -- "$REMOTE_ROOT"
+echo "worker_teardown=complete run_id=$RUN_ID"

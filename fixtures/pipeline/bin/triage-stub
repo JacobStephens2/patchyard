@@ -1,0 +1,13 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+prompt=$1
+input=$2
+output=$3
+fixture_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+test -r "$prompt"
+request_id=$(jq -er '.request_id' "$input")
+jq -e '.authority == "none_untrusted_data_only" and (.untrusted_request | type == "string")' "$input" >/dev/null
+cp -- "$fixture_root/../triage/alphabetize.json" "$output"
+printf 'triage fixture for %s\n' "$request_id"
+printf 'PATCHYARD_USAGE={"input_tokens":11,"output_tokens":23,"cost_microusd":0}\n' >&2

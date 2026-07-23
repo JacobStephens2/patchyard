@@ -21,6 +21,14 @@ const PROVENANCE_FIELDS: [&str; 8] = [
     "verifier_binary_hash",
     "base_tree_hash",
 ];
+const ROUTING_PROVENANCE_FIELDS: [&str; 6] = [
+    "model_id",
+    "cli_version",
+    "harness",
+    "provider",
+    "effort",
+    "routing_config_version",
+];
 
 fn file(path: &str, additions: u64, deletions: u64) -> DiffFile {
     DiffFile {
@@ -257,6 +265,12 @@ fn run_record_json() -> Value {
         "lane": "A",
         "skill": "alphabetize-first-name",
         "provenance": {
+            "model_id": "GPT-5.6 Sol|xhigh|Codex|OpenAI",
+            "cli_version": "codex 1.2.3",
+            "harness": "Codex",
+            "provider": "OpenAI",
+            "effort": "xhigh",
+            "routing_config_version": "2026-07-23.1",
             "model_id_hash": HASH,
             "cli_version_hash": HASH,
             "constitution_hash": HASH,
@@ -292,6 +306,25 @@ fn ledger_append_rejects_each_missing_or_malformed_provenance_field() {
         assert!(
             ledger::validate(record).is_err(),
             "ledger-append accepted malformed provenance field {field}"
+        );
+    }
+    for field in ROUTING_PROVENANCE_FIELDS {
+        let mut missing = run_record_json();
+        missing["provenance"]
+            .as_object_mut()
+            .expect("provenance is an object")
+            .remove(field);
+        assert!(
+            serde_json::from_value::<RunRecord>(missing).is_err(),
+            "ledger-append accepted missing routing provenance field {field}"
+        );
+
+        let mut blank = run_record_json();
+        blank["provenance"][field] = Value::String("  ".to_owned());
+        let record: RunRecord = serde_json::from_value(blank).expect("record shape remains valid");
+        assert!(
+            ledger::validate(record).is_err(),
+            "ledger-append accepted blank routing provenance field {field}"
         );
     }
 }
@@ -366,6 +399,12 @@ async fn ledger_append_commits_run_and_event_together() -> Result<(), Box<dyn st
           AND runs.prompt_template_hash IS NOT NULL
           AND runs.verifier_binary_hash IS NOT NULL
           AND runs.base_tree_hash IS NOT NULL
+          AND runs.model_id = 'GPT-5.6 Sol|xhigh|Codex|OpenAI'
+          AND runs.cli_version = 'codex 1.2.3'
+          AND runs.harness = 'Codex'
+          AND runs.provider = 'OpenAI'
+          AND runs.effort = 'xhigh'
+          AND runs.routing_config_version = '2026-07-23.1'
         "#,
     )
     .bind(run_id)

@@ -369,12 +369,12 @@ mod tests {
         store::{ExistingRun, PullRequestRecord, ReconcileStore, StoreError},
     };
 
-    use super::{DeployedVersion, DeployedVersionConfig, Reconciler};
+    use super::{DeployedVersion, DeployedVersionConfig, ReconcileError, Reconciler};
 
     #[test]
     fn deployed_version_is_strict_and_sha_bounded() {
         let valid: DeployedVersion = serde_json::from_str(&format!(
-            r#"{{"schema_version":1,"repository":"example-org/fieldbook","deployed_sha":"{}","observed_at":"2026-07-23T00:00:00Z","source":"status-dashboard"}}"#,
+            r#"{{"schema_version":1,"repository":"example-org/fieldbook","deployed_sha":"{}","observed_at":"2026-07-23T00:00:00Z","source":"github-deploy-marker:fixture"}}"#,
             "a".repeat(40)
         ))
         .expect("strict JSON");
@@ -554,6 +554,128 @@ mod tests {
         assert_eq!(record.deployed_sha.as_deref(), Some(merge.as_str()));
     }
 
+    #[tokio::test]
+    async fn control_plane_local_source_drives_persisted_deployed_sha() {
+        let request_id = Uuid::new_v4();
+        let run_id = Uuid::new_v4();
+        let branch = format!("factory/{request_id}-reconcile-source-fixture");
+        let head = "a".repeat(40);
+        let merge = "b".repeat(40);
+        let store = MemoryReconcileStore {
+            run: ExistingRun {
+                id: run_id,
+                base_sha: "c".repeat(40),
+                branch: branch.clone(),
+                state: "ready_for_review".to_owned(),
+                lane: "A".to_owned(),
+                skill: "fixture".to_owned(),
+            },
+            record: Arc::new(Mutex::new(None)),
+        };
+        let github = MergedGitHub {
+            pull: merged_pull(&branch, &head, &merge),
+            reviews: vec![approved_review(&head)],
+        };
+        let temp = tempfile::tempdir().expect("temp");
+        let reconciler = Reconciler::new(
+            store.clone(),
+            Arc::new(github),
+            RepositoryScope {
+                owner: "example-org".to_owned(),
+                name: "fieldbook".to_owned(),
+            },
+            DeployedVersionConfig {
+                program: deployed_program(temp.path(), &merge),
+                arguments: Vec::new(),
+                timeout: Duration::from_secs(2),
+                output_limit: 4096,
+            },
+        )
+        .expect("reconciler");
+
+        let outcome = reconciler
+            .reconcile(request_id, &CancellationToken::new())
+            .await
+            .expect("reconcile");
+        assert!(outcome.approved_at_head);
+        assert!(outcome.passing_run);
+        assert_eq!(outcome.deployed_sha.as_deref(), Some(merge.as_str()));
+        let record = store
+            .record
+            .lock()
+            .expect("record")
+            .clone()
+            .expect("durable record");
+        assert!(record.passing_run);
+        assert_eq!(record.deployed_sha.as_deref(), Some(merge.as_str()));
+        assert_eq!(record.reconcile_error, None);
+    }
+
+    #[tokio::test]
+    async fn control_plane_local_source_failure_is_persisted_fail_closed() {
+        let request_id = Uuid::new_v4();
+        let run_id = Uuid::new_v4();
+        let branch = format!("factory/{request_id}-reconcile-source-failure");
+        let head = "a".repeat(40);
+        let merge = "b".repeat(40);
+        let store = MemoryReconcileStore {
+            run: ExistingRun {
+                id: run_id,
+                base_sha: "c".repeat(40),
+                branch: branch.clone(),
+                state: "ready_for_review".to_owned(),
+                lane: "A".to_owned(),
+                skill: "fixture".to_owned(),
+            },
+            record: Arc::new(Mutex::new(None)),
+        };
+        let github = MergedGitHub {
+            pull: merged_pull(&branch, &head, &merge),
+            reviews: vec![approved_review(&head)],
+        };
+        let temp = tempfile::tempdir().expect("temp");
+        let source = temp.path().join("failed-deployed-version");
+        fs::write(&source, "#!/bin/sh\nexit 23\n").expect("program");
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o700)).expect("chmod");
+        let reconciler = Reconciler::new(
+            store.clone(),
+            Arc::new(github),
+            RepositoryScope {
+                owner: "example-org".to_owned(),
+                name: "fieldbook".to_owned(),
+            },
+            DeployedVersionConfig {
+                program: source,
+                arguments: Vec::new(),
+                timeout: Duration::from_secs(2),
+                output_limit: 4096,
+            },
+        )
+        .expect("reconciler");
+
+        let error = reconciler
+            .reconcile(request_id, &CancellationToken::new())
+            .await
+            .expect_err("source failure must fail closed");
+        assert!(matches!(
+            error,
+            ReconcileError::FailClosed(ref message)
+                if message == "deployed-version source exited with status 23"
+        ));
+        let record = store
+            .record
+            .lock()
+            .expect("record")
+            .clone()
+            .expect("durable failure record");
+        assert!(!record.passing_run);
+        assert_eq!(record.deployed_sha, None);
+        assert_eq!(
+            record.reconcile_error.as_deref(),
+            Some("deployed-version source exited with status 23")
+        );
+    }
+
     fn merged_pull(branch: &str, head: &str, merge: &str) -> PullRequest {
         let now = OffsetDateTime::now_utc()
             .format(&Rfc3339)
@@ -583,6 +705,17 @@ mod tests {
         }
     }
 
+    fn approved_review(head: &str) -> Review {
+        Review {
+            state: "APPROVED".to_owned(),
+            commit_id: head.to_owned(),
+            submitted_at: Some("2026-07-23T00:00:00Z".to_owned()),
+            user: GitHubUser {
+                login: "reviewer".to_owned(),
+            },
+        }
+    }
+
     fn deployed_program(root: &std::path::Path, sha: &str) -> PathBuf {
         let program = root.join("deployed-version");
         fs::write(
@@ -594,7 +727,7 @@ mod tests {
                     "repository": "example-org/fieldbook",
                     "deployed_sha": sha,
                     "observed_at": "2026-07-23T00:00:00Z",
-                    "source": "status-dashboard",
+                    "source": "github-deploy-marker:fixture",
                 })
             ),
         )

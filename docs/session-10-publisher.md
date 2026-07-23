@@ -81,7 +81,10 @@ that head approval is durably marked `admin_bypassed=true` and
 The deployed-version source is an argument-vector subprocess with a timeout,
 output cap, cleared environment, strict JSON schema, exact repository, and
 40-character lowercase Git SHA. Source failure is recorded and returned
-fail-closed.
+fail-closed. A103 requires the installed command to use the control plane's
+narrowed GitHub App access to an authoritative Fieldbook deploy marker (or an
+equivalent authenticated control-plane-local projection), never the
+orchestration status dashboard.
 
 ## Qualification
 
@@ -97,23 +100,26 @@ The committed tests cover:
 - stale GitHub state failing before a push;
 - exact bot commit/PR identity and foreign branch rejection paths;
 - PostgreSQL publisher-lease fencing;
-- strict deployed-version parsing and admin-bypassed merge classification;
+- strict deployed-version parsing, a control-plane-local source driving the
+  persisted deployed SHA, persisted fail-closed source failure, and
+  admin-bypassed merge classification;
 - cancellation-safe bounded subprocess behavior and explicit worktree cleanup.
 
 ## Escalations
 
-The production deployed-version command is deliberately not configured.
-PLAN Session 10 requires reuse of the orchestration status dashboard's existing
-deployed-version source, while A68 prohibits every factory runtime dependency
-on the orchestration host. The existing source is an in-process
-`VersionStore`/direct probe with no factory-safe command or authenticated
-interface. Calling it remotely would violate A68; copying its probe logic into
-the factory would violate the instruction not to reimplement it.
+A103 resolved the source-placement ruling in favor of A68. Production wiring
+is now blocked by a missing authoritative Fieldbook-side artifact, not by an
+unset ruling. As observed on 2026-07-23, Fieldbook has zero GitHub releases, zero
+tags, no production/deployed ref, and no GitHub deployment record readable by
+the existing App. The App installation has no `deployments` permission, and
+Fieldbook's deploy path writes only the host-local `.deploy/current_sha`.
 
-The adapter and fail-closed behavior are complete and tested, but Jacob must
-decide which side of that contradiction governs production wiring. Until then,
-`FACTORY_DEPLOYED_VERSION_PROGRAM` remains required for reconcile and unset in
-the installed service environment.
+Creating a tag/ref/release or widening the App would cross the Fieldbook and
+credential boundaries. The publisher therefore does not invent a marker and
+does not fall back to the orchestration `VersionStore`. The tested fail-closed
+adapter remains required and unset in production. Jacob must choose an
+authoritative marker and separately authorize its publication by the Fieldbook
+deploy path before production reconcile can be wired.
 
 ## Live checkpoint
 

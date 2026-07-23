@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Decisions // Patchyard Factory{% endblock %}
+{% block content %}
+<h1>Decision log</h1>
+<p>Rendered from <code>docs/decision-log.md</code> in this control plane's checkout. Raw HTML is disabled.</p>
+<article class="markdown">{{ decision_html|safe }}</article>
+{% endblock %}

@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Request {{ request.id }} // Patchyard Factory{% endblock %}
+{% block content %}
+<h1>Request {{ request.id }}</h1>
+<p><span class="stage-badge active">{{ request.status }}</span> received {{ request.received_at }} via {{ request.source }}</p>
+<section>
+  <h2>Verbatim request - untrusted data</h2>
+  <pre class="untrusted">{{ request.body }}</pre>
+</section>
+<section>
+  <h2>Runs</h2>
+  {% for run in runs %}
+  <article class="box">
+    <p><strong>{{ run.id }}</strong> <span class="stage-badge active">{{ run.state }}</span> lane {{ run.lane }} // {{ run.skill }}</p>
+    <p>branch: <code>{{ run.branch }}</code></p>
+    {% if !terminal %}
+    <form class="inline" method="post" action="/run/{{ run.id }}/kill">
+      <input type="hidden" name="csrf_token" value="{{ chrome.csrf_token }}">
+      <button class="btn-error" type="submit">kill run</button>
+    </form>
+    {% endif %}
+  </article>
+  {% endfor %}
+</section>
+<section>
+  <h2>Controls</h2>
+  <form class="inline" method="post" action="/request/{{ request.id }}/refresh">
+    <input type="hidden" name="csrf_token" value="{{ chrome.csrf_token }}">
+    <button type="submit">refresh GitHub state</button>
+  </form>
+  <form class="inline" method="post" action="/controls/pause">
+    <input type="hidden" name="csrf_token" value="{{ chrome.csrf_token }}">
+    <button type="submit">pause claiming</button>
+  </form>
+  <form class="inline" method="post" action="/controls/resume">
+    <input type="hidden" name="csrf_token" value="{{ chrome.csrf_token }}">
+    <button type="submit">resume claiming</button>
+  </form>
+  <form class="inline" method="post" action="/controls/full-stop">
+    <input type="hidden" name="csrf_token" value="{{ chrome.csrf_token }}">
+    <button class="btn-error" type="submit">full stop</button>
+  </form>
+</section>
+<section>
+  <h2>Pull requests</h2>
+  {% for pull in pulls %}
+    <p>#{{ pull.number }} // {{ pull.state_text }} // CI {{ pull.ci_state }} // review {{ pull.review_state }}{% if pull.safe_url != "" %} // <a href="{{ pull.safe_url }}">GitHub</a>{% endif %}</p>
+  {% endfor %}
+</section>
+<section>
+  <h2>Evidence</h2>
+  {% for artifact in artifacts %}
+    <p><a href="/evidence/{{ artifact.run_id }}/{{ artifact.name }}">{{ artifact.name }}</a> // {{ artifact.kind }} // {{ artifact.created_at }}</p>
+  {% endfor %}
+</section>
+<section>
+  <h2>Event ledger</h2>
+  {% if !terminal %}<p id="live-state" class="live">live via PostgreSQL LISTEN/NOTIFY</p>{% endif %}
+  <ol class="timeline" id="timeline">
+  {% for event in events %}
+    <li data-event-id="{{ event.id }}"{% if event.current %} class="current"{% endif %}><span class="t-when">{{ event.occurred_at }}</span>{% if event.duration != "" %} <span class="t-duration">+{{ event.duration }}</span>{% endif %} <span class="t-actor {{ event.actor }}">{{ event.actor }}</span> <strong>{{ event.event_type }}</strong>{% if event.to_state != "" %} → {{ event.to_state }}{% endif %}{% if event.elapsed != "" %} <span class="t-elapsed">elapsed {{ event.elapsed }}</span>{% endif %}<pre>{{ event.payload }}</pre></li>
+  {% endfor %}
+  </ol>
+</section>
+{% endblock %}
+{% block script %}
+{% if !terminal %}
+<script nonce="{{ chrome.nonce }}">
+(() => {
+  const timeline = document.getElementById("timeline");
+  const live = document.getElementById("live-state");
+  // The SSR timeline already includes rows through this id. The query avoids
+  // replaying them on the initial connection; EventSource's Last-Event-ID takes
+  // over on reconnects.
+  const stream = new EventSource("/request/{{ request.id }}/events?after={{ last_event_id }}");
+  stream.addEventListener("ledger", (message) => {
+    const event = JSON.parse(message.data);
+    const item = document.createElement("li");
+    const previous = timeline.lastElementChild;
+    if (previous) previous.classList.remove("current");
+    item.className = "current";
+    item.dataset.eventId = String(event.id);
+    const when = document.createElement("span");
+    when.className = "t-when";
+    when.textContent = event.occurred_at;
+    const actor = document.createElement("span");
+    actor.className = "t-actor " + event.actor;
+    actor.textContent = event.actor;
+    const kind = document.createElement("strong");
+    kind.textContent = event.event_type;
+    const payload = document.createElement("pre");
+    payload.textContent = JSON.stringify(event.payload);
+    item.append(when, " ", actor, " ", kind);
+    if (event.to_state) item.append(" → " + event.to_state);
+    item.append(payload);
+    timeline.append(item);
+    if (event.terminal) {
+      live.textContent = "terminal";
+      live.className = "";
+      stream.close();
+    }
+  });
+  stream.onerror = () => { live.textContent = "stream unavailable - HTTP refresh fallback remains active"; };
+})();
+</script>
+{% endif %}
+{% endblock %}

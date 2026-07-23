@@ -6,4 +6,5 @@ cd "$REPO_ROOT"
 
 tools/install-rustup.sh
 tools/install-rust-tools.sh
+tools/install-tokei.sh
 python3 -m pip install --requirement model/requirements-model.txt

@@ -31,7 +31,7 @@ impl ArtifactStore {
         let metadata = fs::symlink_metadata(&root)?;
         if !metadata.is_dir()
             || metadata.file_type().is_symlink()
-            || metadata.permissions().mode() & 0o777 != 0o700
+            || metadata.permissions().mode() & 0o7777 != 0o2750
         {
             return Err(ArtifactError::UnsafeRoot(root));
         }
@@ -94,12 +94,12 @@ fn write_atomic(
     relative.push(stage);
     let directory = root.join(&relative);
     fs::create_dir_all(&directory)?;
-    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o2750))?;
     let final_name = format!("{id}-{name}");
     let final_path = directory.join(&final_name);
     let temporary = directory.join(format!(".{id}.tmp"));
     let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true).mode(0o600);
+    options.write(true).create_new(true).mode(0o640);
     let mut file = options.open(&temporary)?;
     use std::io::Write as _;
     file.write_all(&bytes)?;
@@ -136,7 +136,7 @@ fn validate_component(value: &str) -> Result<(), ArtifactError> {
 
 #[derive(Debug, Error)]
 pub enum ArtifactError {
-    #[error("artifact root is not a non-symlink 0700 directory: {0}")]
+    #[error("artifact root is not a non-symlink setgid 2750 directory: {0}")]
     UnsafeRoot(PathBuf),
     #[error("unsafe artifact path component: {0}")]
     UnsafeComponent(String),
@@ -164,7 +164,7 @@ mod tests {
     async fn transcript_write_is_private_atomic_and_hashed() {
         let root = std::env::temp_dir().join(format!("factory-artifacts-{}", Uuid::new_v4()));
         fs::create_dir(&root).expect("root");
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).expect("chmod");
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o2750)).expect("chmod");
         let store = ArtifactStore::open(&root).expect("store");
         let artifact = store
             .put(
@@ -189,7 +189,7 @@ mod tests {
                 .permissions()
                 .mode()
                 & 0o777,
-            0o600
+            0o640
         );
         fs::remove_dir_all(root).expect("cleanup");
     }

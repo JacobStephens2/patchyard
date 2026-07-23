@@ -13,7 +13,6 @@ factory-core = { path = "../factory-core", version = "=0.0.0" }
 factory-supervisor = { path = "../factory-supervisor", version = "=0.0.0" }
 serde.workspace = true
 serde_json.workspace = true
-sha2.workspace = true
 sqlx.workspace = true
 time.workspace = true
 tokio.workspace = true
@@ -22,3 +21,9 @@ uuid.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+factory-web = { path = "../factory-web", version = "=0.0.0" }
+tempfile.workspace = true
+tower.workspace = true

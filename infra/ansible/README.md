@@ -33,6 +33,46 @@ It deliberately installs no self-hosted Actions runner or Tempo/OTLP collector.
 Session 3 selected Firecracker; Session 4 owns its production installation and
 runtime contract.
 
+## Dashboard account bootstrap
+
+`factory_dashboard_account_identities` in `group_vars/all.yml` is the
+Git-controlled A69 roster. It is intentionally empty until the Session 11
+submit-only identity escalation is ruled; convergence fails closed while it
+is empty.
+
+After that ruling is committed, `converge.sh` requires
+`FACTORY_DASHBOARD_ACCOUNTS_FILE` to name a controller-local JSON file readable
+only by its owner. The file adds one password to each exact committed identity;
+it is secret input, never copied to the control plane or committed:
+
+```json
+[
+  {
+    "username": "owner@example.com",
+    "display_name": "Owner",
+    "role": "factory_admin",
+    "password": "replace-with-a-vault-generated-secret"
+  },
+  {
+    "username": "engineer@example.com",
+    "display_name": "Engineer",
+    "role": "factory_admin",
+    "password": "replace-with-a-vault-generated-secret"
+  },
+  {
+    "username": "submitter@example.com",
+    "display_name": "Submitter",
+    "role": "factory_submit",
+    "password": "replace-with-a-vault-generated-secret"
+  }
+]
+```
+
+Provisioning hashes new passwords with Argon2id over stdin. Later converges
+update names and roles without replacing existing passwords. Operators use
+`factoryctl account disable`, `enable`, or `reset-password`; disable and reset
+revoke every server-side session for that account.
+
 ## Controller setup
 
 The committed pins support Rocky's Python 3.9 controller:

@@ -405,10 +405,12 @@ impl Fixture {
         let setup_worker_cleanup_log = worker_cleanup_log.clone();
         tokio::task::spawn_blocking(move || {
             copy_tree(&repository_source, &setup_repository);
-            for directory in [&setup_artifacts, &setup_scratch] {
-                fs::create_dir_all(directory).expect("fixture directory");
-                fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).expect("chmod");
-            }
+            fs::create_dir_all(&setup_artifacts).expect("fixture artifact directory");
+            fs::set_permissions(&setup_artifacts, fs::Permissions::from_mode(0o2750))
+                .expect("artifact chmod");
+            fs::create_dir_all(&setup_scratch).expect("fixture scratch directory");
+            fs::set_permissions(&setup_scratch, fs::Permissions::from_mode(0o700))
+                .expect("scratch chmod");
             fs::write(setup_snapshot, b"fixture snapshot").expect("snapshot");
             fs::create_dir_all(setup_worker_fixture_root.join("bin"))
                 .expect("worker fixture directory");

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Schema // Patchyard Factory{% endblock %}
+{% block content %}
+<h1>Live PostgreSQL structure</h1>
+<p>One catalog implementation backs this live projection and the committed ERD.</p>
+{% for relation in catalog.relations %}
+<section class="box">
+  <h2>{{ relation.name }} <span class="stage-badge">{{ relation.kind }}</span> {{ relation.row_count }} rows</h2>
+  <table><thead><tr><th>column</th><th>type</th><th>nullable</th><th>key</th></tr></thead><tbody>
+  {% for column in relation.columns %}
+    <tr><td>{{ column.name }}</td><td>{{ column.data_type }}</td><td>{{ column.nullable }}</td><td>{% if column.primary_key %}PK{% endif %}{% if column.unique %} UNIQUE{% endif %}</td></tr>
+  {% endfor %}
+  </tbody></table>
+</section>
+{% endfor %}
+<h2>Runtime roles</h2>
+<table><thead><tr><th>role</th><th>login</th><th>superuser</th><th>create DB</th><th>create role</th></tr></thead><tbody>
+{% for role in catalog.roles %}<tr><td>{{ role.name }}</td><td>{{ role.can_login }}</td><td>{{ role.superuser }}</td><td>{{ role.create_db }}</td><td>{{ role.create_role }}</td></tr>{% endfor %}
+</tbody></table>
+<h2>Grants</h2>
+<table><thead><tr><th>role</th><th>relation</th><th>column</th><th>privilege</th></tr></thead><tbody>
+{% for grant in catalog.grants %}<tr><td>{{ grant.grantee }}</td><td>{{ grant.relation }}</td><td>{% match grant.column %}{% when Some with (column) %}{{ column }}{% when None %}-{% endmatch %}</td><td>{{ grant.privilege }}</td></tr>{% endfor %}
+</tbody></table>
+{% endblock %}

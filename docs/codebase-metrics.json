@@ -1,0 +1,279 @@
+{
+  "schema_version": 1,
+  "generated_by": "tools/check-codebase.sh",
+  "tokei_version": "14.0.0",
+  "source_revision": "sha256:fe1778210a2312efd0c0b9398a27b3f1b192545496760963fb028e836e17b243",
+  "roles": [
+    {
+      "role": "product",
+      "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
+      "code": 23251,
+      "comments": 416,
+      "blanks": 1583,
+      "files": 70,
+      "languages": [
+        {
+          "language": "CSS",
+          "code": 899,
+          "comments": 16,
+          "blanks": 155,
+          "files": 2
+        },
+        {
+          "language": "HTML",
+          "code": 257,
+          "comments": 0,
+          "blanks": 0,
+          "files": 12
+        },
+        {
+          "language": "JavaScript",
+          "code": 48,
+          "comments": 3,
+          "blanks": 0,
+          "files": 2
+        },
+        {
+          "language": "JSON",
+          "code": 56,
+          "comments": 0,
+          "blanks": 0,
+          "files": 1
+        },
+        {
+          "language": "Markdown",
+          "code": 0,
+          "comments": 327,
+          "blanks": 14,
+          "files": 37
+        },
+        {
+          "language": "Rust",
+          "code": 21215,
+          "comments": 70,
+          "blanks": 1345,
+          "files": 44
+        },
+        {
+          "language": "SQL",
+          "code": 633,
+          "comments": 0,
+          "blanks": 54,
+          "files": 5
+        },
+        {
+          "language": "TOML",
+          "code": 143,
+          "comments": 0,
+          "blanks": 15,
+          "files": 5
+        }
+      ]
+    },
+    {
+      "role": "infrastructure",
+      "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
+      "code": 7391,
+      "comments": 363,
+      "blanks": 803,
+      "files": 95,
+      "languages": [
+        {
+          "language": "BASH",
+          "code": 2708,
+          "comments": 82,
+          "blanks": 228,
+          "files": 27
+        },
+        {
+          "language": "Forge Config",
+          "code": 10,
+          "comments": 0,
+          "blanks": 1,
+          "files": 1
+        },
+        {
+          "language": "HCL",
+          "code": 601,
+          "comments": 11,
+          "blanks": 98,
+          "files": 10
+        },
+        {
+          "language": "Jinja2",
+          "code": 432,
+          "comments": 0,
+          "blanks": 27,
+          "files": 14
+        },
+        {
+          "language": "JSON",
+          "code": 341,
+          "comments": 0,
+          "blanks": 0,
+          "files": 4
+        },
+        {
+          "language": "Markdown",
+          "code": 0,
+          "comments": 209,
+          "blanks": 57,
+          "files": 6
+        },
+        {
+          "language": "Plain Text",
+          "code": 0,
+          "comments": 40,
+          "blanks": 0,
+          "files": 5
+        },
+        {
+          "language": "Python",
+          "code": 541,
+          "comments": 3,
+          "blanks": 75,
+          "files": 3
+        },
+        {
+          "language": "Shell",
+          "code": 462,
+          "comments": 14,
+          "blanks": 66,
+          "files": 13
+        },
+        {
+          "language": "SQL",
+          "code": 226,
+          "comments": 0,
+          "blanks": 10,
+          "files": 3
+        },
+        {
+          "language": "YAML",
+          "code": 2070,
+          "comments": 4,
+          "blanks": 241,
+          "files": 12
+        }
+      ]
+    },
+    {
+      "role": "tooling",
+      "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
+      "code": 4872,
+      "comments": 227,
+      "blanks": 548,
+      "files": 78,
+      "languages": [
+        {
+          "language": "BASH",
+          "code": 3,
+          "comments": 0,
+          "blanks": 0,
+          "files": 1
+        },
+        {
+          "language": "JSON",
+          "code": 1385,
+          "comments": 0,
+          "blanks": 0,
+          "files": 16
+        },
+        {
+          "language": "Markdown",
+          "code": 0,
+          "comments": 173,
+          "blanks": 30,
+          "files": 18
+        },
+        {
+          "language": "PHP",
+          "code": 38,
+          "comments": 0,
+          "blanks": 6,
+          "files": 3
+        },
+        {
+          "language": "Plain Text",
+          "code": 0,
+          "comments": 3,
+          "blanks": 0,
+          "files": 1
+        },
+        {
+          "language": "Python",
+          "code": 2791,
+          "comments": 27,
+          "blanks": 400,
+          "files": 18
+        },
+        {
+          "language": "Shell",
+          "code": 476,
+          "comments": 24,
+          "blanks": 86,
+          "files": 17
+        },
+        {
+          "language": "SVG",
+          "code": 1,
+          "comments": 0,
+          "blanks": 0,
+          "files": 1
+        },
+        {
+          "language": "TOML",
+          "code": 65,
+          "comments": 0,
+          "blanks": 4,
+          "files": 2
+        },
+        {
+          "language": "YAML",
+          "code": 113,
+          "comments": 0,
+          "blanks": 22,
+          "files": 2
+        }
+      ]
+    },
+    {
+      "role": "governance",
+      "description": "Constitution, specification, rulings, policy, research, and review record.",
+      "code": 8007,
+      "comments": 7705,
+      "blanks": 2413,
+      "files": 94,
+      "languages": [
+        {
+          "language": "BASH",
+          "code": 183,
+          "comments": 12,
+          "blanks": 19,
+          "files": 13
+        },
+        {
+          "language": "JSON",
+          "code": 7461,
+          "comments": 0,
+          "blanks": 1,
+          "files": 24
+        },
+        {
+          "language": "Markdown",
+          "code": 0,
+          "comments": 7691,
+          "blanks": 2362,
+          "files": 74
+        },
+        {
+          "language": "Shell",
+          "code": 363,
+          "comments": 2,
+          "blanks": 31,
+          "files": 2
+        }
+      ]
+    }
+  ]
+}

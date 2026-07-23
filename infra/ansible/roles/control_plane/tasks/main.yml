@@ -72,6 +72,11 @@
     name: factory
     system: true
 
+- name: Create the dashboard-private service group
+  ansible.builtin.group:
+    name: factory-web
+    system: true
+
 - name: Enable the pinned PostgreSQL AppStream server profile
   ansible.builtin.dnf:
     name: "@postgresql:{{ postgresql_stream }}/server"
@@ -107,6 +112,7 @@
     name: "{{ factory_manager_user }}"
     groups:
       - factory
+      - factory-web
     append: true
 
 - name: Create the dashboard service identity
@@ -114,7 +120,9 @@
     name: factory-web
     comment: Patchyard Factory dashboard service
     create_home: false
-    group: factory
+    group: factory-web
+    groups:
+      - factory
     home: /var/lib/patchyard
     password_lock: true
     shell: /usr/sbin/nologin
@@ -128,6 +136,55 @@
     group: factory
     mode: "0750"
 
+- name: Create the dashboard-readable artifact root
+  ansible.builtin.file:
+    path: /var/lib/patchyard/artifacts
+    state: directory
+    owner: "{{ factory_manager_user }}"
+    group: factory-web
+    mode: "2750"
+
+- name: Put existing artifact entries in the dashboard-readable group
+  ansible.builtin.file:
+    path: /var/lib/patchyard/artifacts
+    owner: "{{ factory_manager_user }}"
+    group: factory-web
+    recurse: true
+
+- name: Find existing artifact directories
+  ansible.builtin.find:
+    paths: /var/lib/patchyard/artifacts
+    file_type: directory
+    recurse: true
+  register: factory_artifact_directories
+
+- name: Enforce setgid dashboard-readable artifact directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: "{{ factory_manager_user }}"
+    group: factory-web
+    mode: "2750"
+  loop: "{{ factory_artifact_directories.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Find existing artifact files
+  ansible.builtin.find:
+    paths: /var/lib/patchyard/artifacts
+    file_type: file
+    recurse: true
+  register: factory_artifact_files
+
+- name: Enforce dashboard-readable, non-executable artifact files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: "{{ factory_manager_user }}"
+    group: factory-web
+    mode: "0640"
+  loop: "{{ factory_artifact_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
 - name: Create supervisor-owned private factory state directories
   ansible.builtin.file:
     path: "/var/lib/patchyard/{{ item }}"
@@ -136,7 +193,6 @@
     group: factory
     mode: "0700"
   loop:
-    - artifacts
     - supervisor
 
 - name: Create dashboard-writable intake spool
@@ -144,7 +200,7 @@
     path: /var/lib/patchyard/spool
     state: directory
     owner: factory-web
-    group: factory
+    group: factory-web
     mode: "0700"
 
 - name: Create the parity snapshot artifact root
@@ -566,6 +622,37 @@
     mode: "0755"
   notify: Restart factory supervisor
 
+- name: Require the reviewed factory-web build artifact
+  ansible.builtin.assert:
+    that:
+      - factory_web_binary is defined
+      - factory_web_binary | length > 0
+      - factory_web_sha256 is defined
+      - factory_web_sha256 is match('^[0-9a-f]{64}$')
+
+- name: Hash the local factory-web build artifact
+  ansible.builtin.stat:
+    path: "{{ factory_web_binary }}"
+    checksum_algorithm: sha256
+  delegate_to: localhost
+  become: false
+  register: local_factory_web
+
+- name: Require the exact factory-web build artifact
+  ansible.builtin.assert:
+    that:
+      - local_factory_web.stat.exists
+      - local_factory_web.stat.checksum == factory_web_sha256
+
+- name: Install the reviewed factory-web binary
+  ansible.builtin.copy:
+    src: "{{ factory_web_binary }}"
+    dest: /usr/local/bin/factory-web
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart factory dashboard
+
 - name: Require the reviewed factory-verify build artifact
   ansible.builtin.assert:
     that:
@@ -653,6 +740,83 @@
   become_user: postgres
   changed_when: false
 
+- name: Load bootstrap dashboard accounts from the controller secret file
+  ansible.builtin.set_fact:
+    factory_dashboard_accounts: >-
+      {{ lookup('ansible.builtin.file', factory_dashboard_accounts_file) | from_json }}
+  no_log: true
+
+- name: Require the ruled Git-controlled dashboard identity roster
+  ansible.builtin.assert:
+    that:
+      - factory_dashboard_account_identities is sequence
+      - factory_dashboard_account_identities | length >= 3
+      - >-
+        factory_dashboard_account_identities
+        | map(attribute='username')
+        | unique
+        | list
+        | length == (factory_dashboard_account_identities | length)
+      - factory_dashboard_account_identities | selectattr('role', 'equalto', 'factory_admin') | list | length >= 2
+      - factory_dashboard_account_identities | selectattr('role', 'equalto', 'factory_submit') | list | length >= 1
+    fail_msg: >-
+      A69 requires bootstrap identities and roles in Git. Resolve the
+      Session 11 submit-only identity escalation before convergence.
+
+- name: Validate each Git-controlled dashboard identity
+  ansible.builtin.assert:
+    that:
+      - item.username is string
+      - item.display_name is string
+      - item.role in ['factory_submit', 'factory_admin']
+  loop: "{{ factory_dashboard_account_identities }}"
+
+- name: Require owner, engineering, and submitter bootstrap identities
+  ansible.builtin.assert:
+    that:
+      - factory_dashboard_accounts is sequence
+      - factory_dashboard_accounts | length == factory_dashboard_account_identities | length
+      - >-
+        factory_dashboard_accounts
+        | map(attribute='username')
+        | unique
+        | list
+        | length == (factory_dashboard_accounts | length)
+      - item.username is string
+      - item.display_name is string
+      - item.password is string
+      - item.password | length >= 14
+      - item.role in ['factory_submit', 'factory_admin']
+      - >-
+        factory_dashboard_account_identities
+        | selectattr('username', 'equalto', item.username)
+        | selectattr('display_name', 'equalto', item.display_name)
+        | selectattr('role', 'equalto', item.role)
+        | list
+        | length == 1
+  loop: "{{ factory_dashboard_accounts }}"
+  no_log: true
+
+- name: Provision factory-native dashboard accounts
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/factoryctl
+      - account
+      - provision
+      - "--username={{ item.username }}"
+      - "--display-name={{ item.display_name }}"
+      - "--role={{ item.role | replace('_', '-') }}"
+    stdin: "{{ item.password }}"
+    stdin_add_newline: false
+  become: true
+  become_user: "{{ factory_manager_user }}"
+  environment:
+    DATABASE_URL: >-
+      postgresql:///patchyard?host={{ postgresql_socket_directory }}&user=patchyard_migrator&sslmode=disable
+  loop: "{{ factory_dashboard_accounts }}"
+  no_log: true
+  changed_when: false
+
 - name: Install PostgreSQL TLS expiry metric generator
   ansible.builtin.template:
     src: postgresql-tls-expiry-metric.sh.j2
@@ -720,15 +884,34 @@
     mode: "0440"
   no_log: true
 
+- name: Create Caddy service group
+  ansible.builtin.group:
+    name: caddy
+    system: true
+
 - name: Create Caddy service identity
   ansible.builtin.user:
     name: caddy
     comment: Caddy web server
     create_home: false
+    group: caddy
+    groups:
+      - factory-web
     home: /var/lib/caddy
     password_lock: true
     shell: /usr/sbin/nologin
     system: true
+
+- name: Create Caddy state and log directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: caddy
+    group: caddy
+    mode: "0750"
+  loop:
+    - /var/lib/caddy
+    - /var/log/caddy
 
 - name: Download pinned Caddy
   ansible.builtin.get_url:
@@ -1020,6 +1203,82 @@
   become_user: "{{ factory_manager_user }}"
   register: session9_target_sha
   changed_when: false
+
+- name: Install the explicit fail-closed deployed-version source
+  ansible.builtin.copy:
+    src: patchyard-deployed-version-unconfigured
+    dest: /usr/local/libexec/patchyard-deployed-version-unconfigured
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart factory supervisor
+
+- name: Install the factory dashboard systemd unit
+  ansible.builtin.copy:
+    src: factory-dashboard.service
+    dest: /etc/systemd/system/factory-dashboard.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart factory dashboard
+
+- name: Install the dashboard socket ownership helper
+  ansible.builtin.copy:
+    src: patchyard-dashboard-socket-owner
+    dest: /usr/local/libexec/patchyard-dashboard-socket-owner
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart factory dashboard
+
+- name: Enable the factory dashboard
+  ansible.builtin.systemd:
+    name: factory-dashboard.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Create the Caddy configuration directory
+  ansible.builtin.file:
+    path: /etc/caddy
+    state: directory
+    owner: root
+    group: caddy
+    mode: "0750"
+
+- name: Install the factory Caddy vhost
+  ansible.builtin.copy:
+    src: Caddyfile
+    dest: /etc/caddy/Caddyfile
+    owner: root
+    group: caddy
+    mode: "0640"
+  notify: Reload Caddy
+
+- name: Validate the factory Caddy vhost
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/caddy
+      - validate
+      - --config
+      - /etc/caddy/Caddyfile
+  changed_when: false
+
+- name: Install the hardened Caddy systemd unit
+  ansible.builtin.copy:
+    src: caddy.service
+    dest: /etc/systemd/system/caddy.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Caddy
+
+- name: Enable the Caddy edge
+  ansible.builtin.systemd:
+    name: caddy.service
+    enabled: true
+    state: started
+    daemon_reload: true
 
 - name: Install the Session 9 dry-run supervisor environment
   ansible.builtin.template:

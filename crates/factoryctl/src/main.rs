@@ -7,14 +7,12 @@ use std::{
     time::Duration,
 };
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use factory_core::{
-    RequestBody,
+    auth::{AccountRole, PASSWORD_MAX_BYTES, hash_password, normalize_username},
     plan::{PlanAction, PlanDecision},
     schema::{introspect, render_mermaid},
-    state::{
-        FactoryRepository, NewRequest, PostgresRepository, Sha256Digest, TraceId, remove_artifact,
-    },
+    state::{FactoryRepository, NewRequest, PostgresRepository, TraceId, remove_artifact},
     triage::{Lane, Rubric, TaskSpec, TriageOutput},
 };
 use factory_supervisor::{
@@ -22,7 +20,6 @@ use factory_supervisor::{
     store::{ControlKind, PgPipelineStore, PipelineStore},
 };
 use serde::Deserialize;
-use sha2::{Digest as _, Sha256};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -50,7 +47,7 @@ enum Command {
     Claim(ClaimArgs),
     /// Close a request and start its artifact retention clock.
     Close(CloseArgs),
-    /// Delete expired artifacts safely beneath the 0700 artifact root.
+    /// Delete expired artifacts safely beneath the dashboard-readable artifact root.
     RetentionSweep(RetentionSweepArgs),
     /// Reconcile one factory PR against GitHub and the deployed-version source.
     Reconcile(RequestIdArgs),
@@ -72,6 +69,11 @@ enum Command {
     Kill(KillArgs),
     /// Queue a durable full-stop control row.
     FullStop(ControlReasonArgs),
+    /// Provision, disable, enable, or reset factory-native dashboard accounts.
+    Account {
+        #[command(subcommand)]
+        command: AccountCommand,
+    },
     /// Apply one human plan-bin decision.
     Plan {
         #[command(subcommand)]
@@ -83,6 +85,49 @@ enum Command {
 enum RequestCommand {
     /// Create one request; `-` reads the body from standard input.
     New(NewRequestArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum AccountCommand {
+    /// Idempotently provision one account; reads the initial password from stdin.
+    Provision(AccountProvisionArgs),
+    /// Disable an account and revoke all of its sessions.
+    Disable(AccountIdentityArgs),
+    /// Re-enable a disabled account without changing its password.
+    Enable(AccountIdentityArgs),
+    /// Replace an account password and revoke all existing sessions.
+    ResetPassword(AccountIdentityArgs),
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum AccountRoleArgument {
+    FactorySubmit,
+    FactoryAdmin,
+}
+
+impl From<AccountRoleArgument> for AccountRole {
+    fn from(value: AccountRoleArgument) -> Self {
+        match value {
+            AccountRoleArgument::FactorySubmit => Self::Submitter,
+            AccountRoleArgument::FactoryAdmin => Self::Admin,
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+struct AccountProvisionArgs {
+    #[arg(long)]
+    username: String,
+    #[arg(long)]
+    display_name: String,
+    #[arg(long, value_enum)]
+    role: AccountRoleArgument,
+}
+
+#[derive(Debug, Args)]
+struct AccountIdentityArgs {
+    #[arg(long)]
+    username: String,
 }
 
 #[derive(Debug, Args)]
@@ -294,6 +339,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             println!("{}", serde_json::to_string_pretty(&catalog)?);
         }
         Command::TriageReplay(_) => unreachable!("handled before database connection"),
+        Command::Account { command } => account(repository.pool(), command).await?,
         Command::Plan { command } => plan(&repository, command).await?,
         Command::Run(_)
         | Command::Reconcile(_)
@@ -446,22 +492,14 @@ async fn create_request(
     arguments: NewRequestArgs,
 ) -> Result<(), Box<dyn Error>> {
     let raw = read_body(&arguments.file)?;
-    let body = RequestBody::parse(raw)?;
     let trace_id = match arguments.trace_id {
         Some(value) => TraceId::parse(value)?,
         None => TraceId::random(),
     };
-
-    let mut hasher = Sha256::new();
-    hasher.update(arguments.source.as_bytes());
-    hasher.update([0]);
-    hasher.update(body.as_str().as_bytes());
-    let fingerprint = Sha256Digest::new(hasher.finalize().into());
-    let request = NewRequest::new(
+    let request = NewRequest::from_intake(
         arguments.id.unwrap_or_else(Uuid::new_v4),
-        fingerprint,
         arguments.source,
-        body,
+        raw,
         trace_id,
     )?;
     let created = repository.create_request(&request).await?;
@@ -475,6 +513,183 @@ async fn create_request(
         }
     );
     Ok(())
+}
+
+async fn account(pool: &sqlx::PgPool, command: AccountCommand) -> Result<(), Box<dyn Error>> {
+    match command {
+        AccountCommand::Provision(arguments) => {
+            let username = normalize_username(&arguments.username)?;
+            validate_display_name(&arguments.display_name)?;
+            let password = read_password_stdin()?;
+            let password_hash =
+                tokio::task::spawn_blocking(move || hash_password(&password)).await??;
+            let id = Uuid::new_v4();
+            let mut transaction = pool.begin().await?;
+            let account_id: Uuid = sqlx::query_scalar(
+                r#"
+                INSERT INTO factory.users (
+                    id, username, display_name, password_hash, role
+                ) VALUES ($1, $2, $3, $4, $5::factory.account_role)
+                ON CONFLICT (username) DO UPDATE SET
+                    display_name = EXCLUDED.display_name,
+                    role = EXCLUDED.role,
+                    updated_at = clock_timestamp()
+                RETURNING id
+                "#,
+            )
+            .bind(id)
+            .bind(&username)
+            .bind(&arguments.display_name)
+            .bind(password_hash)
+            .bind(AccountRole::from(arguments.role).as_str())
+            .fetch_one(&mut *transaction)
+            .await?;
+            sqlx::query(
+                "INSERT INTO factory.audit_events (user_id,action,subject,client_key) VALUES ($1,'account.provisioned',$2,'factoryctl')",
+            )
+            .bind(account_id)
+            .bind(&username)
+            .execute(&mut *transaction)
+            .await?;
+            transaction.commit().await?;
+            println!("account {username} provisioned as {account_id}");
+        }
+        AccountCommand::Disable(arguments) => {
+            set_account_enabled(pool, &arguments.username, false).await?;
+        }
+        AccountCommand::Enable(arguments) => {
+            set_account_enabled(pool, &arguments.username, true).await?;
+        }
+        AccountCommand::ResetPassword(arguments) => {
+            let username = normalize_username(&arguments.username)?;
+            let password = read_password_stdin()?;
+            let password_hash =
+                tokio::task::spawn_blocking(move || hash_password(&password)).await??;
+            let mut transaction = pool.begin().await?;
+            let account_id: Option<Uuid> = sqlx::query_scalar(
+                r#"
+                UPDATE factory.users SET
+                    password_hash=$2,
+                    password_reset_required=false,
+                    password_reset_at=clock_timestamp(),
+                    session_version=session_version+1,
+                    updated_at=clock_timestamp()
+                WHERE username=$1
+                RETURNING id
+                "#,
+            )
+            .bind(&username)
+            .bind(password_hash)
+            .fetch_optional(&mut *transaction)
+            .await?;
+            let account_id = account_id.ok_or("dashboard account does not exist")?;
+            revoke_account_sessions(&mut transaction, account_id).await?;
+            append_account_audit(
+                &mut transaction,
+                account_id,
+                "account.password_reset",
+                &username,
+            )
+            .await?;
+            transaction.commit().await?;
+            println!("account {username} password reset; sessions revoked");
+        }
+    }
+    Ok(())
+}
+
+async fn set_account_enabled(
+    pool: &sqlx::PgPool,
+    raw_username: &str,
+    enabled: bool,
+) -> Result<(), Box<dyn Error>> {
+    let username = normalize_username(raw_username)?;
+    let mut transaction = pool.begin().await?;
+    let account_id: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        UPDATE factory.users SET
+            enabled=$2,
+            disabled_at=CASE WHEN $2 THEN NULL ELSE clock_timestamp() END,
+            session_version=session_version + CASE WHEN $2 THEN 0 ELSE 1 END,
+            updated_at=clock_timestamp()
+        WHERE username=$1
+        RETURNING id
+        "#,
+    )
+    .bind(&username)
+    .bind(enabled)
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let account_id = account_id.ok_or("dashboard account does not exist")?;
+    if !enabled {
+        revoke_account_sessions(&mut transaction, account_id).await?;
+    }
+    let action = if enabled {
+        "account.enabled"
+    } else {
+        "account.disabled"
+    };
+    append_account_audit(&mut transaction, account_id, action, &username).await?;
+    transaction.commit().await?;
+    println!(
+        "account {username} {}",
+        if enabled { "enabled" } else { "disabled" }
+    );
+    Ok(())
+}
+
+async fn revoke_account_sessions(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    account_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE factory.sessions SET revoked_at=COALESCE(revoked_at,clock_timestamp()) WHERE user_id=$1",
+    )
+    .bind(account_id)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
+async fn append_account_audit(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    account_id: Uuid,
+    action: &str,
+    username: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO factory.audit_events (user_id,action,subject,client_key) VALUES ($1,$2,$3,'factoryctl')",
+    )
+    .bind(account_id)
+    .bind(action)
+    .bind(username)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
+fn validate_display_name(value: &str) -> Result<(), Box<dyn Error>> {
+    if value.trim().is_empty() || value.len() > 128 || value.chars().any(char::is_control) {
+        return Err("display name must contain 1 to 128 printable bytes".into());
+    }
+    Ok(())
+}
+
+fn read_password_stdin() -> Result<String, Box<dyn Error>> {
+    let mut password = String::new();
+    std::io::stdin()
+        .take(u64::try_from(PASSWORD_MAX_BYTES)? + 3)
+        .read_to_string(&mut password)?;
+    if password.ends_with('\n') {
+        password.pop();
+        if password.ends_with('\r') {
+            password.pop();
+        }
+    }
+    if password.len() > PASSWORD_MAX_BYTES {
+        return Err(format!("password exceeds {PASSWORD_MAX_BYTES} bytes").into());
+    }
+    Ok(password)
 }
 
 async fn status(repository: &PostgresRepository, request_id: Uuid) -> Result<(), Box<dyn Error>> {

@@ -757,6 +757,10 @@ async fn complete_role_matrix_and_grafana_canary_hold() -> Result<(), Box<dyn Er
         WHERE table_schema = 'factory'
           AND grantee = 'patchyard_dashboard'
           AND privilege_type = 'UPDATE'
+          AND table_name IN (
+              'requests','runs','events','artifacts','pr_state','leases',
+              'supervisor_state','controls'
+          )
         "#,
     )
     .fetch_one(&admin)

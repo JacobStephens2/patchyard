@@ -9,13 +9,14 @@ use std::{
     time::Duration,
 };
 
+use sha2::{Digest as _, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
 use thiserror::Error;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
-    RequestBody,
+    RequestBody, RequestBodyError,
     plan::{
         PlanAction, PlanDecision, PlanError, PlanTransition, PlanTransitionKind, transition_for,
     },
@@ -99,6 +100,24 @@ pub struct NewRequest {
 }
 
 impl NewRequest {
+    /// Construct a request from raw intake through the one canonical parser
+    /// and fingerprint algorithm used by `factoryctl` and the dashboard.
+    pub fn from_intake(
+        id: Uuid,
+        source: impl Into<String>,
+        raw_body: impl Into<String>,
+        trace_id: TraceId,
+    ) -> Result<Self, NewRequestError> {
+        let source = source.into();
+        let body = RequestBody::parse(raw_body.into())?;
+        let mut hasher = Sha256::new();
+        hasher.update(source.as_bytes());
+        hasher.update([0]);
+        hasher.update(body.as_str().as_bytes());
+        let fingerprint = Sha256Digest::new(hasher.finalize().into());
+        Ok(Self::new(id, fingerprint, source, body, trace_id)?)
+    }
+
     /// Construct a request while enforcing domain-level source invariants.
     pub fn new(
         id: Uuid,
@@ -1163,6 +1182,15 @@ fn validate_relative_artifact_path(path: &Path) -> Result<PathBuf, RepositoryErr
         return Err(RepositoryError::UnsafeArtifactPath(path.to_path_buf()));
     }
     Ok(path.to_path_buf())
+}
+
+/// Invalid caller input rejected before reaching PostgreSQL.
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
+pub enum NewRequestError {
+    #[error("request body is invalid: {0}")]
+    Body(#[from] RequestBodyError),
+    #[error("request metadata is invalid: {0}")]
+    Metadata(#[from] DomainInputError),
 }
 
 /// Invalid caller input rejected before reaching PostgreSQL.

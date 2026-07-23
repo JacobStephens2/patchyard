@@ -1,0 +1,25 @@
+{
+	admin off
+}
+
+factory.example.com {
+	log {
+		output file /var/log/caddy/factory-access.json
+		format json
+	}
+
+	@events path_regexp factory_events ^/request/[0-9a-f-]+/events$
+	handle @events {
+		reverse_proxy unix//run/patchyard-dashboard/dashboard.sock {
+			flush_interval -1
+			stream_timeout 0
+			transport http {
+				versions 1.1
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy unix//run/patchyard-dashboard/dashboard.sock
+	}
+}

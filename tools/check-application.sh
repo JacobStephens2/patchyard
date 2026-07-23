@@ -15,6 +15,7 @@ cargo deny check --allow license-not-encountered
 cargo vet --locked
 cargo machete
 ./model/check-model.sh
+tools/check-codebase.sh
 
 if [[ -n "${FACTORY_TEST_DATABASE_URL:-}" ]]; then
   tools/check-state.sh

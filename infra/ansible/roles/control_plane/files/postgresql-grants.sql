@@ -31,7 +31,8 @@ GRANT SELECT ON
     factory.controls,
     factory.side_effects,
     factory.publisher_leases,
-    factory.github_state
+    factory.github_state,
+    factory.reconcile_requests
 TO patchyard_supervisor;
 GRANT INSERT (id, fingerprint, source, body, trace_id) ON factory.requests
 TO patchyard_supervisor;
@@ -107,6 +108,9 @@ GRANT INSERT, UPDATE (
 GRANT INSERT, UPDATE (
     observed_at, failed_at, last_error, open_pr_count
 ) ON factory.github_state TO patchyard_supervisor;
+GRANT UPDATE (
+    status, claim_token, claimed_at, executed_at, outcome
+) ON factory.reconcile_requests TO patchyard_supervisor;
 
 GRANT SELECT ON
     factory.requests,
@@ -116,12 +120,41 @@ GRANT SELECT ON
     factory.pr_state,
     factory.leases,
     factory.supervisor_state,
-    factory.controls
+    factory.controls,
+    factory.users,
+    factory.sessions,
+    factory.login_challenges,
+    factory.login_attempts,
+    factory.audit_events,
+    factory.reconcile_requests
 TO patchyard_dashboard;
 GRANT INSERT (id, fingerprint, source, body, trace_id) ON factory.requests
 TO patchyard_dashboard;
 GRANT INSERT (id, command, target_run_id, requested_by, reason)
 ON factory.controls TO patchyard_dashboard;
+GRANT INSERT (
+    token_hash, csrf_hash, expires_at
+) ON factory.login_challenges TO patchyard_dashboard;
+GRANT UPDATE (used_at) ON factory.login_challenges TO patchyard_dashboard;
+GRANT INSERT (
+    token_hash, user_id, csrf_hash, session_version,
+    idle_expires_at, absolute_expires_at
+) ON factory.sessions TO patchyard_dashboard;
+GRANT UPDATE (
+    last_seen_at, idle_expires_at, revoked_at
+) ON factory.sessions TO patchyard_dashboard;
+GRANT INSERT (username, client_key, succeeded)
+ON factory.login_attempts TO patchyard_dashboard;
+GRANT INSERT (user_id, action, subject, client_key, metadata)
+ON factory.audit_events TO patchyard_dashboard;
+GRANT INSERT (id, request_id, requested_by)
+ON factory.reconcile_requests TO patchyard_dashboard;
+GRANT USAGE, SELECT ON SEQUENCE
+    factory.login_attempts_id_seq,
+    factory.audit_events_id_seq
+TO patchyard_dashboard;
+GRANT EXECUTE ON FUNCTION factory.schema_relation_counts()
+TO patchyard_dashboard;
 
 GRANT SELECT (
     request_id,

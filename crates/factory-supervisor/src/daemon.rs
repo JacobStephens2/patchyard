@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     pipeline::{Pipeline, PipelineError, PipelineOutcome},
+    reconcile::Reconciler,
     store::{ControlKind, DailyLimits, PgPipelineStore, PipelineStore, StoreError},
 };
 
@@ -21,6 +22,8 @@ pub struct DaemonConfig {
     pub lease_ttl: Duration,
     pub limits: DailyLimits,
     pub max_active: usize,
+    pub reconcile_abandoned_after: Duration,
+    pub reconcile_sweep_limit: usize,
 }
 
 struct ActiveRun {
@@ -28,11 +31,18 @@ struct ActiveRun {
     handle: JoinHandle<Result<PipelineOutcome, PipelineError>>,
 }
 
+struct ActiveReconcile {
+    cancellation: CancellationToken,
+    handle: JoinHandle<Result<(), DaemonError>>,
+}
+
 pub struct SupervisorDaemon {
     store: PgPipelineStore,
     pipeline: Pipeline<PgPipelineStore>,
+    reconciler: Reconciler<PgPipelineStore>,
     config: DaemonConfig,
     active: BTreeMap<Uuid, ActiveRun>,
+    active_reconciles: BTreeMap<Uuid, ActiveReconcile>,
 }
 
 impl SupervisorDaemon {
@@ -40,20 +50,28 @@ impl SupervisorDaemon {
     pub fn new(
         store: PgPipelineStore,
         pipeline: Pipeline<PgPipelineStore>,
+        reconciler: Reconciler<PgPipelineStore>,
         config: DaemonConfig,
     ) -> Self {
         Self {
             store,
             pipeline,
+            reconciler,
             config,
             active: BTreeMap::new(),
+            active_reconciles: BTreeMap::new(),
         }
     }
 
     /// Notifications are only wakes. Every wake invokes the same durable-row
     /// sweep, including startup, reconnect, and the recovery timer.
     pub async fn run(mut self, shutdown: &CancellationToken) -> Result<(), DaemonError> {
-        if self.config.max_active == 0 || self.config.sweep_interval.is_zero() {
+        if self.config.max_active == 0
+            || self.config.sweep_interval.is_zero()
+            || self.config.reconcile_abandoned_after.is_zero()
+            || self.config.reconcile_sweep_limit == 0
+            || self.config.reconcile_sweep_limit > 100
+        {
             return Err(DaemonError::InvalidConfig);
         }
         let mut listener = self.connect_listener().await?;
@@ -84,6 +102,7 @@ impl SupervisorDaemon {
             }
         }
         self.shutdown_active().await?;
+        self.shutdown_reconciles().await?;
         Ok(())
     }
 
@@ -91,11 +110,14 @@ impl SupervisorDaemon {
         let mut listener = PgListener::connect(&self.config.database_url).await?;
         listener.listen("factory_intake").await?;
         listener.listen("factory_control").await?;
+        listener.listen("factory_reconcile").await?;
         Ok(listener)
     }
 
     async fn sweep(&mut self) -> Result<(), DaemonError> {
         self.execute_controls().await?;
+        self.reap_reconciles().await?;
+        self.start_reconciles().await?;
         self.reap_finished().await?;
         while self.active.len() < self.config.max_active {
             let Some(claim) = self
@@ -124,6 +146,69 @@ impl SupervisorDaemon {
                     handle,
                 },
             );
+        }
+        Ok(())
+    }
+
+    async fn start_reconciles(&mut self) -> Result<(), DaemonError> {
+        while self.active_reconciles.len() < self.config.reconcile_sweep_limit {
+            let Some(request) = self
+                .store
+                .claim_next_reconcile(self.config.reconcile_abandoned_after)
+                .await?
+            else {
+                break;
+            };
+            let reconcile_id = request.id;
+            let store = self.store.clone();
+            let reconciler = self.reconciler.clone();
+            let cancellation = CancellationToken::new();
+            let task_token = cancellation.clone();
+            let handle = tokio::spawn(async move {
+                let result = reconciler.reconcile(request.request_id, &task_token).await;
+                let (success, outcome) = match result {
+                    Ok(outcome) => (true, serde_json::to_value(outcome)?),
+                    Err(error) => {
+                        tracing::warn!(
+                            request_id = %request.request_id,
+                            reconcile_id = %request.id,
+                            %error,
+                            "dashboard reconciliation failed closed"
+                        );
+                        (false, serde_json::json!({"error": error.to_string()}))
+                    }
+                };
+                store.complete_reconcile(&request, success, outcome).await?;
+                Ok(())
+            });
+            self.active_reconciles.insert(
+                reconcile_id,
+                ActiveReconcile {
+                    cancellation,
+                    handle,
+                },
+            );
+        }
+        Ok(())
+    }
+
+    async fn reap_reconciles(&mut self) -> Result<(), DaemonError> {
+        let finished: Vec<Uuid> = self
+            .active_reconciles
+            .iter()
+            .filter_map(|(id, active)| active.handle.is_finished().then_some(*id))
+            .collect();
+        for reconcile_id in finished {
+            let active = self
+                .active_reconciles
+                .remove(&reconcile_id)
+                .expect("selected reconciliation exists");
+            match active.handle.await? {
+                Ok(()) => tracing::info!(%reconcile_id, "dashboard reconciliation completed"),
+                Err(error) => {
+                    tracing::error!(%reconcile_id, %error, "dashboard reconciliation task failed")
+                }
+            }
         }
         Ok(())
     }
@@ -257,6 +342,17 @@ impl SupervisorDaemon {
         }
         Ok(())
     }
+
+    async fn shutdown_reconciles(&mut self) -> Result<(), DaemonError> {
+        let reconciles = std::mem::take(&mut self.active_reconciles);
+        for reconcile in reconciles.values() {
+            reconcile.cancellation.cancel();
+        }
+        for (_, reconcile) in reconciles {
+            reconcile.handle.await??;
+        }
+        Ok(())
+    }
 }
 
 enum Wake {
@@ -275,4 +371,6 @@ pub enum DaemonError {
     Store(#[from] StoreError),
     #[error("pipeline task failed to join: {0}")]
     Join(#[from] tokio::task::JoinError),
+    #[error("reconcile outcome serialization failed: {0}")]
+    Json(#[from] serde_json::Error),
 }

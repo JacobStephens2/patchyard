@@ -22,16 +22,21 @@ unsafe_code = "forbid"
 all = "warn"
 
 [workspace.dependencies]
+argon2 = { version = "0.5.3", features = ["std"] }
+askama = { version = "0.16.0", default-features = false, features = ["derive", "std"] }
+axum = { version = "0.8.9", default-features = false, features = ["form", "http1", "query", "tokio"] }
 base64 = "0.22.1"
 clap = { version = "4.6.3", features = ["derive", "env"] }
 globset = "0.4.19"
 hex = "0.4.3"
+http-body-util = "0.1.4"
 metrics = "0.24.3"
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false, features = ["http-listener"] }
 opentelemetry = { version = "0.32.0", default-features = false, features = ["trace"] }
 opentelemetry-otlp = { version = "0.32.0", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace"] }
 opentelemetry_sdk = { version = "0.32.0", default-features = false, features = ["trace"] }
 proptest = "1.11.0"
+pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 sha2 = "0.10.9"
@@ -51,6 +56,8 @@ time = { version = "0.3.54", features = ["formatting", "parsing", "serde"] }
 tempfile = "3.27.0"
 tokio = { version = "1.53.1", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-util = { version = "0.7.18", features = ["rt"] }
+tokio-stream = { version = "0.1.19", default-features = false, features = ["sync"] }
+tower = { version = "0.5.3", features = ["util"] }
 tracing = "0.1.44"
 tracing-opentelemetry = { version = "0.33.0", default-features = false }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }

@@ -73,6 +73,7 @@ test -x /usr/local/sbin/patchyard-run-fixture
 test -x /usr/local/sbin/patchyard-run-isolation-probe
 test -x /usr/local/sbin/patchyard-run-hostile-qualification
 test -x /usr/local/bin/factory-supervisor
+test -x /bin/curl
 gh --version | sed -n '1p' | grep -Eq '^gh version 2\.94\.0 '
 test -x /usr/local/libexec/patchyard-git-askpass
 test "$(stat -c '%U:%G:%a' /etc/patchyard/github-app.pem)" = 'root:factory-manager:440'

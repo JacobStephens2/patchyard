@@ -235,6 +235,7 @@ pub trait PublishService: Send + Sync {
 #[derive(Clone, Debug)]
 pub struct GhGitHubConfig {
     pub gh_program: PathBuf,
+    pub curl_program: PathBuf,
     pub openssl_program: PathBuf,
     pub app_id: u64,
     pub installation_id: u64,
@@ -283,7 +284,7 @@ impl GhGitHub {
         let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&serde_json::json!({
             "iat": now - 60,
             "exp": now + 540,
-            "iss": self.config.app_id,
+            "iss": self.config.app_id.to_string(),
         }))?);
         let unsigned = format!("{header}.{payload}");
         let input = PrivateInput::create(
@@ -331,6 +332,60 @@ impl GhGitHub {
         let output = self
             .gh(token, method, endpoint, fields, input, cancellation)
             .await?;
+        serde_json::from_slice(&output).map_err(GitHubError::Json)
+    }
+
+    async fn mint_json<T: for<'de> Deserialize<'de>>(
+        &self,
+        jwt: &str,
+        input: &Path,
+        cancellation: &CancellationToken,
+    ) -> Result<T, GitHubError> {
+        // `gh api` sends GH_TOKEN with the token authentication scheme, while
+        // GitHub's App-JWT endpoint requires Bearer. Keep the JWT out of argv
+        // by putting curl's fixed request in an owner-only ephemeral config.
+        let config = PrivateInput::create(
+            &self.config.scratch,
+            "github-mint-curl",
+            format!(
+                "fail-with-body\n\
+                 silent\n\
+                 show-error\n\
+                 proto = \"=https\"\n\
+                 tlsv1.2\n\
+                 request = \"POST\"\n\
+                 header = \"Accept: application/vnd.github+json\"\n\
+                 header = \"Authorization: Bearer {jwt}\"\n\
+                 header = \"X-GitHub-Api-Version: {GITHUB_API_VERSION}\"\n\
+                 data-binary = \"@{}\"\n\
+                 url = \"https://api.github.com/app/installations/{}/access_tokens\"\n",
+                input.display(),
+                self.config.installation_id,
+            )
+            .into_bytes(),
+        )
+        .await?;
+        let mut spec = ProcessSpec::new(&self.config.curl_program);
+        spec.args = vec![
+            OsString::from("-q"),
+            OsString::from("--config"),
+            config.path().as_os_str().to_owned(),
+        ];
+        spec.timeout = self.config.timeout;
+        spec.output_limit = MAX_GITHUB_OUTPUT;
+        let request = run_bounded(&spec, cancellation).await;
+        let cleanup = config.close().await;
+        let output = match (request, cleanup) {
+            (Ok(output), Ok(())) if output.code == 0 => output.stdout,
+            (Ok(output), Ok(())) => {
+                return Err(GitHubError::CommandFailed {
+                    operation: "GitHub App token mint",
+                    code: output.code,
+                });
+            }
+            (Err(error), Ok(())) => return Err(error.into()),
+            (_, Err(error)) => return Err(error),
+        };
         serde_json::from_slice(&output).map_err(GitHubError::Json)
     }
 
@@ -404,18 +459,8 @@ impl GitHubApi for GhGitHub {
             let jwt = self.app_jwt(cancellation).await;
             let response = match jwt {
                 Ok(jwt) => {
-                    self.gh_json::<MintResponse>(
-                        &jwt,
-                        "POST",
-                        format!(
-                            "app/installations/{}/access_tokens",
-                            self.config.installation_id
-                        ),
-                        &[],
-                        Some(input.path()),
-                        cancellation,
-                    )
-                    .await
+                    self.mint_json::<MintResponse>(&jwt, input.path(), cancellation)
+                        .await
                 }
                 Err(error) => Err(error),
             };

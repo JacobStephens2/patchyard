@@ -21,6 +21,10 @@ Only the publisher can move the run through `publishing` to
   `/etc/patchyard/github-app.pem`. It is read at mint time, never flattened
   into an environment variable. The publisher rejects a symlink, non-file, or
   world-accessible key.
+- The App JWT reaches GitHub's Bearer-only mint endpoint through a bounded
+  `curl` invocation whose complete request lives in a 0600 ephemeral config.
+  The JWT is never an argument. Installation-token API calls remain bounded
+  `gh` argument-vector invocations.
 - Git receives the installation token through a fixed askpass helper and a
   cleared subprocess environment. The token is never an argument.
 - The commit name, commit noreply address, and PR author are all checked

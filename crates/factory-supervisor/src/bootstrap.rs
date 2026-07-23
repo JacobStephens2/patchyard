@@ -265,6 +265,7 @@ pub async fn reconciler_from_environment(
 fn github_from_environment(scratch: PathBuf) -> Result<Arc<GhGitHub>, BootstrapError> {
     Ok(Arc::new(GhGitHub::new(GhGitHubConfig {
         gh_program: path_env("FACTORY_GH_PROGRAM", "/bin/gh"),
+        curl_program: path_env("FACTORY_CURL_PROGRAM", "/bin/curl"),
         openssl_program: path_env("FACTORY_OPENSSL_PROGRAM", "/bin/openssl"),
         app_id: u64_env("GH_PATCHYARD_APP_ID")?,
         installation_id: u64_env("GH_PATCHYARD_APP_INSTALLATION_ID")?,

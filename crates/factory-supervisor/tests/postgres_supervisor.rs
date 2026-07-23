@@ -289,9 +289,29 @@ async fn sweep_skips_ready_for_review_request_and_claims_queued_work() -> Result
     store
         .release_lease(ready_request.id, "ready-holder")
         .await?;
+    store
+        .claim_specific(
+            queued_request.id,
+            "queued-holder",
+            Duration::from_secs(60),
+            limits,
+        )
+        .await?;
+    store
+        .release_lease(queued_request.id, "queued-holder")
+        .await?;
+    sqlx::query(
+        "UPDATE factory.requests SET received_at = CASE id WHEN $1 THEN '1970-01-01 00:00:00+00'::timestamptz ELSE '1970-01-01 00:00:01+00'::timestamptz END WHERE id IN ($1, $2)",
+    )
+    .bind(ready_request.id)
+    .bind(queued_request.id)
+    .execute(admin.pool())
+    .await?;
 
     // The request remains claimed for the later evidence lifecycle, but it is
-    // terminal for this pipeline and must not starve genuinely queued work.
+    // terminal for this pipeline and must not starve the next recoverable row.
+    // Fixed old timestamps isolate this global sweep from parallel test rows:
+    // without the terminal filter the ready request deterministically wins.
     assert_eq!(
         store.load_request(ready_request.id).await?.status,
         "claimed"

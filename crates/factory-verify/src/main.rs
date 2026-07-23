@@ -6,6 +6,7 @@ use factory_verify::{
     deny_paths,
     ledger::{self, RunRecord},
     postconditions::{self, SortEvidence},
+    runtime::{self, RuntimeManifest},
 };
 use serde::de::DeserializeOwned;
 use sqlx::postgres::PgPoolOptions;
@@ -50,6 +51,15 @@ enum Command {
         #[arg(long, env = "FACTORY_DATABASE_URL", hide_env_values = true)]
         database_url: String,
     },
+    /// Run targeted PHPUnit without permitting the verifier to change the tree.
+    Runtime {
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        worktree: PathBuf,
+        #[arg(long)]
+        patch: PathBuf,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -79,6 +89,8 @@ enum CliError {
     Postconditions(#[from] postconditions::PostconditionError),
     #[error(transparent)]
     Ledger(#[from] ledger::LedgerError),
+    #[error(transparent)]
+    Runtime(#[from] runtime::RuntimeError),
     #[error("database connection failed")]
     Database(#[from] sqlx::Error),
 }
@@ -128,6 +140,18 @@ async fn run(cli: Cli) -> Result<(), CliError> {
                 .await?;
             ledger::append(&pool, &record).await?;
             println!("ledger-append: pass ({})", record.record().id);
+        }
+        Command::Runtime {
+            manifest,
+            worktree,
+            patch,
+        } => {
+            let manifest: RuntimeManifest = read_json(&manifest)?;
+            let evidence = runtime::verify(&manifest, &worktree, &patch)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&evidence).expect("runtime evidence serializes")
+            );
         }
     }
     Ok(())

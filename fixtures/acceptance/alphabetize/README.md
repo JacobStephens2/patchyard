@@ -19,3 +19,8 @@ Fixture identities:
   `1e71d23f7288be62fa72725beac8d02277b2941e7d88d503e404cdc34b9bbdf5`
 - `simple-sales-report-unsorted.png` - SHA-256
   `f549cfc3157db7df24b3df03ab40b2242c723976b7b928d5a375178b38bc5684`
+
+Session 7 adds a deterministic implement request and a targeted PHPUnit
+source-contract test. The test is committed on the fixture base branch before
+the worker runs, so the candidate patch remains the ruled two production files
+and three changed lines.

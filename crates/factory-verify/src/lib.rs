@@ -4,6 +4,7 @@ pub mod caps;
 pub mod deny_paths;
 pub mod ledger;
 pub mod postconditions;
+pub mod runtime;
 
 use std::path::{Component, Path};
 

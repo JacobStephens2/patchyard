@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONFIG=/etc/patchyard-preview/control-private-ip
+[[ -f "$CONFIG" && ! -L "$CONFIG" ]]
+CONTROL_PRIVATE_IP=$(<"$CONFIG")
+[[ "$CONTROL_PRIVATE_IP" =~ ^10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]
+
+if ! nft list set inet eta_sshlock ssh_allow | grep -Fq "$CONTROL_PRIVATE_IP"; then
+  nft add element inet eta_sshlock ssh_allow "{ $CONTROL_PRIVATE_IP }"
+fi

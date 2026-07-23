@@ -155,6 +155,20 @@ for fixture_failure in (
 toy_agent = (IMAGE / "patchyard-toy-agent").read_text()
 if 'chmod 0644 "$WORKTREE/mfieldbook/patchyard_session4_probe.php"' not in toy_agent:
     errors.append("fixture agent output is not readable by the parity web identity")
+if "Alphabetize the two salesperson dropdown data sources for Session 7." not in toy_agent:
+    errors.append("Session 7 deterministic implement fixture is missing")
+
+verifier_runtime = (
+    REPO / "worker" / "runtime" / "patchyard-verify-runtime"
+).read_text()
+for assertion in (
+    "flock -n 9",
+    "agent worker processes remain before verify",
+    "runuser -u factory-worker -- env -i",
+    "factory-verify runtime",
+):
+    if assertion not in verifier_runtime:
+        errors.append(f"verifier runtime assertion missing: {assertion}")
 
 parity_conf = (IMAGE / "patchyard-parity.conf").read_text()
 for directive in (

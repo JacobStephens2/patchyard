@@ -48,6 +48,11 @@ test "$(rpm -q libcom_err)" = 'libcom_err-1.46.5-8.el9.x86_64'
 test -x /usr/local/libexec/patchyard-extract-result-image
 test -x /usr/local/sbin/patchyard-hostile-launch
 test -x /usr/local/sbin/patchyard-test-result-contract
+test -x /usr/local/sbin/patchyard-verify-runtime
+test -x /usr/local/bin/factory-verify
+test "$(php -r 'echo PHP_VERSION;')" = 8.4.21
+echo '3160398ef3e1ac041866fab0e88bdbc46349c7420824b750d2ede9a58ead1ba8  /usr/local/bin/phpunit' \
+  | sha256sum --check --status
 test -x /usr/local/share/patchyard-worker/image/patchyard-hostile-probe
 test -f /usr/local/share/patchyard-worker/qualification/hostile-test-manifest.json
 jq -e '.schema_version == 1 and .session == 5 and (.tests | length == 24)' \
@@ -72,6 +77,8 @@ test "$(( ($(date -u +%s) - BOOT_EPOCH) / 86400 ))" -le "$MAX_AGE_DAYS"
 test "$(find /run/patchyard-worker -mindepth 1 | wc -l)" -eq 0
 test "$(find /var/tmp/patchyard-worker -mindepth 1 | wc -l)" -eq 0
 test ! -e /var/lib/patchyard-worker/BOUNDARY_TAINTED
+! pgrep -u factory-worker -x firecracker >/dev/null
+! pgrep -u factory-worker -x jailer >/dev/null
 
 if timeout 3 bash -c '</dev/tcp/10.132.0.14/9090' 2>/dev/null; then
   echo "worker private-network egress probe unexpectedly succeeded" >&2

@@ -1,0 +1,12 @@
+[Unit]
+Description=Permit the Patchyard Factory control plane to manage preview leases
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/patchyard-preview-access
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target

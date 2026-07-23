@@ -4,7 +4,7 @@ umask 077
 
 REPO_ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 SOURCE_REPO=${FIELDBOOK_SOURCE_REPO:-/srv/orchestration/fieldbook}
-[[ -d "$SOURCE_REPO/.git" ]]
+[[ -e "$SOURCE_REPO/.git" ]]
 [[ -z "$(git -C "$SOURCE_REPO" status --porcelain)" ]] || {
   echo "Fieldbook bootstrap source must be clean" >&2
   exit 1

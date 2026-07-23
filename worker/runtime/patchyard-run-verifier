@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+usage() {
+  echo "usage: $0 /absolute/git-repo BASE_SHA /absolute/change.patch /absolute/implement-evidence.json /absolute/output-dir TEST.php [...]" >&2
+  exit 2
+}
+[[ $# -ge 6 ]] || usage
+SOURCE_REPO=$1
+BASE_SHA=$2
+PATCH=$3
+IMPLEMENT_EVIDENCE=$4
+OUTPUT_DIR=$5
+shift 5
+TESTS=("$@")
+[[ "$SOURCE_REPO" == /* && "$PATCH" == /* && "$IMPLEMENT_EVIDENCE" == /* && "$OUTPUT_DIR" == /* ]]
+[[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+sudo test -f "$PATCH"
+sudo test -f "$IMPLEMENT_EVIDENCE"
+sudo test ! -e "$OUTPUT_DIR"
+[[ "$(git -C "$SOURCE_REPO" rev-parse "$BASE_SHA^{commit}")" == "$BASE_SHA" ]]
+
+WORKER_IP={{ hostvars[groups['worker'][0]].private_ip }}
+SSH_ARGS=(
+  -i {{ factory_manager_private_key }} -o BatchMode=yes -o IdentitiesOnly=yes
+  -o StrictHostKeyChecking=yes
+  -o UserKnownHostsFile={{ factory_manager_home }}/.ssh/known_hosts
+  -o ConnectTimeout=10
+)
+RUN_ID="s7-$(date -u +%Y%m%d)-$(openssl rand -hex 6)"
+REMOTE_ROOT="/var/tmp/patchyard-incoming/$RUN_ID"
+RUN_TEMP=$(mktemp -d /var/tmp/patchyard-control-verify.XXXXXX)
+remote_ssh() { ssh "${SSH_ARGS[@]}" {{ factory_manager_user }}@"$WORKER_IP" "$@"; }
+cleanup() {
+  remote_ssh rm -r -- "$REMOTE_ROOT" >/dev/null 2>&1 || true
+  rm -r -- "$RUN_TEMP"
+}
+trap cleanup EXIT
+
+sudo install -m 0600 -o {{ factory_manager_user }} -g {{ factory_manager_user }} \
+  "$PATCH" "$RUN_TEMP/change.patch"
+sudo install -m 0600 -o {{ factory_manager_user }} -g {{ factory_manager_user }} \
+  "$IMPLEMENT_EVIDENCE" "$RUN_TEMP/implement-evidence.json"
+PATCH="$RUN_TEMP/change.patch"
+IMPLEMENT_EVIDENCE="$RUN_TEMP/implement-evidence.json"
+jq -e '
+  .host_teardown.run_directories == 0
+  and .host_teardown.processes == 0
+  and .host_teardown.taps == 0
+  and .host_teardown.nftables_tables == 0
+  and .host_teardown.credential_files == 0
+' "$IMPLEMENT_EVIDENCE" >/dev/null
+
+git -C "$SOURCE_REPO" archive --format=tar "$BASE_SHA" | gzip -n -9 >"$RUN_TEMP/source.tar.gz"
+SOURCE_SHA256=$(sha256sum "$RUN_TEMP/source.tar.gz" | cut -d' ' -f1)
+PATCH_SHA256=$(sha256sum "$PATCH" | cut -d' ' -f1)
+PHPUNIT_EXPECTED=$(</usr/local/share/patchyard/phpunit.sha256)
+[[ "$PHPUNIT_EXPECTED" =~ ^[0-9a-f]{64}$ ]]
+TESTS_JSON=$(printf '%s\n' "${TESTS[@]}" | jq -Rsc 'split("\n")[:-1]')
+jq -n \
+  --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
+  --arg source_archive_sha256 "$SOURCE_SHA256" --arg patch_sha256 "$PATCH_SHA256" \
+  --arg phpunit_binary_sha256 "$PHPUNIT_EXPECTED" --argjson phpunit_tests "$TESTS_JSON" \
+  '{schema_version: 1, $run_id, $base_sha, $source_archive_sha256, $patch_sha256,
+    $phpunit_binary_sha256, $phpunit_tests, timeout_seconds: 120}' \
+  >"$RUN_TEMP/runtime.json"
+
+remote_ssh install -d -m 0700 "$REMOTE_ROOT"
+scp "${SSH_ARGS[@]}" "$RUN_TEMP/source.tar.gz" "$RUN_TEMP/runtime.json" "$PATCH" \
+  {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/"
+remote_ssh sudo /usr/local/sbin/patchyard-verify-runtime \
+  "$REMOTE_ROOT/runtime.json" "$REMOTE_ROOT/source.tar.gz" \
+  "$REMOTE_ROOT/$(basename "$PATCH")" "$REMOTE_ROOT/evidence.json"
+install -d -m 0700 "$RUN_TEMP/result"
+scp "${SSH_ARGS[@]}" {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/evidence.json" "$RUN_TEMP/result/"
+jq -e '
+  .verifier_identity == "factory-worker"
+  and .clean_environment
+  and .tree_hash_equal
+  and .agent_worker_terminated_before_verify
+  and .phpunit_exit_code == 0
+' "$RUN_TEMP/result/evidence.json" >/dev/null
+sudo chown -R factory-web:factory "$RUN_TEMP/result"
+sudo find "$RUN_TEMP/result" -type d -exec chmod 0700 {} +
+sudo find "$RUN_TEMP/result" -type f -exec chmod 0600 {} +
+sudo mv -- "$RUN_TEMP/result" "$OUTPUT_DIR"
+echo "verifier_result=$OUTPUT_DIR run_id=$RUN_ID"

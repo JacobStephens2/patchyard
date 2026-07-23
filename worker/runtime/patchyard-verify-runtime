@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+usage() {
+  echo "usage: $0 /absolute/runtime.json /absolute/source.tar.gz /absolute/change.patch /absolute/output.json" >&2
+  exit 2
+}
+[[ $# -eq 4 ]] || usage
+MANIFEST=$1
+SOURCE=$2
+PATCH=$3
+OUTPUT=$4
+for path in "$MANIFEST" "$SOURCE" "$PATCH" "$OUTPUT"; do [[ "$path" == /* ]] || usage; done
+[[ -f "$MANIFEST" && ! -L "$MANIFEST" && -f "$SOURCE" && ! -L "$SOURCE" && -f "$PATCH" && ! -L "$PATCH" ]]
+[[ ! -e "$OUTPUT" ]]
+jq -e '
+  .schema_version == 1
+  and (.run_id | test("^[a-z0-9][a-z0-9-]{0,62}$"))
+  and (.base_sha | test("^[0-9a-f]{40}$"))
+  and (.source_archive_sha256 | test("^[0-9a-f]{64}$"))
+  and (.patch_sha256 | test("^[0-9a-f]{64}$"))
+  and (.phpunit_binary_sha256 | test("^[0-9a-f]{64}$"))
+' "$MANIFEST" >/dev/null
+[[ "$(sha256sum "$SOURCE" | cut -d' ' -f1)" == "$(jq -r .source_archive_sha256 "$MANIFEST")" ]]
+[[ "$(sha256sum "$PATCH" | cut -d' ' -f1)" == "$(jq -r .patch_sha256 "$MANIFEST")" ]]
+OUTPUT_UID=$(stat -c %u "$MANIFEST")
+OUTPUT_GID=$(stat -c %g "$MANIFEST")
+
+LOCK=/run/lock/patchyard-worker.lock
+exec 9>"$LOCK"
+flock -n 9 || { echo "implement worker is still active" >&2; exit 1; }
+AGENT_FIRECRACKER_BEFORE=$( (pgrep -u factory-worker -x firecracker || true) | wc -l)
+AGENT_JAILER_BEFORE=$( (pgrep -u factory-worker -x jailer || true) | wc -l)
+[[ "$AGENT_FIRECRACKER_BEFORE" -eq 0 && "$AGENT_JAILER_BEFORE" -eq 0 ]] || {
+  echo "agent worker processes remain before verify" >&2
+  exit 1
+}
+
+RUN_ID=$(jq -r .run_id "$MANIFEST")
+BASE_SHA=$(jq -r .base_sha "$MANIFEST")
+VERIFY_ROOT="/var/tmp/patchyard-worker/verify-$RUN_ID"
+INPUT_ROOT="/run/patchyard-worker/verify-input-$RUN_ID"
+TEMP_EVIDENCE=$(mktemp /var/tmp/patchyard-verify-evidence.XXXXXX)
+cleanup() {
+  rm -rf -- "$VERIFY_ROOT"
+  rm -rf -- "$INPUT_ROOT"
+  rm -f -- "$TEMP_EVIDENCE"
+}
+trap cleanup EXIT
+[[ ! -e "$VERIFY_ROOT" ]]
+[[ ! -e "$INPUT_ROOT" ]]
+install -d -m 0700 -o factory-worker -g factory-worker "$VERIFY_ROOT"
+install -d -m 0700 -o factory-worker -g factory-worker "$INPUT_ROOT"
+install -m 0400 -o factory-worker -g factory-worker "$MANIFEST" "$INPUT_ROOT/runtime.json"
+install -m 0400 -o factory-worker -g factory-worker "$SOURCE" "$INPUT_ROOT/source.tar.gz"
+install -m 0400 -o factory-worker -g factory-worker "$PATCH" "$INPUT_ROOT/change.patch"
+MANIFEST="$INPUT_ROOT/runtime.json"
+SOURCE="$INPUT_ROOT/source.tar.gz"
+PATCH="$INPUT_ROOT/change.patch"
+
+tar -tzf "$SOURCE" | awk '
+  /^\// || /(^|\/)\.\.($|\/)/ || length($0) > 300 { bad=1 }
+  END { exit bad }
+'
+runuser -u factory-worker -- tar --no-same-owner --no-same-permissions -xzf "$SOURCE" -C "$VERIFY_ROOT"
+runuser -u factory-worker -- git -C "$VERIFY_ROOT" init --quiet
+runuser -u factory-worker -- git -C "$VERIFY_ROOT" config user.name 'Patchyard Factory Verifier'
+runuser -u factory-worker -- git -C "$VERIFY_ROOT" config user.email 'factory-verifier@example.com'
+runuser -u factory-worker -- git -C "$VERIFY_ROOT" add -A
+runuser -u factory-worker -- git -C "$VERIFY_ROOT" commit --quiet -m base
+printf '%s\n' "$BASE_SHA" >"$VERIFY_ROOT/.patchyard-base-sha"
+chown factory-worker:factory-worker "$VERIFY_ROOT/.patchyard-base-sha"
+runuser -u factory-worker -- git -C "$VERIFY_ROOT" apply --check "$PATCH"
+runuser -u factory-worker -- git -C "$VERIFY_ROOT" apply "$PATCH"
+
+runuser -u factory-worker -- env -i \
+  LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH=/usr/local/bin:/usr/bin:/bin TMPDIR=/var/tmp \
+  /usr/local/bin/factory-verify runtime \
+    --manifest "$MANIFEST" --worktree "$VERIFY_ROOT" --patch "$PATCH" \
+    >"$TEMP_EVIDENCE"
+AGENT_FIRECRACKER_AFTER=$( (pgrep -u factory-worker -x firecracker || true) | wc -l)
+AGENT_JAILER_AFTER=$( (pgrep -u factory-worker -x jailer || true) | wc -l)
+[[ "$AGENT_FIRECRACKER_AFTER" -eq 0 && "$AGENT_JAILER_AFTER" -eq 0 ]]
+
+jq \
+  --argjson firecracker_before "$AGENT_FIRECRACKER_BEFORE" \
+  --argjson jailer_before "$AGENT_JAILER_BEFORE" \
+  --argjson firecracker_after "$AGENT_FIRECRACKER_AFTER" \
+  --argjson jailer_after "$AGENT_JAILER_AFTER" \
+  '. + {
+    agent_worker_terminated_before_verify: (
+      $firecracker_before == 0 and $jailer_before == 0
+    ),
+    worker_process_counts: {
+      firecracker_before: $firecracker_before,
+      jailer_before: $jailer_before,
+      firecracker_after: $firecracker_after,
+      jailer_after: $jailer_after
+    }
+  }' "$TEMP_EVIDENCE" >"$OUTPUT"
+chmod 0600 "$OUTPUT"
+chown "$OUTPUT_UID:$OUTPUT_GID" "$OUTPUT"

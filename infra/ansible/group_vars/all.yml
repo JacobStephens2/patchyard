@@ -9,10 +9,14 @@ firecracker_release_url: https://github.com/firecracker-microvm/firecracker/rele
 firecracker_release_sha256: d4a32ab2322d887ca1bc4a4e7afa9cc35393e6362dfc2b3becb389d362e4275a
 firecracker_guest_kernel_url: https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.15/x86_64/vmlinux-6.1.155
 firecracker_guest_kernel_sha256: e20e46d0c36c55c0d1014eb20576171b3f3d922260d9f792017aeff53af3d4f2
-worker_image_recipe_sha256: be00056b6097c07abc590a51e843fbc4a2de60e311ca0fca1a0f6b582a83c077
+worker_image_recipe_sha256: d60a0f2df5a63c1b2a15620c23f3f41251310a8fb1cbe0852b5b0e2bea942b42
 worker_e2fsprogs_nevra: e2fsprogs-1.46.5-8.el9.x86_64
 worker_e2fsprogs_libs_nevra: e2fsprogs-libs-1.46.5-8.el9.x86_64
 worker_libcom_err_nevra: libcom_err-1.46.5-8.el9.x86_64
+phpunit_version: 10.5.63
+phpunit_url: https://phar.phpunit.de/phpunit-10.5.63.phar
+phpunit_sha256: 3160398ef3e1ac041866fab0e88bdbc46349c7420824b750d2ede9a58ead1ba8
+remi_release_sha256: 3bb04ace9b538920d785d25202c48e96ad2148d98c58eb76324901c9b36034b9
 
 node_exporter_version: 1.12.1
 node_exporter_sha256: b51d8a76aa2a9156a55d501aca6276fae09e262259a5e4e831d2c2222f084e63

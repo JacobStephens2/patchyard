@@ -496,7 +496,7 @@ impl Fixture {
             scratch.join("verify"),
         );
         let reviewer = SandboxedReviewer::new(ReviewSandboxConfig {
-            bubblewrap: PathBuf::from("/bin/bwrap"),
+            bubblewrap: PathBuf::from("/usr/bin/bwrap"),
             harness_program: project.join("fixtures/pipeline/bin").join(review_harness),
             prompt: project.join("policy/review.md"),
             worktree_root: scratch.join("review-worktrees"),

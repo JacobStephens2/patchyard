@@ -48,6 +48,7 @@ METADATA_UNREACHABLE=false
 PRIVATE_FLEET_UNREACHABLE=false
 CAPABILITY_ID=
 CAPABILITY_LEASE_ID=
+REVIEW_WORKSPACE=
 
 path_contract() {
   local path=$1 owner=$2 mode=$3 type=$4 actual
@@ -217,6 +218,9 @@ finish() {
   rm -f -- "$ISOLATION_FILE" "$OUTPUT/failure.json"
   rm -rf -- "$JOB/secret" "$OUTPUT/capture"
   remove_network
+  if [[ -n "$REVIEW_WORKSPACE" ]] && ! chmod 0700 "$REVIEW_WORKSPACE"; then
+    STAGING_PATHS=1
+  fi
 
   if [[ -n "$NETNS" ]] && ip netns list | awk '{print $1}' | grep -Fxq "$NETNS"; then
     NAMESPACES=1
@@ -319,6 +323,8 @@ if [[ "$KIND" == review ]]; then
     "$JOB/input/packet.json" "$JOB/input/prompt.md" "$OUTPUT"
   chmod 0400 "$JOB/input/packet.json" "$JOB/input/prompt.md"
   chmod 0700 "$OUTPUT"
+  REVIEW_WORKSPACE=$WORKSPACE
+  chmod 0555 "$REVIEW_WORKSPACE"
   FAILURE_STAGE=review_sandbox
   MODEL=$(jq -r .contract.model "$REQUEST")
   EFFORT=$(jq -r .contract.effort "$REQUEST")
@@ -330,7 +336,6 @@ if [[ "$KIND" == review ]]; then
     --dir /output \
     --dir /workspace \
     --ro-bind "$WORKSPACE" /workspace \
-    --chmod 0555 /workspace \
     --ro-bind "$JOB/input/packet.json" /input/PACKET.json \
     --ro-bind "$JOB/input/prompt.md" /input/PROMPT.md \
     --ro-bind /usr/local/libexec/patchyard-child-probe /isolation-probe \

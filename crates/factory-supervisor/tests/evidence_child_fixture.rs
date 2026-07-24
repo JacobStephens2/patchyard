@@ -20,6 +20,7 @@ use uuid::Uuid;
 struct Fixture {
     _temp: TempDir,
     capture: EvidenceCapture,
+    spawner: IsolatedChildSpawner,
     artifact_root: PathBuf,
     staging_root: PathBuf,
 }
@@ -45,7 +46,8 @@ impl Fixture {
         let artifacts = ArtifactStore::open(&artifact_root).expect("artifact store");
         Self {
             _temp: temp,
-            capture: EvidenceCapture::new(spawner, artifacts),
+            capture: EvidenceCapture::new(spawner.clone(), artifacts),
+            spawner,
             artifact_root,
             staging_root,
         }
@@ -78,6 +80,42 @@ impl Fixture {
             .next()
             .is_none()
     }
+}
+
+#[tokio::test]
+async fn startup_recovery_cancels_and_removes_orphan_children() {
+    let fixture = Fixture::new();
+    for _ in 0..2 {
+        let orphan = fixture
+            .staging_root
+            .join(Uuid::new_v4().simple().to_string());
+        fs::create_dir(&orphan).expect("orphan directory");
+        fs::create_dir(orphan.join("secret")).expect("orphan secret directory");
+    }
+
+    assert_eq!(
+        fixture
+            .spawner
+            .recover_orphans()
+            .await
+            .expect("orphan recovery"),
+        2
+    );
+    assert!(fixture.staging_is_empty());
+}
+
+#[tokio::test]
+async fn startup_recovery_fails_closed_on_unexpected_staging_entries() {
+    let fixture = Fixture::new();
+    fs::write(fixture.staging_root.join("not-a-child"), b"unexpected")
+        .expect("invalid staging entry");
+
+    fixture
+        .spawner
+        .recover_orphans()
+        .await
+        .expect_err("unexpected staging must block daemon startup");
+    assert!(!fixture.staging_is_empty());
 }
 
 #[tokio::test]

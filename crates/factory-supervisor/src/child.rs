@@ -205,6 +205,38 @@ impl IsolatedChildSpawner {
         Self { config }
     }
 
+    /// Cancel and remove every valid staging entry left by a previous daemon.
+    ///
+    /// Recovery runs before the daemon accepts work, so there cannot be a
+    /// legitimate concurrent child. An unexpected entry fails startup closed
+    /// instead of broadening cleanup beyond the UUID-only contract.
+    pub async fn recover_orphans(&self) -> Result<usize, ChildError> {
+        let mut entries = tokio::fs::read_dir(&self.config.staging_root).await?;
+        let mut jobs = Vec::new();
+        while let Some(entry) = entries.next_entry().await? {
+            let name = entry
+                .file_name()
+                .into_string()
+                .map_err(|_| ChildError::InvalidStagingEntry)?;
+            let file_type = entry.file_type().await?;
+            if !file_type.is_dir()
+                || file_type.is_symlink()
+                || name.len() != 32
+                || !name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+            {
+                return Err(ChildError::InvalidStagingEntry);
+            }
+            jobs.push(entry.path());
+        }
+        drop(entries);
+        for job in &jobs {
+            self.cancel_and_remove(job).await?;
+        }
+        Ok(jobs.len())
+    }
+
     pub async fn spawn(
         &self,
         contract: ChildContract,
@@ -524,6 +556,8 @@ pub enum ChildError {
     OutputDigest(String),
     #[error("child output length cannot be represented")]
     LengthOverflow,
+    #[error("isolated-child staging contains an invalid entry")]
+    InvalidStagingEntry,
     #[error("child cancellation helper exited with status {0}")]
     CancelExit(i32),
     #[error("checked cleanup failed while trying to {operation}: {source}")]

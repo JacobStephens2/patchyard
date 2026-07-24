@@ -2,14 +2,14 @@
   "schema_version": 1,
   "generated_by": "tools/check-codebase.sh",
   "tokei_version": "14.0.0",
-  "source_revision": "sha256:da3f746eb6cd35ae12f64235242770c458cd6876aa131f57db95d8daadb2c5fe",
+  "source_revision": "sha256:865b4ef5c722a475dd300575898094d71dba1839b8e7689115bc5bb165359297",
   "roles": [
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 26494,
-      "comments": 448,
-      "blanks": 1756,
+      "code": 26559,
+      "comments": 452,
+      "blanks": 1762,
       "files": 75,
       "languages": [
         {
@@ -43,15 +43,15 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 348,
-          "blanks": 16,
+          "comments": 352,
+          "blanks": 17,
           "files": 41
         },
         {
           "language": "Rust",
-          "code": 24379,
+          "code": 24444,
           "comments": 81,
-          "blanks": 1511,
+          "blanks": 1516,
           "files": 48
         },
         {
@@ -73,14 +73,14 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 9713,
+      "code": 9714,
       "comments": 385,
       "blanks": 992,
       "files": 113,
       "languages": [
         {
           "language": "BASH",
-          "code": 3204,
+          "code": 3205,
           "comments": 87,
           "blanks": 250,
           "files": 30

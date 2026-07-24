@@ -163,6 +163,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         staging_root: path_env("FACTORY_CHILD_STAGING_ROOT", "/run/patchyard-children"),
         timeout: duration_env("FACTORY_CHILD_TIMEOUT_SECONDS", 300)?,
     });
+    child_spawner.recover_orphans().await?;
     let reviewer = SandboxedReviewer::new(ReviewSandboxConfig {
         spawner: child_spawner,
         prompt: root.join("policy/review.md"),
@@ -423,6 +424,8 @@ pub enum BootstrapError {
     Rubric(#[from] factory_core::triage::TriageError),
     #[error("artifact store failed: {0}")]
     Artifact(#[from] crate::artifacts::ArtifactError),
+    #[error("isolated-child recovery failed: {0}")]
+    Child(#[from] crate::child::ChildError),
     #[error("PostgreSQL store failed: {0}")]
     Store(#[from] crate::store::StoreError),
     #[error("GitHub API setup failed: {0}")]

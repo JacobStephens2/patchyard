@@ -18,6 +18,8 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::upload::MAX_CLEAN_BYTES;
+
 pub const LOGIN_WINDOW: Duration = Duration::from_secs(15 * 60);
 pub const LOGIN_PAIR_FAILURE_LIMIT: i64 = 5;
 pub const LOGIN_ACCOUNT_FAILURE_LIMIT: i64 = 10;
@@ -25,6 +27,11 @@ pub const SESSION_IDLE: Duration = Duration::from_secs(30 * 60);
 pub const SESSION_ABSOLUTE: Duration = Duration::from_secs(8 * 60 * 60);
 pub const LOGIN_CHALLENGE_LIFETIME: Duration = Duration::from_secs(10 * 60);
 pub const EVENTS_BATCH_LIMIT: i64 = 1_000;
+pub const UPLOAD_RATE_WINDOW: Duration = Duration::from_secs(10 * 60);
+pub const UPLOAD_RATE_LIMIT: i64 = 5;
+pub const UPLOAD_DAILY_COUNT_LIMIT: i64 = 20;
+pub const UPLOAD_DAILY_BYTES_LIMIT: i64 = 256 * 1024 * 1024;
+pub const UPLOAD_ADMISSION_LIFETIME: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Clone, Debug)]
 pub struct DashboardStore {
@@ -115,6 +122,7 @@ pub struct RequestDetail {
     pub events: Vec<EventRecord>,
     pub pulls: Vec<PullRequestRecord>,
     pub artifacts: Vec<ArtifactSummary>,
+    pub uploads: Vec<UploadSummary>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -136,6 +144,37 @@ pub struct ArtifactSummary {
     pub relative_path: PathBuf,
     pub kind: String,
     pub created_at: OffsetDateTime,
+}
+
+#[derive(Clone, Debug)]
+pub struct UploadSummary {
+    pub id: Uuid,
+    pub kind: String,
+    pub created_at: OffsetDateTime,
+}
+
+#[derive(Clone, Debug)]
+pub struct UploadArtifact {
+    pub id: Uuid,
+    pub relative_path: PathBuf,
+    pub sha256: [u8; 32],
+    pub kind: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct NewUploadArtifact {
+    pub id: Uuid,
+    pub relative_path: PathBuf,
+    pub sha256: [u8; 32],
+    pub kind: &'static str,
+    pub clean_bytes: i64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UploadAdmission {
+    Admitted(Uuid),
+    RateLimited,
+    QuotaExceeded,
 }
 
 impl DashboardStore {
@@ -461,6 +500,309 @@ impl DashboardStore {
         Ok(RequestCreated { id, inserted })
     }
 
+    pub async fn reserve_upload(
+        &self,
+        principal: &Principal,
+        content_length: i64,
+        client_key: &str,
+    ) -> Result<UploadAdmission, StoreError> {
+        let admission_id = Uuid::new_v4();
+        let rate_seconds = duration_seconds(UPLOAD_RATE_WINDOW)?;
+        let lifetime_seconds = duration_seconds(UPLOAD_ADMISSION_LIFETIME)?;
+        let reserved_bytes =
+            i64::try_from(MAX_CLEAN_BYTES).map_err(|_| StoreError::DurationOverflow)?;
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))")
+            .bind(principal.id)
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query(
+            r#"
+            UPDATE factory.upload_admissions
+            SET state='rejected', reserved_bytes=0, reason='expired',
+                finished_at=clock_timestamp()
+            WHERE user_id=$1 AND state='admitted'
+              AND expires_at <= clock_timestamp()
+            "#,
+        )
+        .bind(principal.id)
+        .execute(&mut *transaction)
+        .await?;
+
+        let recent_attempts: i64 = sqlx::query_scalar(
+            r#"
+            SELECT count(*)::bigint
+            FROM factory.upload_admissions
+            WHERE user_id=$1
+              AND admitted_at > clock_timestamp() - make_interval(secs => $2)
+            "#,
+        )
+        .bind(principal.id)
+        .bind(rate_seconds)
+        .fetch_one(&mut *transaction)
+        .await?;
+        if recent_attempts >= UPLOAD_RATE_LIMIT {
+            insert_rejected_admission(
+                &mut transaction,
+                admission_id,
+                principal.id,
+                content_length,
+                lifetime_seconds,
+                "rate-limit",
+            )
+            .await?;
+            append_audit(
+                &mut transaction,
+                principal.id,
+                "upload.rejected",
+                &admission_id.to_string(),
+                client_key,
+                serde_json::json!({"reason": "rate-limit"}),
+            )
+            .await?;
+            transaction.commit().await?;
+            return Ok(UploadAdmission::RateLimited);
+        }
+
+        let usage = sqlx::query(
+            r#"
+            SELECT
+                count(*)::bigint AS upload_count,
+                COALESCE(sum(reserved_bytes),0)::bigint AS reserved_bytes
+            FROM factory.upload_admissions
+            WHERE user_id=$1
+              AND state IN ('admitted','completed')
+              AND admitted_at >= (
+                  date_trunc('day', clock_timestamp() AT TIME ZONE 'UTC')
+                  AT TIME ZONE 'UTC'
+              )
+            "#,
+        )
+        .bind(principal.id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        let upload_count: i64 = usage.try_get("upload_count")?;
+        let used_bytes: i64 = usage.try_get("reserved_bytes")?;
+        if upload_count >= UPLOAD_DAILY_COUNT_LIMIT
+            || used_bytes.saturating_add(reserved_bytes) > UPLOAD_DAILY_BYTES_LIMIT
+        {
+            insert_rejected_admission(
+                &mut transaction,
+                admission_id,
+                principal.id,
+                content_length,
+                lifetime_seconds,
+                "daily-quota",
+            )
+            .await?;
+            append_audit(
+                &mut transaction,
+                principal.id,
+                "upload.rejected",
+                &admission_id.to_string(),
+                client_key,
+                serde_json::json!({"reason": "daily-quota"}),
+            )
+            .await?;
+            transaction.commit().await?;
+            return Ok(UploadAdmission::QuotaExceeded);
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO factory.upload_admissions (
+                id,user_id,state,content_length,reserved_bytes,expires_at
+            ) VALUES (
+                $1,$2,'admitted',$3,$4,
+                clock_timestamp() + make_interval(secs => $5)
+            )
+            "#,
+        )
+        .bind(admission_id)
+        .bind(principal.id)
+        .bind(content_length)
+        .bind(reserved_bytes)
+        .bind(lifetime_seconds)
+        .execute(&mut *transaction)
+        .await?;
+        append_audit(
+            &mut transaction,
+            principal.id,
+            "upload.admitted",
+            &admission_id.to_string(),
+            client_key,
+            serde_json::json!({
+                "content_length": content_length,
+                "reserved_bytes": reserved_bytes,
+            }),
+        )
+        .await?;
+        transaction.commit().await?;
+        Ok(UploadAdmission::Admitted(admission_id))
+    }
+
+    pub async fn reject_upload(
+        &self,
+        admission_id: Uuid,
+        principal: &Principal,
+        reason: &'static str,
+        client_key: &str,
+    ) -> Result<(), StoreError> {
+        let mut transaction = self.pool.begin().await?;
+        let updated = sqlx::query(
+            r#"
+            UPDATE factory.upload_admissions
+            SET state='rejected', reserved_bytes=0, reason=$3,
+                finished_at=clock_timestamp()
+            WHERE id=$1 AND user_id=$2 AND state='admitted'
+            "#,
+        )
+        .bind(admission_id)
+        .bind(principal.id)
+        .bind(reason)
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+        if updated == 1 {
+            append_audit(
+                &mut transaction,
+                principal.id,
+                "upload.rejected",
+                &admission_id.to_string(),
+                client_key,
+                serde_json::json!({"reason": reason}),
+            )
+            .await?;
+        }
+        transaction.commit().await?;
+        Ok(())
+    }
+
+    pub async fn submit_request_with_upload(
+        &self,
+        request: &NewRequest,
+        principal: &Principal,
+        admission_id: Uuid,
+        upload: &NewUploadArtifact,
+        client_key: &str,
+    ) -> Result<RequestCreated, StoreError> {
+        let mut transaction = self.pool.begin().await?;
+        let admission_valid: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1
+                FROM factory.upload_admissions
+                WHERE id=$1 AND user_id=$2 AND state='admitted'
+                  AND expires_at > clock_timestamp()
+                FOR UPDATE
+            )
+            "#,
+        )
+        .bind(admission_id)
+        .bind(principal.id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        if !admission_valid {
+            return Err(StoreError::InvalidUploadAdmission);
+        }
+
+        let inserted_id = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            INSERT INTO factory.requests (id, fingerprint, source, body, trace_id)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (fingerprint) DO NOTHING
+            RETURNING id
+            "#,
+        )
+        .bind(request.id)
+        .bind(request.fingerprint.as_bytes().as_slice())
+        .bind(&request.source)
+        .bind(request.body.as_str())
+        .bind(request.trace_id.as_str())
+        .fetch_optional(&mut *transaction)
+        .await?;
+        let Some(id) = inserted_id else {
+            let id: Uuid =
+                sqlx::query_scalar("SELECT id FROM factory.requests WHERE fingerprint=$1")
+                    .bind(request.fingerprint.as_bytes().as_slice())
+                    .fetch_one(&mut *transaction)
+                    .await?;
+            sqlx::query(
+                r#"
+                UPDATE factory.upload_admissions
+                SET state='rejected', reserved_bytes=0, reason='duplicate',
+                    finished_at=clock_timestamp()
+                WHERE id=$1
+                "#,
+            )
+            .bind(admission_id)
+            .execute(&mut *transaction)
+            .await?;
+            append_audit(
+                &mut transaction,
+                principal.id,
+                "submission.duplicate-rejected",
+                &id.to_string(),
+                client_key,
+                serde_json::json!({"admission_id": admission_id}),
+            )
+            .await?;
+            transaction.commit().await?;
+            return Ok(RequestCreated {
+                id,
+                inserted: false,
+            });
+        };
+
+        let relative_path = upload
+            .relative_path
+            .to_str()
+            .ok_or(StoreError::InvalidUploadPath)?;
+        sqlx::query(
+            r#"
+            INSERT INTO factory.artifacts (
+                id,request_id,run_id,path,sha256,kind
+            ) VALUES ($1,$2,NULL,$3,$4,$5)
+            "#,
+        )
+        .bind(upload.id)
+        .bind(id)
+        .bind(relative_path)
+        .bind(upload.sha256.as_slice())
+        .bind(upload.kind)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            r#"
+            UPDATE factory.upload_admissions
+            SET request_id=$2, state='completed',
+                reserved_bytes=$3, actual_bytes=$3,
+                finished_at=clock_timestamp()
+            WHERE id=$1
+            "#,
+        )
+        .bind(admission_id)
+        .bind(id)
+        .bind(upload.clean_bytes)
+        .execute(&mut *transaction)
+        .await?;
+        append_audit(
+            &mut transaction,
+            principal.id,
+            "submission.created",
+            &id.to_string(),
+            client_key,
+            serde_json::json!({
+                "source": request.source,
+                "upload_id": upload.id,
+                "clean_bytes": upload.clean_bytes,
+            }),
+        )
+        .await?;
+        transaction.commit().await?;
+        Ok(RequestCreated { id, inserted: true })
+    }
+
     pub async fn enqueue_control(
         &self,
         command: &str,
@@ -652,12 +994,37 @@ impl DashboardStore {
             })
         })
         .collect::<Result<Vec<_>, sqlx::Error>>()?;
+        let uploads = sqlx::query(
+            r#"
+            SELECT id,kind,created_at
+            FROM factory.artifacts
+            WHERE request_id=$1
+              AND run_id IS NULL
+              AND kind IN ('request-screenshot-png','request-screenshot-jpeg')
+              AND deleted_at IS NULL
+              AND (expires_at IS NULL OR expires_at > clock_timestamp())
+            ORDER BY created_at,id
+            "#,
+        )
+        .bind(request_id)
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(|row| {
+            Ok(UploadSummary {
+                id: row.try_get("id")?,
+                kind: row.try_get("kind")?,
+                created_at: row.try_get("created_at")?,
+            })
+        })
+        .collect::<Result<Vec<_>, sqlx::Error>>()?;
         Ok(Some(RequestDetail {
             request,
             runs,
             events,
             pulls,
             artifacts,
+            uploads,
         }))
     }
 
@@ -746,6 +1113,32 @@ impl DashboardStore {
         Ok(None)
     }
 
+    pub async fn upload(&self, id: Uuid) -> Result<Option<UploadArtifact>, StoreError> {
+        let row = sqlx::query(
+            r#"
+            SELECT id,path,sha256,kind
+            FROM factory.artifacts
+            WHERE id=$1
+              AND run_id IS NULL
+              AND kind IN ('request-screenshot-png','request-screenshot-jpeg')
+              AND deleted_at IS NULL
+              AND (expires_at IS NULL OR expires_at > clock_timestamp())
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|row| {
+            Ok(UploadArtifact {
+                id: row.try_get("id")?,
+                relative_path: PathBuf::from(row.try_get::<String, _>("path")?),
+                sha256: digest_array(row.try_get("sha256")?)?,
+                kind: row.try_get("kind")?,
+            })
+        })
+        .transpose()
+    }
+
     async fn runs_for_request(&self, request_id: Uuid) -> Result<Vec<RunRecord>, StoreError> {
         Ok(sqlx::query(
             "SELECT id,state::text AS state,lane,skill,branch,queued_at,started_at,finished_at FROM factory.runs WHERE request_id=$1 ORDER BY queued_at,id",
@@ -830,6 +1223,36 @@ async fn append_audit(
     Ok(())
 }
 
+async fn insert_rejected_admission(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: Uuid,
+    user_id: Uuid,
+    content_length: i64,
+    lifetime_seconds: i32,
+    reason: &'static str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO factory.upload_admissions (
+            id,user_id,state,content_length,reserved_bytes,
+            reason,expires_at,finished_at
+        ) VALUES (
+            $1,$2,'rejected',$3,0,$4,
+            clock_timestamp() + make_interval(secs => $5),
+            clock_timestamp()
+        )
+        "#,
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(content_length)
+    .bind(reason)
+    .bind(lifetime_seconds)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
 fn digest_array(value: Vec<u8>) -> Result<[u8; 32], StoreError> {
     value.try_into().map_err(|_| StoreError::MalformedDigest)
 }
@@ -852,4 +1275,8 @@ pub enum StoreError {
     DurationOverflow,
     #[error("dashboard control shape is invalid")]
     InvalidControl,
+    #[error("upload admission is missing, expired, or belongs to another user")]
+    InvalidUploadAdmission,
+    #[error("upload artifact path is not valid UTF-8")]
+    InvalidUploadPath,
 }

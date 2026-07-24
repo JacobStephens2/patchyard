@@ -24,12 +24,13 @@ all = "warn"
 [workspace.dependencies]
 argon2 = { version = "0.5.3", features = ["std"] }
 askama = { version = "0.16.0", default-features = false, features = ["derive", "std"] }
-axum = { version = "0.8.9", default-features = false, features = ["form", "http1", "query", "tokio"] }
+axum = { version = "0.8.9", default-features = false, features = ["form", "http1", "multipart", "query", "tokio"] }
 base64 = "0.22.1"
 clap = { version = "4.6.3", features = ["derive", "env"] }
 globset = "0.4.19"
 hex = "0.4.3"
 http-body-util = "0.1.4"
+image = { version = "0.25.9", default-features = false, features = ["jpeg", "png"] }
 metrics = "0.24.3"
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false, features = ["http-listener"] }
 opentelemetry = { version = "0.32.0", default-features = false, features = ["trace"] }
@@ -37,6 +38,7 @@ opentelemetry-otlp = { version = "0.32.0", default-features = false, features = 
 opentelemetry_sdk = { version = "0.32.0", default-features = false, features = ["trace"] }
 proptest = "1.11.0"
 pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html"] }
+rustix = { version = "1.1.4", features = ["fs"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 sha2 = "0.10.9"

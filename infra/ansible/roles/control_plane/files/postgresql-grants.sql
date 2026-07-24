@@ -126,6 +126,7 @@ GRANT SELECT ON
     factory.login_challenges,
     factory.login_attempts,
     factory.audit_events,
+    factory.upload_admissions,
     factory.reconcile_requests
 TO patchyard_dashboard;
 GRANT INSERT (id, fingerprint, source, body, trace_id) ON factory.requests
@@ -147,6 +148,15 @@ GRANT INSERT (username, client_key, succeeded)
 ON factory.login_attempts TO patchyard_dashboard;
 GRANT INSERT (user_id, action, subject, client_key, metadata)
 ON factory.audit_events TO patchyard_dashboard;
+GRANT INSERT (
+    id, user_id, state, content_length, reserved_bytes, expires_at,
+    finished_at, reason
+) ON factory.upload_admissions TO patchyard_dashboard;
+GRANT UPDATE (
+    request_id, state, reserved_bytes, actual_bytes, reason, finished_at
+) ON factory.upload_admissions TO patchyard_dashboard;
+GRANT INSERT (id, request_id, run_id, path, sha256, kind)
+ON factory.artifacts TO patchyard_dashboard;
 GRANT INSERT (id, request_id, requested_by)
 ON factory.reconcile_requests TO patchyard_dashboard;
 GRANT USAGE, SELECT ON SEQUENCE

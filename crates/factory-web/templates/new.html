@@ -4,10 +4,12 @@
 <h1>Submit one request</h1>
 <p>The request is stored verbatim as untrusted data. Submission queues the resident supervisor; no console step follows.</p>
 {% if error != "" %}<p class="error" role="alert">{{ error }}</p>{% endif %}
-<form method="post" action="/new">
+<form method="post" action="/new" enctype="multipart/form-data">
   <input type="hidden" name="csrf_token" value="{{ chrome.csrf_token }}">
   <label for="request_body">Request</label>
   <textarea id="request_body" name="request_body" rows="16" maxlength="{{ request_max }}"{% if request_required %} required{% endif %}>{{ request_body }}</textarea>
+  <label for="screenshot">Screenshot (optional PNG/JPEG, maximum 8 MiB)</label>
+  <input id="screenshot" name="screenshot" type="file" accept="{{ upload_accept }}">
   <button type="submit">queue request</button>
 </form>
 {% endblock %}

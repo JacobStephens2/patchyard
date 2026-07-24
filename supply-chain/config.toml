@@ -4,6 +4,10 @@
 [cargo-vet]
 version = "0.10"
 
+[[exemptions.adler2]]
+version = "2.0.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.aho-corasick]]
 version = "1.1.4"
 criteria = "safe-to-deploy"
@@ -120,8 +124,16 @@ criteria = "safe-to-deploy"
 version = "3.20.3"
 criteria = "safe-to-deploy"
 
+[[exemptions.bytemuck]]
+version = "1.25.2"
+criteria = "safe-to-deploy"
+
 [[exemptions.byteorder]]
 version = "1.5.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.byteorder-lite]]
+version = "0.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.bytes]]
@@ -184,6 +196,10 @@ criteria = "safe-to-deploy"
 version = "2.5.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.crc32fast]]
+version = "1.5.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.crossbeam-epoch]]
 version = "0.9.20"
 criteria = "safe-to-deploy"
@@ -232,6 +248,10 @@ criteria = "safe-to-deploy"
 version = "1.16.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.encoding_rs]]
+version = "0.8.35"
+criteria = "safe-to-deploy"
+
 [[exemptions.equivalent]]
 version = "1.0.2"
 criteria = "safe-to-deploy"
@@ -256,8 +276,16 @@ criteria = "safe-to-deploy"
 version = "2.5.0"
 criteria = "safe-to-run"
 
+[[exemptions.fdeflate]]
+version = "0.3.7"
+criteria = "safe-to-deploy"
+
 [[exemptions.find-msvc-tools]]
 version = "0.1.9"
+criteria = "safe-to-deploy"
+
+[[exemptions.flate2]]
+version = "1.1.9"
 criteria = "safe-to-deploy"
 
 [[exemptions.flume]]
@@ -440,6 +468,10 @@ criteria = "safe-to-deploy"
 version = "1.2.2"
 criteria = "safe-to-deploy"
 
+[[exemptions.image]]
+version = "0.25.10"
+criteria = "safe-to-deploy"
+
 [[exemptions.indexmap]]
 version = "2.14.0"
 criteria = "safe-to-deploy"
@@ -482,7 +514,7 @@ criteria = "safe-to-deploy"
 
 [[exemptions.linux-raw-sys]]
 version = "0.12.1"
-criteria = "safe-to-run"
+criteria = "safe-to-deploy"
 
 [[exemptions.litemap]]
 version = "0.8.2"
@@ -532,8 +564,20 @@ criteria = "safe-to-deploy"
 version = "0.3.17"
 criteria = "safe-to-deploy"
 
+[[exemptions.miniz_oxide]]
+version = "0.8.9"
+criteria = "safe-to-deploy"
+
 [[exemptions.mio]]
 version = "1.2.2"
+criteria = "safe-to-deploy"
+
+[[exemptions.moxcms]]
+version = "0.8.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.multer]]
+version = "3.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.nu-ansi-term]]
@@ -604,6 +648,10 @@ criteria = "safe-to-deploy"
 version = "0.3.33"
 criteria = "safe-to-deploy"
 
+[[exemptions.png]]
+version = "0.18.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.portable-atomic]]
 version = "1.14.0"
 criteria = "safe-to-deploy"
@@ -642,6 +690,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.pulldown-cmark-escape]]
 version = "0.11.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.pxfm]]
+version = "0.1.30"
 criteria = "safe-to-deploy"
 
 [[exemptions.quanta]]
@@ -730,7 +782,7 @@ criteria = "safe-to-deploy"
 
 [[exemptions.rustix]]
 version = "1.1.4"
-criteria = "safe-to-run"
+criteria = "safe-to-deploy"
 
 [[exemptions.rustls]]
 version = "0.23.42"
@@ -810,6 +862,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.signal-hook-registry]]
 version = "1.4.8"
+criteria = "safe-to-deploy"
+
+[[exemptions.simd-adler32]]
+version = "0.3.10"
 criteria = "safe-to-deploy"
 
 [[exemptions.sketches-ddsketch]]
@@ -1226,4 +1282,12 @@ criteria = "safe-to-deploy"
 
 [[exemptions.zmij]]
 version = "1.0.23"
+criteria = "safe-to-deploy"
+
+[[exemptions.zune-core]]
+version = "0.5.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.zune-jpeg]]
+version = "0.5.15"
 criteria = "safe-to-deploy"

@@ -3,11 +3,13 @@
 pub mod auth;
 pub mod projection;
 pub mod store;
+pub mod upload;
 
 use std::{
     collections::BTreeMap,
     convert::Infallible,
     path::{Component, Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 
@@ -15,7 +17,10 @@ use askama::Template;
 use axum::{
     Form, Router,
     body::{Body, Bytes},
-    extract::{DefaultBodyLimit, Path as RoutePath, Query, State},
+    extract::{
+        DefaultBodyLimit, FromRequest, Multipart, Path as RoutePath, Query, Request, State,
+        multipart::Field,
+    },
     http::{
         HeaderMap, HeaderValue, StatusCode,
         header::{self, HeaderName},
@@ -54,8 +59,12 @@ use crate::{
     },
     store::{
         ActiveRun, ArtifactSummary, DashboardStore, EVENTS_BATCH_LIMIT, EventRecord,
-        LOGIN_CHALLENGE_LIFETIME, PullRequestRecord, RequestDetail, RequestRecord, RequestSummary,
-        RunRecord,
+        LOGIN_CHALLENGE_LIFETIME, NewUploadArtifact, PullRequestRecord, RequestDetail,
+        RequestRecord, RequestSummary, RunRecord, UploadAdmission, UploadSummary,
+    },
+    upload::{
+        CleanFormat, MAX_CONCURRENT_DECODES, MAX_MULTIPART_BYTES, MAX_UPLOAD_BYTES, UPLOAD_ACCEPT,
+        UploadError, UploadStorage, sanitize_image_timed,
     },
 };
 
@@ -74,6 +83,8 @@ pub struct AppState {
     pub store: DashboardStore,
     pub checkout_root: PathBuf,
     pub artifact_root: PathBuf,
+    upload_storage: UploadStorage,
+    decode_slots: Arc<tokio::sync::Semaphore>,
     dummy_password_hash: String,
     actor_by_stage: BTreeMap<String, String>,
 }
@@ -86,10 +97,15 @@ impl AppState {
     ) -> Result<Self, AppError> {
         let model = read_model(&checkout_root).await?;
         let dummy_password_hash = tokio::task::spawn_blocking(auth::dummy_password_hash).await??;
+        let storage_root = artifact_root.clone();
+        let upload_storage =
+            tokio::task::spawn_blocking(move || UploadStorage::open(&storage_root)).await??;
         Ok(Self {
             store,
             checkout_root,
             artifact_root,
+            upload_storage,
+            decode_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DECODES)),
             dummy_password_hash,
             actor_by_stage: model.actors(),
         })
@@ -103,10 +119,14 @@ impl AppState {
         dummy_password_hash: String,
         actor_by_stage: BTreeMap<String, String>,
     ) -> Self {
+        let upload_storage =
+            UploadStorage::open(&artifact_root).expect("test upload root should be private");
         Self {
             store,
             checkout_root,
             artifact_root,
+            upload_storage,
+            decode_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DECODES)),
             dummy_password_hash,
             actor_by_stage,
         }
@@ -128,6 +148,7 @@ pub fn router(state: AppState) -> Router {
         .route("/controls/pause", post(pause))
         .route("/controls/resume", post(resume))
         .route("/controls/full-stop", post(full_stop))
+        .route("/upload/{id}", get(upload))
         .route("/evidence/{run_id}/{name}", get(evidence))
         .route("/decisions", get(decisions))
         .route("/bench", get(bench))
@@ -138,7 +159,7 @@ pub fn router(state: AppState) -> Router {
         .route("/assets/patchyard-theme.css", get(eta_theme_css))
         .route("/projection/{name}", get(projection_asset))
         .fallback(not_found)
-        .layer(DefaultBodyLimit::max(MAX_FORM_BYTES))
+        .layer(DefaultBodyLimit::max(MAX_MULTIPART_BYTES))
         .layer(middleware::from_fn(security_headers))
         .with_state(state)
 }
@@ -324,6 +345,7 @@ async fn new_form(State(state): State<AppState>, headers: HeaderMap) -> Response
             chrome: chrome(&authenticated),
             request_max: REQUEST_BODY_MAX_UTF16_CODE_UNITS,
             request_required: REQUEST_BODY_HTML_REQUIRED,
+            upload_accept: UPLOAD_ACCEPT,
             request_body: String::new(),
             error: String::new(),
         },
@@ -332,39 +354,116 @@ async fn new_form(State(state): State<AppState>, headers: HeaderMap) -> Response
     .await
 }
 
-#[derive(Debug, Deserialize)]
-struct NewForm {
-    request_body: String,
-    csrf_token: String,
-}
-
-async fn submit(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Form(form): Form<NewForm>,
-) -> Response {
+async fn submit(State(state): State<AppState>, request: Request) -> Response {
+    let headers = request.headers().clone();
     let authenticated = match require_auth(&state, &headers, Access::Submit).await {
         Ok(value) => value,
         Err(response) => return response,
     };
-    if !csrf_valid(&authenticated, &form.csrf_token) {
+    let content_length = match upload_content_length(&headers) {
+        Ok(value) => value,
+        Err(error) => return error.into_response(),
+    };
+    let client = client_key(&headers);
+    let admission_id = match state
+        .store
+        .reserve_upload(&authenticated.principal, content_length, &client)
+        .await
+    {
+        Ok(UploadAdmission::Admitted(value)) => value,
+        Ok(UploadAdmission::RateLimited) => {
+            return error_page(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Upload rate limit reached. Wait before trying again.",
+            )
+            .await;
+        }
+        Ok(UploadAdmission::QuotaExceeded) => {
+            return error_page(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Daily screenshot quota reached.",
+            )
+            .await;
+        }
+        Err(error) => return internal_error(error).await,
+    };
+    let mut multipart = match Multipart::from_request(request, &state).await {
+        Ok(value) => value,
+        Err(_) => {
+            reject_admission(
+                &state,
+                &authenticated,
+                admission_id,
+                "malformed-multipart",
+                &client,
+            )
+            .await;
+            return upload_form_error(UploadFormError::Multipart).await;
+        }
+    };
+    let csrf = match first_csrf_field(&mut multipart).await {
+        Ok(value) => value,
+        Err(error) => {
+            reject_admission(
+                &state,
+                &authenticated,
+                admission_id,
+                error.reason(),
+                &client,
+            )
+            .await;
+            return upload_form_error(error).await;
+        }
+    };
+    if !csrf_valid(&authenticated, &csrf) {
+        reject_admission(
+            &state,
+            &authenticated,
+            admission_id,
+            "invalid-csrf",
+            &client,
+        )
+        .await;
         return forbidden("CSRF token invalid").await;
     }
+    let parsed = match remaining_upload_fields(&mut multipart).await {
+        Ok(value) => value,
+        Err(error) => {
+            reject_admission(
+                &state,
+                &authenticated,
+                admission_id,
+                error.reason(),
+                &client,
+            )
+            .await;
+            return upload_form_error(error).await;
+        }
+    };
     let source = format!("dashboard:{}", authenticated.principal.id);
     let request = match NewRequest::from_intake(
         Uuid::new_v4(),
         source,
-        form.request_body.clone(),
+        parsed.request_body.clone(),
         TraceId::random(),
     ) {
         Ok(value) => value,
         Err(error) => {
+            reject_admission(
+                &state,
+                &authenticated,
+                admission_id,
+                "invalid-request",
+                &client,
+            )
+            .await;
             return render_page_status(
                 NewTemplate {
                     chrome: chrome(&authenticated),
                     request_max: REQUEST_BODY_MAX_UTF16_CODE_UNITS,
                     request_required: REQUEST_BODY_HTML_REQUIRED,
-                    request_body: form.request_body,
+                    upload_accept: UPLOAD_ACCEPT,
+                    request_body: parsed.request_body,
                     error: error.to_string(),
                 },
                 None,
@@ -373,21 +472,383 @@ async fn submit(
             .await;
         }
     };
+    let Some(original) = parsed.screenshot else {
+        reject_admission(
+            &state,
+            &authenticated,
+            admission_id,
+            "no-screenshot",
+            &client,
+        )
+        .await;
+        let created = match state
+            .store
+            .submit_request(&request, &authenticated.principal, &client)
+            .await
+        {
+            Ok(value) => value,
+            Err(error) => return internal_error(error).await,
+        };
+        return receipt(&state, &authenticated, created).await;
+    };
+
+    let clean = match sanitize_image_timed(original, Arc::clone(&state.decode_slots)).await {
+        Ok(value) => value,
+        Err(error) => {
+            let reason = upload_error_reason(&error);
+            reject_admission(&state, &authenticated, admission_id, reason, &client).await;
+            return upload_pipeline_error(error).await;
+        }
+    };
+    let upload_id = Uuid::new_v4();
+    let format = clean.format;
+    let sha256 = clean.sha256;
+    let clean_bytes = match i64::try_from(clean.bytes.len()) {
+        Ok(value) => value,
+        Err(_) => {
+            reject_admission(
+                &state,
+                &authenticated,
+                admission_id,
+                "clean-size-overflow",
+                &client,
+            )
+            .await;
+            return upload_pipeline_error(UploadError::CleanImageTooLarge).await;
+        }
+    };
+    let storage = state.upload_storage.clone();
+    let relative_path =
+        match tokio::task::spawn_blocking(move || storage.store(upload_id, &clean)).await {
+            Ok(Ok(value)) => value,
+            Ok(Err(error)) => {
+                reject_admission(
+                    &state,
+                    &authenticated,
+                    admission_id,
+                    upload_error_reason(&error),
+                    &client,
+                )
+                .await;
+                return upload_pipeline_error(error).await;
+            }
+            Err(error) => {
+                reject_admission(
+                    &state,
+                    &authenticated,
+                    admission_id,
+                    "storage-task",
+                    &client,
+                )
+                .await;
+                return internal_error(error).await;
+            }
+        };
+    let upload = NewUploadArtifact {
+        id: upload_id,
+        relative_path: relative_path.clone(),
+        sha256,
+        kind: match format {
+            CleanFormat::Png => "request-screenshot-png",
+            CleanFormat::Jpeg => "request-screenshot-jpeg",
+        },
+        clean_bytes,
+    };
     let created = match state
         .store
-        .submit_request(&request, &authenticated.principal, &client_key(&headers))
+        .submit_request_with_upload(
+            &request,
+            &authenticated.principal,
+            admission_id,
+            &upload,
+            &client,
+        )
         .await
     {
         Ok(value) => value,
-        Err(error) => return internal_error(error).await,
+        Err(error) => {
+            cleanup_stored_upload(&state, upload_id, relative_path).await;
+            reject_admission(
+                &state,
+                &authenticated,
+                admission_id,
+                "database-registration",
+                &client,
+            )
+            .await;
+            return internal_error(error).await;
+        }
     };
+    if !created.inserted {
+        cleanup_stored_upload(&state, upload_id, relative_path).await;
+        return error_page(
+            StatusCode::CONFLICT,
+            "Duplicate request rejected; the existing intake was left unchanged.",
+        )
+        .await;
+    }
+    receipt(&state, &authenticated, created).await
+}
+
+struct ParsedUploadForm {
+    request_body: String,
+    screenshot: Option<Vec<u8>>,
+}
+
+#[derive(Debug)]
+enum UploadFormError {
+    MissingCsrf,
+    CsrfShape,
+    MissingRequest,
+    RequestShape,
+    InvalidUtf8,
+    SuspiciousFilename,
+    TooLarge,
+    ExtraField,
+    Multipart,
+}
+
+impl UploadFormError {
+    const fn reason(&self) -> &'static str {
+        match self {
+            Self::MissingCsrf => "missing-csrf",
+            Self::CsrfShape => "csrf-shape",
+            Self::MissingRequest => "missing-request",
+            Self::RequestShape => "request-shape",
+            Self::InvalidUtf8 => "invalid-utf8",
+            Self::SuspiciousFilename => "unsafe-filename",
+            Self::TooLarge => "field-too-large",
+            Self::ExtraField => "extra-field",
+            Self::Multipart => "malformed-multipart",
+        }
+    }
+}
+
+fn upload_content_length(headers: &HeaderMap) -> Result<i64, (StatusCode, &'static str)> {
+    let Some(value) = headers.get(header::CONTENT_LENGTH) else {
+        return Err((
+            StatusCode::LENGTH_REQUIRED,
+            "Content-Length is required for uploads.\n",
+        ));
+    };
+    let length = value
+        .to_str()
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .ok_or((StatusCode::BAD_REQUEST, "Content-Length is invalid.\n"))?;
+    if length > MAX_MULTIPART_BYTES {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "Multipart request exceeds the upload limit.\n",
+        ));
+    }
+    i64::try_from(length).map_err(|_| {
+        (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "Multipart request exceeds the upload limit.\n",
+        )
+    })
+}
+
+async fn first_csrf_field(multipart: &mut Multipart) -> Result<String, UploadFormError> {
+    let field = multipart
+        .next_field()
+        .await
+        .map_err(|_| UploadFormError::Multipart)?
+        .ok_or(UploadFormError::MissingCsrf)?;
+    if field.name() != Some("csrf_token") || field.file_name().is_some() {
+        return Err(UploadFormError::CsrfShape);
+    }
+    let bytes = read_field_limited(field, 256).await?;
+    String::from_utf8(bytes).map_err(|_| UploadFormError::InvalidUtf8)
+}
+
+async fn remaining_upload_fields(
+    multipart: &mut Multipart,
+) -> Result<ParsedUploadForm, UploadFormError> {
+    let request = multipart
+        .next_field()
+        .await
+        .map_err(|_| UploadFormError::Multipart)?
+        .ok_or(UploadFormError::MissingRequest)?;
+    if request.name() != Some("request_body") || request.file_name().is_some() {
+        return Err(UploadFormError::RequestShape);
+    }
+    let request_body = String::from_utf8(read_field_limited(request, MAX_FORM_BYTES).await?)
+        .map_err(|_| UploadFormError::InvalidUtf8)?;
+
+    let screenshot = match multipart
+        .next_field()
+        .await
+        .map_err(|_| UploadFormError::Multipart)?
+    {
+        None => None,
+        Some(field) => {
+            if field.name() != Some("screenshot") {
+                return Err(UploadFormError::ExtraField);
+            }
+            let filename = field.file_name().unwrap_or_default();
+            if !filename.is_empty() && suspicious_filename(filename) {
+                return Err(UploadFormError::SuspiciousFilename);
+            }
+            let bytes = read_field_limited(field, MAX_UPLOAD_BYTES).await?;
+            (!bytes.is_empty()).then_some(bytes)
+        }
+    };
+    if multipart
+        .next_field()
+        .await
+        .map_err(|_| UploadFormError::Multipart)?
+        .is_some()
+    {
+        return Err(UploadFormError::ExtraField);
+    }
+    Ok(ParsedUploadForm {
+        request_body,
+        screenshot,
+    })
+}
+
+async fn read_field_limited(
+    mut field: Field<'_>,
+    maximum: usize,
+) -> Result<Vec<u8>, UploadFormError> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = field
+        .chunk()
+        .await
+        .map_err(|_| UploadFormError::Multipart)?
+    {
+        if chunk.len() > maximum.saturating_sub(bytes.len()) {
+            return Err(UploadFormError::TooLarge);
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
+fn suspicious_filename(value: &str) -> bool {
+    value.len() > 128
+        || value.is_empty()
+        || value.starts_with('.')
+        || value
+            .bytes()
+            .any(|byte| byte.is_ascii_control() || matches!(byte, b'/' | b'\\' | b':' | b'\0'))
+        || value.bytes().filter(|byte| *byte == b'.').count() > 1
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b' '))
+}
+
+async fn upload_form_error(error: UploadFormError) -> Response {
+    let status = if matches!(error, UploadFormError::TooLarge) {
+        StatusCode::PAYLOAD_TOO_LARGE
+    } else {
+        StatusCode::UNPROCESSABLE_ENTITY
+    };
+    error_page(status, "Malformed or disallowed upload form.").await
+}
+
+fn upload_error_reason(error: &UploadError) -> &'static str {
+    match error {
+        UploadError::UnsupportedType => "unsupported-type",
+        UploadError::Dimensions => "dimension-limit",
+        UploadError::InvalidImage => "invalid-image",
+        UploadError::CleanImageTooLarge => "clean-image-too-large",
+        UploadError::DecodeTimeout => "decode-timeout",
+        UploadError::DecodeBusy => "decode-busy",
+        UploadError::BlockingTask => "decode-task",
+        UploadError::InvalidPath => "invalid-path",
+        UploadError::UnsafeFilesystemObject => "unsafe-filesystem",
+        UploadError::DiskFull => "disk-full",
+        UploadError::Io(_) => "storage-io",
+    }
+}
+
+async fn upload_pipeline_error(error: UploadError) -> Response {
+    match error {
+        UploadError::UnsupportedType => {
+            error_page(
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "Only valid PNG and JPEG screenshots are accepted.",
+            )
+            .await
+        }
+        UploadError::Dimensions | UploadError::InvalidImage | UploadError::CleanImageTooLarge => {
+            error_page(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "Screenshot failed the image safety limits.",
+            )
+            .await
+        }
+        UploadError::DecodeTimeout => {
+            error_page(
+                StatusCode::REQUEST_TIMEOUT,
+                "Screenshot decode exceeded the safety timeout.",
+            )
+            .await
+        }
+        UploadError::DecodeBusy => {
+            error_page(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Screenshot decoder is temporarily at capacity.",
+            )
+            .await
+        }
+        UploadError::DiskFull => {
+            tracing::error!("upload storage exhausted; intake failed closed");
+            error_page(
+                StatusCode::from_u16(507).expect("507 is a valid HTTP status"),
+                "Screenshot storage is full; nothing was accepted.",
+            )
+            .await
+        }
+        error => internal_error(error).await,
+    }
+}
+
+async fn reject_admission(
+    state: &AppState,
+    authenticated: &Authenticated,
+    admission_id: Uuid,
+    reason: &'static str,
+    client: &str,
+) {
+    if let Err(error) = state
+        .store
+        .reject_upload(admission_id, &authenticated.principal, reason, client)
+        .await
+    {
+        tracing::error!(%admission_id, %error, "failed to close upload admission");
+    }
+}
+
+async fn cleanup_stored_upload(state: &AppState, id: Uuid, relative_path: PathBuf) {
+    let storage = state.upload_storage.clone();
+    match tokio::task::spawn_blocking(move || storage.remove(id, &relative_path)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            tracing::error!(%id, %error, "stored upload cleanup failed");
+        }
+        Err(error) => {
+            tracing::error!(%id, %error, "stored upload cleanup task failed");
+        }
+    }
+}
+
+async fn receipt(
+    state: &AppState,
+    authenticated: &Authenticated,
+    created: factory_core::state::RequestCreated,
+) -> Response {
     let status = match state.store.request_status(created.id).await {
         Ok(value) => value,
         Err(error) => return internal_error(error).await,
     };
     render_page(
         ReceiptTemplate {
-            chrome: chrome(&authenticated),
+            chrome: chrome(authenticated),
             request_id: created.id,
             inserted: created.inserted,
             status,
@@ -414,6 +875,7 @@ async fn request_detail(
     let terminal = detail_is_terminal(&detail);
     let last_event_id = detail.events.last().map_or(0, |event| event.id);
     let artifacts = artifact_views(&detail.artifacts);
+    let uploads = upload_views(&detail.uploads);
     let template = DetailTemplate {
         chrome: chrome(&authenticated),
         request: detail.request,
@@ -421,6 +883,7 @@ async fn request_detail(
         events: event_views(&detail.events, &state.actor_by_stage, terminal),
         pulls: pull_views(&detail.pulls),
         artifacts,
+        uploads,
         terminal,
         last_event_id,
     };
@@ -661,6 +1124,77 @@ async fn control(
         return internal_error(error).await;
     }
     see_other("/")
+}
+
+async fn upload(
+    State(state): State<AppState>,
+    RoutePath(upload_id): RoutePath<Uuid>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(response) = require_auth(&state, &headers, Access::Admin).await {
+        return response;
+    }
+    let artifact = match state.store.upload(upload_id).await {
+        Ok(Some(value)) => value,
+        Ok(None) => return not_found_response().await,
+        Err(error) => return internal_error(error).await,
+    };
+    let expected = artifact.sha256;
+    let expected_kind = artifact.kind;
+    let relative_path = artifact.relative_path;
+    let storage = state.upload_storage.clone();
+    let loaded = tokio::task::spawn_blocking(move || {
+        let (bytes, format) = storage.read(upload_id, &relative_path)?;
+        let actual: [u8; 32] = Sha256::digest(&bytes).into();
+        Ok::<_, UploadError>((bytes, format, actual))
+    })
+    .await;
+    let (bytes, format, actual) = match loaded {
+        Ok(Ok(value)) => value,
+        Ok(Err(UploadError::Io(error))) if error.kind() == std::io::ErrorKind::NotFound => {
+            return not_found_response().await;
+        }
+        Ok(Err(error)) => return internal_error(error).await,
+        Err(error) => return internal_error(error).await,
+    };
+    let kind_matches = matches!(
+        (format, expected_kind.as_str()),
+        (CleanFormat::Png, "request-screenshot-png")
+            | (CleanFormat::Jpeg, "request-screenshot-jpeg")
+    );
+    if actual != expected || !kind_matches {
+        tracing::error!(%upload_id, "clean upload integrity or media-type mismatch");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "upload integrity failure\n",
+        )
+            .into_response();
+    }
+
+    let filename = format!("{upload_id}.{}", format.extension());
+    let mut response = Response::new(Body::from(bytes));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(format.content_type()),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
+            .expect("UUID upload filename is a valid header value"),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("sandbox; default-src 'none'"),
+    );
+    response.headers_mut().insert(
+        HeaderName::from_static("cross-origin-resource-policy"),
+        HeaderValue::from_static("same-site"),
+    );
+    response.headers_mut().insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    response
 }
 
 async fn evidence(
@@ -1048,6 +1582,17 @@ fn artifact_views(artifacts: &[ArtifactSummary]) -> Vec<ArtifactView> {
         .collect()
 }
 
+fn upload_views(uploads: &[UploadSummary]) -> Vec<UploadView> {
+    uploads
+        .iter()
+        .map(|upload| UploadView {
+            id: upload.id,
+            kind: upload.kind.clone(),
+            created_at: upload.created_at.to_string(),
+        })
+        .collect()
+}
+
 async fn safe_artifact_path(
     canonical_root: &Path,
     relative: &Path,
@@ -1308,6 +1853,7 @@ struct NewTemplate {
     chrome: PageChrome,
     request_max: usize,
     request_required: bool,
+    upload_accept: &'static str,
     request_body: String,
     error: String,
 }
@@ -1351,6 +1897,13 @@ struct ArtifactView {
     created_at: String,
 }
 
+#[derive(Clone)]
+struct UploadView {
+    id: Uuid,
+    kind: String,
+    created_at: String,
+}
+
 #[derive(Template)]
 #[template(path = "detail.html")]
 struct DetailTemplate {
@@ -1360,6 +1913,7 @@ struct DetailTemplate {
     events: Vec<EventView>,
     pulls: Vec<PullView>,
     artifacts: Vec<ArtifactView>,
+    uploads: Vec<UploadView>,
     terminal: bool,
     last_event_id: i64,
 }
@@ -1476,6 +2030,8 @@ pub enum AppError {
     Auth(#[from] factory_core::auth::AuthError),
     #[error("dashboard startup task failed: {0}")]
     Join(#[from] tokio::task::JoinError),
+    #[error("dashboard upload storage failed: {0}")]
+    Upload(#[from] UploadError),
 }
 
 #[cfg(test)]
@@ -1484,7 +2040,7 @@ mod tests {
 
     use factory_core::{REQUEST_BODY_MAX_UTF16_CODE_UNITS, auth::hash_password};
 
-    use super::{AppState, DashboardStore, NewTemplate, PageChrome, Template};
+    use super::{AppState, DashboardStore, NewTemplate, PageChrome, Template, UPLOAD_ACCEPT};
 
     #[test]
     fn form_constraints_are_projected_from_factory_core() {
@@ -1492,6 +2048,7 @@ mod tests {
             chrome: PageChrome::anonymous("nonce".to_owned()),
             request_max: REQUEST_BODY_MAX_UTF16_CODE_UNITS,
             request_required: true,
+            upload_accept: UPLOAD_ACCEPT,
             request_body: String::new(),
             error: String::new(),
         }
@@ -1508,6 +2065,7 @@ mod tests {
             chrome: PageChrome::anonymous("nonce".to_owned()),
             request_max: REQUEST_BODY_MAX_UTF16_CODE_UNITS,
             request_required: true,
+            upload_accept: UPLOAD_ACCEPT,
             request_body: "<script>alert(1)</script><a href=\"https://evil.invalid\">review</a>"
                 .to_owned(),
             error: String::new(),

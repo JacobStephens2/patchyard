@@ -62,6 +62,7 @@ assert_path() {
 
 assert_path /var/lib/patchyard root factory 750
 assert_path /var/lib/patchyard/artifacts factory-manager factory-web 2750
+assert_path /var/lib/patchyard/artifacts/uploads factory-web factory-web 700
 assert_path /var/lib/patchyard/supervisor factory-manager factory 700
 assert_path /var/lib/patchyard/spool factory-web factory-web 700
 assert_path /var/lib/patchyard/worktrees factory-manager factory 750

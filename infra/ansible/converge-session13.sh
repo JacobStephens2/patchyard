@@ -20,7 +20,9 @@ trap 'rm -r -- "$CONVERGE_TEMP"' EXIT
 FACTORY_BUNDLE="$CONVERGE_TEMP/factory.bundle"
 git -C "$REPO_ROOT" bundle create "$FACTORY_BUNDLE" --all
 
-"$CARGO_BIN" build --locked --release --package factory-supervisor
+"$CARGO_BIN" build --locked --release --package factoryctl --package factory-supervisor
+FACTORYCTL_BINARY="$REPO_ROOT/target/release/factoryctl"
+FACTORYCTL_SHA256=$(sha256sum "$FACTORYCTL_BINARY" | cut -d' ' -f1)
 FACTORY_SUPERVISOR_BINARY="$REPO_ROOT/target/release/factory-supervisor"
 FACTORY_SUPERVISOR_SHA256=$(sha256sum "$FACTORY_SUPERVISOR_BINARY" | cut -d' ' -f1)
 
@@ -37,6 +39,8 @@ exec "$ANSIBLE_PLAYBOOK" \
   --tags session13 \
   -e "factory_repo_bundle=$FACTORY_BUNDLE" \
   -e "factory_repo_revision=$FACTORY_REVISION" \
+  -e "factoryctl_binary=$FACTORYCTL_BINARY" \
+  -e "factoryctl_sha256=$FACTORYCTL_SHA256" \
   -e "factory_supervisor_binary=$FACTORY_SUPERVISOR_BINARY" \
   -e "factory_supervisor_sha256=$FACTORY_SUPERVISOR_SHA256" \
   -e "factory_github_app_id=$GH_PATCHYARD_APP_ID" \

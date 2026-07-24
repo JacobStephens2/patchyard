@@ -535,6 +535,7 @@
     owner: root
     group: root
     mode: "0755"
+  tags: [session13]
 
 - name: Install declarative PostgreSQL role and grant definitions
   ansible.builtin.copy:
@@ -546,6 +547,7 @@
   loop:
     - postgresql-roles.sql
     - postgresql-grants.sql
+  tags: [session13]
 
 - name: Apply declarative PostgreSQL roles
   ansible.builtin.command:
@@ -605,6 +607,7 @@
       - factoryctl_sha256 is defined
       - factoryctl_sha256 is match('^[0-9a-f]{64}$')
     fail_msg: "Use converge.sh so migrations run from the reviewed, locked Rust build."
+  tags: [session13]
 
 - name: Hash the local factoryctl build artifact
   ansible.builtin.stat:
@@ -613,6 +616,7 @@
   delegate_to: localhost
   become: false
   register: local_factoryctl
+  tags: [session13]
 
 - name: Require the exact factoryctl build artifact
   ansible.builtin.assert:
@@ -620,6 +624,7 @@
       - local_factoryctl.stat.exists
       - local_factoryctl.stat.checksum == factoryctl_sha256
     fail_msg: "factoryctl changed after converge.sh built and hashed it."
+  tags: [session13]
 
 - name: Install the reviewed factoryctl binary
   ansible.builtin.copy:
@@ -629,6 +634,7 @@
     group: root
     mode: "0755"
   register: factoryctl_install
+  tags: [session13]
 
 - name: Require the reviewed factory-supervisor build artifact
   ansible.builtin.assert:
@@ -740,6 +746,7 @@
   register: migration_count_before
   changed_when: false
   failed_when: false
+  tags: [session13]
 
 - name: Apply embedded SQLx migrations through the peer-mapped migrator
   ansible.builtin.command:
@@ -755,6 +762,7 @@
   changed_when: >-
     migration_count_before.rc != 0
     or (migration_count_before.stdout | trim | int) < factory_migration_count
+  tags: [session13]
 
 - name: Assert the canonical migration count
   ansible.builtin.command:
@@ -770,6 +778,7 @@
   register: migration_count_after
   changed_when: false
   failed_when: migration_count_after.stdout | trim | int != factory_migration_count
+  tags: [session13]
 
 - name: Apply the complete runtime role grant matrix
   ansible.builtin.command:
@@ -782,6 +791,7 @@
   become: true
   become_user: postgres
   changed_when: false
+  tags: [session13]
 
 - name: Load bootstrap dashboard accounts from the controller secret file
   ansible.builtin.set_fact:

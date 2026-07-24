@@ -108,7 +108,7 @@ class EvidenceBrowserControls(unittest.TestCase):
         fixture: str,
         *,
         maximum_dom_bytes: int = 2_000_000,
-        total_timeout_ms: int = 10_000,
+        total_timeout_ms: int = 30_000,
         chromium: Path | None = None,
     ) -> tuple[subprocess.CompletedProcess, Path]:
         case = Path(tempfile.mkdtemp(dir=self.root))
@@ -120,7 +120,9 @@ class EvidenceBrowserControls(unittest.TestCase):
                 {"extract_select": {"selector": "#sales_person_id"}},
                 "screenshot",
             ],
-            "navigation_timeout_ms": 5_000,
+            # State-classification fixtures must not race a cold Chromium start.
+            # The timeout fixture below supplies its own 250 ms total deadline.
+            "navigation_timeout_ms": 20_000,
             "action_timeout_ms": 2_000,
             "total_timeout_ms": total_timeout_ms,
             "maximum_dom_bytes": maximum_dom_bytes,
@@ -148,7 +150,7 @@ class EvidenceBrowserControls(unittest.TestCase):
             [sys.executable, str(HELPER), str(contract_path), str(bearer_path), str(output)],
             env=environment,
             capture_output=True,
-            timeout=20,
+            timeout=40,
             check=False,
         )
         return result, output

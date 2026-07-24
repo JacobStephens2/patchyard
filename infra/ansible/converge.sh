@@ -70,6 +70,10 @@ FACTORY_VERIFY_BINARY="$REPO_ROOT/target/release/factory-verify"
 FACTORY_VERIFY_SHA256=$(sha256sum "$FACTORY_VERIFY_BINARY" | cut -d' ' -f1)
 FACTORY_SUPERVISOR_BINARY="$REPO_ROOT/target/release/factory-supervisor"
 FACTORY_SUPERVISOR_SHA256=$(sha256sum "$FACTORY_SUPERVISOR_BINARY" | cut -d' ' -f1)
+FACTORY_EVIDENCE_QUALIFY_BINARY="$REPO_ROOT/target/release/factory-evidence-qualify"
+FACTORY_EVIDENCE_QUALIFY_SHA256=$(
+  sha256sum "$FACTORY_EVIDENCE_QUALIFY_BINARY" | cut -d' ' -f1
+)
 FACTORY_WEB_BINARY="$REPO_ROOT/target/release/factory-web"
 FACTORY_WEB_SHA256=$(sha256sum "$FACTORY_WEB_BINARY" | cut -d' ' -f1)
 
@@ -91,6 +95,8 @@ cd "$ANSIBLE_ROOT"
   -e "factory_verify_sha256=$FACTORY_VERIFY_SHA256" \
   -e "factory_supervisor_binary=$FACTORY_SUPERVISOR_BINARY" \
   -e "factory_supervisor_sha256=$FACTORY_SUPERVISOR_SHA256" \
+  -e "factory_evidence_qualify_binary=$FACTORY_EVIDENCE_QUALIFY_BINARY" \
+  -e "factory_evidence_qualify_sha256=$FACTORY_EVIDENCE_QUALIFY_SHA256" \
   -e "factory_web_binary=$FACTORY_WEB_BINARY" \
   -e "factory_web_sha256=$FACTORY_WEB_SHA256" \
   -e "factory_dashboard_accounts_file=$FACTORY_DASHBOARD_ACCOUNTS_FILE" \

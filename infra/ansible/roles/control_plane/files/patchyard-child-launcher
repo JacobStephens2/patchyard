@@ -73,7 +73,8 @@ count_child_processes() {
     return
   }
   while read -r pid; do
-    [[ "$pid" == "$$" ]] || count=$((count + 1))
+    [[ "$pid" == "$$" || "$pid" == "$BASHPID" ]] \
+      || count=$((count + 1))
   done <"/sys/fs/cgroup$cgroup/cgroup.procs"
   printf '%s\n' "$count"
 }

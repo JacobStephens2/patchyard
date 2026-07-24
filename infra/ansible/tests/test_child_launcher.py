@@ -96,6 +96,9 @@ class ChildLauncherContract(unittest.TestCase):
     def test_teardown_measures_and_reaps_declared_resource_classes(self) -> None:
         self.assertIn("PROCESSES=$(count_child_processes)", self.launcher)
         self.assertIn("MOUNTS=$(count_child_mounts)", self.launcher)
+        self.assertIn(
+            '[[ "$pid" == "$$" || "$pid" == "$BASHPID" ]]', self.launcher
+        )
         self.assertNotIn('pgrep -f -- "patchyard-child-$ID"', self.launcher)
         self.assertIn(
             "ExecStopPost=/usr/local/sbin/patchyard-reap-child %i", self.unit

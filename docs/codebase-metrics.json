@@ -2,7 +2,7 @@
   "schema_version": 1,
   "generated_by": "tools/check-codebase.sh",
   "tokei_version": "14.0.0",
-  "source_revision": "sha256:43e1850aa40d1e0f0acdb935fe7a6220fd0417d992d52928c78f05d2d6155094",
+  "source_revision": "sha256:796ff260dffd5b6c61c0378874103776ffc794fcbe698f0804398c572f77f498",
   "roles": [
     {
       "role": "product",
@@ -73,14 +73,14 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 10487,
+      "code": 10491,
       "comments": 393,
       "blanks": 1071,
       "files": 119,
       "languages": [
         {
           "language": "BASH",
-          "code": 3605,
+          "code": 3606,
           "comments": 90,
           "blanks": 274,
           "files": 33
@@ -129,7 +129,7 @@
         },
         {
           "language": "Python",
-          "code": 2096,
+          "code": 2099,
           "comments": 10,
           "blanks": 241,
           "files": 11

@@ -290,6 +290,7 @@ BWRAP_BASE=(
   --symlink usr/lib64 /lib64
   --proc /proc
   --dev /dev
+  --perms 1777
   --tmpfs /tmp
   --dir /etc
   --clearenv
@@ -517,6 +518,7 @@ setsid ip netns exec "$NETNS" env -i PATH=/usr/bin:/bin /usr/bin/bwrap \
   --dir /secret \
   --dir /exchange \
   --ro-bind /etc/pki /etc/pki \
+  --ro-bind /etc/fonts /etc/fonts \
   --ro-bind-fd "$EVIDENCE_HOSTS_FD" /etc/hosts \
   --ro-bind /etc/resolv.conf /etc/resolv.conf \
   --ro-bind-fd "$EVIDENCE_CAPTURE_FD" /input/capture.json \

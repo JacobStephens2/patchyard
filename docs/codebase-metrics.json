@@ -2,14 +2,14 @@
   "schema_version": 1,
   "generated_by": "tools/check-codebase.sh",
   "tokei_version": "14.0.0",
-  "source_revision": "sha256:d9bd3532d1fe44b8d3397bc491d88c6eb924f077fe3f3bf90fa05177a4214bcf",
+  "source_revision": "sha256:0c03d5663569fc37a123fa5354dc560a9cc6ff709f67bb3fac968ab71d89fe58",
   "roles": [
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 25389,
-      "comments": 432,
-      "blanks": 1682,
+      "code": 25437,
+      "comments": 443,
+      "blanks": 1686,
       "files": 72,
       "languages": [
         {
@@ -43,15 +43,15 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 338,
+          "comments": 344,
           "blanks": 16,
-          "files": 38
+          "files": 39
         },
         {
           "language": "Rust",
-          "code": 23274,
-          "comments": 75,
-          "blanks": 1437,
+          "code": 23322,
+          "comments": 80,
+          "blanks": 1441,
           "files": 45
         },
         {

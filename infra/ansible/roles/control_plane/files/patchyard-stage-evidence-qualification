@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+SLOT=${1:-}
+LEASE_ID=${2:-}
+EXPECTED_SHA=${3:-}
+[[ "$SLOT" =~ ^([1-9]|[12][0-9]|30)$ ]] \
+  && [[ "$LEASE_ID" =~ ^[0-9a-f]{32}$ ]] \
+  && [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+  echo "usage: $0 SLOT LEASE-ID EXPECTED-SHA" >&2
+  exit 2
+}
+
+ROOT=/run/patchyard-evidence-qualification
+INPUT="$ROOT/input.json"
+RESULT="$ROOT/result.json"
+CAPABILITY_ID=$(uuidgen | tr -d -)
+REQUEST_ID=$(uuidgen)
+RUN_ID=$(uuidgen)
+
+cleanup() {
+  local temporary=${TEMPORARY:-}
+  [[ -z "$temporary" ]] || rm -f -- "$temporary"
+  unset AUTHORIZATION
+  /usr/sbin/runuser -u factory-manager -- \
+    env -i HOME=/var/lib/patchyard-manager PATH=/usr/bin:/bin \
+    ssh -F /etc/patchyard/preview-ssh.conf patchyard-preview \
+      revoke --lease-id "$LEASE_ID" --capability-id "$CAPABILITY_ID" \
+      >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+AUTHORIZATION=$(
+  /usr/sbin/runuser -u factory-manager -- \
+    env -i HOME=/var/lib/patchyard-manager PATH=/usr/bin:/bin \
+    ssh -F /etc/patchyard/preview-ssh.conf patchyard-preview \
+      authorize --slot "$SLOT" --lease-id "$LEASE_ID" \
+      --expected-sha "$EXPECTED_SHA" --capability-id "$CAPABILITY_ID" \
+      --ttl-seconds 300
+)
+jq -e \
+  --argjson slot "$SLOT" \
+  --arg lease "$LEASE_ID" \
+  --arg sha "$EXPECTED_SHA" \
+  --arg capability "$CAPABILITY_ID" \
+  '.ok == true and .slot == $slot and .lease_id == $lease
+   and .expected_sha == $sha
+   and .bearer.capability_id == $capability
+   and .bearer.lease_id == $lease' \
+  <<<"$AUTHORIZATION" >/dev/null
+
+TEMPORARY=$(mktemp "$ROOT/input.XXXXXX")
+jq -n \
+  --arg request_id "$REQUEST_ID" \
+  --arg run_id "$RUN_ID" \
+  --arg url "https://$SLOT.preview.example.dev/" \
+  --arg expected_sha "$EXPECTED_SHA" \
+  --argjson bearer "$(jq -c .bearer <<<"$AUTHORIZATION")" \
+  '{
+    schema_version: 1,
+    request_id: $request_id,
+    run_id: $run_id,
+    contract: {
+      allowed_url: $url,
+      expected_sha: $expected_sha,
+      actions: ["screenshot"],
+      navigation_timeout_ms: 30000,
+      action_timeout_ms: 10000,
+      total_timeout_ms: 60000,
+      maximum_dom_bytes: 2000000,
+      maximum_screenshot_bytes: 5000000,
+      maximum_extract_bytes: 1048576
+    },
+    bearer: $bearer
+  }' >"$TEMPORARY"
+unset AUTHORIZATION
+chown factory-manager:factory-manager "$TEMPORARY"
+chmod 0600 "$TEMPORARY"
+rm -f -- "$INPUT" "$RESULT"
+mv -T "$TEMPORARY" "$INPUT"
+systemctl start factory-evidence-qualification.service
+jq -e \
+  '.schema_version == 1 and .ok == true
+   and .terminal.state == "completed"
+   and .terminal.isolation == {
+     sibling_unreachable: true,
+     shared_scratch_unreachable: true,
+     credential_paths_unreachable: true,
+     postgres_socket_unreachable: true,
+     artifact_tree_unreachable: true,
+     metadata_unreachable: true,
+     private_fleet_unreachable: true
+   }
+   and .terminal.teardown == {
+     complete: true,
+     processes: 0,
+     mounts: 0,
+     namespaces: 0,
+     secret_files: 0,
+     staging_paths: 0,
+     firewall_rules: 0,
+     preview_capabilities: 0
+   }
+   and ([.artifacts[].kind] | sort) == [
+     "evidence-dom",
+     "evidence-execution",
+     "evidence-extract",
+     "evidence-hashes",
+     "evidence-screenshot"
+   ]' "$RESULT"

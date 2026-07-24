@@ -2,15 +2,15 @@
   "schema_version": 1,
   "generated_by": "tools/check-codebase.sh",
   "tokei_version": "14.0.0",
-  "source_revision": "sha256:414c7691a4472a4ec0a3824c0aae703c832c2eb88a0e210bd045c2a2052dd3c0",
+  "source_revision": "sha256:5ab51264dce4effcf8425f900c3c98bff8928e0a40aa7946143db00c0f2c0498",
   "roles": [
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 26559,
-      "comments": 452,
-      "blanks": 1762,
-      "files": 75,
+      "code": 26738,
+      "comments": 459,
+      "blanks": 1776,
+      "files": 76,
       "languages": [
         {
           "language": "CSS",
@@ -43,16 +43,16 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 352,
-          "blanks": 17,
-          "files": 41
+          "comments": 359,
+          "blanks": 18,
+          "files": 42
         },
         {
           "language": "Rust",
-          "code": 24444,
+          "code": 24623,
           "comments": 81,
-          "blanks": 1516,
-          "files": 48
+          "blanks": 1529,
+          "files": 49
         },
         {
           "language": "SQL",
@@ -73,17 +73,17 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 9804,
-      "comments": 385,
-      "blanks": 996,
-      "files": 113,
+      "code": 9984,
+      "comments": 386,
+      "blanks": 1007,
+      "files": 114,
       "languages": [
         {
           "language": "BASH",
-          "code": 3252,
-          "comments": 87,
-          "blanks": 250,
-          "files": 30
+          "code": 3369,
+          "comments": 88,
+          "blanks": 255,
+          "files": 31
         },
         {
           "language": "Forge Config",
@@ -136,7 +136,7 @@
         },
         {
           "language": "Shell",
-          "code": 520,
+          "code": 526,
           "comments": 16,
           "blanks": 77,
           "files": 15
@@ -157,9 +157,9 @@
         },
         {
           "language": "YAML",
-          "code": 2532,
+          "code": 2589,
           "comments": 4,
-          "blanks": 275,
+          "blanks": 281,
           "files": 19
         }
       ]

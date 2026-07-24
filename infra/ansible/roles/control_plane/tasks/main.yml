@@ -680,6 +680,31 @@
   notify: Restart factory supervisor
   tags: [session13]
 
+- name: Require the reviewed evidence qualification build artifact
+  ansible.builtin.assert:
+    that:
+      - factory_evidence_qualify_binary is defined
+      - factory_evidence_qualify_binary | length > 0
+      - factory_evidence_qualify_sha256 is defined
+      - factory_evidence_qualify_sha256 is match('^[0-9a-f]{64}$')
+  tags: [session13]
+
+- name: Hash the local evidence qualification build artifact
+  ansible.builtin.stat:
+    path: "{{ factory_evidence_qualify_binary }}"
+    checksum_algorithm: sha256
+  delegate_to: localhost
+  become: false
+  register: local_factory_evidence_qualify
+  tags: [session13]
+
+- name: Require the exact evidence qualification build artifact
+  ansible.builtin.assert:
+    that:
+      - local_factory_evidence_qualify.stat.exists
+      - local_factory_evidence_qualify.stat.checksum == factory_evidence_qualify_sha256
+  tags: [session13]
+
 - name: Require the reviewed factory-web build artifact
   ansible.builtin.assert:
     that:
@@ -1399,6 +1424,44 @@
       destination: /usr/local/libexec/patchyard-evidence-child
     - source: patchyard-child-probe.py
       destination: /usr/local/libexec/patchyard-child-probe
+  tags: [session13]
+
+- name: Install the fixed evidence qualification runner
+  ansible.builtin.copy:
+    src: "{{ factory_evidence_qualify_binary }}"
+    dest: /usr/local/bin/factory-evidence-qualify
+    owner: root
+    group: root
+    mode: "0755"
+    checksum: "sha256:{{ factory_evidence_qualify_sha256 }}"
+  tags: [session13]
+
+- name: Install the fixed evidence qualification desired state
+  ansible.builtin.copy:
+    src: "{{ item.source }}"
+    dest: "{{ item.destination }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - source: factory-evidence-qualification.service
+      destination: /etc/systemd/system/factory-evidence-qualification.service
+      mode: "0644"
+    - source: patchyard-stage-evidence-qualification
+      destination: /usr/local/sbin/patchyard-stage-evidence-qualification
+      mode: "0750"
+    - source: patchyard-evidence-qualification.tmpfiles
+      destination: /etc/tmpfiles.d/patchyard-evidence-qualification.conf
+      mode: "0644"
+  tags: [session13]
+
+- name: Create the evidence qualification tmpfs staging directory
+  ansible.builtin.command:
+    argv:
+      - systemd-tmpfiles
+      - --create
+      - /etc/tmpfiles.d/patchyard-evidence-qualification.conf
+  changed_when: false
   tags: [session13]
 
 - name: Install the scoped isolated-child systemd template

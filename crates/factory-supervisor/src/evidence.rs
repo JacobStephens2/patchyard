@@ -14,8 +14,8 @@ use uuid::Uuid;
 use crate::{
     artifacts::{ArtifactError, ArtifactStore, StoredArtifact},
     child::{
-        ChildContract, ChildError, ChildTerminalState, EvidenceAction, EvidenceContract,
-        IsolatedChildSpawner, PreviewBearer,
+        ChildContract, ChildError, ChildTerminal, ChildTerminalState, EvidenceAction,
+        EvidenceContract, IsolatedChildSpawner, PreviewBearer,
     },
 };
 
@@ -28,6 +28,12 @@ const MAX_MANIFEST_BYTES: usize = 128 * 1024;
 pub struct EvidenceCapture {
     spawner: IsolatedChildSpawner,
     artifacts: ArtifactStore,
+}
+
+#[derive(Clone, Debug)]
+pub struct EvidenceCaptureResult {
+    pub artifacts: Vec<StoredArtifact>,
+    pub terminal: ChildTerminal,
 }
 
 impl EvidenceCapture {
@@ -46,6 +52,23 @@ impl EvidenceCapture {
         bearer: PreviewBearer,
         cancellation: &CancellationToken,
     ) -> Result<Vec<StoredArtifact>, EvidenceError> {
+        Ok(self
+            .capture_with_execution(request_id, run_id, contract, bearer, cancellation)
+            .await?
+            .artifacts)
+    }
+
+    /// Qualification and the Session 14 lifecycle both need the checked
+    /// terminal facts alongside the imported artifacts. Keep that proof on the
+    /// same production path instead of reconstructing it from helper logs.
+    pub async fn capture_with_execution(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+        contract: EvidenceContract,
+        bearer: PreviewBearer,
+        cancellation: &CancellationToken,
+    ) -> Result<EvidenceCaptureResult, EvidenceError> {
         validate_contract(&contract)?;
         validate_bearer(&bearer)?;
         let capture_bytes = serde_json::to_vec(&contract)?;
@@ -150,7 +173,10 @@ impl EvidenceCapture {
                     .await?,
             );
         }
-        Ok(stored)
+        Ok(EvidenceCaptureResult {
+            artifacts: stored,
+            terminal: child.terminal,
+        })
     }
 }
 

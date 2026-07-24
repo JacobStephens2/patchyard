@@ -68,6 +68,7 @@ assert_path /var/lib/patchyard/supervisor factory-manager factory 700
 assert_path /var/lib/patchyard/spool factory-web factory-web 700
 assert_path /var/lib/patchyard/worktrees factory-manager factory 750
 assert_path /run/patchyard-children factory-manager factory-manager 700
+assert_path /run/patchyard-evidence-qualification root factory-manager 770
 assert_path /run/patchyard-postgres postgres factory 770
 assert_path /var/lib/pgsql/patchyard-tls postgres postgres 700
 assert_path /var/lib/pgsql/patchyard-tls/server.key postgres postgres 600
@@ -93,6 +94,8 @@ test -x /usr/local/libexec/patchyard-spawn-child
 test -x /usr/local/libexec/patchyard-cancel-child
 test -x /usr/local/libexec/patchyard-evidence-child
 test -x /usr/local/libexec/patchyard-child-probe
+test -x /usr/local/bin/factory-evidence-qualify
+test -x /usr/local/sbin/patchyard-stage-evidence-qualification
 test -x /usr/local/libexec/patchyard-deployed-version-unconfigured
 test ! -e /usr/local/libexec/patchyard-headless
 test ! -e /usr/local/sbin/patchyard-preview-capture
@@ -145,6 +148,15 @@ test "$(systemctl show factory-supervisor.service --property=ProtectSystem --val
 systemctl show factory-supervisor.service --property=ReadWritePaths --value \
   | grep -Fq /run/patchyard-children
 systemd-analyze verify /etc/systemd/system/patchyard-child@.service
+systemd-analyze verify /etc/systemd/system/factory-evidence-qualification.service
+test "$(systemctl show factory-evidence-qualification.service --property=User --value)" = \
+  factory-manager
+test "$(systemctl show factory-evidence-qualification.service \
+  --property=NoNewPrivileges --value)" = yes
+test "$(systemctl show factory-evidence-qualification.service \
+  --property=ProtectSystem --value)" = strict
+test "$(systemctl show factory-evidence-qualification.service \
+  --property=RestrictAddressFamilies --value)" = AF_UNIX
 grep -Fxq 'RestrictNamespaces=~user' \
   /etc/systemd/system/patchyard-child@.service
 systemctl show patchyard-child@.service --property=ReadWritePaths --value \

@@ -25,6 +25,10 @@ FACTORYCTL_BINARY="$REPO_ROOT/target/release/factoryctl"
 FACTORYCTL_SHA256=$(sha256sum "$FACTORYCTL_BINARY" | cut -d' ' -f1)
 FACTORY_SUPERVISOR_BINARY="$REPO_ROOT/target/release/factory-supervisor"
 FACTORY_SUPERVISOR_SHA256=$(sha256sum "$FACTORY_SUPERVISOR_BINARY" | cut -d' ' -f1)
+FACTORY_EVIDENCE_QUALIFY_BINARY="$REPO_ROOT/target/release/factory-evidence-qualify"
+FACTORY_EVIDENCE_QUALIFY_SHA256=$(
+  sha256sum "$FACTORY_EVIDENCE_QUALIFY_BINARY" | cut -d' ' -f1
+)
 
 if [[ -x "$ANSIBLE_ROOT/.venv/bin/ansible-playbook" ]]; then
   ANSIBLE_PLAYBOOK="$ANSIBLE_ROOT/.venv/bin/ansible-playbook"
@@ -43,6 +47,8 @@ exec "$ANSIBLE_PLAYBOOK" \
   -e "factoryctl_sha256=$FACTORYCTL_SHA256" \
   -e "factory_supervisor_binary=$FACTORY_SUPERVISOR_BINARY" \
   -e "factory_supervisor_sha256=$FACTORY_SUPERVISOR_SHA256" \
+  -e "factory_evidence_qualify_binary=$FACTORY_EVIDENCE_QUALIFY_BINARY" \
+  -e "factory_evidence_qualify_sha256=$FACTORY_EVIDENCE_QUALIFY_SHA256" \
   -e "factory_github_app_id=$GH_PATCHYARD_APP_ID" \
   -e "factory_github_app_installation_id=$GH_PATCHYARD_APP_INSTALLATION_ID" \
   "$@"

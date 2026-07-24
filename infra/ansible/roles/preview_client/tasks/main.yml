@@ -4,7 +4,7 @@
     factory_preview_private_ip: >-
       {{
         hostvars[groups['preview_host'][0]].ansible_all_ipv4_addresses
-        | select('match', '^10\\.132\\.')
+        | select('match', '^10[.]132[.]')
         | first
       }}
 

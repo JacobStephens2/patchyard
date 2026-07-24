@@ -7,9 +7,11 @@
 pub mod artifacts;
 pub mod automaton;
 pub mod bootstrap;
+pub mod child;
 pub mod config;
 pub mod contracts;
 pub mod daemon;
+pub mod evidence;
 pub mod observability;
 pub mod pipeline;
 pub mod process;

@@ -39,6 +39,11 @@ jobs:
           python -m pip install --requirement infra/ansible/requirements.txt
           ansible-galaxy collection install --requirements-file infra/ansible/requirements.yml
 
+      - name: Install pinned ShellCheck
+        run: |
+          SHELLCHECK_BIN_DIR="$RUNNER_TEMP/shellcheck-bin" tools/install-shellcheck.sh
+          echo "$RUNNER_TEMP/shellcheck-bin" >> "$GITHUB_PATH"
+
       - name: Validate OpenTofu and stack doctrine
         run: tools/check-infra.sh
 

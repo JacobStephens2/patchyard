@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+JOB=${1:-}
+ROOT=/run/patchyard-children
+[[ "$JOB" == "$ROOT/"* && ! -L "$JOB" && -d "$JOB" ]]
+ID=${JOB#"$ROOT/"}
+[[ "$ID" =~ ^[0-9a-f]{32}$ && "$JOB" == "$ROOT/$ID" ]]
+[[ "$(readlink -f -- "$JOB")" == "$JOB" ]]
+[[ "$(stat -c '%U:%a' "$JOB")" == factory-manager:700 ]]
+# A child policy failure deliberately makes the transient unit fail.  The
+# terminal record, not systemd's unit result, is the typed protocol result.
+/usr/bin/systemctl start "patchyard-child@$ID.service" >/dev/null 2>&1 || true
+[[ -f "$JOB/terminal.json" && ! -L "$JOB/terminal.json" ]]
+/usr/bin/systemctl reset-failed "patchyard-child@$ID.service"
+printf 'child_terminal=%s\n' "$JOB/terminal.json"

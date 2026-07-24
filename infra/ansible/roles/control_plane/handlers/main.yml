@@ -36,3 +36,8 @@
   ansible.builtin.systemd:
     name: caddy.service
     state: reloaded
+
+- name: Restart Polkit
+  ansible.builtin.systemd:
+    name: polkit.service
+    state: restarted

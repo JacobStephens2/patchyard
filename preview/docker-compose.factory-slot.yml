@@ -1,0 +1,4 @@
+services:
+  fieldbook:
+    labels:
+      traefik.http.routers.preview-${PREVIEW_SLOT}.middlewares: "patchyard-capability@docker"

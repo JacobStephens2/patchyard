@@ -1,0 +1,9 @@
+---
+- name: Reload preview systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart preview access
+  ansible.builtin.systemd_service:
+    name: patchyard-preview-access.service
+    state: restarted

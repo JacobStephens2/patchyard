@@ -14,6 +14,7 @@ their own.
 | `check-constitution.sh` | Verify the reviewed `AGENTS.md` digest |
 | `install-rustup.sh` | Install checksum-pinned rustup and resolve `rust-toolchain.toml` |
 | `install-rust-tools.sh` | Install checksum-pinned cargo-audit, cargo-deny, cargo-vet, and cargo-machete binaries |
+| `install-shellcheck.sh` | Install the checksum-pinned ShellCheck used for privileged boundary scripts |
 | `smoke-github-app.sh` | Mint a narrowed App token and prove repository scoping without printing credentials |
 | `aa-sweep.py` | Artificial Analysis catalog snapshot + move report |
 | `check-bench.py` | Validate `docs/bench.json` (schema + invariants) and sync the generated Pairs table in `docs/bench.md` (`--write` to regenerate; no flag = drift check) |

@@ -1,0 +1,29 @@
+[Unit]
+Description=Patchyard Factory scoped isolated child %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/sbin/patchyard-child-launcher %i
+ExecStopPost=/usr/local/sbin/patchyard-reap-child %i
+TimeoutStartSec=90s
+TimeoutStopSec=30s
+KillMode=control-group
+MemoryMax=768M
+TasksMax=512
+LimitNOFILE=4096
+UMask=0077
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run/patchyard-children /run/netns /run/lock /etc/netns /var/lib/patchyard/supervisor/review-worktrees
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_KILL CAP_MKNOD CAP_NET_ADMIN CAP_SETGID CAP_SETUID CAP_SYS_ADMIN CAP_SYS_CHROOT
+AmbientCapabilities=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_KILL CAP_MKNOD CAP_NET_ADMIN CAP_SETGID CAP_SETUID CAP_SYS_ADMIN CAP_SYS_CHROOT
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=~user
+LockPersonality=true
+SystemCallArchitectures=native

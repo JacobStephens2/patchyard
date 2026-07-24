@@ -1,0 +1,25 @@
+---
+- name: Read the factory control-plane bridge identity
+  hosts: control_plane
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Read the control-plane preview SSH public key
+      ansible.builtin.slurp:
+        src: /var/lib/patchyard-manager/.ssh/id_ed25519.pub
+      register: factory_preview_public_key
+      no_log: true
+
+- name: Converge the factory boundary on the shared preview host
+  hosts: preview_host
+  become: true
+  gather_facts: true
+  roles:
+    - role: preview_host
+
+- name: Converge the credential-free preview client
+  hosts: control_plane
+  become: true
+  gather_facts: false
+  roles:
+    - role: preview_client

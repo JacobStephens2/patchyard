@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+ID=${1:-}
+[[ "$ID" =~ ^[0-9a-f]{32}$ ]] || {
+  echo "usage: $0 32-LOWERCASE-HEX-JOB-ID" >&2
+  exit 2
+}
+
+ROOT=/run/patchyard-children
+JOB="$ROOT/$ID"
+SHORT=${ID:0:8}
+NETNS="efn$SHORT"
+HOST_VETH="efh$SHORT"
+NFT_TABLE="eta_child_$SHORT"
+NETWORK_MARKER="$JOB/.network-active"
+RESIDUE=false
+
+mark_residue() {
+  RESIDUE=true
+  rm -f -- "$JOB/terminal.json"
+}
+
+if [[ -e "$JOB/secret" || -L "$JOB/secret" \
+  || -e "$JOB/probe" || -L "$JOB/probe" \
+  || -e "$JOB/output/capture" || -L "$JOB/output/capture" \
+  || -e "$NETWORK_MARKER" || -L "$NETWORK_MARKER" ]]; then
+  mark_residue
+fi
+if ip netns list | awk '{print $1}' | grep -Fxq "$NETNS" \
+  || ip -o link show "$HOST_VETH" >/dev/null 2>&1 \
+  || nft list table inet "$NFT_TABLE" >/dev/null 2>&1; then
+  mark_residue
+fi
+
+CGROUP=$(/usr/bin/systemctl show \
+  "patchyard-child@$ID.service" --property=ControlGroup --value)
+if [[ "$CGROUP" == /* && -r "/sys/fs/cgroup$CGROUP/cgroup.procs" ]]; then
+  while read -r pid; do
+    if [[ "$pid" != "$$" ]]; then
+      mark_residue
+      kill -KILL "$pid" >/dev/null 2>&1 || true
+    fi
+  done <"/sys/fs/cgroup$CGROUP/cgroup.procs"
+fi
+
+MOUNTS=$(findmnt -rn -o TARGET)
+while read -r target; do
+  case "$target" in
+    "$JOB"|"$JOB/"*|"/run/netns/$NETNS"|"/run/netns/$NETNS/"*|\
+      "/etc/netns/$NETNS"|"/etc/netns/$NETNS/"*)
+      mark_residue
+      umount -l -- "$target"
+      ;;
+  esac
+done < <(sort -r <<<"$MOUNTS")
+
+rm -rf -- "$JOB/secret" "$JOB/probe" "$JOB/output/capture"
+nft delete table inet "$NFT_TABLE" >/dev/null 2>&1 || true
+ip link delete "$HOST_VETH" >/dev/null 2>&1 || true
+ip netns delete "$NETNS" >/dev/null 2>&1 || true
+rm -rf -- "/etc/netns/$NETNS"
+if [[ -e "$NETWORK_MARKER" || -L "$NETWORK_MARKER" ]]; then
+  sysctl -q -w net.ipv4.ip_forward=0
+  rm -f -- "$NETWORK_MARKER"
+fi
+
+if [[ "$RESIDUE" == true ]]; then
+  printf 'patchyard_child_reaped_residue=%s\n' "$ID" >&2
+fi
+
+test ! -e "$JOB/secret" && test ! -L "$JOB/secret"
+test ! -e "$JOB/probe" && test ! -L "$JOB/probe"
+test ! -e "$JOB/output/capture" && test ! -L "$JOB/output/capture"
+test ! -e "$NETWORK_MARKER" && test ! -L "$NETWORK_MARKER"
+if ip netns list | awk '{print $1}' | grep -Fxq "$NETNS"; then
+  exit 1
+fi
+if ip -o link show "$HOST_VETH" >/dev/null 2>&1; then
+  exit 1
+fi
+if nft list table inet "$NFT_TABLE" >/dev/null 2>&1; then
+  exit 1
+fi
+if findmnt -rn -o TARGET |
+  grep -E "^($JOB|/run/netns/$NETNS|/etc/netns/$NETNS)(/|$)"; then
+  exit 1
+fi

@@ -1,0 +1,8 @@
+---
+preview_host:
+  hosts:
+    preview.example.dev:
+      ansible_host: preview.example.dev
+      ansible_user: conductor
+      ansible_ssh_private_key_file: /var/lib/conductor/.ssh/id_ed25519
+      ansible_ssh_common_args: -o BatchMode=yes -o StrictHostKeyChecking=yes

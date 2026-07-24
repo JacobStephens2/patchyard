@@ -7,14 +7,28 @@
 - name: Install control-plane packages
   ansible.builtin.dnf:
     name:
-      - chromium
+      - "{{ chromium_nevra }}"
       - bubblewrap
       - fontconfig
       - git
       - "{{ github_cli_nevra }}"
+      - iproute
+      - nftables
       - policycoreutils-python-utils
+      - polkit
       - python3-pip
     state: present
+  tags: [session13]
+
+- name: Keep the factory control plane in its non-router baseline
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "0"
+    state: present
+    sysctl_file: /etc/sysctl.d/90-patchyard-child.conf
+    sysctl_set: true
+    reload: true
+  tags: [session13]
 
 - name: Create the factory-owned Ansible desired-state directory
   ansible.builtin.file:
@@ -199,6 +213,45 @@
     mode: "0700"
   loop:
     - supervisor
+
+- name: Create the tmpfs isolated-child staging root
+  ansible.builtin.file:
+    path: /run/patchyard-children
+    state: directory
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
+    mode: "0700"
+  tags: [session13]
+
+- name: Recreate the isolated-child staging root after boot
+  ansible.builtin.copy:
+    dest: /etc/tmpfiles.d/patchyard-children.conf
+    content: |
+      d /run/patchyard-children 0700 {{ factory_manager_user }} {{ factory_manager_user }} -
+      d /run/netns 0755 root root -
+
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [session13]
+
+- name: Create the runtime network-namespace root
+  ansible.builtin.file:
+    path: /run/netns
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [session13]
+
+- name: Create the per-child network-namespace configuration root
+  ansible.builtin.file:
+    path: /etc/netns
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [session13]
 
 - name: Create dashboard-writable intake spool
   ansible.builtin.file:
@@ -501,6 +554,7 @@
     owner: root
     group: root
     mode: "0755"
+  tags: [session13]
 
 - name: Install declarative PostgreSQL role and grant definitions
   ansible.builtin.copy:
@@ -512,6 +566,7 @@
   loop:
     - postgresql-roles.sql
     - postgresql-grants.sql
+  tags: [session13]
 
 - name: Apply declarative PostgreSQL roles
   ansible.builtin.command:
@@ -571,6 +626,7 @@
       - factoryctl_sha256 is defined
       - factoryctl_sha256 is match('^[0-9a-f]{64}$')
     fail_msg: "Use converge.sh so migrations run from the reviewed, locked Rust build."
+  tags: [session13]
 
 - name: Hash the local factoryctl build artifact
   ansible.builtin.stat:
@@ -579,6 +635,7 @@
   delegate_to: localhost
   become: false
   register: local_factoryctl
+  tags: [session13]
 
 - name: Require the exact factoryctl build artifact
   ansible.builtin.assert:
@@ -586,6 +643,7 @@
       - local_factoryctl.stat.exists
       - local_factoryctl.stat.checksum == factoryctl_sha256
     fail_msg: "factoryctl changed after converge.sh built and hashed it."
+  tags: [session13]
 
 - name: Install the reviewed factoryctl binary
   ansible.builtin.copy:
@@ -595,6 +653,7 @@
     group: root
     mode: "0755"
   register: factoryctl_install
+  tags: [session13]
 
 - name: Require the reviewed factory-supervisor build artifact
   ansible.builtin.assert:
@@ -603,6 +662,7 @@
       - factory_supervisor_binary | length > 0
       - factory_supervisor_sha256 is defined
       - factory_supervisor_sha256 is match('^[0-9a-f]{64}$')
+  tags: [session13]
 
 - name: Hash the local factory-supervisor build artifact
   ansible.builtin.stat:
@@ -611,12 +671,14 @@
   delegate_to: localhost
   become: false
   register: local_factory_supervisor
+  tags: [session13]
 
 - name: Require the exact factory-supervisor build artifact
   ansible.builtin.assert:
     that:
       - local_factory_supervisor.stat.exists
       - local_factory_supervisor.stat.checksum == factory_supervisor_sha256
+  tags: [session13]
 
 - name: Install the reviewed factory-supervisor binary
   ansible.builtin.copy:
@@ -626,6 +688,32 @@
     group: root
     mode: "0755"
   notify: Restart factory supervisor
+  tags: [session13]
+
+- name: Require the reviewed evidence qualification build artifact
+  ansible.builtin.assert:
+    that:
+      - factory_evidence_qualify_binary is defined
+      - factory_evidence_qualify_binary | length > 0
+      - factory_evidence_qualify_sha256 is defined
+      - factory_evidence_qualify_sha256 is match('^[0-9a-f]{64}$')
+  tags: [session13]
+
+- name: Hash the local evidence qualification build artifact
+  ansible.builtin.stat:
+    path: "{{ factory_evidence_qualify_binary }}"
+    checksum_algorithm: sha256
+  delegate_to: localhost
+  become: false
+  register: local_factory_evidence_qualify
+  tags: [session13]
+
+- name: Require the exact evidence qualification build artifact
+  ansible.builtin.assert:
+    that:
+      - local_factory_evidence_qualify.stat.exists
+      - local_factory_evidence_qualify.stat.checksum == factory_evidence_qualify_sha256
+  tags: [session13]
 
 - name: Require the reviewed factory-web build artifact
   ansible.builtin.assert:
@@ -702,6 +790,7 @@
   register: migration_count_before
   changed_when: false
   failed_when: false
+  tags: [session13]
 
 - name: Apply embedded SQLx migrations through the peer-mapped migrator
   ansible.builtin.command:
@@ -717,6 +806,7 @@
   changed_when: >-
     migration_count_before.rc != 0
     or (migration_count_before.stdout | trim | int) < factory_migration_count
+  tags: [session13]
 
 - name: Assert the canonical migration count
   ansible.builtin.command:
@@ -732,6 +822,7 @@
   register: migration_count_after
   changed_when: false
   failed_when: migration_count_after.stdout | trim | int != factory_migration_count
+  tags: [session13]
 
 - name: Apply the complete runtime role grant matrix
   ansible.builtin.command:
@@ -744,6 +835,7 @@
   become: true
   become_user: postgres
   changed_when: false
+  tags: [session13]
 
 - name: Load bootstrap dashboard accounts from the controller secret file
   ansible.builtin.set_fact:
@@ -958,6 +1050,7 @@
     owner: root
     group: root
     mode: "0755"
+  tags: [session13]
 
 - name: Require a credential-free repository bundle
   ansible.builtin.assert:
@@ -967,11 +1060,13 @@
       - factory_repo_revision is defined
       - factory_repo_revision is match('^[0-9a-f]{40}$')
     fail_msg: "Use converge.sh so the control plane receives an exact Git bundle and revision."
+  tags: [session13]
 
 - name: Inspect the control-plane checkout
   ansible.builtin.stat:
     path: /opt/patchyard/.git
   register: factory_checkout
+  tags: [session13]
 
 - name: Transfer the existing checkout to the factory management identity
   ansible.builtin.file:
@@ -980,6 +1075,7 @@
     group: "{{ factory_manager_user }}"
     recurse: true
   when: factory_checkout.stat.exists
+  tags: [session13]
 
 - name: Read the installed desired-state revision
   ansible.builtin.command:
@@ -994,6 +1090,7 @@
   become_user: "{{ factory_manager_user }}"
   changed_when: false
   failed_when: false
+  tags: [session13]
 
 - name: Create the credential-free checkout root
   ansible.builtin.file:
@@ -1003,6 +1100,7 @@
     group: "{{ factory_manager_user }}"
     mode: "0750"
   when: not factory_checkout.stat.exists
+  tags: [session13]
 
 - name: Copy the bundle only when the checkout needs an update
   ansible.builtin.copy:
@@ -1012,6 +1110,7 @@
     group: "{{ factory_manager_user }}"
     mode: "0600"
   when: installed_factory_revision.stdout != factory_repo_revision
+  tags: [session13]
 
 - name: Create the credential-free control-plane checkout
   ansible.builtin.command:
@@ -1027,6 +1126,7 @@
   become_user: "{{ factory_manager_user }}"
   changed_when: true
   when: not factory_checkout.stat.exists
+  tags: [session13]
 
 - name: Fetch the exact desired state from the bundle
   ansible.builtin.command:
@@ -1041,6 +1141,7 @@
   become_user: "{{ factory_manager_user }}"
   changed_when: false
   when: installed_factory_revision.stdout != factory_repo_revision
+  tags: [session13]
 
 - name: Check out the exact desired-state revision
   ansible.builtin.command:
@@ -1056,6 +1157,7 @@
   become_user: "{{ factory_manager_user }}"
   changed_when: true
   when: installed_factory_revision.stdout != factory_repo_revision
+  tags: [session13]
 
 - name: Record the credential-free upstream URL
   ansible.builtin.command:
@@ -1070,6 +1172,7 @@
   become: true
   become_user: "{{ factory_manager_user }}"
   changed_when: false
+  tags: [session13]
 
 - name: Install the private-VPC management inventory
   ansible.builtin.template:
@@ -1208,6 +1311,7 @@
   become_user: "{{ factory_manager_user }}"
   register: session9_target_sha
   changed_when: false
+  tags: [session13]
 
 - name: Install the explicit fail-closed deployed-version source
   ansible.builtin.copy:
@@ -1293,6 +1397,145 @@
     group: "{{ factory_manager_user }}"
     mode: "0640"
   notify: Restart factory supervisor
+  tags: [session13]
+
+- name: Install the fixed A104 isolated-child operations
+  ansible.builtin.copy:
+    src: "{{ item.source }}"
+    dest: "{{ item.destination }}"
+    owner: root
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - source: patchyard-child-launcher
+      destination: /usr/local/sbin/patchyard-child-launcher
+      group: root
+      mode: "0750"
+    - source: patchyard-reap-child
+      destination: /usr/local/sbin/patchyard-reap-child
+      group: root
+      mode: "0750"
+    - source: patchyard-spawn-child
+      destination: /usr/local/libexec/patchyard-spawn-child
+      group: "{{ factory_manager_user }}"
+      mode: "0750"
+    - source: patchyard-cancel-child
+      destination: /usr/local/libexec/patchyard-cancel-child
+      group: "{{ factory_manager_user }}"
+      mode: "0750"
+    - source: qualify-factory-session13
+      destination: /usr/local/sbin/qualify-factory-session13
+      group: root
+      mode: "0755"
+  notify: Restart factory supervisor
+  tags: [session13]
+
+- name: Install the fixed in-child browser and authority probes
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../preview/{{ item.source }}"
+    dest: "{{ item.destination }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - source: patchyard-evidence-child.py
+      destination: /usr/local/libexec/patchyard-evidence-child
+    - source: patchyard-child-probe.py
+      destination: /usr/local/libexec/patchyard-child-probe
+    - source: patchyard-preview-resolver.py
+      destination: /usr/local/libexec/patchyard-preview-resolver
+  tags: [session13]
+
+- name: Install the fixed evidence qualification runner
+  ansible.builtin.copy:
+    src: "{{ factory_evidence_qualify_binary }}"
+    dest: /usr/local/bin/factory-evidence-qualify
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [session13]
+
+- name: Install the fixed evidence qualification desired state
+  ansible.builtin.copy:
+    src: "{{ item.source }}"
+    dest: "{{ item.destination }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - source: factory-evidence-qualification.service
+      destination: /etc/systemd/system/factory-evidence-qualification.service
+      mode: "0644"
+    - source: patchyard-stage-evidence-qualification
+      destination: /usr/local/sbin/patchyard-stage-evidence-qualification
+      mode: "0750"
+    - source: patchyard-evidence-qualification.tmpfiles
+      destination: /etc/tmpfiles.d/patchyard-evidence-qualification.conf
+      mode: "0644"
+  tags: [session13]
+
+- name: Create the evidence qualification tmpfs staging directory
+  ansible.builtin.command:
+    argv:
+      - systemd-tmpfiles
+      - --create
+      - /etc/tmpfiles.d/patchyard-evidence-qualification.conf
+  changed_when: false
+  tags: [session13]
+
+- name: Install the scoped isolated-child systemd template
+  ansible.builtin.copy:
+    src: patchyard-child@.service
+    dest: /etc/systemd/system/patchyard-child@.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart factory supervisor
+  tags: [session13]
+
+- name: Install the UUID-only isolated-child Polkit delegation
+  ansible.builtin.copy:
+    src: 49-patchyard-child.rules
+    dest: /etc/polkit-1/rules.d/49-patchyard-child.rules
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Polkit
+  tags: [session13]
+
+- name: List failed isolated-child unit records
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - list-units
+      - --failed
+      - --plain
+      - --no-legend
+      - "patchyard-child@*.service"
+  register: failed_isolated_child_units
+  changed_when: false
+  tags: [session13]
+
+- name: Require UUID-only failed isolated-child unit records
+  ansible.builtin.assert:
+    that:
+      - (item.split() | first) is match('^patchyard-child@[0-9a-f]{32}[.]service$')
+  loop: "{{ failed_isolated_child_units.stdout_lines }}"
+  loop_control:
+    label: "{{ item.split() | first }}"
+  tags: [session13]
+
+- name: Clear failed isolated-child unit records
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - reset-failed
+      - "{{ item.split() | first }}"
+  loop: "{{ failed_isolated_child_units.stdout_lines }}"
+  loop_control:
+    label: "{{ item.split() | first }}"
+  changed_when: true
+  tags: [session13]
 
 - name: Install the factory supervisor systemd unit
   ansible.builtin.copy:
@@ -1302,6 +1545,7 @@
     group: root
     mode: "0644"
   notify: Restart factory supervisor
+  tags: [session13]
 
 - name: Enable the factory supervisor daemon
   ansible.builtin.systemd:
@@ -1309,19 +1553,28 @@
     enabled: true
     state: started
     daemon_reload: true
+  tags: [session13]
 
-- name: Install the Session 7 preview capture helpers
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../preview/{{ item.source }}"
-    dest: "{{ item.destination }}"
-    owner: root
-    group: "{{ factory_manager_user }}"
-    mode: "0750"
+- name: Apply pending Session 13 service restarts before qualification
+  ansible.builtin.meta: flush_handlers
+  tags: [session13]
+
+- name: Remove the superseded direct Session 7 browser entry points
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
   loop:
-    - source: patchyard-headless.py
-      destination: /usr/local/libexec/patchyard-headless
-    - source: patchyard-preview-capture.py
-      destination: /usr/local/sbin/patchyard-preview-capture
+    - /usr/local/libexec/patchyard-headless
+    - /usr/local/sbin/patchyard-preview-capture
+  tags: [session13]
+
+- name: Qualify the converged Session 13 control-plane boundary
+  ansible.builtin.command:
+    argv:
+      - /usr/local/sbin/qualify-factory-session13
+      - "{{ factory_repo_revision }}"
+  changed_when: false
+  tags: [session13]
 
 - name: Publish the expected PHPUnit checksum to the verifier coordinator
   ansible.builtin.copy:
@@ -1336,3 +1589,4 @@
     path: /var/tmp/patchyard.bundle
     state: absent
   when: installed_factory_revision.stdout != factory_repo_revision
+  tags: [session13]

@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+EXPECTED_REVISION=${1:?expected repository revision required}
+
+systemctl is-active --quiet factory-supervisor.service
+test "$(runuser -u factory-manager -- git -C /opt/patchyard rev-parse HEAD)" = \
+  "$EXPECTED_REVISION"
+
+test "$(systemctl show factory-supervisor.service --property=User --value)" = \
+  factory-manager
+test "$(systemctl show factory-supervisor.service --property=Group --value)" = \
+  factory
+test "$(systemctl show factory-supervisor.service \
+  --property=SupplementaryGroups --value)" = factory-manager
+test "$(systemctl show factory-supervisor.service \
+  --property=NoNewPrivileges --value)" = yes
+test "$(systemctl show factory-supervisor.service \
+  --property=ProtectSystem --value)" = strict
+systemctl show factory-supervisor.service --property=ReadWritePaths --value |
+  grep -Fq /run/patchyard-children
+
+test "$(stat -c '%U:%G:%a' /run/patchyard-children)" = \
+  factory-manager:factory-manager:700
+test "$(stat -c '%U:%G:%a' /run/patchyard-evidence-qualification)" = \
+  root:factory-manager:770
+test -x /usr/local/sbin/patchyard-child-launcher
+test -x /usr/local/sbin/patchyard-reap-child
+test -x /usr/local/libexec/patchyard-spawn-child
+test -x /usr/local/libexec/patchyard-cancel-child
+test -x /usr/local/libexec/patchyard-evidence-child
+test -x /usr/local/libexec/patchyard-child-probe
+test -x /usr/local/libexec/patchyard-preview-resolver
+test -x /usr/local/bin/factory-evidence-qualify
+test -x /usr/local/sbin/patchyard-stage-evidence-qualification
+test ! -e /usr/local/libexec/patchyard-headless
+test ! -e /usr/local/sbin/patchyard-preview-capture
+
+systemd-analyze verify /etc/systemd/system/patchyard-child@.service
+systemd-analyze verify \
+  /etc/systemd/system/factory-evidence-qualification.service
+grep -Fxq 'RestrictNamespaces=~user' \
+  /etc/systemd/system/patchyard-child@.service
+grep -Fxq 'ExecStopPost=/usr/local/sbin/patchyard-reap-child %i' \
+  /etc/systemd/system/patchyard-child@.service
+grep -Fq '/^patchyard-child@[0-9a-f]{32}\.service$/' \
+  /etc/polkit-1/rules.d/49-patchyard-child.rules
+test "$(systemctl show factory-evidence-qualification.service \
+  --property=User --value)" = factory-manager
+test "$(systemctl show factory-evidence-qualification.service \
+  --property=NoNewPrivileges --value)" = yes
+test "$(systemctl show factory-evidence-qualification.service \
+  --property=ProtectSystem --value)" = strict
+test "$(systemctl show factory-evidence-qualification.service \
+  --property=RestrictAddressFamilies --value)" = AF_UNIX
+
+test -z "$(systemctl list-units 'patchyard-child@*' --all --no-legend)"
+test -z "$(find /run/patchyard-children -mindepth 1 -print -quit)"
+test -z "$(find /run/patchyard-evidence-qualification \
+  -mindepth 1 -print -quit)"
+! ip netns list | awk '{print $1}' | grep -Eq '^efn[0-9a-f]{8}$'
+! nft list tables | grep -Eq '^table inet eta_child_[0-9a-f]{8}$'
+test "$(sysctl -n net.ipv4.ip_forward)" = 0
+grep -Eq '^net\.ipv4\.ip_forward[[:space:]]*=[[:space:]]*0$' \
+  /etc/sysctl.d/90-patchyard-child.conf
+
+/usr/local/libexec/patchyard-preview-resolver \
+  15.preview.example.dev |
+  jq -e '.schema_version == 1 and .state == "stable"
+    and .host == "15.preview.example.dev"
+    and (.addresses | length > 0)' >/dev/null
+runuser -u factory-manager -- \
+  env -i HOME=/var/lib/patchyard-manager PATH=/usr/bin:/bin \
+  ssh -F /etc/patchyard/preview-ssh.conf patchyard-preview sweep |
+  jq -e '.ok == true' >/dev/null

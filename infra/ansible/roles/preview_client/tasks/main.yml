@@ -1,0 +1,66 @@
+---
+- name: Select the preview host private address
+  ansible.builtin.set_fact:
+    factory_preview_private_ip: >-
+      {{
+        hostvars[groups['preview_host'][0]].ansible_all_ipv4_addresses
+        | select('match', '^10[.]132[.]')
+        | first
+      }}
+
+- name: Validate the preview private address
+  ansible.builtin.assert:
+    that:
+      - factory_preview_private_ip is match('^10\\.132\\.[0-9]{1,3}\\.[0-9]{1,3}$')
+    quiet: true
+
+- name: Read the preview host key over the private network
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/ssh-keyscan
+      - -T
+      - "10"
+      - "{{ factory_preview_private_ip }}"
+  register: factory_preview_host_key
+  changed_when: false
+
+- name: Install the preview host key
+  ansible.builtin.copy:
+    content: "{{ factory_preview_host_key.stdout }}\n"
+    dest: /var/lib/patchyard-manager/.ssh/preview_known_hosts
+    owner: factory-manager
+    group: factory-manager
+    mode: "0600"
+
+- name: Install the credential-free preview bridge configuration
+  ansible.builtin.copy:
+    content: |
+      Host patchyard-preview
+        HostName {{ factory_preview_private_ip }}
+        User conductor
+        IdentityFile /var/lib/patchyard-manager/.ssh/id_ed25519
+        IdentitiesOnly yes
+        BatchMode yes
+        StrictHostKeyChecking yes
+        UserKnownHostsFile /var/lib/patchyard-manager/.ssh/preview_known_hosts
+        ConnectTimeout 10
+    dest: /etc/patchyard/preview-ssh.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Remove the superseded long-lived preview bearer
+  ansible.builtin.file:
+    path: /var/lib/patchyard/preview/bearer
+    state: absent
+
+- name: Qualify the credential-free preview bridge
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -euo pipefail
+      test ! -e /var/lib/patchyard/preview/bearer
+      sudo -u factory-manager env -i HOME=/var/lib/patchyard-manager PATH=/usr/bin:/bin \
+        ssh -F /etc/patchyard/preview-ssh.conf patchyard-preview sweep |
+        jq -e '.ok == true' >/dev/null
+  changed_when: false

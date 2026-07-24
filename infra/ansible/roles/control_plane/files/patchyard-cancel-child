@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+JOB=${1:-}
+ROOT=/run/patchyard-children
+[[ "$JOB" == "$ROOT/"* && ! -L "$JOB" && -d "$JOB" ]]
+ID=${JOB#"$ROOT/"}
+[[ "$ID" =~ ^[0-9a-f]{32}$ && "$JOB" == "$ROOT/$ID" ]]
+[[ "$(readlink -f -- "$JOB")" == "$JOB" ]]
+UNIT="patchyard-child@$ID.service"
+/usr/bin/systemctl stop "$UNIT"
+if /usr/bin/systemctl is-failed --quiet "$UNIT"; then
+  /usr/bin/systemctl reset-failed "$UNIT"
+fi
+rm -rf -- "$JOB/secret"
+printf 'child_cancelled=%s\n' "$ID"

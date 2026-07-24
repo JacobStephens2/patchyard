@@ -196,7 +196,9 @@ def rev_parse(slot: int) -> tuple[str, str]:
         [
             "/usr/bin/docker", "compose", "-p", f"preview-{slot}",
             "-f", "docker-compose.editable.yml", "--env-file", ".env",
-            "exec", "-T", "fieldbook", "git", "-C", "/var/www/html", "rev-parse", "HEAD",
+            "exec", "-T", "fieldbook", "git",
+            "-c", "safe.directory=/var/www/html",
+            "-C", "/var/www/html", "rev-parse", "HEAD",
         ],
         cwd=ROOT,
         env={"HOME": "/home/conductor", "PATH": "/usr/local/bin:/usr/bin:/bin", "PREVIEW_SLOT": str(slot)},

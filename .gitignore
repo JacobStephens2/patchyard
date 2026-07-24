@@ -5,6 +5,8 @@ __pycache__/
 .venv/
 venv/
 target/
+fuzz/artifacts/
+fuzz/coverage/
 .terraform/
 *.tfplan
 *.tfplan.txt

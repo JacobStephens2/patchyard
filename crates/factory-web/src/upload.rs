@@ -8,6 +8,7 @@ use std::{
     fs::File,
     io::{self, Cursor, Read as _, Write},
     os::fd::OwnedFd,
+    os::unix::ffi::OsStrExt as _,
     path::{Component, Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -120,7 +121,10 @@ impl CanonicalUploadPath {
         }
         for format in [CleanFormat::Png, CleanFormat::Jpeg] {
             if file.to_str()? == format!("{directory}.{}", format.extension()) {
-                return Some(Self { id, format });
+                let canonical = Self { id, format };
+                return (path.as_os_str().as_bytes()
+                    == canonical.relative_path().as_os_str().as_bytes())
+                .then_some(canonical);
             }
         }
         None
@@ -571,6 +575,8 @@ mod tests {
             "uploads/not-a-uuid/file.png",
             "uploads/00000000-0000-0000-0000-000000000000/file.png.php",
             "uploads/00000000-0000-0000-0000-000000000000/other.png",
+            "uploads/ffffffff-ffff-4fff-8fff-ffffffffffff//ffffffff-ffff-4fff-8fff-ffffffffffff.jpg",
+            "uploads/ffffffff-ffff-4fff-8fff-ffffffffffff/ffffffff-ffff-4fff-8fff-ffffffffffff.jpg/",
         ] {
             assert!(CanonicalUploadPath::parse(Path::new(path)).is_none());
         }

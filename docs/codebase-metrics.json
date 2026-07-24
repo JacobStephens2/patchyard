@@ -2,7 +2,7 @@
   "schema_version": 1,
   "generated_by": "tools/check-codebase.sh",
   "tokei_version": "14.0.0",
-  "source_revision": "sha256:3377e119e25342222f6c81191105f5aba6579e26fe745394b109dfea4d12834c",
+  "source_revision": "sha256:c5c28af7202bfbec91f8aa13d7657521da2a0549568069a9d3589fc9fc541c71",
   "roles": [
     {
       "role": "product",
@@ -73,17 +73,17 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 10124,
-      "comments": 387,
-      "blanks": 1034,
-      "files": 116,
+      "code": 10200,
+      "comments": 390,
+      "blanks": 1043,
+      "files": 117,
       "languages": [
         {
           "language": "BASH",
-          "code": 3388,
-          "comments": 88,
-          "blanks": 255,
-          "files": 31
+          "code": 3450,
+          "comments": 89,
+          "blanks": 262,
+          "files": 32
         },
         {
           "language": "Forge Config",
@@ -116,7 +116,7 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 220,
+          "comments": 222,
           "blanks": 59,
           "files": 6
         },
@@ -157,9 +157,9 @@
         },
         {
           "language": "YAML",
-          "code": 2593,
+          "code": 2607,
           "comments": 4,
-          "blanks": 281,
+          "blanks": 283,
           "files": 19
         }
       ]

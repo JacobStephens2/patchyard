@@ -116,9 +116,11 @@ the superseded control-plane copy.
 
 `converge-session13.sh` is the narrow control-plane apply path for the A104
 child boundary while the unrelated dashboard identity roster remains
-deliberately unresolved. It builds and hashes only `factory-supervisor`, sends
-the committed repository as a credential-free bundle, and selects only tasks
-tagged `session13`; it does not bypass or synthesize dashboard identities.
+deliberately unresolved. It builds and hashes `factoryctl`,
+`factory-supervisor`, and the credential-free evidence qualification entry
+point, sends the committed repository as a credential-free bundle, selects
+only tasks tagged `session13`, and runs the fixed Session 13 qualification
+after service restarts. It does not bypass or synthesize dashboard identities.
 
 After bootstrap, the control plane can re-apply the current host-local desired
 state without orchestration or cloud credentials:

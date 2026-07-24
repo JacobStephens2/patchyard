@@ -1409,6 +1409,10 @@
       destination: /usr/local/libexec/patchyard-cancel-child
       group: "{{ factory_manager_user }}"
       mode: "0750"
+    - source: qualify-factory-session13
+      destination: /usr/local/sbin/qualify-factory-session13
+      group: root
+      mode: "0755"
   notify: Restart factory supervisor
   tags: [session13]
 
@@ -1537,6 +1541,10 @@
     daemon_reload: true
   tags: [session13]
 
+- name: Apply pending Session 13 service restarts before qualification
+  ansible.builtin.meta: flush_handlers
+  tags: [session13]
+
 - name: Remove the superseded direct Session 7 browser entry points
   ansible.builtin.file:
     path: "{{ item }}"
@@ -1544,6 +1552,14 @@
   loop:
     - /usr/local/libexec/patchyard-headless
     - /usr/local/sbin/patchyard-preview-capture
+  tags: [session13]
+
+- name: Qualify the converged Session 13 control-plane boundary
+  ansible.builtin.command:
+    argv:
+      - /usr/local/sbin/qualify-factory-session13
+      - "{{ factory_repo_revision }}"
+  changed_when: false
   tags: [session13]
 
 - name: Publish the expected PHPUnit checksum to the verifier coordinator

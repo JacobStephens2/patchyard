@@ -230,6 +230,32 @@ the same set in nftables. Chromium therefore needs no resolver egress, closing
 the QNAME covert channel while retaining the PLAN's "required DNS only"
 ceiling: for this pinned design, required DNS inside the child is empty.
 
+## Known verification limits and host assumptions
+
+GitHub-hosted CI does not execute the root launcher, create its network
+namespace, or apply its nftables policy. Its privileged-launcher suite is
+static and source-contract based: checksum-pinned ShellCheck 0.11.0 and
+`bash -n` cover the four boundary scripts, while assertions pin the exact
+probe separation, DNS-free policy, DNS-change ordering, residue measurements,
+and reaper commands. The behavioral proof remains the operator-triggered live
+qualification on the converged Rocky control-plane host, through the fixed
+staging command and `factory-evidence-qualification.service`; it exercises the
+installed systemd, Bubblewrap, namespace, nftables, Chromium, probe, and
+teardown path. This division is deliberate; the current GitHub-hosted
+environment is not a faithful substitute for that host. A disposable
+privileged runner is the predeclared escalation if live qualification can no
+longer provide reliable or timely evidence.
+
+The control-plane host is deliberately not a router.
+`net.ipv4.ip_forward=0` is versioned Ansible desired state, asserted by the
+Session 13 qualifier, and required by the launcher before it creates any
+network resource. Evidence networking is serialized by
+`/run/lock/patchyard-evidence.lock`; the launcher temporarily enables
+forwarding and restores the checked zero baseline. The crash reaper forces
+the same zero baseline rather than preserving an unexpected router
+configuration. A future need for host routing therefore requires an explicit
+isolation redesign rather than an ambient configuration change.
+
 ## Qualification results
 
 The provider-free review exit ran through the resident hardened supervisor:
@@ -267,14 +293,15 @@ Chromium suite reaches the named redirect, cross-origin, popup, download,
 oversize, bearer-disclosure, browser-crash, and timeout states. The stable
 resolver suite changes the answer set between its two production resolution
 calls and asserts the process-level exit-42/`dns_binding_changed` contract.
-The privileged-launcher contract suite runs mandatory Bash syntax checks and
-pins probe-output separation, pre-network DNS-change mapping, DNS-free egress,
-real cgroup/mount accounting, and the template reaper. The Rust boundary
-fixture asserts all S13-N01 through S13-N12 terminal states, zero imported
-artifacts, and empty staging after each case; additional completed-child
-fixtures prove that forged probe facts, secret residue, bearer output, and a
-per-job output-cap violation are rejected after the completed-state
-short-circuit. The live positive child independently runs the authority and
-network probes inside the actual Bubblewrap/network namespace; any reachable
-protected path or destination maps to `authority_probe_failed` or
-`egress_probe_failed` before import.
+The privileged-launcher contract suite runs mandatory Bash syntax checks,
+checksum-pinned ShellCheck, and source-contract assertions for probe-output
+separation, the non-router precondition, pre-network DNS-change mapping,
+DNS-free egress, real cgroup/mount accounting, and the template reaper. The
+Rust boundary fixture asserts all S13-N01 through S13-N12 terminal states,
+zero imported artifacts, and empty staging after each case; additional
+completed-child fixtures prove that forged probe facts, secret residue,
+bearer output, and a per-job output-cap violation are rejected after the
+completed-state short-circuit. The live positive child independently runs the
+authority and network probes inside the actual Bubblewrap/network namespace;
+any reachable protected path or destination maps to
+`authority_probe_failed` or `egress_probe_failed` before import.

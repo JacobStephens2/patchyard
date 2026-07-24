@@ -20,6 +20,16 @@
     state: present
   tags: [session13]
 
+- name: Keep the factory control plane in its non-router baseline
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "0"
+    state: present
+    sysctl_file: /etc/sysctl.d/90-patchyard-child.conf
+    sysctl_set: true
+    reload: true
+  tags: [session13]
+
 - name: Create the factory-owned Ansible desired-state directory
   ansible.builtin.file:
     path: /usr/local/share/patchyard/ansible

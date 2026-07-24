@@ -2,7 +2,7 @@
   "schema_version": 1,
   "generated_by": "tools/check-codebase.sh",
   "tokei_version": "14.0.0",
-  "source_revision": "sha256:e539ee875f08d90f737552876be8a4eb684f322c4de00d836f30ba4c87049d2a",
+  "source_revision": "sha256:102ccb9245c170f6b6d07729fdcae4297bcbdd129307d696366225ad6326a22d",
   "roles": [
     {
       "role": "product",
@@ -73,14 +73,14 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 10426,
+      "code": 10474,
       "comments": 393,
-      "blanks": 1067,
+      "blanks": 1069,
       "files": 119,
       "languages": [
         {
           "language": "BASH",
-          "code": 3587,
+          "code": 3602,
           "comments": 90,
           "blanks": 274,
           "files": 33
@@ -129,9 +129,9 @@
         },
         {
           "language": "Python",
-          "code": 2062,
+          "code": 2086,
           "comments": 10,
-          "blanks": 238,
+          "blanks": 239,
           "files": 11
         },
         {
@@ -157,9 +157,9 @@
         },
         {
           "language": "YAML",
-          "code": 2611,
+          "code": 2620,
           "comments": 4,
-          "blanks": 283,
+          "blanks": 284,
           "files": 19
         }
       ]
@@ -167,10 +167,10 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 5205,
-      "comments": 236,
-      "blanks": 562,
-      "files": 83,
+      "code": 5254,
+      "comments": 240,
+      "blanks": 569,
+      "files": 84,
       "languages": [
         {
           "language": "BASH",
@@ -189,7 +189,7 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 173,
+          "comments": 174,
           "blanks": 30,
           "files": 18
         },
@@ -216,10 +216,10 @@
         },
         {
           "language": "Shell",
-          "code": 494,
-          "comments": 27,
-          "blanks": 90,
-          "files": 18
+          "code": 539,
+          "comments": 30,
+          "blanks": 96,
+          "files": 19
         },
         {
           "language": "SVG",
@@ -237,9 +237,9 @@
         },
         {
           "language": "YAML",
-          "code": 113,
+          "code": 117,
           "comments": 0,
-          "blanks": 22,
+          "blanks": 23,
           "files": 2
         }
       ]
@@ -248,8 +248,8 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8004,
-      "comments": 8392,
-      "blanks": 2620,
+      "comments": 8416,
+      "blanks": 2623,
       "files": 98,
       "languages": [
         {
@@ -269,8 +269,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 8378,
-          "blanks": 2569,
+          "comments": 8402,
+          "blanks": 2572,
           "files": 78
         },
         {

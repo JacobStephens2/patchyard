@@ -61,6 +61,9 @@ test -z "$(find /run/patchyard-evidence-qualification \
   -mindepth 1 -print -quit)"
 ! ip netns list | awk '{print $1}' | grep -Eq '^efn[0-9a-f]{8}$'
 ! nft list tables | grep -Eq '^table inet eta_child_[0-9a-f]{8}$'
+test "$(sysctl -n net.ipv4.ip_forward)" = 0
+grep -Eq '^net\.ipv4\.ip_forward[[:space:]]*=[[:space:]]*0$' \
+  /etc/sysctl.d/90-patchyard-child.conf
 
 /usr/local/libexec/patchyard-preview-resolver \
   15.preview.example.dev |

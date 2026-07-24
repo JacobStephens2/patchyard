@@ -5,9 +5,11 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
 FILES = ROOT / "infra" / "ansible" / "roles" / "control_plane" / "files"
+TASKS = ROOT / "infra" / "ansible" / "roles" / "control_plane" / "tasks" / "main.yml"
 LAUNCHER = FILES / "patchyard-child-launcher"
 REAPER = FILES / "patchyard-reap-child"
 UNIT = FILES / "patchyard-child@.service"
+QUALIFIER = FILES / "qualify-factory-session13"
 
 
 class ChildLauncherContract(unittest.TestCase):
@@ -16,6 +18,8 @@ class ChildLauncherContract(unittest.TestCase):
         cls.launcher = LAUNCHER.read_text()
         cls.reaper = REAPER.read_text()
         cls.unit = UNIT.read_text()
+        cls.tasks = TASKS.read_text()
+        cls.qualifier = QUALIFIER.read_text()
 
     def test_privileged_scripts_are_valid_bash(self) -> None:
         for name in (
@@ -55,6 +59,27 @@ class ChildLauncherContract(unittest.TestCase):
         self.assertLess(changed, policy)
         self.assertLess(policy, browser)
         self.assertIn("STATE=dns_binding_changed", self.launcher[changed:policy])
+
+    def test_non_router_baseline_is_desired_qualified_and_required(self) -> None:
+        self.assertIn(
+            "name: Keep the factory control plane in its non-router baseline",
+            self.tasks,
+        )
+        self.assertIn("name: net.ipv4.ip_forward", self.tasks)
+        self.assertIn(
+            "sysctl_file: /etc/sysctl.d/90-patchyard-child.conf", self.tasks
+        )
+        baseline = self.launcher.index(
+            'BASE_FORWARD=$(sysctl -n net.ipv4.ip_forward)'
+        )
+        required = self.launcher.index('[[ "$BASE_FORWARD" == 0 ]]', baseline)
+        network = self.launcher.index('ip netns add "$NETNS"', required)
+        self.assertLess(baseline, required)
+        self.assertLess(required, network)
+        self.assertIn(
+            'test "$(sysctl -n net.ipv4.ip_forward)" = 0', self.qualifier
+        )
+        self.assertIn("net.ipv4.ip_forward=0", self.reaper)
 
     def test_teardown_measures_and_reaps_declared_resource_classes(self) -> None:
         self.assertIn("PROCESSES=$(count_child_processes)", self.launcher)

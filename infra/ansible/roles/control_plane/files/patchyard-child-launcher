@@ -124,10 +124,10 @@ remove_network() {
 }
 
 revoke_preview_capability() {
-  local response attempt
+  local response
   [[ "$KIND" == evidence && -n "$CAPABILITY_ID" && -n "$CAPABILITY_LEASE_ID" ]] \
     || return 0
-  for attempt in 1 2 3; do
+  for _ in 1 2 3; do
     if response=$(
       /usr/sbin/runuser -u "$MANAGER_USER" -- \
         env -i HOME=/var/lib/patchyard-manager PATH=/usr/bin:/bin \
@@ -547,6 +547,10 @@ HOST_VETH="efh$SHORT"
 GUEST_VETH="efg$SHORT"
 NFT_TABLE="eta_child_$SHORT"
 BASE_FORWARD=$(sysctl -n net.ipv4.ip_forward)
+[[ "$BASE_FORWARD" == 0 ]] || {
+  FAILURE_STAGE=evidence_non_router_baseline
+  exit 1
+}
 ip netns add "$NETNS"
 ip link add "$HOST_VETH" type veth peer name "$GUEST_VETH"
 ip link set "$GUEST_VETH" netns "$NETNS"

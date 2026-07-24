@@ -74,8 +74,16 @@ test ! -e "$JOB/secret" && test ! -L "$JOB/secret"
 test ! -e "$JOB/probe" && test ! -L "$JOB/probe"
 test ! -e "$JOB/output/capture" && test ! -L "$JOB/output/capture"
 test ! -e "$NETWORK_MARKER" && test ! -L "$NETWORK_MARKER"
-! ip netns list | awk '{print $1}' | grep -Fxq "$NETNS"
-! ip -o link show "$HOST_VETH" >/dev/null 2>&1
-! nft list table inet "$NFT_TABLE" >/dev/null 2>&1
-! findmnt -rn -o TARGET |
-  grep -E "^($JOB|/run/netns/$NETNS|/etc/netns/$NETNS)(/|$)"
+if ip netns list | awk '{print $1}' | grep -Fxq "$NETNS"; then
+  exit 1
+fi
+if ip -o link show "$HOST_VETH" >/dev/null 2>&1; then
+  exit 1
+fi
+if nft list table inet "$NFT_TABLE" >/dev/null 2>&1; then
+  exit 1
+fi
+if findmnt -rn -o TARGET |
+  grep -E "^($JOB|/run/netns/$NETNS|/etc/netns/$NETNS)(/|$)"; then
+  exit 1
+fi

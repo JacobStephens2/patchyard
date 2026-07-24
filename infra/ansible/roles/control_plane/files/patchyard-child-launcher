@@ -18,6 +18,7 @@ MANAGER_GID=$(id -g "$MANAGER_USER")
 NOBODY_UID=$(id -u nobody)
 NOBODY_GID=$(id -g nobody)
 STATE=contract_rejected
+FAILURE_STAGE=contract_validation
 KIND=
 JOB_ID=
 REQUEST_SHA256=
@@ -200,6 +201,9 @@ write_terminal() {
 finish() {
   local rc=$?
   set +e
+  if [[ "$rc" -ne 0 ]]; then
+    printf 'patchyard_child_failure_stage=%s\n' "$FAILURE_STAGE" >&2
+  fi
   if [[ -n "$CHILD_PID" ]]; then
     kill -KILL -- "-$CHILD_PID" >/dev/null 2>&1 || true
     kill -KILL "$CHILD_PID" >/dev/null 2>&1 || true
@@ -315,6 +319,7 @@ if [[ "$KIND" == review ]]; then
     "$JOB/input/packet.json" "$JOB/input/prompt.md" "$OUTPUT"
   chmod 0400 "$JOB/input/packet.json" "$JOB/input/prompt.md"
   chmod 0700 "$OUTPUT"
+  FAILURE_STAGE=review_sandbox
   MODEL=$(jq -r .contract.model "$REQUEST")
   EFFORT=$(jq -r .contract.effort "$REQUEST")
   HARNESS=$(jq -r .contract.harness "$REQUEST")
@@ -325,6 +330,7 @@ if [[ "$KIND" == review ]]; then
     --dir /output \
     --dir /workspace \
     --ro-bind "$WORKSPACE" /workspace \
+    --chmod 0555 /workspace \
     --ro-bind "$JOB/input/packet.json" /input/PACKET.json \
     --ro-bind "$JOB/input/prompt.md" /input/PROMPT.md \
     --ro-bind /usr/local/libexec/patchyard-child-probe /isolation-probe \
@@ -345,6 +351,7 @@ if [[ "$KIND" == review ]]; then
     exit 1
   fi
   CHILD_PID=
+  FAILURE_STAGE=review_output_validation
   read_isolation
   jq -e '
     .schema_version == 1
@@ -361,9 +368,11 @@ if [[ "$KIND" == review ]]; then
   [[ "$(stat -c %s "$OUTPUT/transcript.log")" -le 8388608 ]]
   chmod 0600 "$OUTPUT/review.json" "$OUTPUT/transcript.log"
   STATE=completed
+  FAILURE_STAGE=none
   exit 0
 fi
 
+FAILURE_STAGE=evidence_contract_validation
 jq -e '
   .contract.kind == "evidence"
   and (.contract.capture.allowed_url
@@ -426,6 +435,7 @@ chown "$NOBODY_UID:$NOBODY_GID" \
 chmod 0400 "$JOB/input/capture.json" "$JOB/secret/bearer.json"
 chmod 0700 "$OUTPUT"
 
+FAILURE_STAGE=evidence_network_policy
 exec {NETWORK_LOCK}>/run/lock/patchyard-evidence.lock
 flock -w 10 "$NETWORK_LOCK"
 SHORT=${ID:0:8}
@@ -476,6 +486,7 @@ NETWORK_POLICY_SHA256=$(
   } | sha256sum | cut -d' ' -f1
 )
 
+FAILURE_STAGE=evidence_sandbox
 setsid ip netns exec "$NETNS" env -i PATH=/usr/bin:/bin /usr/bin/bwrap \
   "${BWRAP_BASE[@]}" \
   --share-net \
@@ -524,6 +535,7 @@ if ! wait "$CHILD_PID"; then
   exit 1
 fi
 CHILD_PID=
+FAILURE_STAGE=evidence_output_validation
 read_isolation
 jq -e '
   .schema_version == 1
@@ -558,4 +570,5 @@ for name in page.html page.png extract.json hashes.json execution.json; do
   fi
 done
 STATE=completed
+FAILURE_STAGE=none
 exit 0

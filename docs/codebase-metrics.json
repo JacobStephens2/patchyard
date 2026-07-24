@@ -2,7 +2,7 @@
   "schema_version": 1,
   "generated_by": "tools/check-codebase.sh",
   "tokei_version": "14.0.0",
-  "source_revision": "sha256:0c03d5663569fc37a123fa5354dc560a9cc6ff709f67bb3fac968ab71d89fe58",
+  "source_revision": "sha256:8cb415558bf31deb22ba746146a7c435e6a6d77c3f47f3a5711a67724bb748a3",
   "roles": [
     {
       "role": "product",
@@ -241,8 +241,8 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8004,
-      "comments": 8149,
-      "blanks": 2579,
+      "comments": 8152,
+      "blanks": 2580,
       "files": 97,
       "languages": [
         {
@@ -262,8 +262,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 8135,
-          "blanks": 2528,
+          "comments": 8138,
+          "blanks": 2529,
           "files": 77
         },
         {

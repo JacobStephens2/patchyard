@@ -520,7 +520,7 @@ jq -e \
   --arg host "$HOST" \
   '.schema_version == 1 and .state == "stable" and .host == $host
    and (.addresses | type == "array" and length > 0)
-   and all(.[]; test("^[0-9]{1,3}(\\.[0-9]{1,3}){3}$"))' \
+   and all(.addresses[]; test("^[0-9]{1,3}(\\.[0-9]{1,3}){3}$"))' \
   <<<"$RESOLUTION" >/dev/null
 mapfile -t RESOLUTION_ONE < <(jq -r '.addresses[]' <<<"$RESOLUTION")
 

@@ -8,6 +8,7 @@ FILES = ROOT / "infra" / "ansible" / "roles" / "control_plane" / "files"
 TASKS = ROOT / "infra" / "ansible" / "roles" / "control_plane" / "tasks" / "main.yml"
 LAUNCHER = FILES / "patchyard-child-launcher"
 REAPER = FILES / "patchyard-reap-child"
+CANCEL = FILES / "patchyard-cancel-child"
 UNIT = FILES / "patchyard-child@.service"
 QUALIFIER = FILES / "qualify-factory-session13"
 
@@ -17,6 +18,7 @@ class ChildLauncherContract(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.launcher = LAUNCHER.read_text()
         cls.reaper = REAPER.read_text()
+        cls.cancel = CANCEL.read_text()
         cls.unit = UNIT.read_text()
         cls.tasks = TASKS.read_text()
         cls.qualifier = QUALIFIER.read_text()
@@ -60,6 +62,10 @@ class ChildLauncherContract(unittest.TestCase):
         self.assertLess(policy, browser)
         self.assertIn("STATE=dns_binding_changed", self.launcher[changed:policy])
 
+    def test_stable_resolution_validates_only_address_members(self) -> None:
+        self.assertIn("all(.addresses[]; test(", self.launcher)
+        self.assertNotIn("all(.[]; test(", self.launcher)
+
     def test_non_router_baseline_is_desired_qualified_and_required(self) -> None:
         self.assertIn(
             "name: Keep the factory control plane in its non-router baseline",
@@ -80,6 +86,12 @@ class ChildLauncherContract(unittest.TestCase):
             'test "$(sysctl -n net.ipv4.ip_forward)" = 0', self.qualifier
         )
         self.assertIn("net.ipv4.ip_forward=0", self.reaper)
+
+    def test_cancel_skips_reset_after_systemd_collected_the_unit(self) -> None:
+        self.assertIn(
+            'if /usr/bin/systemctl is-failed --quiet "$UNIT"; then', self.cancel
+        )
+        self.assertIn('/usr/bin/systemctl reset-failed "$UNIT"', self.cancel)
 
     def test_teardown_measures_and_reaps_declared_resource_classes(self) -> None:
         self.assertIn("PROCESSES=$(count_child_processes)", self.launcher)

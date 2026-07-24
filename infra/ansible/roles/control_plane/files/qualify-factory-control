@@ -145,6 +145,8 @@ test "$(systemctl show factory-supervisor.service --property=ProtectSystem --val
 systemctl show factory-supervisor.service --property=ReadWritePaths --value \
   | grep -Fq /run/patchyard-children
 systemd-analyze verify /etc/systemd/system/patchyard-child@.service
+grep -Fxq 'RestrictNamespaces=~user' \
+  /etc/systemd/system/patchyard-child@.service
 systemctl show patchyard-child@.service --property=ReadWritePaths --value \
   | grep -Fq /var/lib/patchyard/supervisor/review-worktrees
 grep -Fq 'subject.user == "factory-manager"' \

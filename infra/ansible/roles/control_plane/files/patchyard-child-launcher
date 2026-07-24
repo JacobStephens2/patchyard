@@ -277,7 +277,11 @@ KIND=$(jq -r .contract.kind "$REQUEST")
 REQUEST_SHA256=$(sha256sum "$REQUEST" | cut -d' ' -f1)
 
 BWRAP_BASE=(
-  --unshare-all
+  --unshare-pid
+  --unshare-ipc
+  --unshare-uts
+  --unshare-cgroup
+  --unshare-net
   --die-with-parent
   --new-session
   --ro-bind /usr /usr
@@ -291,8 +295,9 @@ BWRAP_BASE=(
   --clearenv
   --setenv HOME /tmp
   --setenv PATH /usr/local/bin:/usr/bin:/bin
-  --uid "$NOBODY_UID"
-  --gid "$NOBODY_GID"
+  --cap-drop ALL
+  --cap-add CAP_SETUID
+  --cap-add CAP_SETGID
 )
 
 if [[ "$KIND" == review ]]; then
@@ -353,7 +358,9 @@ if [[ "$KIND" == review ]]; then
     --setenv PATCHYARD_EFFORT "$EFFORT" \
     --setenv PATCHYARD_HARNESS "$HARNESS" \
     --setenv PATCHYARD_PROVIDER "$PROVIDER" \
-    /usr/bin/bash -c \
+    /usr/bin/setpriv \
+      --reuid "$NOBODY_UID" --regid "$NOBODY_GID" --clear-groups \
+      /usr/bin/bash -c \
       '/isolation-probe /output/isolation.json && exec /harness /input/PROMPT.md /input/PACKET.json /output/review.json' \
     >"$OUTPUT/transcript.log" 2>&1 &
   CHILD_PID=$!
@@ -518,7 +525,9 @@ setsid ip netns exec "$NETNS" env -i PATH=/usr/bin:/bin /usr/bin/bwrap \
   --ro-bind /usr/local/libexec/patchyard-evidence-child /evidence-child \
   --bind-fd "$EVIDENCE_OUTPUT_FD" /exchange \
   --chdir /tmp \
-  /usr/bin/bash -c \
+  /usr/bin/setpriv \
+    --reuid "$NOBODY_UID" --regid "$NOBODY_GID" --clear-groups \
+    /usr/bin/bash -c \
     '/isolation-probe /exchange/isolation.json && exec /evidence-child /input/capture.json /secret/bearer.json /exchange/capture' \
   >"$OUTPUT/child.stdout" 2>"$OUTPUT/child.stderr" &
 CHILD_PID=$!

@@ -20,9 +20,13 @@ The helper accepts two closed job kinds:
   bearer; network egress is the exact leased preview endpoint and required DNS
   only.
 
-The helper creates the same fresh Bubblewrap mount/PID/IPC/UTS boundary for
-both kinds. For evidence it additionally creates a fresh network namespace and
-host firewall rules before starting Chromium. A fixed DevTools-protocol
+The helper creates the same fresh Bubblewrap mount/PID/IPC/UTS/cgroup/network
+boundary for both kinds. It deliberately denies user namespaces: privileged
+setup retains only `CAP_SETUID` and `CAP_SETGID`, then a fixed `setpriv`
+wrapper becomes `nobody` with zero effective capabilities before any probe,
+harness, reviewed source, or browser code executes. For evidence the helper
+joins that child to a fresh routed network namespace and establishes host
+firewall rules before starting Chromium. A fixed DevTools-protocol
 controller intercepts every page request before use, rejects any origin other
 than the contract origin, and adds the preview capability only to accepted
 requests; selectors are data in fixed reviewed controller code, never

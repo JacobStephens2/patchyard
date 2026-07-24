@@ -32,7 +32,7 @@ postgresql_package_release: 1.module+el9.8.0+40212+d6f50005
 postgresql_socket_directory: /run/patchyard-postgres
 postgresql_tls_directory: /var/lib/pgsql/patchyard-tls
 postgresql_tls_renewal_window_seconds: 2592000
-factory_migration_count: 5
+factory_migration_count: 6
 github_cli_nevra: gh-2.94.0-1.el9.x86_64
 artifact_retention_days: 90
 

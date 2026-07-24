@@ -35,10 +35,12 @@ before publishing a terminal execution manifest. Only then may the supervisor
 copy validated, bounded outputs into the artifact store.
 
 The helper's systemd/Polkit delegation is deliberately narrower than
-`systemd-run`: `factory-manager` may start only the fixed UUID-templated unit,
-whose `ExecStart` cannot be supplied or altered by the caller. The helper
-accepts no command, shell text, mount list, environment name, destination
-address, JavaScript, or Chromium argument from a job manifest.
+`systemd-run`: `factory-manager` may start, stop, or clear the failed state of
+only the fixed UUID-templated unit, whose `ExecStart` cannot be supplied or
+altered by the caller. Clearing the failed state makes a completed or rejected
+instance eligible for systemd garbage collection; it grants no new execution
+verb. The helper accepts no command, shell text, mount list, environment name,
+destination address, JavaScript, or Chromium argument from a job manifest.
 
 ## Alternatives considered
 

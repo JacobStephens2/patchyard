@@ -149,6 +149,8 @@ grep -Fq 'subject.user == "factory-manager"' \
   /etc/polkit-1/rules.d/49-patchyard-child.rules
 grep -Fq '/^patchyard-child@[0-9a-f]{32}\.service$/' \
   /etc/polkit-1/rules.d/49-patchyard-child.rules
+grep -Fq 'action.lookup("verb") == "reset-failed"' \
+  /etc/polkit-1/rules.d/49-patchyard-child.rules
 test "$(systemctl show caddy.service --property=NoNewPrivileges --value)" = yes
 test "$(systemctl show caddy.service --property=ProtectSystem --value)" = strict
 test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \

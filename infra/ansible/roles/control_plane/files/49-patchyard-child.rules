@@ -3,7 +3,9 @@ polkit.addRule(function(action, subject) {
         subject.user == "factory-manager" &&
         action.lookup("unit") &&
         /^patchyard-child@[0-9a-f]{32}\.service$/.test(action.lookup("unit")) &&
-        (action.lookup("verb") == "start" || action.lookup("verb") == "stop")) {
+        (action.lookup("verb") == "start" ||
+         action.lookup("verb") == "stop" ||
+         action.lookup("verb") == "reset-failed")) {
         return polkit.Result.YES;
     }
 });

@@ -8,5 +8,6 @@ ID=${JOB#"$ROOT/"}
 [[ "$ID" =~ ^[0-9a-f]{32}$ && "$JOB" == "$ROOT/$ID" ]]
 [[ "$(readlink -f -- "$JOB")" == "$JOB" ]]
 /usr/bin/systemctl stop "patchyard-child@$ID.service"
+/usr/bin/systemctl reset-failed "patchyard-child@$ID.service"
 rm -rf -- "$JOB/secret"
 printf 'child_cancelled=%s\n' "$ID"

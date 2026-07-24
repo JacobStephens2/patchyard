@@ -216,13 +216,22 @@
 - name: Recreate the isolated-child staging root after boot
   ansible.builtin.copy:
     dest: /etc/tmpfiles.d/patchyard-children.conf
-    content: >-
-      d /run/patchyard-children 0700
-      {{ factory_manager_user }} {{ factory_manager_user }} -
+    content: |
+      d /run/patchyard-children 0700 {{ factory_manager_user }} {{ factory_manager_user }} -
+      d /run/netns 0755 root root -
 
     owner: root
     group: root
     mode: "0644"
+  tags: [session13]
+
+- name: Create the runtime network-namespace root
+  ansible.builtin.file:
+    path: /run/netns
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
   tags: [session13]
 
 - name: Create the per-child network-namespace configuration root

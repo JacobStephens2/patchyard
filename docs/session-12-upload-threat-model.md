@@ -65,6 +65,24 @@ The retained seed corpus is declared as:
 
 The declared execution budget is 120 seconds per target, 240 seconds total target runtime, using `-max_total_time=120`. Compilation time is excluded. The campaign runs from one recorded PR commit. Every crash, timeout, excessive allocation, or invariant violation is retained and triaged before the Session 12 exit can be claimed. Success means both targets reach their full budget with zero unresolved findings.
 
-## Campaign result
+### Runtime and finding triage
 
-Not run. This section will record the commit, commands, achieved runtime, corpus counts, and the disposition of every finding after the predeclared campaign completes.
+Toolchain: nightly-2026-07-01 with cargo-fuzz 0.13.2. (The originally-pinned
+nightly-2026-07-24 fails to compile the instrumented build due to a rustc codegen
+bug; the pin was updated in this branch.) Both targets ran to the declared 120-second
+budget with zero unresolved findings:
+
+- ingest_decode - 49,515 runs in 121 s, exit 0, no crashes.
+- canonical_path - 9,527,768 runs in 121 s, exit 0, no crashes.
+
+Finding F-1 (resolved). An initial canonical_path run surfaced one invariant
+violation: CanonicalUploadPath::parse accepted non-canonical byte spellings of an
+otherwise-valid path (a doubled separator, uploads/<uuid>//<uuid>.jpg, and a trailing
+separator) because it validated through Path::components(), which normalizes;
+relative_path() then reproduced a single separator, so the parse->serialize round trip
+was not byte-exact. Severity was low - both call sites rebuild the served path from the
+parsed UUID via openat(NOFOLLOW) under a trusted root fd, never from the raw bytes, and
+the stored path is server-generated - but the canonicalizer was non-injective. Fixed by
+requiring byte-exact canonical input in parse; regression cases added to
+canonical_path_parser_has_exact_shape; the reproducer is retained in the seed corpus.
+The post-fix canonical_path run above is clean.

@@ -324,6 +324,7 @@ if [[ "$KIND" == review ]]; then
   chmod 0400 "$JOB/input/packet.json" "$JOB/input/prompt.md"
   chmod 0700 "$OUTPUT"
   REVIEW_WORKSPACE=$WORKSPACE
+  FAILURE_STAGE=review_workspace_projection
   chmod 0555 "$REVIEW_WORKSPACE"
   FAILURE_STAGE=review_sandbox
   MODEL=$(jq -r .contract.model "$REQUEST")

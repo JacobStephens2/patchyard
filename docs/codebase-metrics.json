@@ -2,7 +2,7 @@
   "schema_version": 1,
   "generated_by": "tools/check-codebase.sh",
   "tokei_version": "14.0.0",
-  "source_revision": "sha256:1e7a6be1397a0f413ebe90df24dc7e36e9c5dfda4e71ebcad54aa6101e06258d",
+  "source_revision": "sha256:85d556dec6600d59a04da8c45b643d2e3277efca47800afac3a8bd6354fa281e",
   "roles": [
     {
       "role": "product",
@@ -73,14 +73,14 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 9778,
+      "code": 9781,
       "comments": 385,
       "blanks": 996,
       "files": 113,
       "languages": [
         {
           "language": "BASH",
-          "code": 3228,
+          "code": 3231,
           "comments": 87,
           "blanks": 250,
           "files": 30
@@ -248,7 +248,7 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8004,
-      "comments": 8291,
+      "comments": 8295,
       "blanks": 2608,
       "files": 98,
       "languages": [
@@ -269,7 +269,7 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 8277,
+          "comments": 8281,
           "blanks": 2557,
           "files": 78
         },

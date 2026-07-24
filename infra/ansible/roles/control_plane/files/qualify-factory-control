@@ -145,6 +145,8 @@ test "$(systemctl show factory-supervisor.service --property=ProtectSystem --val
 systemctl show factory-supervisor.service --property=ReadWritePaths --value \
   | grep -Fq /run/patchyard-children
 systemd-analyze verify /etc/systemd/system/patchyard-child@.service
+systemctl show patchyard-child@.service --property=ReadWritePaths --value \
+  | grep -Fq /var/lib/patchyard/supervisor/review-worktrees
 grep -Fq 'subject.user == "factory-manager"' \
   /etc/polkit-1/rules.d/49-patchyard-child.rules
 grep -Fq '/^patchyard-child@[0-9a-f]{32}\.service$/' \

@@ -28,6 +28,10 @@ than the contract origin, and adds the preview capability only to accepted
 requests; selectors are data in fixed reviewed controller code, never
 caller-supplied JavaScript. The child sees only explicit
 read-only inputs, a tmpfs home and secret path, and one new output directory.
+For a review, the root helper temporarily makes only the manifest-validated
+worktree root traversable, binds that exact path read-only, and restores its
+private mode during checked teardown; the supervisor-private parent remains
+inaccessible to every other host identity throughout.
 It never sees a PostgreSQL socket, GitHub App key, model or vault credential,
 repository credential, sibling review, shared scratch, or artifact-tree mount.
 The helper destroys its namespace, tmpfs secret, processes, and firewall state

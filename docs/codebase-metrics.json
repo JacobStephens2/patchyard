@@ -2,15 +2,15 @@
   "schema_version": 1,
   "generated_by": "tools/check-codebase.sh",
   "tokei_version": "14.0.0",
-  "source_revision": "sha256:f6bfa9dc1f664c160d10078ec4db1899df61e0880218ae334bfeba9b9dc22499",
+  "source_revision": "sha256:63e3de1674ad1fd24ac785c89b594be1e0b49e3a757b332a5e812bcaf3fa77c4",
   "roles": [
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 23307,
-      "comments": 418,
-      "blanks": 1586,
-      "files": 70,
+      "code": 25389,
+      "comments": 432,
+      "blanks": 1682,
+      "files": 72,
       "languages": [
         {
           "language": "CSS",
@@ -21,7 +21,7 @@
         },
         {
           "language": "HTML",
-          "code": 257,
+          "code": 265,
           "comments": 0,
           "blanks": 0,
           "files": 12
@@ -43,27 +43,27 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 329,
-          "blanks": 14,
-          "files": 37
+          "comments": 338,
+          "blanks": 16,
+          "files": 38
         },
         {
           "language": "Rust",
-          "code": 21271,
-          "comments": 70,
-          "blanks": 1348,
-          "files": 44
+          "code": 23274,
+          "comments": 75,
+          "blanks": 1437,
+          "files": 45
         },
         {
           "language": "SQL",
-          "code": 633,
+          "code": 702,
           "comments": 0,
-          "blanks": 54,
-          "files": 5
+          "blanks": 59,
+          "files": 6
         },
         {
           "language": "TOML",
-          "code": 143,
+          "code": 145,
           "comments": 0,
           "blanks": 15,
           "files": 5
@@ -73,14 +73,14 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 7401,
+      "code": 7417,
       "comments": 363,
       "blanks": 803,
       "files": 95,
       "languages": [
         {
           "language": "BASH",
-          "code": 2718,
+          "code": 2719,
           "comments": 82,
           "blanks": 228,
           "files": 27
@@ -143,14 +143,14 @@
         },
         {
           "language": "SQL",
-          "code": 226,
+          "code": 236,
           "comments": 0,
           "blanks": 10,
           "files": 3
         },
         {
           "language": "YAML",
-          "code": 2070,
+          "code": 2075,
           "comments": 4,
           "blanks": 241,
           "files": 12
@@ -160,10 +160,10 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 4876,
-      "comments": 229,
-      "blanks": 548,
-      "files": 78,
+      "code": 4891,
+      "comments": 230,
+      "blanks": 551,
+      "files": 79,
       "languages": [
         {
           "language": "BASH",
@@ -209,10 +209,10 @@
         },
         {
           "language": "Shell",
-          "code": 476,
-          "comments": 26,
-          "blanks": 86,
-          "files": 17
+          "code": 489,
+          "comments": 27,
+          "blanks": 89,
+          "files": 18
         },
         {
           "language": "SVG",
@@ -223,7 +223,7 @@
         },
         {
           "language": "TOML",
-          "code": 65,
+          "code": 67,
           "comments": 0,
           "blanks": 4,
           "files": 2
@@ -240,14 +240,14 @@
     {
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
-      "code": 8007,
-      "comments": 8118,
-      "blanks": 2572,
-      "files": 96,
+      "code": 8004,
+      "comments": 8149,
+      "blanks": 2579,
+      "files": 97,
       "languages": [
         {
           "language": "BASH",
-          "code": 183,
+          "code": 180,
           "comments": 12,
           "blanks": 19,
           "files": 13
@@ -262,9 +262,9 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 8104,
-          "blanks": 2521,
-          "files": 76
+          "comments": 8135,
+          "blanks": 2528,
+          "files": 77
         },
         {
           "language": "Shell",

@@ -362,7 +362,7 @@ async fn submit(State(state): State<AppState>, request: Request) -> Response {
     };
     let content_length = match upload_content_length(&headers) {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(error) => return error.into_response(),
     };
     let client = client_key(&headers);
     let admission_id = match state
@@ -624,33 +624,30 @@ impl UploadFormError {
     }
 }
 
-fn upload_content_length(headers: &HeaderMap) -> Result<i64, Response> {
+fn upload_content_length(headers: &HeaderMap) -> Result<i64, (StatusCode, &'static str)> {
     let Some(value) = headers.get(header::CONTENT_LENGTH) else {
         return Err((
             StatusCode::LENGTH_REQUIRED,
             "Content-Length is required for uploads.\n",
-        )
-            .into_response());
+        ));
     };
     let length = value
         .to_str()
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|value| *value > 0)
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Content-Length is invalid.\n").into_response())?;
+        .ok_or((StatusCode::BAD_REQUEST, "Content-Length is invalid.\n"))?;
     if length > MAX_MULTIPART_BYTES {
         return Err((
             StatusCode::PAYLOAD_TOO_LARGE,
             "Multipart request exceeds the upload limit.\n",
-        )
-            .into_response());
+        ));
     }
     i64::try_from(length).map_err(|_| {
         (
             StatusCode::PAYLOAD_TOO_LARGE,
             "Multipart request exceeds the upload limit.\n",
         )
-            .into_response()
     })
 }
 

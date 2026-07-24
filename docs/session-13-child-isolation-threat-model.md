@@ -31,7 +31,10 @@ read-only inputs, a tmpfs home and secret path, and one new output directory.
 For a review, the root helper temporarily makes only the manifest-validated
 worktree root traversable, binds that exact path read-only, and restores its
 private mode during checked teardown; the supervisor-private parent remains
-inaccessible to every other host identity throughout.
+inaccessible to every other host identity throughout. Private inputs,
+worktrees, secrets, and output exchanges are opened by the helper and passed
+to Bubblewrap as file descriptors, so the target UID never gains pathname
+traversal through their private host parents.
 It never sees a PostgreSQL socket, GitHub App key, model or vault credential,
 repository credential, sibling review, shared scratch, or artifact-tree mount.
 The helper destroys its namespace, tmpfs secret, processes, and firewall state

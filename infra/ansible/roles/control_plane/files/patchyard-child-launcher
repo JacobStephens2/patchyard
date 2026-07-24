@@ -331,17 +331,23 @@ if [[ "$KIND" == review ]]; then
   EFFORT=$(jq -r .contract.effort "$REQUEST")
   HARNESS=$(jq -r .contract.harness "$REQUEST")
   PROVIDER=$(jq -r .contract.provider "$REQUEST")
+  exec {REVIEW_WORKSPACE_FD}<"$WORKSPACE"
+  exec {REVIEW_PACKET_FD}<"$JOB/input/packet.json"
+  exec {REVIEW_PROMPT_FD}<"$JOB/input/prompt.md"
+  exec {REVIEW_PROBE_FD}</usr/local/libexec/patchyard-child-probe
+  exec {REVIEW_HARNESS_FD}</opt/patchyard/fixtures/pipeline/bin/review-stub
+  exec {REVIEW_OUTPUT_FD}<"$OUTPUT"
   setsid env -i PATH=/usr/bin:/bin /usr/bin/bwrap \
     "${BWRAP_BASE[@]}" \
     --dir /input \
     --dir /output \
     --dir /workspace \
-    --ro-bind "$WORKSPACE" /workspace \
-    --ro-bind "$JOB/input/packet.json" /input/PACKET.json \
-    --ro-bind "$JOB/input/prompt.md" /input/PROMPT.md \
-    --ro-bind /usr/local/libexec/patchyard-child-probe /isolation-probe \
-    --ro-bind /opt/patchyard/fixtures/pipeline/bin/review-stub /harness \
-    --bind "$OUTPUT" /output \
+    --ro-bind-fd "$REVIEW_WORKSPACE_FD" /workspace \
+    --ro-bind-fd "$REVIEW_PACKET_FD" /input/PACKET.json \
+    --ro-bind-fd "$REVIEW_PROMPT_FD" /input/PROMPT.md \
+    --ro-bind-fd "$REVIEW_PROBE_FD" /isolation-probe \
+    --ro-bind-fd "$REVIEW_HARNESS_FD" /harness \
+    --bind-fd "$REVIEW_OUTPUT_FD" /output \
     --chdir /workspace \
     --setenv PATCHYARD_MODEL "$MODEL" \
     --setenv PATCHYARD_EFFORT "$EFFORT" \
@@ -493,6 +499,10 @@ NETWORK_POLICY_SHA256=$(
 )
 
 FAILURE_STAGE=evidence_sandbox
+exec {EVIDENCE_HOSTS_FD}<"$JOB/input/hosts"
+exec {EVIDENCE_CAPTURE_FD}<"$JOB/input/capture.json"
+exec {EVIDENCE_BEARER_FD}<"$JOB/secret/bearer.json"
+exec {EVIDENCE_OUTPUT_FD}<"$OUTPUT"
 setsid ip netns exec "$NETNS" env -i PATH=/usr/bin:/bin /usr/bin/bwrap \
   "${BWRAP_BASE[@]}" \
   --share-net \
@@ -500,13 +510,13 @@ setsid ip netns exec "$NETNS" env -i PATH=/usr/bin:/bin /usr/bin/bwrap \
   --dir /secret \
   --dir /exchange \
   --ro-bind /etc/pki /etc/pki \
-  --ro-bind "$JOB/input/hosts" /etc/hosts \
+  --ro-bind-fd "$EVIDENCE_HOSTS_FD" /etc/hosts \
   --ro-bind /etc/resolv.conf /etc/resolv.conf \
-  --ro-bind "$JOB/input/capture.json" /input/capture.json \
-  --ro-bind "$JOB/secret/bearer.json" /secret/bearer.json \
+  --ro-bind-fd "$EVIDENCE_CAPTURE_FD" /input/capture.json \
+  --ro-bind-fd "$EVIDENCE_BEARER_FD" /secret/bearer.json \
   --ro-bind /usr/local/libexec/patchyard-child-probe /isolation-probe \
   --ro-bind /usr/local/libexec/patchyard-evidence-child /evidence-child \
-  --bind "$OUTPUT" /exchange \
+  --bind-fd "$EVIDENCE_OUTPUT_FD" /exchange \
   --chdir /tmp \
   /usr/bin/bash -c \
     '/isolation-probe /exchange/isolation.json && exec /evidence-child /input/capture.json /secret/bearer.json /exchange/capture' \

@@ -3,7 +3,7 @@
 erDiagram
     artifacts {
         uuid id PK
-        uuid request_id
+        uuid request_id UK
         uuid run_id nullable
         text path UK
         bytea sha256
@@ -186,6 +186,19 @@ erDiagram
         timestamptz updated_at
         text updated_by
     }
+    upload_admissions {
+        uuid id PK
+        uuid user_id
+        uuid request_id nullable
+        factory_upload_admission_state state
+        bigint content_length
+        bigint reserved_bytes
+        bigint actual_bytes nullable
+        text reason nullable
+        timestamptz admitted_at
+        timestamptz expires_at
+        timestamptz finished_at nullable
+    }
     users {
         uuid id PK
         text username UK
@@ -200,7 +213,7 @@ erDiagram
         timestamptz disabled_at nullable
         timestamptz password_reset_at nullable
     }
-    requests ||--o{ artifacts : "artifacts_request_id_fkey"
+    requests ||--o| artifacts : "artifacts_request_id_fkey"
     runs o|--o{ artifacts : "artifacts_run_id_fkey"
     users o|--o{ audit_events : "audit_events_user_id_fkey"
     runs o|--o{ controls : "controls_target_run_id_fkey"
@@ -217,3 +230,5 @@ erDiagram
     users ||--o{ sessions : "sessions_user_id_fkey"
     requests ||--o{ side_effects : "side_effects_request_id_fkey"
     runs o|--o{ side_effects : "side_effects_run_id_fkey"
+    requests o|--o{ upload_admissions : "upload_admissions_request_id_fkey"
+    users ||--o{ upload_admissions : "upload_admissions_user_id_fkey"

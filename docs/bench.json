@@ -594,7 +594,7 @@
         "detail": ""
       },
       "provenance": "CN-created; Novita hosting (jurisdiction to confirm for the allowlist ruling)",
-      "standing": "Jacob's ideas.md pick; first **direct** Claude Code \u00d7 non-Anthropic pairing - Novita's Anthropic endpoint passes CLI model validation; intelligence 42 (#18)",
+      "standing": "Jacob's ideas.md pick; first **direct** Claude Code pairing with a non-Anthropic model - Novita's Anthropic endpoint passes CLI model validation; intelligence 42 (#18)",
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 42,

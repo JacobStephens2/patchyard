@@ -1,7 +1,10 @@
 //! Read-only checkout projections used by `/decisions`, `/bench`, `/model`,
 //! and `/codebase`.
 
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
 use serde::Deserialize;
@@ -52,7 +55,6 @@ pub struct CodebaseMetrics {
     pub schema_version: u16,
     pub generated_by: String,
     pub tokei_version: String,
-    pub source_revision: String,
     pub roles: Vec<RoleMetrics>,
 }
 
@@ -119,6 +121,64 @@ pub async fn read_bench(root: &Path) -> Result<Bench, ProjectionError> {
 pub async fn read_codebase(root: &Path) -> Result<CodebaseMetrics, ProjectionError> {
     let bytes = tokio::fs::read(root.join("docs/codebase-metrics.json")).await?;
     Ok(serde_json::from_slice(&bytes)?)
+}
+
+/// Revision of the checkout these projections are read from, for display beside
+/// them.
+///
+/// Provenance only. CI's byte-identical projection check is what guarantees a
+/// committed artifact matches its tree, so this never gates a page: an
+/// unreadable or unconventional checkout yields `None` and the page renders
+/// without a revision rather than failing. Reads git's on-disk refs directly -
+/// the dashboard runs no subprocesses (A53) - and resolves the linked-worktree
+/// layout so a reviewer worktree reports its own HEAD.
+pub async fn read_checkout_revision(root: &Path) -> Option<String> {
+    let git = root.join(".git");
+    let git_directory = match tokio::fs::symlink_metadata(&git).await {
+        Ok(metadata) if metadata.is_dir() => git,
+        Ok(metadata) if metadata.is_file() => {
+            let pointer = tokio::fs::read_to_string(&git).await.ok()?;
+            PathBuf::from(pointer.strip_prefix("gitdir:")?.trim())
+        }
+        _ => return None,
+    };
+    // A linked worktree keeps HEAD locally but shares refs with the common directory.
+    let common_directory = match tokio::fs::read_to_string(git_directory.join("commondir")).await {
+        Ok(value) => git_directory.join(value.trim()),
+        Err(_) => git_directory.clone(),
+    };
+    let head = tokio::fs::read_to_string(git_directory.join("HEAD"))
+        .await
+        .ok()?;
+    let head = head.trim();
+    let revision = match head.strip_prefix("ref:") {
+        None => head.to_owned(),
+        Some(reference) => {
+            let reference = reference.trim();
+            match tokio::fs::read_to_string(common_directory.join(reference)).await {
+                Ok(value) => value.trim().to_owned(),
+                Err(_) => packed_revision(&common_directory, reference).await?,
+            }
+        }
+    };
+    is_object_id(&revision).then_some(revision)
+}
+
+async fn packed_revision(common_directory: &Path, reference: &str) -> Option<String> {
+    let packed = tokio::fs::read_to_string(common_directory.join("packed-refs"))
+        .await
+        .ok()?;
+    packed.lines().find_map(|line| {
+        let (revision, name) = line.split_once(' ')?;
+        (name.trim() == reference && is_object_id(revision)).then(|| revision.to_owned())
+    })
+}
+
+fn is_object_id(value: &str) -> bool {
+    value.len() == 40
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
 pub async fn read_model(root: &Path) -> Result<FactoryModel, ProjectionError> {
@@ -214,7 +274,62 @@ pub enum ProjectionError {
 
 #[cfg(test)]
 mod tests {
-    use super::{decision_log_html, markdown_without_raw_html};
+    use super::{decision_log_html, markdown_without_raw_html, read_checkout_revision};
+
+    #[tokio::test]
+    async fn checkout_revision_reads_loose_packed_and_worktree_layouts() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let git = root.path().join(".git");
+        let object = "0".repeat(39) + "a";
+
+        // No checkout metadata at all: provenance is absent, never an error.
+        assert_eq!(read_checkout_revision(root.path()).await, None);
+
+        // Loose ref.
+        std::fs::create_dir_all(git.join("refs/heads")).expect("refs");
+        std::fs::write(git.join("HEAD"), "ref: refs/heads/master\n").expect("HEAD");
+        std::fs::write(git.join("refs/heads/master"), format!("{object}\n")).expect("ref");
+        assert_eq!(
+            read_checkout_revision(root.path()).await,
+            Some(object.clone())
+        );
+
+        // Packed ref: the loose file is gone, the revision still resolves.
+        std::fs::remove_file(git.join("refs/heads/master")).expect("unlink");
+        std::fs::write(
+            git.join("packed-refs"),
+            format!("# pack-refs with: peeled\n{object} refs/heads/master\n"),
+        )
+        .expect("packed-refs");
+        assert_eq!(
+            read_checkout_revision(root.path()).await,
+            Some(object.clone())
+        );
+
+        // Detached HEAD.
+        std::fs::write(git.join("HEAD"), format!("{object}\n")).expect("detached HEAD");
+        assert_eq!(
+            read_checkout_revision(root.path()).await,
+            Some(object.clone())
+        );
+
+        // Linked worktree: `.git` is a file, HEAD is local, refs are shared.
+        let linked = tempfile::tempdir().expect("tempdir");
+        let worktree_git = git.join("worktrees/review");
+        std::fs::create_dir_all(&worktree_git).expect("worktree gitdir");
+        std::fs::write(
+            linked.path().join(".git"),
+            format!("gitdir: {}\n", worktree_git.display()),
+        )
+        .expect("gitdir pointer");
+        std::fs::write(worktree_git.join("commondir"), "../..\n").expect("commondir");
+        std::fs::write(worktree_git.join("HEAD"), "ref: refs/heads/master\n").expect("HEAD");
+        assert_eq!(read_checkout_revision(linked.path()).await, Some(object));
+
+        // A malformed revision is not reported as provenance.
+        std::fs::write(git.join("HEAD"), "not-an-object-id\n").expect("HEAD");
+        assert_eq!(read_checkout_revision(root.path()).await, None);
+    }
 
     #[test]
     fn raw_html_is_dropped_and_markdown_tables_still_render() {

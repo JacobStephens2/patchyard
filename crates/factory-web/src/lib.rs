@@ -55,7 +55,7 @@ use crate::{
     },
     projection::{
         Bench, CodebaseMetrics, LanguageMetrics, ModelStage, decision_log_html,
-        markdown_without_raw_html, read_bench, read_codebase, read_model,
+        markdown_without_raw_html, read_bench, read_checkout_revision, read_codebase, read_model,
     },
     store::{
         ActiveRun, ArtifactSummary, DashboardStore, EVENTS_BATCH_LIMIT, EventRecord,
@@ -1371,10 +1371,14 @@ async fn codebase(State(state): State<AppState>, headers: HeaderMap) -> Response
             languages: role.languages.clone(),
         })
         .collect();
+    let revision = read_checkout_revision(&state.checkout_root)
+        .await
+        .unwrap_or_else(|| "an unreported revision".to_owned());
     render_page(
         CodebaseTemplate {
             chrome: chrome(&authenticated),
             metrics,
+            revision,
             roles,
         },
         None,
@@ -1977,6 +1981,7 @@ struct CodebaseRoleView {
 struct CodebaseTemplate {
     chrome: PageChrome,
     metrics: CodebaseMetrics,
+    revision: String,
     roles: Vec<CodebaseRoleView>,
 }
 

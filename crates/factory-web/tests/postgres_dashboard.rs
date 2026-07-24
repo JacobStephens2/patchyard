@@ -1126,7 +1126,6 @@ fn fixture_checkout() -> Result<TempDir, Box<dyn Error>> {
             "schema_version": 1,
             "generated_by": "tools/check-codebase.sh",
             "tokei_version": "fixture",
-            "source_revision": "fixture",
             "roles": [
                 {
                     "role": "product",

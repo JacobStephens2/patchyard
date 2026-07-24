@@ -12,7 +12,10 @@
       - fontconfig
       - git
       - "{{ github_cli_nevra }}"
+      - iproute
+      - nftables
       - policycoreutils-python-utils
+      - polkit
       - python3-pip
     state: present
 
@@ -199,6 +202,33 @@
     mode: "0700"
   loop:
     - supervisor
+
+- name: Create the tmpfs isolated-child staging root
+  ansible.builtin.file:
+    path: /run/patchyard-children
+    state: directory
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
+    mode: "0700"
+
+- name: Recreate the isolated-child staging root after boot
+  ansible.builtin.copy:
+    dest: /etc/tmpfiles.d/patchyard-children.conf
+    content: >-
+      d /run/patchyard-children 0700
+      {{ factory_manager_user }} {{ factory_manager_user }} -
+
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Create the per-child network-namespace configuration root
+  ansible.builtin.file:
+    path: /etc/netns
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
 
 - name: Create dashboard-writable intake spool
   ansible.builtin.file:
@@ -1294,6 +1324,59 @@
     mode: "0640"
   notify: Restart factory supervisor
 
+- name: Install the fixed A104 isolated-child operations
+  ansible.builtin.copy:
+    src: "{{ item.source }}"
+    dest: "{{ item.destination }}"
+    owner: root
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - source: patchyard-child-launcher
+      destination: /usr/local/sbin/patchyard-child-launcher
+      group: root
+      mode: "0750"
+    - source: patchyard-spawn-child
+      destination: /usr/local/libexec/patchyard-spawn-child
+      group: "{{ factory_manager_user }}"
+      mode: "0750"
+    - source: patchyard-cancel-child
+      destination: /usr/local/libexec/patchyard-cancel-child
+      group: "{{ factory_manager_user }}"
+      mode: "0750"
+  notify: Restart factory supervisor
+
+- name: Install the fixed in-child browser and authority probes
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../preview/{{ item.source }}"
+    dest: "{{ item.destination }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - source: patchyard-evidence-child.py
+      destination: /usr/local/libexec/patchyard-evidence-child
+    - source: patchyard-child-probe.py
+      destination: /usr/local/libexec/patchyard-child-probe
+
+- name: Install the scoped isolated-child systemd template
+  ansible.builtin.copy:
+    src: patchyard-child@.service
+    dest: /etc/systemd/system/patchyard-child@.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart factory supervisor
+
+- name: Install the UUID-only isolated-child Polkit delegation
+  ansible.builtin.copy:
+    src: 49-patchyard-child.rules
+    dest: /etc/polkit-1/rules.d/49-patchyard-child.rules
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Polkit
+
 - name: Install the factory supervisor systemd unit
   ansible.builtin.copy:
     src: factory-supervisor.service
@@ -1310,18 +1393,13 @@
     state: started
     daemon_reload: true
 
-- name: Install the Session 7 preview capture helpers
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../preview/{{ item.source }}"
-    dest: "{{ item.destination }}"
-    owner: root
-    group: "{{ factory_manager_user }}"
-    mode: "0750"
+- name: Remove the superseded direct Session 7 browser entry points
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
   loop:
-    - source: patchyard-headless.py
-      destination: /usr/local/libexec/patchyard-headless
-    - source: patchyard-preview-capture.py
-      destination: /usr/local/sbin/patchyard-preview-capture
+    - /usr/local/libexec/patchyard-headless
+    - /usr/local/sbin/patchyard-preview-capture
 
 - name: Publish the expected PHPUnit checksum to the verifier coordinator
   ansible.builtin.copy:

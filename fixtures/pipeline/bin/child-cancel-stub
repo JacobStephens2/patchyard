@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+JOB=${1:?job directory required}
+[[ "$JOB" == /* && -d "$JOB" ]]
+rm -rf -- "$JOB/secret"

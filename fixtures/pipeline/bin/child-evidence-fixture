@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+JOB=${1:?job directory required}
+[[ "$JOB" == /* && -d "$JOB/input" && -d "$JOB/output" ]]
+REQUEST="$JOB/request.json"
+jq -e '.schema_version == 1 and .contract.kind == "evidence"' "$REQUEST" >/dev/null
+JOB_ID=$(jq -r .job_id "$REQUEST")
+ALLOWED_URL=$(jq -r .contract.capture.allowed_url "$REQUEST")
+EXPECTED_SHA=$(jq -r .contract.capture.expected_sha "$REQUEST")
+STATE=${ALLOWED_URL##*/}
+case "$STATE" in
+  completed|redirect_blocked|dns_binding_changed|cross_origin_blocked|popup_blocked|download_blocked|output_limit_exceeded|bearer_disclosure_blocked|browser_crashed|authority_probe_failed|egress_probe_failed|child_timed_out|teardown_failed) ;;
+  *) STATE=contract_rejected ;;
+esac
+REQUEST_SHA=$(sha256sum "$REQUEST" | cut -d' ' -f1)
+
+# The fixture models the privileged helper's guaranteed tmpfs-secret removal
+# before it publishes any output or terminal record.
+rm -rf -- "$JOB/secret"
+
+OUTPUTS='[]'
+if [[ "$STATE" == completed ]]; then
+  printf '%s\n' \
+    '<!doctype html><select id="sales_person_id"><option value="1">Ada</option></select>' \
+    >"$JOB/output/page.html"
+  printf '\211PNG\r\n\032\nfixture' >"$JOB/output/page.png"
+  jq -n \
+    '{selects:[{id:"sales_person_id",options:[{label:"Ada",value:"1",selected:false,blank_sentinel:false}]}]}' \
+    >"$JOB/output/extract.json"
+  jq -n \
+    --arg allowed_url "$ALLOWED_URL" \
+    --arg expected_sha "$EXPECTED_SHA" \
+    '{
+      schema_version: 1,
+      allowed_url: $allowed_url,
+      expected_sha: $expected_sha,
+      final_url: $allowed_url,
+      redirects: 0,
+      cross_origin_requests: 0,
+      popup_attempts: 0,
+      download_attempts: 0,
+      bearer_disclosures: 0
+    }' >"$JOB/output/execution.json"
+  for name in page.html page.png extract.json execution.json; do
+    chmod 0600 "$JOB/output/$name"
+  done
+  jq -n \
+    --arg expected_sha "$EXPECTED_SHA" \
+    --arg page_html_sha "$(sha256sum "$JOB/output/page.html" | cut -d' ' -f1)" \
+    --arg page_png_sha "$(sha256sum "$JOB/output/page.png" | cut -d' ' -f1)" \
+    --arg extract_sha "$(sha256sum "$JOB/output/extract.json" | cut -d' ' -f1)" \
+    --arg execution_sha "$(sha256sum "$JOB/output/execution.json" | cut -d' ' -f1)" \
+    --argjson page_html_bytes "$(stat -c %s "$JOB/output/page.html")" \
+    --argjson page_png_bytes "$(stat -c %s "$JOB/output/page.png")" \
+    --argjson extract_bytes "$(stat -c %s "$JOB/output/extract.json")" \
+    --argjson execution_bytes "$(stat -c %s "$JOB/output/execution.json")" \
+    '{
+      schema_version: 1,
+      expected_sha: $expected_sha,
+      artifacts: [
+        {name:"page.html",sha256:$page_html_sha,bytes:$page_html_bytes},
+        {name:"page.png",sha256:$page_png_sha,bytes:$page_png_bytes},
+        {name:"extract.json",sha256:$extract_sha,bytes:$extract_bytes},
+        {name:"execution.json",sha256:$execution_sha,bytes:$execution_bytes}
+      ]
+    }' >"$JOB/output/hashes.json"
+  chmod 0600 "$JOB/output/hashes.json"
+  OUTPUTS=$(for name in page.html page.png extract.json hashes.json execution.json; do
+    jq -n \
+      --arg name "$name" \
+      --arg sha256 "$(sha256sum "$JOB/output/$name" | cut -d' ' -f1)" \
+      --argjson bytes "$(stat -c %s "$JOB/output/$name")" \
+      '{name:$name,sha256:$sha256,bytes:$bytes}'
+  done | jq -s .)
+fi
+
+AUTHORITY_UNREACHABLE=true
+POSTGRES_UNREACHABLE=true
+ARTIFACT_UNREACHABLE=true
+METADATA_UNREACHABLE=true
+PRIVATE_UNREACHABLE=true
+[[ "$STATE" == authority_probe_failed ]] && {
+  AUTHORITY_UNREACHABLE=false
+  POSTGRES_UNREACHABLE=false
+  ARTIFACT_UNREACHABLE=false
+}
+[[ "$STATE" == egress_probe_failed ]] && {
+  METADATA_UNREACHABLE=false
+  PRIVATE_UNREACHABLE=false
+}
+TEARDOWN_COMPLETE=true
+PROCESSES=0
+[[ "$STATE" == teardown_failed ]] && {
+  TEARDOWN_COMPLETE=false
+  PROCESSES=1
+}
+
+jq -n \
+  --arg job_id "$JOB_ID" \
+  --arg state "$STATE" \
+  --arg request_sha256 "$REQUEST_SHA" \
+  --argjson outputs "$OUTPUTS" \
+  --argjson authority_unreachable "$AUTHORITY_UNREACHABLE" \
+  --argjson postgres_unreachable "$POSTGRES_UNREACHABLE" \
+  --argjson artifact_unreachable "$ARTIFACT_UNREACHABLE" \
+  --argjson metadata_unreachable "$METADATA_UNREACHABLE" \
+  --argjson private_unreachable "$PRIVATE_UNREACHABLE" \
+  --argjson teardown_complete "$TEARDOWN_COMPLETE" \
+  --argjson processes "$PROCESSES" \
+  '{
+    schema_version: 1,
+    job_id: $job_id,
+    kind: "evidence",
+    state: $state,
+    request_sha256: $request_sha256,
+    network_policy_sha256: ("1" * 64),
+    outputs: $outputs,
+    isolation: {
+      sibling_unreachable: true,
+      shared_scratch_unreachable: true,
+      credential_paths_unreachable: $authority_unreachable,
+      postgres_socket_unreachable: $postgres_unreachable,
+      artifact_tree_unreachable: $artifact_unreachable,
+      metadata_unreachable: $metadata_unreachable,
+      private_fleet_unreachable: $private_unreachable
+    },
+    teardown: {
+      complete: $teardown_complete,
+      processes: $processes,
+      mounts: 0,
+      namespaces: 0,
+      secret_files: 0,
+      staging_paths: 0,
+      firewall_rules: 0
+    }
+  }' >"$JOB/terminal.json"
+chmod 0600 "$JOB/terminal.json"

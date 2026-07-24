@@ -14,6 +14,7 @@ use factory_core::{
 };
 use factory_supervisor::{
     artifacts::{ArtifactStore, StoredArtifact},
+    child::{ChildSpawnConfig, IsolatedChildSpawner},
     config::RoutingConfig,
     contracts::InvocationUsage,
     pipeline::{Pipeline, PipelineConfig, PipelineOutcome, RunMode},
@@ -411,6 +412,12 @@ impl Fixture {
             fs::create_dir_all(&setup_scratch).expect("fixture scratch directory");
             fs::set_permissions(&setup_scratch, fs::Permissions::from_mode(0o700))
                 .expect("scratch chmod");
+            fs::create_dir(setup_scratch.join("children")).expect("fixture child staging");
+            fs::set_permissions(
+                setup_scratch.join("children"),
+                fs::Permissions::from_mode(0o700),
+            )
+            .expect("child staging chmod");
             fs::write(setup_snapshot, b"fixture snapshot").expect("snapshot");
             fs::create_dir_all(setup_worker_fixture_root.join("bin"))
                 .expect("worker fixture directory");
@@ -517,12 +524,16 @@ impl Fixture {
             scratch.join("verify"),
         );
         let reviewer = SandboxedReviewer::new(ReviewSandboxConfig {
-            bubblewrap: PathBuf::from("/usr/bin/bwrap"),
-            harness_program: project.join("fixtures/pipeline/bin").join(review_harness),
+            spawner: IsolatedChildSpawner::new(ChildSpawnConfig {
+                spawn_program: project
+                    .join("fixtures/pipeline/bin")
+                    .join(format!("child-{review_harness}")),
+                cancel_program: project.join("fixtures/pipeline/bin/child-cancel-stub"),
+                staging_root: scratch.join("children"),
+                timeout: Duration::from_secs(10),
+            }),
             prompt: project.join("policy/review.md"),
             worktree_root: scratch.join("review-worktrees"),
-            scratch_root: scratch.join("review-scratch"),
-            timeout: Duration::from_secs(10),
             live_network: false,
         });
         let artifacts = ArtifactStore::open(&artifact_root).expect("artifact store");

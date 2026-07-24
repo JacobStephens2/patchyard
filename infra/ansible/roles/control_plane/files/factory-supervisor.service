@@ -19,7 +19,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/patchyard /var/lib/patchyard/session9-target
+ReadWritePaths=/var/lib/patchyard /var/lib/patchyard/session9-target /run/patchyard-children
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 LockPersonality=true
 

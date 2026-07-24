@@ -2,38 +2,30 @@
 
 use std::{
     collections::BTreeSet,
-    ffi::OsString,
     path::{Path, PathBuf},
-    time::Duration,
 };
 
 use factory_core::triage::TaskSpec;
 use factory_verify::caps::DiffManifest;
+use sha2::Digest as _;
 use thiserror::Error;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::{
+    child::{ChildContract, ChildError, ChildTerminalState, IsolatedChildSpawner},
     config::Seat,
     contracts::{ResolvedInvocation, ReviewArtifact, ReviewPacket},
-    process::{ProcessError, ProcessSpec, run_bounded},
-    stages::{
-        StageError, create_private_dir, read_bounded_file, remove_private_dir, write_private,
-    },
+    stages::StageError,
     worktree::{DetachedWorktree, WorktreeError},
 };
 
-const ISOLATION_ABSENT_MARKER: &[u8] = b"patchyard:isolation-target-absent\n";
-
 #[derive(Clone, Debug)]
 pub struct ReviewSandboxConfig {
-    pub bubblewrap: PathBuf,
-    pub harness_program: PathBuf,
+    pub spawner: IsolatedChildSpawner,
     pub prompt: PathBuf,
     pub worktree_root: PathBuf,
-    pub scratch_root: PathBuf,
-    pub timeout: Duration,
     /// Must remain false until the provider-native isolation path is A-5 qualified.
     pub live_network: bool,
 }
@@ -140,10 +132,6 @@ impl SandboxedReviewer {
             cancellation,
         )
         .await?;
-        let private = self.config.scratch_root.join(workspace_name);
-        create_private_dir(private.clone()).await?;
-        let input_path = private.join("packet.json");
-        let output_path = private.join("review.json");
         let packet = ReviewPacket {
             schema_version: 1,
             review_id,
@@ -152,24 +140,24 @@ impl SandboxedReviewer {
             patch_sha256,
             manifest,
         };
-        write_private(input_path.clone(), serde_json::to_vec(&packet)?).await?;
+        let packet_bytes = serde_json::to_vec(&packet)?;
+        let prompt_bytes = tokio::fs::read(&self.config.prompt).await?;
 
         let result = self
             .run_isolated(
                 workspace.path(),
-                &input_path,
-                &output_path,
+                packet_bytes,
+                prompt_bytes,
+                &packet,
                 &invocation.seat,
                 cancellation,
             )
             .await;
         let workspace_cleanup = workspace.close(&CancellationToken::new()).await;
-        let private_cleanup = remove_private_dir(private).await;
-        match (result, workspace_cleanup, private_cleanup) {
-            (Ok(value), Ok(()), Ok(())) => Ok(value),
-            (Err(error), Ok(()), Ok(())) => Err(error),
-            (_, Err(error), _) => Err(error.into()),
-            (_, _, Err(error)) => Err(error.into()),
+        match (result, workspace_cleanup) {
+            (Ok(value), Ok(())) => Ok(value),
+            (Err(error), Ok(())) => Err(error),
+            (_, Err(error)) => Err(error.into()),
         }
         .map(|mut execution| {
             execution.invocation = invocation;
@@ -180,54 +168,56 @@ impl SandboxedReviewer {
     async fn run_isolated(
         &self,
         worktree: &Path,
-        packet: &Path,
-        output: &Path,
+        packet_bytes: Vec<u8>,
+        prompt_bytes: Vec<u8>,
+        packet: &ReviewPacket,
         seat: &Seat,
         cancellation: &CancellationToken,
     ) -> Result<ReviewExecution, ReviewError> {
-        let sibling_unreachable = self
-            .probe_absent(worktree, packet, output, "/review-siblings", cancellation)
+        let workspace = worktree
+            .to_str()
+            .ok_or(ReviewError::NonUtf8Workspace)?
+            .to_owned();
+        let packet_sha256 = hex::encode(sha2::Sha256::digest(&packet_bytes));
+        let prompt_sha256 = hex::encode(sha2::Sha256::digest(&prompt_bytes));
+        let child = self
+            .config
+            .spawner
+            .spawn(
+                ChildContract::Review {
+                    workspace,
+                    reviewed_sha: packet.reviewed_sha.clone(),
+                    packet_sha256,
+                    prompt_sha256,
+                    model: seat.model.clone(),
+                    effort: seat.effort.clone(),
+                    harness: seat.harness.clone(),
+                    provider: seat.provider.clone(),
+                },
+                vec![
+                    ("packet.json".to_owned(), packet_bytes),
+                    ("prompt.md".to_owned(), prompt_bytes),
+                ],
+                None,
+                cancellation,
+            )
             .await?;
-        let shared_scratch_unreachable = self
-            .probe_absent(worktree, packet, output, "/shared-scratch", cancellation)
-            .await?;
-        if !sibling_unreachable || !shared_scratch_unreachable {
+        if child.terminal.state != ChildTerminalState::Completed {
+            return Err(ReviewError::ChildState(child.terminal.state));
+        }
+        let isolation = &child.terminal.isolation;
+        if !isolation.sibling_unreachable
+            || !isolation.shared_scratch_unreachable
+            || !isolation.credential_paths_unreachable
+            || !isolation.postgres_socket_unreachable
+            || !isolation.artifact_tree_unreachable
+            || !isolation.metadata_unreachable
+            || !isolation.private_fleet_unreachable
+        {
             return Err(ReviewError::IsolationProbe);
         }
-        let mut spec = self.sandbox_spec(worktree, packet, output);
-        spec.args.extend([
-            OsString::from("/harness"),
-            OsString::from("/input/PROMPT.md"),
-            OsString::from("/input/PACKET.json"),
-            OsString::from("/output/review.json"),
-        ]);
-        spec.environment.extend([
-            (
-                OsString::from("PATCHYARD_MODEL"),
-                OsString::from(&seat.model),
-            ),
-            (
-                OsString::from("PATCHYARD_EFFORT"),
-                OsString::from(&seat.effort),
-            ),
-            (
-                OsString::from("PATCHYARD_HARNESS"),
-                OsString::from(&seat.harness),
-            ),
-            (
-                OsString::from("PATCHYARD_PROVIDER"),
-                OsString::from(&seat.provider),
-            ),
-        ]);
-        let process = run_bounded(&spec, cancellation).await?;
-        if process.code != 0 {
-            return Err(ReviewError::HarnessExit(process.code));
-        }
-        let bytes = read_bounded_file(output.to_path_buf(), 1024 * 1024).await?;
-        let artifact: ReviewArtifact = serde_json::from_slice(&bytes)?;
-        let packet_bytes = read_bounded_file(packet.to_path_buf(), 1024 * 1024).await?;
-        let expected: ReviewPacket = serde_json::from_slice(&packet_bytes)?;
-        validate_artifact(&artifact, &expected)?;
+        let artifact: ReviewArtifact = serde_json::from_slice(child.output("review.json")?)?;
+        validate_artifact(&artifact, packet)?;
         Ok(ReviewExecution {
             invocation: ResolvedInvocation {
                 task_class: String::new(),
@@ -235,100 +225,10 @@ impl SandboxedReviewer {
                 seat: seat.clone(),
             },
             artifact,
-            transcript: process.transcript(),
-            sibling_unreachable,
-            shared_scratch_unreachable,
+            transcript: child.output("transcript.log")?.to_vec(),
+            sibling_unreachable: isolation.sibling_unreachable,
+            shared_scratch_unreachable: isolation.shared_scratch_unreachable,
         })
-    }
-
-    async fn probe_absent(
-        &self,
-        worktree: &Path,
-        packet: &Path,
-        output: &Path,
-        target: &str,
-        cancellation: &CancellationToken,
-    ) -> Result<bool, ReviewError> {
-        let mut spec = self.sandbox_spec(worktree, packet, output);
-        spec.args.extend([
-            OsString::from("/usr/bin/bash"),
-            OsString::from("-c"),
-            OsString::from(
-                "if [[ -e \"$1\" || -L \"$1\" ]]; then exit 10; fi; \
-                 printf '%s\\n' 'patchyard:isolation-target-absent'",
-            ),
-            OsString::from("patchyard-isolation-probe"),
-            OsString::from(target),
-        ]);
-        spec.output_limit = 64 * 1024;
-        let result = run_bounded(&spec, cancellation).await?;
-        interpret_isolation_probe(result.code, &result.stdout)
-    }
-
-    fn sandbox_spec(&self, worktree: &Path, packet: &Path, output: &Path) -> ProcessSpec {
-        let output_directory = output.parent().expect("review output always has a parent");
-        let mut spec = ProcessSpec::new(&self.config.bubblewrap);
-        spec.args = vec![
-            OsString::from("--unshare-all"),
-            OsString::from("--die-with-parent"),
-            OsString::from("--new-session"),
-            OsString::from("--ro-bind"),
-            OsString::from("/usr"),
-            OsString::from("/usr"),
-            OsString::from("--symlink"),
-            OsString::from("usr/bin"),
-            OsString::from("/bin"),
-            OsString::from("--symlink"),
-            OsString::from("usr/lib"),
-            OsString::from("/lib"),
-            OsString::from("--symlink"),
-            OsString::from("usr/lib64"),
-            OsString::from("/lib64"),
-            OsString::from("--proc"),
-            OsString::from("/proc"),
-            OsString::from("--dev"),
-            OsString::from("/dev"),
-            OsString::from("--tmpfs"),
-            OsString::from("/tmp"),
-            OsString::from("--dir"),
-            OsString::from("/input"),
-            OsString::from("--dir"),
-            OsString::from("/output"),
-            OsString::from("--dir"),
-            OsString::from("/workspace"),
-            OsString::from("--ro-bind"),
-            worktree.as_os_str().to_owned(),
-            OsString::from("/workspace"),
-            OsString::from("--ro-bind"),
-            packet.as_os_str().to_owned(),
-            OsString::from("/input/PACKET.json"),
-            OsString::from("--ro-bind"),
-            self.config.prompt.as_os_str().to_owned(),
-            OsString::from("/input/PROMPT.md"),
-            OsString::from("--ro-bind"),
-            self.config.harness_program.as_os_str().to_owned(),
-            OsString::from("/harness"),
-            OsString::from("--bind"),
-            output_directory.as_os_str().to_owned(),
-            OsString::from("/output"),
-            OsString::from("--chdir"),
-            OsString::from("/workspace"),
-            OsString::from("--setenv"),
-            OsString::from("HOME"),
-            OsString::from("/tmp"),
-        ];
-        spec.timeout = self.config.timeout;
-        spec.output_limit = 8 * 1024 * 1024;
-        spec
-    }
-}
-
-fn interpret_isolation_probe(code: i32, stdout: &[u8]) -> Result<bool, ReviewError> {
-    match code {
-        0 if stdout == ISOLATION_ABSENT_MARKER => Ok(true),
-        0 => Err(ReviewError::IsolationProbeProtocol),
-        10 => Ok(false),
-        status => Err(ReviewError::IsolationProbeExecution(status)),
     }
 }
 
@@ -359,20 +259,18 @@ pub enum ReviewError {
     LiveProviderNotQualified,
     #[error("reviewer sandbox exposed sibling or shared scratch")]
     IsolationProbe,
-    #[error("reviewer isolation probe could not execute in sandbox (status {0})")]
-    IsolationProbeExecution(i32),
-    #[error("reviewer isolation probe returned an invalid marker")]
-    IsolationProbeProtocol,
-    #[error("reviewer harness exited with status {0}")]
-    HarnessExit(i32),
+    #[error("reviewer child returned fail-closed state {0:?}")]
+    ChildState(ChildTerminalState),
+    #[error("review workspace path is not UTF-8")]
+    NonUtf8Workspace,
     #[error("review artifact is malformed")]
     MalformedArtifact,
     #[error("review JSON failed: {0}")]
     Json(#[from] serde_json::Error),
     #[error("review filesystem operation failed: {0}")]
     Io(#[from] std::io::Error),
-    #[error("review process failed: {0}")]
-    Process(#[from] ProcessError),
+    #[error("review child spawn failed: {0}")]
+    Child(#[from] ChildError),
     #[error("review stage failed: {0}")]
     Stage(#[from] StageError),
     #[error("review worktree failed: {0}")]
@@ -383,22 +281,5 @@ pub enum ReviewError {
 
 #[cfg(test)]
 mod tests {
-    use super::{ReviewError, interpret_isolation_probe};
-
-    #[test]
-    fn isolation_probe_distinguishes_absence_exposure_and_sandbox_failure() {
-        assert!(
-            interpret_isolation_probe(0, b"patchyard:isolation-target-absent\n")
-                .expect("valid absent marker")
-        );
-        assert!(!interpret_isolation_probe(10, b"").expect("visible target"));
-        assert!(matches!(
-            interpret_isolation_probe(1, b""),
-            Err(ReviewError::IsolationProbeExecution(1))
-        ));
-        assert!(matches!(
-            interpret_isolation_probe(0, b"unexpected"),
-            Err(ReviewError::IsolationProbeProtocol)
-        ));
-    }
+    // A87 isolation facts are validated at the shared A104 child boundary.
 }

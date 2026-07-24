@@ -1,0 +1,526 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+ID=${1:-}
+[[ "$ID" =~ ^[0-9a-f]{32}$ ]] || {
+  echo "usage: $0 32-LOWERCASE-HEX-JOB-ID" >&2
+  exit 2
+}
+
+ROOT=/run/patchyard-children
+JOB="$ROOT/$ID"
+REQUEST="$JOB/request.json"
+OUTPUT="$JOB/output"
+MANAGER_USER=factory-manager
+MANAGER_UID=$(id -u "$MANAGER_USER")
+MANAGER_GID=$(id -g "$MANAGER_USER")
+NOBODY_UID=$(id -u nobody)
+NOBODY_GID=$(id -g nobody)
+STATE=contract_rejected
+KIND=
+JOB_ID=
+REQUEST_SHA256=
+NETWORK_POLICY_SHA256=$(printf '%064d' 0)
+CHILD_PID=
+NETWORK_LOCK=
+NETNS=
+HOST_VETH=
+NFT_TABLE=
+BASE_FORWARD=
+ISOLATION_FILE="$OUTPUT/isolation.json"
+TERMINAL_TEMP="$JOB/.terminal.json.tmp"
+TEARDOWN_COMPLETE=true
+PROCESSES=0
+MOUNTS=0
+NAMESPACES=0
+SECRET_FILES=0
+STAGING_PATHS=0
+FIREWALL_RULES=0
+SIBLING_UNREACHABLE=false
+SHARED_SCRATCH_UNREACHABLE=false
+CREDENTIAL_PATHS_UNREACHABLE=false
+POSTGRES_SOCKET_UNREACHABLE=false
+ARTIFACT_TREE_UNREACHABLE=false
+METADATA_UNREACHABLE=false
+PRIVATE_FLEET_UNREACHABLE=false
+
+path_contract() {
+  local path=$1 owner=$2 mode=$3 type=$4 actual
+  [[ ! -L "$path" ]]
+  case "$type" in
+    directory) [[ -d "$path" ]] ;;
+    file) [[ -f "$path" ]] ;;
+    *) return 1 ;;
+  esac
+  actual=$(stat -c '%U:%a' "$path")
+  [[ "$actual" == "$owner:$mode" ]]
+}
+
+remove_network() {
+  set +e
+  if [[ -n "$NFT_TABLE" ]]; then
+    nft delete table inet "$NFT_TABLE" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$HOST_VETH" ]]; then
+    ip link delete "$HOST_VETH" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$NETNS" ]]; then
+    ip netns delete "$NETNS" >/dev/null 2>&1 || true
+    rm -rf -- "/etc/netns/$NETNS"
+  fi
+  if [[ -n "$BASE_FORWARD" ]]; then
+    sysctl -q -w "net.ipv4.ip_forward=$BASE_FORWARD" >/dev/null 2>&1 || true
+  fi
+}
+
+read_isolation() {
+  if [[ -f "$ISOLATION_FILE" && ! -L "$ISOLATION_FILE" ]] \
+    && jq -e '
+      .schema_version == 1
+      and (.sibling_unreachable | type == "boolean")
+      and (.shared_scratch_unreachable | type == "boolean")
+      and (.credential_paths_unreachable | type == "boolean")
+      and (.postgres_socket_unreachable | type == "boolean")
+      and (.artifact_tree_unreachable | type == "boolean")
+      and (.metadata_unreachable | type == "boolean")
+      and (.private_fleet_unreachable | type == "boolean")
+    ' "$ISOLATION_FILE" >/dev/null 2>&1; then
+    SIBLING_UNREACHABLE=$(jq -r .sibling_unreachable "$ISOLATION_FILE")
+    SHARED_SCRATCH_UNREACHABLE=$(jq -r .shared_scratch_unreachable "$ISOLATION_FILE")
+    CREDENTIAL_PATHS_UNREACHABLE=$(jq -r .credential_paths_unreachable "$ISOLATION_FILE")
+    POSTGRES_SOCKET_UNREACHABLE=$(jq -r .postgres_socket_unreachable "$ISOLATION_FILE")
+    ARTIFACT_TREE_UNREACHABLE=$(jq -r .artifact_tree_unreachable "$ISOLATION_FILE")
+    METADATA_UNREACHABLE=$(jq -r .metadata_unreachable "$ISOLATION_FILE")
+    PRIVATE_FLEET_UNREACHABLE=$(jq -r .private_fleet_unreachable "$ISOLATION_FILE")
+  fi
+}
+
+output_claims() {
+  local names=() name
+  if [[ "$STATE" == completed && "$KIND" == review ]]; then
+    names=(review.json transcript.log)
+  elif [[ "$STATE" == completed && "$KIND" == evidence ]]; then
+    names=(page.html page.png extract.json hashes.json execution.json)
+  fi
+  for name in "${names[@]}"; do
+    jq -n \
+      --arg name "$name" \
+      --arg sha256 "$(sha256sum "$OUTPUT/$name" | cut -d' ' -f1)" \
+      --argjson bytes "$(stat -c %s "$OUTPUT/$name")" \
+      '{name:$name,sha256:$sha256,bytes:$bytes}'
+  done | jq -s .
+}
+
+write_terminal() {
+  local outputs
+  outputs=$(output_claims)
+  jq -n \
+    --arg job_id "$JOB_ID" \
+    --arg kind "$KIND" \
+    --arg state "$STATE" \
+    --arg request_sha256 "$REQUEST_SHA256" \
+    --arg network_policy_sha256 "$NETWORK_POLICY_SHA256" \
+    --argjson outputs "$outputs" \
+    --argjson sibling_unreachable "$SIBLING_UNREACHABLE" \
+    --argjson shared_scratch_unreachable "$SHARED_SCRATCH_UNREACHABLE" \
+    --argjson credential_paths_unreachable "$CREDENTIAL_PATHS_UNREACHABLE" \
+    --argjson postgres_socket_unreachable "$POSTGRES_SOCKET_UNREACHABLE" \
+    --argjson artifact_tree_unreachable "$ARTIFACT_TREE_UNREACHABLE" \
+    --argjson metadata_unreachable "$METADATA_UNREACHABLE" \
+    --argjson private_fleet_unreachable "$PRIVATE_FLEET_UNREACHABLE" \
+    --argjson teardown_complete "$TEARDOWN_COMPLETE" \
+    --argjson processes "$PROCESSES" \
+    --argjson mounts "$MOUNTS" \
+    --argjson namespaces "$NAMESPACES" \
+    --argjson secret_files "$SECRET_FILES" \
+    --argjson staging_paths "$STAGING_PATHS" \
+    --argjson firewall_rules "$FIREWALL_RULES" \
+    '{
+      schema_version: 1,
+      job_id: $job_id,
+      kind: $kind,
+      state: $state,
+      request_sha256: $request_sha256,
+      network_policy_sha256: $network_policy_sha256,
+      outputs: $outputs,
+      isolation: {
+        sibling_unreachable: $sibling_unreachable,
+        shared_scratch_unreachable: $shared_scratch_unreachable,
+        credential_paths_unreachable: $credential_paths_unreachable,
+        postgres_socket_unreachable: $postgres_socket_unreachable,
+        artifact_tree_unreachable: $artifact_tree_unreachable,
+        metadata_unreachable: $metadata_unreachable,
+        private_fleet_unreachable: $private_fleet_unreachable
+      },
+      teardown: {
+        complete: $teardown_complete,
+        processes: $processes,
+        mounts: $mounts,
+        namespaces: $namespaces,
+        secret_files: $secret_files,
+        staging_paths: $staging_paths,
+        firewall_rules: $firewall_rules
+      }
+    }' >"$TERMINAL_TEMP"
+  chmod 0600 "$TERMINAL_TEMP"
+  chown "$MANAGER_UID:$MANAGER_GID" "$TERMINAL_TEMP"
+  mv -T "$TERMINAL_TEMP" "$JOB/terminal.json"
+}
+
+finish() {
+  local rc=$?
+  set +e
+  if [[ -n "$CHILD_PID" ]]; then
+    kill -KILL -- "-$CHILD_PID" >/dev/null 2>&1 || true
+    kill -KILL "$CHILD_PID" >/dev/null 2>&1 || true
+    wait "$CHILD_PID" >/dev/null 2>&1 || true
+    CHILD_PID=
+  fi
+  read_isolation
+  rm -f -- "$ISOLATION_FILE" "$OUTPUT/failure.json"
+  rm -rf -- "$JOB/secret" "$OUTPUT/capture"
+  remove_network
+
+  if [[ -n "$NETNS" ]] && ip netns list | awk '{print $1}' | grep -Fxq "$NETNS"; then
+    NAMESPACES=1
+  fi
+  if [[ -n "$HOST_VETH" ]] && ip -o link show "$HOST_VETH" >/dev/null 2>&1; then
+    NAMESPACES=1
+  fi
+  if [[ -n "$NFT_TABLE" ]] && nft list table inet "$NFT_TABLE" >/dev/null 2>&1; then
+    FIREWALL_RULES=1
+  fi
+  [[ -e "$JOB/secret" ]] && SECRET_FILES=1
+  [[ -e "$OUTPUT/capture" ]] && STAGING_PATHS=1
+  pgrep -f -- "patchyard-child-$ID" >/dev/null 2>&1 && PROCESSES=1
+  if [[ "$PROCESSES" -ne 0 || "$MOUNTS" -ne 0 || "$NAMESPACES" -ne 0 \
+    || "$SECRET_FILES" -ne 0 || "$STAGING_PATHS" -ne 0 \
+    || "$FIREWALL_RULES" -ne 0 ]]; then
+    TEARDOWN_COMPLETE=false
+    STATE=teardown_failed
+  fi
+
+  if [[ "$STATE" != completed ]]; then
+    find "$OUTPUT" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+  fi
+  chown -R "$MANAGER_UID:$MANAGER_GID" "$JOB"
+  find "$JOB" -type d -exec chmod 0700 {} +
+  find "$JOB" -type f -exec chmod 0600 {} +
+  if [[ -n "$JOB_ID" && -n "$KIND" && -n "$REQUEST_SHA256" ]]; then
+    write_terminal
+  fi
+  if [[ -n "$NETWORK_LOCK" ]]; then
+    flock -u "$NETWORK_LOCK" >/dev/null 2>&1 || true
+  fi
+  exit "$rc"
+}
+
+trap finish EXIT
+trap 'STATE=child_timed_out; exit 1' TERM INT HUP
+
+[[ "$(readlink -f -- "$JOB")" == "$JOB" ]]
+path_contract "$ROOT" "$MANAGER_USER" 700 directory
+path_contract "$JOB" "$MANAGER_USER" 700 directory
+path_contract "$JOB/input" "$MANAGER_USER" 700 directory
+path_contract "$OUTPUT" "$MANAGER_USER" 700 directory
+path_contract "$REQUEST" "$MANAGER_USER" 600 file
+[[ ! -e "$JOB/terminal.json" && ! -e "$TERMINAL_TEMP" ]]
+
+jq -e --arg id "$ID" '
+  .schema_version == 1
+  and (.job_id | type == "string" and gsub("-"; "") == $id)
+  and (.contract.kind == "review" or .contract.kind == "evidence")
+' "$REQUEST" >/dev/null
+JOB_ID=$(jq -r .job_id "$REQUEST")
+KIND=$(jq -r .contract.kind "$REQUEST")
+REQUEST_SHA256=$(sha256sum "$REQUEST" | cut -d' ' -f1)
+
+BWRAP_BASE=(
+  --unshare-all
+  --die-with-parent
+  --new-session
+  --ro-bind /usr /usr
+  --symlink usr/bin /bin
+  --symlink usr/lib /lib
+  --symlink usr/lib64 /lib64
+  --proc /proc
+  --dev /dev
+  --tmpfs /tmp
+  --dir /etc
+  --clearenv
+  --setenv HOME /tmp
+  --setenv PATH /usr/local/bin:/usr/bin:/bin
+  --uid "$NOBODY_UID"
+  --gid "$NOBODY_GID"
+)
+
+if [[ "$KIND" == review ]]; then
+  jq -e '
+    .contract.kind == "review"
+    and (.contract.workspace | test("^/var/lib/patchyard/supervisor/review-worktrees/review-[0-9a-f]{32}$"))
+    and (.contract.reviewed_sha | test("^[0-9a-f]{40}$"))
+    and (.contract.packet_sha256 | test("^[0-9a-f]{64}$"))
+    and (.contract.prompt_sha256 | test("^[0-9a-f]{64}$"))
+    and ([.contract.model,.contract.effort,.contract.harness,.contract.provider]
+      | all(type == "string" and test("^[A-Za-z0-9 ._+:/-]{1,128}$")))
+  ' "$REQUEST" >/dev/null
+  WORKSPACE=$(jq -r .contract.workspace "$REQUEST")
+  REVIEWED_SHA=$(jq -r .contract.reviewed_sha "$REQUEST")
+  [[ "$(readlink -f -- "$WORKSPACE")" == "$WORKSPACE" ]]
+  [[ "$(git -C "$WORKSPACE" rev-parse HEAD)" == "$REVIEWED_SHA" ]]
+  [[ -z "$(git -C "$WORKSPACE" status --porcelain)" ]]
+  path_contract "$JOB/input/packet.json" "$MANAGER_USER" 600 file
+  path_contract "$JOB/input/prompt.md" "$MANAGER_USER" 600 file
+  [[ "$(sha256sum "$JOB/input/packet.json" | cut -d' ' -f1)" \
+    == "$(jq -r .contract.packet_sha256 "$REQUEST")" ]]
+  [[ "$(sha256sum "$JOB/input/prompt.md" | cut -d' ' -f1)" \
+    == "$(jq -r .contract.prompt_sha256 "$REQUEST")" ]]
+  NETWORK_POLICY_SHA256=$(printf '%s' offline-review | sha256sum | cut -d' ' -f1)
+
+  chown "$NOBODY_UID:$NOBODY_GID" \
+    "$JOB/input/packet.json" "$JOB/input/prompt.md" "$OUTPUT"
+  chmod 0400 "$JOB/input/packet.json" "$JOB/input/prompt.md"
+  chmod 0700 "$OUTPUT"
+  MODEL=$(jq -r .contract.model "$REQUEST")
+  EFFORT=$(jq -r .contract.effort "$REQUEST")
+  HARNESS=$(jq -r .contract.harness "$REQUEST")
+  PROVIDER=$(jq -r .contract.provider "$REQUEST")
+  setsid env -i PATH=/usr/bin:/bin /usr/bin/bwrap \
+    "${BWRAP_BASE[@]}" \
+    --dir /input \
+    --dir /output \
+    --dir /workspace \
+    --ro-bind "$WORKSPACE" /workspace \
+    --ro-bind "$JOB/input/packet.json" /input/PACKET.json \
+    --ro-bind "$JOB/input/prompt.md" /input/PROMPT.md \
+    --ro-bind /usr/local/libexec/patchyard-child-probe /isolation-probe \
+    --ro-bind /opt/patchyard/fixtures/pipeline/bin/review-stub /harness \
+    --bind "$OUTPUT" /output \
+    --chdir /workspace \
+    --setenv PATCHYARD_MODEL "$MODEL" \
+    --setenv PATCHYARD_EFFORT "$EFFORT" \
+    --setenv PATCHYARD_HARNESS "$HARNESS" \
+    --setenv PATCHYARD_PROVIDER "$PROVIDER" \
+    /usr/bin/bash -c \
+      '/isolation-probe /output/isolation.json && exec /harness /input/PROMPT.md /input/PACKET.json /output/review.json' \
+    >"$OUTPUT/transcript.log" 2>&1 &
+  CHILD_PID=$!
+  if ! wait "$CHILD_PID"; then
+    CHILD_PID=
+    STATE=contract_rejected
+    exit 1
+  fi
+  CHILD_PID=
+  read_isolation
+  jq -e '
+    .schema_version == 1
+    and .sibling_unreachable == true
+    and .shared_scratch_unreachable == true
+    and .credential_paths_unreachable == true
+    and .postgres_socket_unreachable == true
+    and .artifact_tree_unreachable == true
+    and .metadata_unreachable == true
+    and .private_fleet_unreachable == true
+  ' "$ISOLATION_FILE" >/dev/null
+  [[ -f "$OUTPUT/review.json" && ! -L "$OUTPUT/review.json" ]]
+  [[ "$(stat -c %s "$OUTPUT/review.json")" -le 1048576 ]]
+  [[ "$(stat -c %s "$OUTPUT/transcript.log")" -le 8388608 ]]
+  chmod 0600 "$OUTPUT/review.json" "$OUTPUT/transcript.log"
+  STATE=completed
+  exit 0
+fi
+
+jq -e '
+  .contract.kind == "evidence"
+  and (.contract.capture.allowed_url
+    | test("^https://([1-9]|[12][0-9]|30)\\.preview\\.example\\.dev/[^#]*$"))
+  and (.contract.capture.expected_sha | test("^[0-9a-f]{40}$"))
+  and (.contract.bearer_sha256 | test("^[0-9a-f]{64}$"))
+  and (.contract.capability_id_sha256 | test("^[0-9a-f]{64}$"))
+' "$REQUEST" >/dev/null
+path_contract "$JOB/input/capture.json" "$MANAGER_USER" 600 file
+path_contract "$JOB/secret" "$MANAGER_USER" 700 directory
+path_contract "$JOB/secret/bearer.json" "$MANAGER_USER" 600 file
+jq -e '
+  .capability_id | test("^[A-Za-z0-9_-]{8,128}$")
+  and (.expires_at_unix | type == "number")
+  and (.secret | type == "string" and length >= 16 and length <= 8192
+    and (contains("\n") or contains("\r") | not))
+' "$JOB/secret/bearer.json" >/dev/null
+NOW=$(date -u +%s)
+EXPIRES=$(jq -r .expires_at_unix "$JOB/secret/bearer.json")
+[[ "$EXPIRES" -gt "$NOW" && "$EXPIRES" -le $((NOW + 300)) ]]
+BEARER=$(jq -r .secret "$JOB/secret/bearer.json")
+CAPABILITY_ID=$(jq -r .capability_id "$JOB/secret/bearer.json")
+[[ "$(printf '%s' "$BEARER" | sha256sum | cut -d' ' -f1)" \
+  == "$(jq -r .contract.bearer_sha256 "$REQUEST")" ]]
+[[ "$(printf '%s' "$CAPABILITY_ID" | sha256sum | cut -d' ' -f1)" \
+  == "$(jq -r .contract.capability_id_sha256 "$REQUEST")" ]]
+ALLOWED_URL=$(jq -r .contract.capture.allowed_url "$REQUEST")
+HOST=${ALLOWED_URL#https://}
+HOST=${HOST%%/*}
+
+mapfile -t RESOLUTION_ONE < <(getent ahostsv4 "$HOST" | awk '{print $1}' | sort -u)
+[[ "${#RESOLUTION_ONE[@]}" -gt 0 ]]
+sleep 0.05
+mapfile -t RESOLUTION_TWO < <(getent ahostsv4 "$HOST" | awk '{print $1}' | sort -u)
+if [[ "${RESOLUTION_ONE[*]}" != "${RESOLUTION_TWO[*]}" ]]; then
+  STATE=dns_binding_changed
+  exit 1
+fi
+for address in "${RESOLUTION_ONE[@]}"; do
+  python3 -c \
+    'import ipaddress,sys; a=ipaddress.ip_address(sys.argv[1]); raise SystemExit(0 if a.is_global else 1)' \
+    "$address"
+done
+mapfile -t DNS_SERVERS < <(awk '$1 == "nameserver" {print $2}' /etc/resolv.conf | sort -u)
+[[ "${#DNS_SERVERS[@]}" -gt 0 ]]
+
+(set -o noclobber
+  {
+    printf '127.0.0.1 localhost\n'
+    for address in "${RESOLUTION_ONE[@]}"; do
+      printf '%s %s\n' "$address" "$HOST"
+    done
+  } >"$JOB/input/hosts"
+)
+chmod 0400 "$JOB/input/hosts"
+chown "$NOBODY_UID:$NOBODY_GID" \
+  "$JOB/input/capture.json" "$JOB/input/hosts" "$JOB/secret/bearer.json" "$OUTPUT"
+chmod 0400 "$JOB/input/capture.json" "$JOB/secret/bearer.json"
+chmod 0700 "$OUTPUT"
+
+exec {NETWORK_LOCK}>/run/lock/patchyard-evidence.lock
+flock -w 10 "$NETWORK_LOCK"
+SHORT=${ID:0:8}
+NETNS="efn$SHORT"
+HOST_VETH="efh$SHORT"
+GUEST_VETH="efg$SHORT"
+NFT_TABLE="eta_child_$SHORT"
+BASE_FORWARD=$(sysctl -n net.ipv4.ip_forward)
+ip netns add "$NETNS"
+ip link add "$HOST_VETH" type veth peer name "$GUEST_VETH"
+ip link set "$GUEST_VETH" netns "$NETNS"
+ip address add 10.231.0.1/30 dev "$HOST_VETH"
+ip link set "$HOST_VETH" up
+ip netns exec "$NETNS" ip link set lo up
+ip netns exec "$NETNS" ip address add 10.231.0.2/30 dev "$GUEST_VETH"
+ip netns exec "$NETNS" ip link set "$GUEST_VETH" up
+ip netns exec "$NETNS" ip route add default via 10.231.0.1
+sysctl -q -w net.ipv4.ip_forward=1
+
+nft add table inet "$NFT_TABLE"
+nft "add chain inet $NFT_TABLE input { type filter hook input priority -80; policy accept; }"
+nft "add chain inet $NFT_TABLE forward { type filter hook forward priority -80; policy accept; }"
+nft "add chain inet $NFT_TABLE postrouting { type nat hook postrouting priority srcnat; policy accept; }"
+nft add rule inet "$NFT_TABLE" input iifname "$HOST_VETH" counter reject
+nft add rule inet "$NFT_TABLE" forward oifname "$HOST_VETH" \
+  ct state established,related counter accept
+PREVIEW_SET=$(IFS=,; echo "${RESOLUTION_ONE[*]}")
+nft "add rule inet $NFT_TABLE forward iifname $HOST_VETH ip daddr { $PREVIEW_SET } tcp dport 443 ct state new,established counter accept"
+for resolver in "${DNS_SERVERS[@]}"; do
+  if [[ "$resolver" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+    nft add rule inet "$NFT_TABLE" forward iifname "$HOST_VETH" \
+      ip daddr "$resolver" udp dport 53 counter accept
+    nft add rule inet "$NFT_TABLE" forward iifname "$HOST_VETH" \
+      ip daddr "$resolver" tcp dport 53 counter accept
+  fi
+done
+nft add rule inet "$NFT_TABLE" forward iifname "$HOST_VETH" \
+  ip daddr 0.0.0.0/0 counter reject
+nft add rule inet "$NFT_TABLE" forward iifname "$HOST_VETH" \
+  ip6 daddr ::/0 counter reject
+nft add rule inet "$NFT_TABLE" postrouting ip saddr 10.231.0.0/30 \
+  oifname != "$HOST_VETH" masquerade
+NETWORK_POLICY_SHA256=$(
+  {
+    printf 'preview=%s\n' "$HOST"
+    printf 'address=%s\n' "${RESOLUTION_ONE[@]}"
+    printf 'dns=%s\n' "${DNS_SERVERS[@]}"
+  } | sha256sum | cut -d' ' -f1
+)
+
+setsid ip netns exec "$NETNS" env -i PATH=/usr/bin:/bin /usr/bin/bwrap \
+  "${BWRAP_BASE[@]}" \
+  --share-net \
+  --dir /input \
+  --dir /secret \
+  --dir /exchange \
+  --ro-bind /etc/pki /etc/pki \
+  --ro-bind "$JOB/input/hosts" /etc/hosts \
+  --ro-bind /etc/resolv.conf /etc/resolv.conf \
+  --ro-bind "$JOB/input/capture.json" /input/capture.json \
+  --ro-bind "$JOB/secret/bearer.json" /secret/bearer.json \
+  --ro-bind /usr/local/libexec/patchyard-child-probe /isolation-probe \
+  --ro-bind /usr/local/libexec/patchyard-evidence-child /evidence-child \
+  --bind "$OUTPUT" /exchange \
+  --chdir /tmp \
+  /usr/bin/bash -c \
+    '/isolation-probe /exchange/isolation.json && exec /evidence-child /input/capture.json /secret/bearer.json /exchange/capture' \
+  >"$OUTPUT/child.stdout" 2>"$OUTPUT/child.stderr" &
+CHILD_PID=$!
+if ! wait "$CHILD_PID"; then
+  CHILD_PID=
+  read_isolation
+  if [[ "$CREDENTIAL_PATHS_UNREACHABLE" != true \
+    || "$POSTGRES_SOCKET_UNREACHABLE" != true \
+    || "$ARTIFACT_TREE_UNREACHABLE" != true \
+    || "$SIBLING_UNREACHABLE" != true \
+    || "$SHARED_SCRATCH_UNREACHABLE" != true ]]; then
+    STATE=authority_probe_failed
+  elif [[ "$METADATA_UNREACHABLE" != true \
+    || "$PRIVATE_FLEET_UNREACHABLE" != true ]]; then
+    STATE=egress_probe_failed
+  elif [[ -f "$OUTPUT/capture/failure.json" && ! -L "$OUTPUT/capture/failure.json" ]]; then
+    STATE=$(jq -r '
+      if .schema_version == 1
+        and (.state | IN(
+          "redirect_blocked","cross_origin_blocked","popup_blocked",
+          "download_blocked","output_limit_exceeded",
+          "bearer_disclosure_blocked","browser_crashed","child_timed_out",
+          "contract_rejected"
+        ))
+      then .state else "contract_rejected" end
+    ' "$OUTPUT/capture/failure.json")
+  else
+    STATE=browser_crashed
+  fi
+  exit 1
+fi
+CHILD_PID=
+read_isolation
+jq -e '
+  .schema_version == 1
+  and .sibling_unreachable == true
+  and .shared_scratch_unreachable == true
+  and .credential_paths_unreachable == true
+  and .postgres_socket_unreachable == true
+  and .artifact_tree_unreachable == true
+  and .metadata_unreachable == true
+  and .private_fleet_unreachable == true
+' "$ISOLATION_FILE" >/dev/null || {
+  if [[ "$METADATA_UNREACHABLE" != true \
+    || "$PRIVATE_FLEET_UNREACHABLE" != true ]]; then
+    STATE=egress_probe_failed
+  else
+    STATE=authority_probe_failed
+  fi
+  exit 1
+}
+for name in page.html page.png extract.json hashes.json execution.json; do
+  [[ -f "$OUTPUT/capture/$name" && ! -L "$OUTPUT/capture/$name" ]]
+  mv -T "$OUTPUT/capture/$name" "$OUTPUT/$name"
+  chmod 0600 "$OUTPUT/$name"
+done
+rmdir "$OUTPUT/capture"
+rm -f -- "$OUTPUT/child.stdout" "$OUTPUT/child.stderr"
+for name in page.html page.png extract.json hashes.json execution.json; do
+  if grep -aFq -- "$BEARER" "$OUTPUT/$name" \
+    || grep -aFq -- "$CAPABILITY_ID" "$OUTPUT/$name"; then
+    STATE=bearer_disclosure_blocked
+    exit 1
+  fi
+done
+STATE=completed
+exit 0

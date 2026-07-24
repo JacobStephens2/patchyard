@@ -13,6 +13,7 @@ use thiserror::Error;
 
 use crate::{
     artifacts::ArtifactStore,
+    child::{ChildSpawnConfig, IsolatedChildSpawner},
     config::RoutingConfig,
     daemon::DaemonConfig,
     pipeline::{Pipeline, PipelineConfig, RunMode},
@@ -150,16 +151,22 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         },
         scratch.join("verify"),
     );
-    let reviewer = SandboxedReviewer::new(ReviewSandboxConfig {
-        bubblewrap: path_env("FACTORY_BUBBLEWRAP", "/usr/bin/bwrap"),
-        harness_program: path_env(
-            "FACTORY_REVIEW_HARNESS",
-            "/usr/local/libexec/patchyard-review-stub",
+    let child_spawner = IsolatedChildSpawner::new(ChildSpawnConfig {
+        spawn_program: path_env(
+            "FACTORY_CHILD_SPAWN_PROGRAM",
+            "/usr/local/libexec/patchyard-spawn-child",
         ),
+        cancel_program: path_env(
+            "FACTORY_CHILD_CANCEL_PROGRAM",
+            "/usr/local/libexec/patchyard-cancel-child",
+        ),
+        staging_root: path_env("FACTORY_CHILD_STAGING_ROOT", "/run/patchyard-children"),
+        timeout: duration_env("FACTORY_CHILD_TIMEOUT_SECONDS", 300)?,
+    });
+    let reviewer = SandboxedReviewer::new(ReviewSandboxConfig {
+        spawner: child_spawner,
         prompt: root.join("policy/review.md"),
         worktree_root: scratch.join("review-worktrees"),
-        scratch_root: scratch.join("review-scratch"),
-        timeout: duration_env("FACTORY_REVIEW_TIMEOUT_SECONDS", 300)?,
         live_network: false,
     });
     let store = PgPipelineStore::connect(&database_url).await?;

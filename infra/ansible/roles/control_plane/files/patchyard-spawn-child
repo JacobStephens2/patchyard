@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+JOB=${1:-}
+ROOT=/run/patchyard-children
+[[ "$JOB" == "$ROOT/"* && ! -L "$JOB" && -d "$JOB" ]]
+ID=${JOB#"$ROOT/"}
+[[ "$ID" =~ ^[0-9a-f]{32}$ && "$JOB" == "$ROOT/$ID" ]]
+[[ "$(readlink -f -- "$JOB")" == "$JOB" ]]
+[[ "$(stat -c '%U:%a' "$JOB")" == factory-manager:700 ]]
+/usr/bin/systemctl start "patchyard-child@$ID.service"
+[[ -f "$JOB/terminal.json" && ! -L "$JOB/terminal.json" ]]
+printf 'child_terminal=%s\n' "$JOB/terminal.json"

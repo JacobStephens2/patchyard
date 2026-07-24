@@ -66,6 +66,7 @@ assert_path /var/lib/patchyard/artifacts/uploads factory-web factory-web 700
 assert_path /var/lib/patchyard/supervisor factory-manager factory 700
 assert_path /var/lib/patchyard/spool factory-web factory-web 700
 assert_path /var/lib/patchyard/worktrees factory-manager factory 750
+assert_path /run/patchyard-children factory-manager factory-manager 700
 assert_path /run/patchyard-postgres postgres factory 770
 assert_path /var/lib/pgsql/patchyard-tls postgres postgres 700
 assert_path /var/lib/pgsql/patchyard-tls/server.key postgres postgres 600
@@ -86,7 +87,14 @@ test -x /usr/local/libexec/patchyard-git-askpass
 test "$(stat -c '%U:%G:%a' /etc/patchyard/github-app.pem)" = 'root:factory-manager:440'
 test -x /usr/local/sbin/patchyard-invoke-worker
 test -x /usr/local/sbin/patchyard-cleanup-worker
+test -x /usr/local/sbin/patchyard-child-launcher
+test -x /usr/local/libexec/patchyard-spawn-child
+test -x /usr/local/libexec/patchyard-cancel-child
+test -x /usr/local/libexec/patchyard-evidence-child
+test -x /usr/local/libexec/patchyard-child-probe
 test -x /usr/local/libexec/patchyard-deployed-version-unconfigured
+test ! -e /usr/local/libexec/patchyard-headless
+test ! -e /usr/local/sbin/patchyard-preview-capture
 grep -Eq '^patchyard_parity_snapshot_age_days -?[0-9]+$' \
   /var/lib/node_exporter/textfile_collector/patchyard_snapshot.prom
 grep -Eq '^patchyard_parity_snapshot_eligible [01]$' \
@@ -129,6 +137,16 @@ test "$(systemctl show factory-dashboard.service --property=PrivateDevices --val
 test "$(systemctl show factory-dashboard.service --property=RestrictAddressFamilies --value)" = AF_UNIX
 systemctl show factory-dashboard.service --property=ReadWritePaths --value \
   | grep -Fq /var/lib/patchyard/artifacts
+test "$(systemctl show factory-supervisor.service --property=User --value)" = factory-manager
+test "$(systemctl show factory-supervisor.service --property=NoNewPrivileges --value)" = yes
+test "$(systemctl show factory-supervisor.service --property=ProtectSystem --value)" = strict
+systemctl show factory-supervisor.service --property=ReadWritePaths --value \
+  | grep -Fq /run/patchyard-children
+systemd-analyze verify /etc/systemd/system/patchyard-child@.service
+grep -Fq 'subject.user == "factory-manager"' \
+  /etc/polkit-1/rules.d/49-patchyard-child.rules
+grep -Fq '/^patchyard-child@[0-9a-f]{32}\.service$/' \
+  /etc/polkit-1/rules.d/49-patchyard-child.rules
 test "$(systemctl show caddy.service --property=NoNewPrivileges --value)" = yes
 test "$(systemctl show caddy.service --property=ProtectSystem --value)" = strict
 test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \

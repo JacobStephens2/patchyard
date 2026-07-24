@@ -1,6 +1,6 @@
 # Bench status
 
-*Living document - the at-a-glance answer to "what's the current status of each (model × harness) pair?" Edited in place as statuses change; the evidence stays in `../research/`'s dated records, which this file only cites. Floor probe = the muse-smoke exact-instruction check (`../research/floors/2026-07-17-harness-smoke-test.md`), k=3 unless noted. Seats are design-time assignments; nothing runs in production until phase 1 builds.*
+*Living document - the at-a-glance answer to "what's the current status of each pairing (`<provider>/<harness>/<model>/<reasoning>`)?" Edited in place as statuses change; the evidence stays in `../research/`'s dated records, which this file only cites. Floor probe = the muse-smoke exact-instruction check (`../research/floors/2026-07-17-harness-smoke-test.md`), k=3 unless noted. Seats are design-time assignments; nothing runs in production until phase 1 builds.*
 
 *Last updated: 2026-07-20 (`Preferred Harness` projection and A58-A61 seat orders retained; Tencent Hy3 x Pi added with observed cost; pair-level speed evidence projected into the Pairs table).*
 
@@ -10,9 +10,11 @@
 
 `Preferred Harness` is `Yes` only when the row uses the current model-specific harness choice. `No` includes alternate or retired treatments and models whose only reliable preference is harness-free.
 
-`Visible t/s` is raw provider delivery after visible text begins, so it omits reasoning delay and harness work. `Long-spec wall` is end-to-end for the exact model x harness row. Blank cells mean that treatment was not measured.
+`Visible t/s` is raw provider delivery after visible text begins, so it omits reasoning delay and harness work. `Long-spec wall` is end-to-end for the exact pairing row. Blank cells mean that treatment was not measured.
 
 This table is generated from [`bench.json`](bench.json) (schema: [`bench.schema.json`](bench.schema.json)) - edit the JSON, then run `python3 tools/check-bench.py --write`. Do not hand-edit the table rows.
+
+**Pairing notation (A105):** canonical `<provider>/<harness>/<model>/<reasoning>` (e.g. `openai/codex/gpt-5.6-sol/xhigh`); human-readable `<Model> [<reasoning>] via <Harness> on <Provider>` (e.g. GPT-5.6 Sol [xhigh] via Codex on OpenAI). The four fields are this table's Host / Harness / Model / Effort columns.
 
 <!-- BEGIN GENERATED pairs table: edit docs/bench.json, then run `python3 tools/check-bench.py --write` -->
 | Model | Effort | Harness | Preferred Harness | Host | Floor | Img-in | Provenance | Current standing | Visible t/s | Long-spec wall | AA Intelligence (v4.1) | AA Coding | AA Agentic |

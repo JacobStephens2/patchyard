@@ -17,11 +17,15 @@ The helper accepts two closed job kinds:
 - `review`: one exact-SHA, read-only worktree plus the typed A87 review packet;
   no network in the current provider-free phase-1 configuration.
 - `evidence`: one typed capture contract plus one short-lived, one-use preview
-  bearer; network egress is the exact leased preview endpoint and required DNS
-  only.
+  bearer; network egress is the exact leased preview endpoint only.
 
-The helper creates the same fresh Bubblewrap mount/PID/IPC/UTS/cgroup/network
-boundary for both kinds. It deliberately denies user namespaces: privileged
+The helper uses the same fixed Bubblewrap mount/PID/IPC/UTS/cgroup/network
+construction for both kinds. Before untrusted code starts, a trusted probe runs
+in a disposable instance of that construction and writes into a probe-only
+directory. The helper validates the result, makes it root-only, and never
+mounts that directory or the probe executable into the subsequent
+reviewer/browser stage. The tested party therefore cannot forge its
+attestation. The helper deliberately denies user namespaces: privileged
 setup retains only `CAP_SETUID` and `CAP_SETGID`, then a fixed `setpriv`
 wrapper becomes `nobody` with zero effective capabilities before any probe,
 harness, reviewed source, or browser code executes. For evidence the helper
@@ -134,10 +138,11 @@ with the exact allowed origin before the request continues. Host resolution is
 checked twice before launch; the allowed IPv4 set is installed into the
 network-layer rule and pinned for
 the browser. A changed set fails before Chromium starts. The firewall starts
-from deny-all, permits the pinned preview addresses on TCP 443 and the declared
-resolver addresses on TCP/UDP 53, and therefore denies metadata, loopback,
-link-local, RFC 1918, CGNAT, ULA, and the rest of the private fleet unless one
-is the preview lease itself (private preview targets are never accepted).
+from deny-all and permits only the pinned preview addresses on TCP 443.
+Chromium receives the same stable set through a private `/etc/hosts`; no
+resolver configuration or DNS egress is present. Metadata, loopback,
+link-local, RFC 1918, CGNAT, ULA, public DNS resolvers, and the rest of the
+private fleet are denied (private preview targets are never accepted).
 
 The preview lease manager issues a random capability bound to one lease ID,
 slot, exact SHA, origin, capture ID, and expiry no more than five minutes after
@@ -181,7 +186,10 @@ reports complete teardown.
   caller-owned terminal file is failure, never an empty success.
 - A child process never outlives its helper unit. Timeout and cancellation kill
   the complete cgroup, then teardown and residue checks run with a fresh cleanup
-  token.
+  token. The template's fixed `ExecStopPost` reaper also runs after a killed
+  launcher, removes deterministic namespace/veth/nft/mount/secret residue, and
+  invalidates any terminal that claimed clean teardown before residue was
+  found.
 - Cleanup is an explicit checked `close`, not a `Drop` side effect. Cleanup
   failure overrides child success.
 - The supervisor holds no Rust lock or database transaction across helper
@@ -192,6 +200,35 @@ reports complete teardown.
 - Browser and review output are untrusted bytes. Schema, count, size, path,
   ownership, link count, file type, and digest checks occur before artifact
   import.
+
+## Attestation and verification semantics
+
+The boundary distinguishes trusted observations from independent supervisor
+verification:
+
+- The fixed probe's seven isolation facts and the fixed browser controller's
+  redirect, request, popup, download, final-URL, and disclosure counters are
+  **attested observations**. Their producers are reviewed trusted code in the
+  declared TCB. The untrusted reviewer, page, renderer, and returned files
+  cannot rewrite the probe result.
+- The expected SHA is **verified before capture** by the preview lease manager:
+  both the host checkout and running preview checkout must equal it before a
+  capability bound to that lease, slot, origin, and SHA is issued. The
+  execution and hash manifests carry that verified provenance forward; their
+  SHA field is an acknowledgement, not a second independent checkout
+  measurement.
+- The supervisor independently verifies the request digest, exact canonical
+  network-policy digest, terminal schema and state/fact relationships,
+  per-contract output ceilings, single-link regular-file descriptors, output
+  byte lengths and SHA-256 values, artifact-name allowlists, bearer absence,
+  secret-path absence, and zero teardown counters before import.
+
+The canonical evidence network policy is the preview host on TCP 443 with
+`dns=none`. The privileged helper resolves the name twice, rejects a changed
+answer set, writes the stable addresses into a private `/etc/hosts`, and pins
+the same set in nftables. Chromium therefore needs no resolver egress, closing
+the QNAME covert channel while retaining the PLAN's "required DNS only"
+ceiling: for this pinned design, required DNS inside the child is empty.
 
 ## Qualification results
 
@@ -229,9 +266,15 @@ The declared negative inventory is executable at two layers. The real
 Chromium suite reaches the named redirect, cross-origin, popup, download,
 oversize, bearer-disclosure, browser-crash, and timeout states. The stable
 resolver suite changes the answer set between its two production resolution
-calls and reaches `dns_binding_changed`. The Rust boundary fixture asserts all
-S13-N01 through S13-N12 terminal states, zero imported artifacts, and empty
-staging after each case. The live positive child independently runs the
-authority and network probes inside the actual Bubblewrap/network namespace;
-any reachable protected path or destination maps to
-`authority_probe_failed` or `egress_probe_failed` before import.
+calls and asserts the process-level exit-42/`dns_binding_changed` contract.
+The privileged-launcher contract suite runs mandatory Bash syntax checks and
+pins probe-output separation, pre-network DNS-change mapping, DNS-free egress,
+real cgroup/mount accounting, and the template reaper. The Rust boundary
+fixture asserts all S13-N01 through S13-N12 terminal states, zero imported
+artifacts, and empty staging after each case; additional completed-child
+fixtures prove that forged probe facts, secret residue, bearer output, and a
+per-job output-cap violation are rejected after the completed-state
+short-circuit. The live positive child independently runs the authority and
+network probes inside the actual Bubblewrap/network namespace; any reachable
+protected path or destination maps to `authority_probe_failed` or
+`egress_probe_failed` before import.

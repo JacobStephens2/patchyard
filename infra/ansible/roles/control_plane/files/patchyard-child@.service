@@ -8,6 +8,7 @@ Type=oneshot
 User=root
 Group=root
 ExecStart=/usr/local/sbin/patchyard-child-launcher %i
+ExecStopPost=/usr/local/sbin/patchyard-reap-child %i
 TimeoutStartSec=90s
 TimeoutStopSec=30s
 KillMode=control-group

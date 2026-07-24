@@ -26,6 +26,7 @@ test "$(stat -c '%U:%G:%a' /run/patchyard-children)" = \
 test "$(stat -c '%U:%G:%a' /run/patchyard-evidence-qualification)" = \
   root:factory-manager:770
 test -x /usr/local/sbin/patchyard-child-launcher
+test -x /usr/local/sbin/patchyard-reap-child
 test -x /usr/local/libexec/patchyard-spawn-child
 test -x /usr/local/libexec/patchyard-cancel-child
 test -x /usr/local/libexec/patchyard-evidence-child
@@ -40,6 +41,8 @@ systemd-analyze verify /etc/systemd/system/patchyard-child@.service
 systemd-analyze verify \
   /etc/systemd/system/factory-evidence-qualification.service
 grep -Fxq 'RestrictNamespaces=~user' \
+  /etc/systemd/system/patchyard-child@.service
+grep -Fxq 'ExecStopPost=/usr/local/sbin/patchyard-reap-child %i' \
   /etc/systemd/system/patchyard-child@.service
 grep -Fq '/^patchyard-child@[0-9a-f]{32}\.service$/' \
   /etc/polkit-1/rules.d/49-patchyard-child.rules

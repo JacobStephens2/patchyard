@@ -1401,6 +1401,10 @@
       destination: /usr/local/sbin/patchyard-child-launcher
       group: root
       mode: "0750"
+    - source: patchyard-reap-child
+      destination: /usr/local/sbin/patchyard-reap-child
+      group: root
+      mode: "0750"
     - source: patchyard-spawn-child
       destination: /usr/local/libexec/patchyard-spawn-child
       group: "{{ factory_manager_user }}"

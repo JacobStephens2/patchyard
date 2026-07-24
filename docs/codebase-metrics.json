@@ -2,14 +2,14 @@
   "schema_version": 1,
   "generated_by": "tools/check-codebase.sh",
   "tokei_version": "14.0.0",
-  "source_revision": "sha256:c3cf8236563794e74aaaeda63ce7f65ce37a6ecc5adabbb812efde93a70886b2",
+  "source_revision": "sha256:90dce59ccf7791dd647b4bdf70aa6e9e95fe5b5ed5290cef6058edb79d680fe6",
   "roles": [
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 26738,
-      "comments": 459,
-      "blanks": 1776,
+      "code": 27036,
+      "comments": 463,
+      "blanks": 1790,
       "files": 76,
       "languages": [
         {
@@ -49,9 +49,9 @@
         },
         {
           "language": "Rust",
-          "code": 24623,
-          "comments": 81,
-          "blanks": 1529,
+          "code": 24920,
+          "comments": 85,
+          "blanks": 1543,
           "files": 49
         },
         {
@@ -63,7 +63,7 @@
         },
         {
           "language": "TOML",
-          "code": 145,
+          "code": 146,
           "comments": 0,
           "blanks": 15,
           "files": 5
@@ -73,17 +73,17 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 10200,
-      "comments": 392,
-      "blanks": 1043,
-      "files": 117,
+      "code": 10426,
+      "comments": 393,
+      "blanks": 1067,
+      "files": 119,
       "languages": [
         {
           "language": "BASH",
-          "code": 3450,
-          "comments": 89,
-          "blanks": 262,
-          "files": 32
+          "code": 3587,
+          "comments": 90,
+          "blanks": 274,
+          "files": 33
         },
         {
           "language": "Forge Config",
@@ -129,10 +129,10 @@
         },
         {
           "language": "Python",
-          "code": 1977,
+          "code": 2062,
           "comments": 10,
-          "blanks": 226,
-          "files": 10
+          "blanks": 238,
+          "files": 11
         },
         {
           "language": "Shell",
@@ -157,7 +157,7 @@
         },
         {
           "language": "YAML",
-          "code": 2607,
+          "code": 2611,
           "comments": 4,
           "blanks": 283,
           "files": 19
@@ -167,14 +167,14 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 5157,
+      "code": 5205,
       "comments": 236,
-      "blanks": 561,
+      "blanks": 562,
       "files": 83,
       "languages": [
         {
           "language": "BASH",
-          "code": 266,
+          "code": 312,
           "comments": 6,
           "blanks": 10,
           "files": 5
@@ -216,9 +216,9 @@
         },
         {
           "language": "Shell",
-          "code": 492,
+          "code": 494,
           "comments": 27,
-          "blanks": 89,
+          "blanks": 90,
           "files": 18
         },
         {
@@ -248,8 +248,8 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8004,
-      "comments": 8353,
-      "blanks": 2616,
+      "comments": 8392,
+      "blanks": 2620,
       "files": 98,
       "languages": [
         {
@@ -269,8 +269,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 8339,
-          "blanks": 2565,
+          "comments": 8378,
+          "blanks": 2569,
           "files": 78
         },
         {

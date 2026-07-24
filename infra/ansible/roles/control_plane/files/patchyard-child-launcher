@@ -29,7 +29,9 @@ NETNS=
 HOST_VETH=
 NFT_TABLE=
 BASE_FORWARD=
-ISOLATION_FILE="$OUTPUT/isolation.json"
+NETWORK_MARKER="$JOB/.network-active"
+ISOLATION_DIRECTORY="$JOB/probe"
+ISOLATION_FILE="$ISOLATION_DIRECTORY/isolation.json"
 TERMINAL_TEMP="$JOB/.terminal.json.tmp"
 TEARDOWN_COMPLETE=true
 PROCESSES=0
@@ -62,6 +64,38 @@ path_contract() {
   [[ "$actual" == "$owner:$mode" ]]
 }
 
+count_child_processes() {
+  local cgroup pid count=0
+  cgroup=$(/usr/bin/systemctl show \
+    "patchyard-child@$ID.service" --property=ControlGroup --value)
+  [[ "$cgroup" == /* && -r "/sys/fs/cgroup$cgroup/cgroup.procs" ]] || {
+    printf '1\n'
+    return
+  }
+  while read -r pid; do
+    [[ "$pid" == "$$" ]] || count=$((count + 1))
+  done <"/sys/fs/cgroup$cgroup/cgroup.procs"
+  printf '%s\n' "$count"
+}
+
+count_child_mounts() {
+  local mounts
+  if ! mounts=$(findmnt -rn -o TARGET); then
+    printf '1\n'
+    return
+  fi
+  awk -v job="$JOB" -v netns="/run/netns/$NETNS" \
+    -v etcnetns="/etc/netns/$NETNS" '
+      $0 == job || index($0, job "/") == 1 ||
+      (netns != "/run/netns/" && ($0 == netns || index($0, netns "/") == 1)) ||
+      (etcnetns != "/etc/netns/" &&
+        ($0 == etcnetns || index($0, etcnetns "/") == 1)) {
+        count += 1
+      }
+      END { print count + 0 }
+    ' <<<"$mounts"
+}
+
 remove_network() {
   set +e
   if [[ -n "$NFT_TABLE" ]]; then
@@ -76,6 +110,16 @@ remove_network() {
   fi
   if [[ -n "$BASE_FORWARD" ]]; then
     sysctl -q -w "net.ipv4.ip_forward=$BASE_FORWARD" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$NETNS" ]] \
+    && ! ip netns list | awk '{print $1}' | grep -Fxq "$NETNS" \
+    && { [[ -z "$HOST_VETH" ]] \
+      || ! ip -o link show "$HOST_VETH" >/dev/null 2>&1; } \
+    && { [[ -z "$NFT_TABLE" ]] \
+      || ! nft list table inet "$NFT_TABLE" >/dev/null 2>&1; } \
+    && { [[ -z "$BASE_FORWARD" ]] \
+      || [[ "$(sysctl -n net.ipv4.ip_forward 2>/dev/null)" == "$BASE_FORWARD" ]]; }; then
+    rm -f -- "$NETWORK_MARKER"
   fi
 }
 
@@ -123,6 +167,24 @@ read_isolation() {
     METADATA_UNREACHABLE=$(jq -r .metadata_unreachable "$ISOLATION_FILE")
     PRIVATE_FLEET_UNREACHABLE=$(jq -r .private_fleet_unreachable "$ISOLATION_FILE")
   fi
+}
+
+require_isolation() {
+  read_isolation
+  if [[ "$CREDENTIAL_PATHS_UNREACHABLE" != true \
+    || "$POSTGRES_SOCKET_UNREACHABLE" != true \
+    || "$ARTIFACT_TREE_UNREACHABLE" != true \
+    || "$SIBLING_UNREACHABLE" != true \
+    || "$SHARED_SCRATCH_UNREACHABLE" != true ]]; then
+    STATE=authority_probe_failed
+    return 1
+  fi
+  if [[ "$METADATA_UNREACHABLE" != true \
+    || "$PRIVATE_FLEET_UNREACHABLE" != true ]]; then
+    STATE=egress_probe_failed
+    return 1
+  fi
+  return 0
 }
 
 output_claims() {
@@ -215,8 +277,8 @@ finish() {
   if ! revoke_preview_capability; then
     PREVIEW_CAPABILITIES=1
   fi
-  rm -f -- "$ISOLATION_FILE" "$OUTPUT/failure.json"
-  rm -rf -- "$JOB/secret" "$OUTPUT/capture"
+  rm -f -- "$OUTPUT/failure.json"
+  rm -rf -- "$JOB/secret" "$OUTPUT/capture" "$ISOLATION_DIRECTORY"
   remove_network
   if [[ -n "$REVIEW_WORKSPACE" ]] && ! chmod 0700 "$REVIEW_WORKSPACE"; then
     STAGING_PATHS=1
@@ -231,9 +293,12 @@ finish() {
   if [[ -n "$NFT_TABLE" ]] && nft list table inet "$NFT_TABLE" >/dev/null 2>&1; then
     FIREWALL_RULES=1
   fi
-  [[ -e "$JOB/secret" ]] && SECRET_FILES=1
-  [[ -e "$OUTPUT/capture" ]] && STAGING_PATHS=1
-  pgrep -f -- "patchyard-child-$ID" >/dev/null 2>&1 && PROCESSES=1
+  [[ -e "$JOB/secret" || -L "$JOB/secret" ]] && SECRET_FILES=1
+  [[ -e "$OUTPUT/capture" || -L "$OUTPUT/capture" \
+    || -e "$ISOLATION_DIRECTORY" || -L "$ISOLATION_DIRECTORY" ]] \
+    && STAGING_PATHS=1
+  PROCESSES=$(count_child_processes)
+  MOUNTS=$(count_child_mounts)
   if [[ "$PROCESSES" -ne 0 || "$MOUNTS" -ne 0 || "$NAMESPACES" -ne 0 \
     || "$SECRET_FILES" -ne 0 || "$STAGING_PATHS" -ne 0 \
     || "$FIREWALL_RULES" -ne 0 || "$PREVIEW_CAPABILITIES" -ne 0 ]]; then
@@ -265,7 +330,9 @@ path_contract "$JOB" "$MANAGER_USER" 700 directory
 path_contract "$JOB/input" "$MANAGER_USER" 700 directory
 path_contract "$OUTPUT" "$MANAGER_USER" 700 directory
 path_contract "$REQUEST" "$MANAGER_USER" 600 file
-[[ ! -e "$JOB/terminal.json" && ! -e "$TERMINAL_TEMP" ]]
+[[ ! -e "$JOB/terminal.json" && ! -e "$TERMINAL_TEMP" \
+  && ! -e "$ISOLATION_DIRECTORY" && ! -L "$ISOLATION_DIRECTORY" \
+  && ! -e "$NETWORK_MARKER" && ! -L "$NETWORK_MARKER" ]]
 
 jq -e --arg id "$ID" '
   .schema_version == 1
@@ -343,6 +410,33 @@ if [[ "$KIND" == review ]]; then
   exec {REVIEW_PROBE_FD}</usr/local/libexec/patchyard-child-probe
   exec {REVIEW_HARNESS_FD}</opt/patchyard/fixtures/pipeline/bin/review-stub
   exec {REVIEW_OUTPUT_FD}<"$OUTPUT"
+  mkdir "$ISOLATION_DIRECTORY"
+  chown "$NOBODY_UID:$NOBODY_GID" "$ISOLATION_DIRECTORY"
+  chmod 0700 "$ISOLATION_DIRECTORY"
+  exec {REVIEW_PROBE_OUTPUT_FD}<"$ISOLATION_DIRECTORY"
+  if ! setsid env -i PATH=/usr/bin:/bin /usr/bin/bwrap \
+    "${BWRAP_BASE[@]}" \
+    --dir /input \
+    --dir /workspace \
+    --dir /probe-output \
+    --ro-bind-fd "$REVIEW_WORKSPACE_FD" /workspace \
+    --ro-bind-fd "$REVIEW_PACKET_FD" /input/PACKET.json \
+    --ro-bind-fd "$REVIEW_PROMPT_FD" /input/PROMPT.md \
+    --ro-bind-fd "$REVIEW_PROBE_FD" /isolation-probe \
+    --bind-fd "$REVIEW_PROBE_OUTPUT_FD" /probe-output \
+    --chdir /workspace \
+    /usr/bin/setpriv \
+      --reuid "$NOBODY_UID" --regid "$NOBODY_GID" --clear-groups \
+      /isolation-probe /probe-output/isolation.json; then
+    require_isolation || true
+    exit 1
+  fi
+  require_isolation
+  chown -R root:root "$ISOLATION_DIRECTORY"
+  chmod 0700 "$ISOLATION_DIRECTORY"
+  chmod 0600 "$ISOLATION_FILE"
+  exec {REVIEW_PROBE_OUTPUT_FD}>&-
+  exec {REVIEW_PROBE_FD}>&-
   setsid env -i PATH=/usr/bin:/bin /usr/bin/bwrap \
     "${BWRAP_BASE[@]}" \
     --dir /input \
@@ -351,7 +445,6 @@ if [[ "$KIND" == review ]]; then
     --ro-bind-fd "$REVIEW_WORKSPACE_FD" /workspace \
     --ro-bind-fd "$REVIEW_PACKET_FD" /input/PACKET.json \
     --ro-bind-fd "$REVIEW_PROMPT_FD" /input/PROMPT.md \
-    --ro-bind-fd "$REVIEW_PROBE_FD" /isolation-probe \
     --ro-bind-fd "$REVIEW_HARNESS_FD" /harness \
     --bind-fd "$REVIEW_OUTPUT_FD" /output \
     --chdir /workspace \
@@ -361,8 +454,7 @@ if [[ "$KIND" == review ]]; then
     --setenv PATCHYARD_PROVIDER "$PROVIDER" \
     /usr/bin/setpriv \
       --reuid "$NOBODY_UID" --regid "$NOBODY_GID" --clear-groups \
-      /usr/bin/bash -c \
-      '/isolation-probe /output/isolation.json && exec /harness /input/PROMPT.md /input/PACKET.json /output/review.json' \
+      /harness /input/PROMPT.md /input/PACKET.json /output/review.json \
     >"$OUTPUT/transcript.log" 2>&1 &
   CHILD_PID=$!
   if ! wait "$CHILD_PID"; then
@@ -372,17 +464,7 @@ if [[ "$KIND" == review ]]; then
   fi
   CHILD_PID=
   FAILURE_STAGE=review_output_validation
-  read_isolation
-  jq -e '
-    .schema_version == 1
-    and .sibling_unreachable == true
-    and .shared_scratch_unreachable == true
-    and .credential_paths_unreachable == true
-    and .postgres_socket_unreachable == true
-    and .artifact_tree_unreachable == true
-    and .metadata_unreachable == true
-    and .private_fleet_unreachable == true
-  ' "$ISOLATION_FILE" >/dev/null
+  require_isolation
   [[ -f "$OUTPUT/review.json" && ! -L "$OUTPUT/review.json" ]]
   [[ "$(stat -c %s "$OUTPUT/review.json")" -le 1048576 ]]
   [[ "$(stat -c %s "$OUTPUT/transcript.log")" -le 8388608 ]]
@@ -441,8 +523,6 @@ jq -e \
    and all(.[]; test("^[0-9]{1,3}(\\.[0-9]{1,3}){3}$"))' \
   <<<"$RESOLUTION" >/dev/null
 mapfile -t RESOLUTION_ONE < <(jq -r '.addresses[]' <<<"$RESOLUTION")
-mapfile -t DNS_SERVERS < <(awk '$1 == "nameserver" {print $2}' /etc/resolv.conf | sort -u)
-[[ "${#DNS_SERVERS[@]}" -gt 0 ]]
 
 (set -o noclobber
   {
@@ -476,6 +556,9 @@ ip netns exec "$NETNS" ip link set lo up
 ip netns exec "$NETNS" ip address add 10.231.0.2/30 dev "$GUEST_VETH"
 ip netns exec "$NETNS" ip link set "$GUEST_VETH" up
 ip netns exec "$NETNS" ip route add default via 10.231.0.1
+(set -o noclobber; : >"$NETWORK_MARKER")
+chmod 0600 "$NETWORK_MARKER"
+chown root:root "$NETWORK_MARKER"
 sysctl -q -w net.ipv4.ip_forward=1
 
 nft add table inet "$NFT_TABLE"
@@ -487,14 +570,6 @@ nft add rule inet "$NFT_TABLE" forward oifname "$HOST_VETH" \
   ct state established,related counter accept
 PREVIEW_SET=$(IFS=,; echo "${RESOLUTION_ONE[*]}")
 nft "add rule inet $NFT_TABLE forward iifname $HOST_VETH ip daddr { $PREVIEW_SET } tcp dport 443 ct state new,established counter accept"
-for resolver in "${DNS_SERVERS[@]}"; do
-  if [[ "$resolver" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-    nft add rule inet "$NFT_TABLE" forward iifname "$HOST_VETH" \
-      ip daddr "$resolver" udp dport 53 counter accept
-    nft add rule inet "$NFT_TABLE" forward iifname "$HOST_VETH" \
-      ip daddr "$resolver" tcp dport 53 counter accept
-  fi
-done
 nft add rule inet "$NFT_TABLE" forward iifname "$HOST_VETH" \
   ip daddr 0.0.0.0/0 counter reject
 nft add rule inet "$NFT_TABLE" forward iifname "$HOST_VETH" \
@@ -502,11 +577,8 @@ nft add rule inet "$NFT_TABLE" forward iifname "$HOST_VETH" \
 nft add rule inet "$NFT_TABLE" postrouting ip saddr 10.231.0.0/30 \
   oifname != "$HOST_VETH" masquerade
 NETWORK_POLICY_SHA256=$(
-  {
-    printf 'preview=%s\n' "$HOST"
-    printf 'address=%s\n' "${RESOLUTION_ONE[@]}"
-    printf 'dns=%s\n' "${DNS_SERVERS[@]}"
-  } | sha256sum | cut -d' ' -f1
+  printf 'preview=%s\ntransport=tcp/443\ndns=none\n' "$HOST" |
+    sha256sum | cut -d' ' -f1
 )
 
 FAILURE_STAGE=evidence_sandbox
@@ -514,6 +586,31 @@ exec {EVIDENCE_HOSTS_FD}<"$JOB/input/hosts"
 exec {EVIDENCE_CAPTURE_FD}<"$JOB/input/capture.json"
 exec {EVIDENCE_BEARER_FD}<"$JOB/secret/bearer.json"
 exec {EVIDENCE_OUTPUT_FD}<"$OUTPUT"
+exec {EVIDENCE_PROBE_FD}</usr/local/libexec/patchyard-child-probe
+mkdir "$ISOLATION_DIRECTORY"
+chown "$NOBODY_UID:$NOBODY_GID" "$ISOLATION_DIRECTORY"
+chmod 0700 "$ISOLATION_DIRECTORY"
+exec {EVIDENCE_PROBE_OUTPUT_FD}<"$ISOLATION_DIRECTORY"
+if ! setsid ip netns exec "$NETNS" env -i PATH=/usr/bin:/bin /usr/bin/bwrap \
+  "${BWRAP_BASE[@]}" \
+  --share-net \
+  --dir /probe-output \
+  --ro-bind-fd "$EVIDENCE_HOSTS_FD" /etc/hosts \
+  --ro-bind-fd "$EVIDENCE_PROBE_FD" /isolation-probe \
+  --bind-fd "$EVIDENCE_PROBE_OUTPUT_FD" /probe-output \
+  --chdir /tmp \
+  /usr/bin/setpriv \
+    --reuid "$NOBODY_UID" --regid "$NOBODY_GID" --clear-groups \
+    /isolation-probe /probe-output/isolation.json; then
+  require_isolation || true
+  exit 1
+fi
+require_isolation
+chown -R root:root "$ISOLATION_DIRECTORY"
+chmod 0700 "$ISOLATION_DIRECTORY"
+chmod 0600 "$ISOLATION_FILE"
+exec {EVIDENCE_PROBE_OUTPUT_FD}>&-
+exec {EVIDENCE_PROBE_FD}>&-
 setsid ip netns exec "$NETNS" env -i PATH=/usr/bin:/bin /usr/bin/bwrap \
   "${BWRAP_BASE[@]}" \
   --share-net \
@@ -523,32 +620,19 @@ setsid ip netns exec "$NETNS" env -i PATH=/usr/bin:/bin /usr/bin/bwrap \
   --ro-bind /etc/pki /etc/pki \
   --ro-bind /etc/fonts /etc/fonts \
   --ro-bind-fd "$EVIDENCE_HOSTS_FD" /etc/hosts \
-  --ro-bind /etc/resolv.conf /etc/resolv.conf \
   --ro-bind-fd "$EVIDENCE_CAPTURE_FD" /input/capture.json \
   --ro-bind-fd "$EVIDENCE_BEARER_FD" /secret/bearer.json \
-  --ro-bind /usr/local/libexec/patchyard-child-probe /isolation-probe \
   --ro-bind /usr/local/libexec/patchyard-evidence-child /evidence-child \
   --bind-fd "$EVIDENCE_OUTPUT_FD" /exchange \
   --chdir /tmp \
   /usr/bin/setpriv \
     --reuid "$NOBODY_UID" --regid "$NOBODY_GID" --clear-groups \
-    /usr/bin/bash -c \
-    '/isolation-probe /exchange/isolation.json && exec /evidence-child /input/capture.json /secret/bearer.json /exchange/capture' \
+    /evidence-child /input/capture.json /secret/bearer.json /exchange/capture \
   >"$OUTPUT/child.stdout" 2>"$OUTPUT/child.stderr" &
 CHILD_PID=$!
 if ! wait "$CHILD_PID"; then
   CHILD_PID=
-  read_isolation
-  if [[ "$CREDENTIAL_PATHS_UNREACHABLE" != true \
-    || "$POSTGRES_SOCKET_UNREACHABLE" != true \
-    || "$ARTIFACT_TREE_UNREACHABLE" != true \
-    || "$SIBLING_UNREACHABLE" != true \
-    || "$SHARED_SCRATCH_UNREACHABLE" != true ]]; then
-    STATE=authority_probe_failed
-  elif [[ "$METADATA_UNREACHABLE" != true \
-    || "$PRIVATE_FLEET_UNREACHABLE" != true ]]; then
-    STATE=egress_probe_failed
-  elif [[ -f "$OUTPUT/capture/failure.json" && ! -L "$OUTPUT/capture/failure.json" ]]; then
+  if [[ -f "$OUTPUT/capture/failure.json" && ! -L "$OUTPUT/capture/failure.json" ]]; then
     STATE=$(jq -r '
       if .schema_version == 1
         and (.state | IN(
@@ -566,25 +650,7 @@ if ! wait "$CHILD_PID"; then
 fi
 CHILD_PID=
 FAILURE_STAGE=evidence_output_validation
-read_isolation
-jq -e '
-  .schema_version == 1
-  and .sibling_unreachable == true
-  and .shared_scratch_unreachable == true
-  and .credential_paths_unreachable == true
-  and .postgres_socket_unreachable == true
-  and .artifact_tree_unreachable == true
-  and .metadata_unreachable == true
-  and .private_fleet_unreachable == true
-' "$ISOLATION_FILE" >/dev/null || {
-  if [[ "$METADATA_UNREACHABLE" != true \
-    || "$PRIVATE_FLEET_UNREACHABLE" != true ]]; then
-    STATE=egress_probe_failed
-  else
-    STATE=authority_probe_failed
-  fi
-  exit 1
-}
+require_isolation
 for name in page.html page.png extract.json hashes.json execution.json; do
   [[ -f "$OUTPUT/capture/$name" && ! -L "$OUTPUT/capture/$name" ]]
   mv -T "$OUTPUT/capture/$name" "$OUTPUT/$name"

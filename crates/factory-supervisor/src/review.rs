@@ -132,19 +132,18 @@ impl SandboxedReviewer {
             cancellation,
         )
         .await?;
-        let packet = ReviewPacket {
-            schema_version: 1,
-            review_id,
-            reviewed_sha: reviewed_sha.to_owned(),
-            task_spec,
-            patch_sha256,
-            manifest,
-        };
-        let packet_bytes = serde_json::to_vec(&packet)?;
-        let prompt_bytes = tokio::fs::read(&self.config.prompt).await?;
-
-        let result = self
-            .run_isolated(
+        let result = async {
+            let packet = ReviewPacket {
+                schema_version: 1,
+                review_id,
+                reviewed_sha: reviewed_sha.to_owned(),
+                task_spec,
+                patch_sha256,
+                manifest,
+            };
+            let packet_bytes = serde_json::to_vec(&packet)?;
+            let prompt_bytes = tokio::fs::read(&self.config.prompt).await?;
+            self.run_isolated(
                 workspace.path(),
                 packet_bytes,
                 prompt_bytes,
@@ -152,7 +151,9 @@ impl SandboxedReviewer {
                 &invocation.seat,
                 cancellation,
             )
-            .await;
+            .await
+        }
+        .await;
         let workspace_cleanup = workspace.close(&CancellationToken::new()).await;
         match (result, workspace_cleanup) {
             (Ok(value), Ok(())) => Ok(value),
@@ -281,5 +282,110 @@ pub enum ReviewError {
 
 #[cfg(test)]
 mod tests {
-    // A87 isolation facts are validated at the shared A104 child boundary.
+    use std::{fs, path::Path, process::Command, time::Duration};
+
+    use factory_core::triage::TaskSpec;
+    use factory_verify::caps::DiffManifest;
+    use serde_json::Value;
+    use tempfile::TempDir;
+    use tokio_util::sync::CancellationToken;
+
+    use super::{ReviewError, ReviewSandboxConfig, SandboxedReviewer};
+    use crate::{
+        child::{ChildSpawnConfig, IsolatedChildSpawner},
+        config::Seat,
+        contracts::ResolvedInvocation,
+    };
+
+    fn git(repository: &Path, arguments: &[&str]) -> String {
+        let output = Command::new("/usr/bin/git")
+            .arg("-C")
+            .arg(repository)
+            .args(arguments)
+            .output()
+            .expect("git command");
+        assert!(
+            output.status.success(),
+            "git failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout)
+            .expect("git UTF-8")
+            .trim()
+            .to_owned()
+    }
+
+    fn repository() -> (TempDir, String) {
+        let temporary = tempfile::tempdir().expect("repository tempdir");
+        git(temporary.path(), &["init", "--quiet"]);
+        git(
+            temporary.path(),
+            &["config", "user.email", "fixture@example.invalid"],
+        );
+        git(temporary.path(), &["config", "user.name", "Fixture"]);
+        fs::write(temporary.path().join("fixture.txt"), b"fixture\n").expect("fixture file");
+        git(temporary.path(), &["add", "fixture.txt"]);
+        git(temporary.path(), &["commit", "--quiet", "-m", "fixture"]);
+        let sha = git(temporary.path(), &["rev-parse", "HEAD"]);
+        (temporary, sha)
+    }
+
+    fn task_spec() -> TaskSpec {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let value: Value = serde_json::from_slice(
+            &fs::read(root.join("fixtures/triage/alphabetize.json")).expect("triage fixture"),
+        )
+        .expect("triage JSON");
+        serde_json::from_value(value["task_spec"].clone()).expect("task spec")
+    }
+
+    #[tokio::test]
+    async fn prompt_read_failure_still_explicitly_closes_the_worktree() {
+        let (repository, reviewed_sha) = repository();
+        let scratch = tempfile::tempdir().expect("scratch");
+        let worktree_root = scratch.path().join("review-worktrees");
+        let reviewer = SandboxedReviewer::new(ReviewSandboxConfig {
+            spawner: IsolatedChildSpawner::new(ChildSpawnConfig {
+                spawn_program: scratch.path().join("unused-spawn"),
+                cancel_program: scratch.path().join("unused-cancel"),
+                staging_root: scratch.path().join("children"),
+                timeout: Duration::from_secs(1),
+            }),
+            prompt: scratch.path().join("missing-review-prompt"),
+            worktree_root: worktree_root.clone(),
+            live_network: false,
+        });
+        let error = reviewer
+            .review_many(
+                repository.path(),
+                &reviewed_sha,
+                &task_spec(),
+                &"a".repeat(64),
+                &DiffManifest {
+                    base_sha: reviewed_sha.clone(),
+                    files: Vec::new(),
+                },
+                vec![ResolvedInvocation {
+                    task_class: "review".to_owned(),
+                    routing_version: "fixture".to_owned(),
+                    seat: Seat {
+                        model: "Fixture".to_owned(),
+                        effort: "test".to_owned(),
+                        harness: "fixture".to_owned(),
+                        provider: "fixture".to_owned(),
+                    },
+                }],
+                &CancellationToken::new(),
+            )
+            .await
+            .expect_err("missing prompt must fail");
+        assert!(matches!(error, ReviewError::Io(_)));
+        assert!(
+            fs::read_dir(&worktree_root)
+                .expect("worktree root")
+                .next()
+                .is_none(),
+            "failed setup left a detached worktree"
+        );
+    }
 }

@@ -8,8 +8,8 @@ use std::{
 use factory_supervisor::{
     artifacts::ArtifactStore,
     child::{
-        ChildSpawnConfig, ChildTerminalState, EvidenceAction, EvidenceContract,
-        IsolatedChildSpawner, PreviewBearer,
+        ChildError, ChildIoError, ChildSpawnConfig, ChildTerminalState, EvidenceAction,
+        EvidenceContract, IsolatedChildSpawner, PreviewBearer,
     },
     evidence::{EvidenceCapture, EvidenceError},
 };
@@ -218,6 +218,66 @@ async fn every_predeclared_negative_state_imports_nothing_and_tears_down() {
             "{fixture_id} left child staging behind"
         );
     }
+}
+
+#[tokio::test]
+async fn supervisor_rejects_secret_residue_bearer_output_and_forged_probe_facts() {
+    for (fixture_id, state) in [
+        ("secret-residue", "completed_secret_residue"),
+        ("secret-symlink", "completed_secret_symlink"),
+        ("bearer-output", "completed_bearer_disclosure"),
+        ("forged-probe", "completed_authority_probe_forgery"),
+    ] {
+        let fixture = Fixture::new();
+        let error = fixture
+            .run(state)
+            .await
+            .expect_err("hostile completed child must fail closed");
+        match fixture_id {
+            "secret-residue" | "secret-symlink" => {
+                assert!(matches!(
+                    error,
+                    EvidenceError::Child(ChildError::SecretResidue)
+                ));
+            }
+            "bearer-output" => {
+                assert!(matches!(error, EvidenceError::BearerDisclosure(_)));
+            }
+            "forged-probe" => {
+                assert!(matches!(
+                    error,
+                    EvidenceError::Child(ChildError::MalformedTerminal)
+                ));
+            }
+            _ => unreachable!(),
+        }
+        assert_eq!(fixture.artifact_file_count(), 0, "{fixture_id}");
+        assert!(fixture.staging_is_empty(), "{fixture_id}");
+    }
+}
+
+#[tokio::test]
+async fn supervisor_enforces_the_job_specific_output_cap() {
+    let fixture = Fixture::new();
+    let mut bounded_contract = contract("completed");
+    bounded_contract.maximum_dom_bytes = 32;
+    let error = fixture
+        .capture
+        .capture(
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            bounded_contract,
+            bearer(),
+            &CancellationToken::new(),
+        )
+        .await
+        .expect_err("contract-specific DOM ceiling must be authoritative");
+    assert!(matches!(
+        error,
+        EvidenceError::Child(ChildError::ChildIo(ChildIoError::TooLarge(_)))
+    ));
+    assert_eq!(fixture.artifact_file_count(), 0);
+    assert!(fixture.staging_is_empty());
 }
 
 fn contract(state: &str) -> EvidenceContract {

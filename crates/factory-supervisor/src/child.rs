@@ -3,6 +3,7 @@
 use std::{
     collections::BTreeSet,
     fs,
+    io::Read as _,
     os::unix::fs::{MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _},
     path::{Path, PathBuf},
     time::Duration,
@@ -259,22 +260,25 @@ impl IsolatedChildSpawner {
         spec.args = vec![job_directory.clone().into_os_string()];
         spec.timeout = self.config.timeout;
         spec.output_limit = MAX_CONTROL_OUTPUT_BYTES;
-        let process_result = run_bounded(&spec, cancellation).await;
-        if let Err(process_error) = process_result {
-            let cleanup_result = self.cancel_and_remove(&job_directory).await;
-            return match cleanup_result {
-                Ok(()) => Err(process_error.into()),
-                Err(cleanup_error) => Err(ChildError::Cleanup {
-                    operation: "cancel after failed child spawn",
-                    source: Box::new(cleanup_error),
-                }),
-            };
-        }
-        let process = process_result.expect("checked above");
+        let process = match run_bounded(&spec, cancellation).await {
+            Ok(process) => process,
+            Err(process_error) => {
+                let cleanup_result = self.cancel_and_remove(&job_directory).await;
+                return match cleanup_result {
+                    Ok(()) => Err(process_error.into()),
+                    Err(cleanup_error) => Err(ChildError::Cleanup {
+                        operation: "cancel after failed child spawn",
+                        source: Box::new(cleanup_error),
+                    }),
+                };
+            }
+        };
         let result = self
             .read_execution(&job_directory, job_id, &request, &request_sha256)
             .await;
-        let cleanup = remove_job(job_directory).await;
+        // Even a published terminal can report teardown failure or be hostile.
+        // Re-enter the fixed stop/reap path before removing any staging bytes.
+        let cleanup = self.cancel_and_remove(&job_directory).await;
         match (result, cleanup) {
             (Ok(mut execution), Ok(())) => {
                 execution.transcript = process.transcript();
@@ -298,14 +302,16 @@ impl IsolatedChildSpawner {
         let terminal_bytes =
             read_regular_bounded(job_directory.join("terminal.json"), MAX_TERMINAL_BYTES).await?;
         let terminal: ChildTerminal = serde_json::from_slice(&terminal_bytes)?;
-        validate_terminal(&terminal, job_id, request.contract.kind(), request_sha256)?;
-        if job_directory.join("secret").exists() {
-            return Err(ChildError::SecretResidue);
+        validate_terminal(&terminal, job_id, &request.contract, request_sha256)?;
+        match tokio::fs::symlink_metadata(job_directory.join("secret")).await {
+            Ok(_) => return Err(ChildError::SecretResidue),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
         }
         let mut outputs = Vec::with_capacity(terminal.outputs.len());
         for claim in &terminal.outputs {
             validate_output_name(request.contract.kind(), &claim.name)?;
-            let maximum = output_maximum(request.contract.kind(), &claim.name)?;
+            let maximum = output_maximum(&request.contract, &claim.name)?;
             let bytes =
                 read_regular_bounded(job_directory.join("output").join(&claim.name), maximum)
                     .await?;
@@ -346,18 +352,23 @@ impl IsolatedChildSpawner {
 fn validate_terminal(
     terminal: &ChildTerminal,
     job_id: Uuid,
-    kind: ChildKind,
+    contract: &ChildContract,
     request_sha256: &str,
 ) -> Result<(), ChildError> {
+    let kind = contract.kind();
+    let expected_network_policy_sha256 = expected_network_policy_sha256(contract)?;
+    let policy_may_be_uninitialized = matches!(
+        terminal.state,
+        ChildTerminalState::ContractRejected
+            | ChildTerminalState::DnsBindingChanged
+            | ChildTerminalState::TeardownFailed
+    );
     if terminal.schema_version != 1
         || terminal.job_id != job_id
         || terminal.kind != kind
         || terminal.request_sha256 != request_sha256
-        || terminal.network_policy_sha256.len() != 64
-        || !terminal
-            .network_policy_sha256
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        || (terminal.network_policy_sha256 != expected_network_policy_sha256
+            && !(policy_may_be_uninitialized && terminal.network_policy_sha256 == "0".repeat(64)))
         || terminal.outputs.len() > 8
     {
         return Err(ChildError::MalformedTerminal);
@@ -385,6 +396,36 @@ fn validate_terminal(
     } else if !clean.complete || !zero_residue {
         return Err(ChildError::TeardownIncomplete);
     }
+    let isolation = &terminal.isolation;
+    let authority_isolated = isolation.sibling_unreachable
+        && isolation.shared_scratch_unreachable
+        && isolation.credential_paths_unreachable
+        && isolation.postgres_socket_unreachable
+        && isolation.artifact_tree_unreachable;
+    let egress_isolated = isolation.metadata_unreachable && isolation.private_fleet_unreachable;
+    let probe_must_pass = matches!(
+        terminal.state,
+        ChildTerminalState::Completed
+            | ChildTerminalState::RedirectBlocked
+            | ChildTerminalState::CrossOriginBlocked
+            | ChildTerminalState::PopupBlocked
+            | ChildTerminalState::DownloadBlocked
+            | ChildTerminalState::OutputLimitExceeded
+            | ChildTerminalState::BearerDisclosureBlocked
+            | ChildTerminalState::BrowserCrashed
+            | ChildTerminalState::ChildTimedOut
+    );
+    if probe_must_pass && (!authority_isolated || !egress_isolated) {
+        return Err(ChildError::MalformedTerminal);
+    }
+    if terminal.state == ChildTerminalState::AuthorityProbeFailed && authority_isolated {
+        return Err(ChildError::MalformedTerminal);
+    }
+    if terminal.state == ChildTerminalState::EgressProbeFailed
+        && (!authority_isolated || egress_isolated)
+    {
+        return Err(ChildError::MalformedTerminal);
+    }
     Ok(())
 }
 
@@ -406,16 +447,42 @@ fn validate_output_name(kind: ChildKind, name: &str) -> Result<(), ChildError> {
     }
 }
 
-fn output_maximum(kind: ChildKind, name: &str) -> Result<usize, ChildError> {
-    match (kind, name) {
-        (ChildKind::Review, "review.json") => Ok(1024 * 1024),
-        (ChildKind::Review, "transcript.log") => Ok(MAX_CHILD_OUTPUT_BYTES),
-        (ChildKind::Evidence, "page.html") => Ok(2_000_000),
-        (ChildKind::Evidence, "page.png") => Ok(5_000_000),
-        (ChildKind::Evidence, "extract.json") => Ok(1024 * 1024),
-        (ChildKind::Evidence, "hashes.json" | "execution.json") => Ok(128 * 1024),
+fn output_maximum(contract: &ChildContract, name: &str) -> Result<usize, ChildError> {
+    match (contract, name) {
+        (ChildContract::Review { .. }, "review.json") => Ok(1024 * 1024),
+        (ChildContract::Review { .. }, "transcript.log") => Ok(MAX_CHILD_OUTPUT_BYTES),
+        (ChildContract::Evidence { capture, .. }, "page.html") => {
+            usize::try_from(capture.maximum_dom_bytes).map_err(|_| ChildError::LengthOverflow)
+        }
+        (ChildContract::Evidence { capture, .. }, "page.png") => {
+            usize::try_from(capture.maximum_screenshot_bytes)
+                .map_err(|_| ChildError::LengthOverflow)
+        }
+        (ChildContract::Evidence { capture, .. }, "extract.json") => {
+            usize::try_from(capture.maximum_extract_bytes).map_err(|_| ChildError::LengthOverflow)
+        }
+        (ChildContract::Evidence { .. }, "hashes.json" | "execution.json") => Ok(128 * 1024),
         _ => Err(ChildError::UnexpectedOutput(name.to_owned())),
     }
+}
+
+fn expected_network_policy_sha256(contract: &ChildContract) -> Result<String, ChildError> {
+    let policy = match contract {
+        ChildContract::Review { .. } => "offline-review".to_owned(),
+        ChildContract::Evidence { capture, .. } => {
+            let remainder = capture
+                .allowed_url
+                .strip_prefix("https://")
+                .ok_or(ChildError::MalformedTerminal)?;
+            let host = remainder
+                .split('/')
+                .next()
+                .filter(|host| !host.is_empty())
+                .ok_or(ChildError::MalformedTerminal)?;
+            format!("preview={host}\ntransport=tcp/443\ndns=none\n")
+        }
+    };
+    Ok(hex::encode(Sha256::digest(policy.as_bytes())))
 }
 
 async fn create_job(
@@ -485,9 +552,15 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), ChildIoError> {
 
 async fn read_regular_bounded(path: PathBuf, maximum: usize) -> Result<Vec<u8>, ChildError> {
     tokio::task::spawn_blocking(move || {
-        let metadata = fs::symlink_metadata(&path)?;
+        let descriptor = rustix::fs::open(
+            &path,
+            rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::CLOEXEC | rustix::fs::OFlags::NOFOLLOW,
+            rustix::fs::Mode::empty(),
+        )
+        .map_err(std::io::Error::from)?;
+        let mut file = fs::File::from(descriptor);
+        let metadata = file.metadata()?;
         if !metadata.is_file()
-            || metadata.file_type().is_symlink()
             || metadata.nlink() != 1
             || metadata.permissions().mode() & 0o077 != 0
         {
@@ -496,7 +569,14 @@ async fn read_regular_bounded(path: PathBuf, maximum: usize) -> Result<Vec<u8>, 
         if metadata.len() > u64::try_from(maximum).unwrap_or(u64::MAX) {
             return Err(ChildIoError::TooLarge(path));
         }
-        fs::read(path).map_err(ChildIoError::Io)
+        let mut bytes = Vec::with_capacity(maximum.min(128 * 1024));
+        file.by_ref()
+            .take(u64::try_from(maximum).unwrap_or(u64::MAX).saturating_add(1))
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > maximum {
+            return Err(ChildIoError::TooLarge(path));
+        }
+        Ok(bytes)
     })
     .await
     .map_err(ChildError::Join)?
@@ -569,20 +649,41 @@ pub enum ChildError {
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, os::unix::fs::symlink};
+
     use super::{
-        ChildKind, ChildOutputClaim, ChildTerminal, ChildTerminalState, IsolationFacts,
-        TeardownFacts, validate_terminal,
+        ChildContract, ChildKind, ChildOutputClaim, ChildTerminal, ChildTerminalState,
+        EvidenceAction, EvidenceContract, IsolationFacts, TeardownFacts,
+        expected_network_policy_sha256, output_maximum, validate_terminal,
     };
     use uuid::Uuid;
 
-    fn terminal(state: ChildTerminalState) -> ChildTerminal {
+    fn contract() -> ChildContract {
+        ChildContract::Evidence {
+            capture: EvidenceContract {
+                allowed_url: "https://1.preview.example.dev/fixture".to_owned(),
+                expected_sha: "c".repeat(40),
+                actions: vec![EvidenceAction::Screenshot],
+                navigation_timeout_ms: 1_000,
+                action_timeout_ms: 1_000,
+                total_timeout_ms: 2_000,
+                maximum_dom_bytes: 1_024,
+                maximum_screenshot_bytes: 2_048,
+                maximum_extract_bytes: 512,
+            },
+            bearer_sha256: "d".repeat(64),
+            capability_id_sha256: "e".repeat(64),
+        }
+    }
+
+    fn terminal(state: ChildTerminalState, contract: &ChildContract) -> ChildTerminal {
         ChildTerminal {
             schema_version: 1,
             job_id: Uuid::new_v4(),
             kind: ChildKind::Evidence,
             state,
             request_sha256: "a".repeat(64),
-            network_policy_sha256: "b".repeat(64),
+            network_policy_sha256: expected_network_policy_sha256(contract).expect("policy"),
             outputs: Vec::<ChildOutputClaim>::new(),
             isolation: IsolationFacts {
                 sibling_unreachable: true,
@@ -608,34 +709,70 @@ mod tests {
 
     #[test]
     fn success_and_negative_states_require_zero_residue() {
+        let contract = contract();
         for state in [
             ChildTerminalState::Completed,
             ChildTerminalState::RedirectBlocked,
             ChildTerminalState::BrowserCrashed,
             ChildTerminalState::ChildTimedOut,
         ] {
-            let value = terminal(state);
-            validate_terminal(&value, value.job_id, value.kind, &value.request_sha256)
+            let value = terminal(state, &contract);
+            validate_terminal(&value, value.job_id, &contract, &value.request_sha256)
                 .expect("clean terminal");
         }
-        let mut residue = terminal(ChildTerminalState::BrowserCrashed);
+        let mut residue = terminal(ChildTerminalState::BrowserCrashed, &contract);
         residue.teardown.processes = 1;
         assert!(
-            validate_terminal(
-                &residue,
-                residue.job_id,
-                residue.kind,
-                &residue.request_sha256,
-            )
-            .is_err()
+            validate_terminal(&residue, residue.job_id, &contract, &residue.request_sha256,)
+                .is_err()
         );
     }
 
     #[test]
     fn teardown_failed_cannot_claim_clean_teardown() {
-        let value = terminal(ChildTerminalState::TeardownFailed);
+        let contract = contract();
+        let value = terminal(ChildTerminalState::TeardownFailed, &contract);
         assert!(
-            validate_terminal(&value, value.job_id, value.kind, &value.request_sha256,).is_err()
+            validate_terminal(&value, value.job_id, &contract, &value.request_sha256,).is_err()
         );
+    }
+
+    #[test]
+    fn completed_terminal_requires_probe_facts_and_exact_network_policy() {
+        let contract = contract();
+        let mut value = terminal(ChildTerminalState::Completed, &contract);
+        value.isolation.credential_paths_unreachable = false;
+        assert!(validate_terminal(&value, value.job_id, &contract, &value.request_sha256).is_err());
+
+        let mut value = terminal(ChildTerminalState::Completed, &contract);
+        value.network_policy_sha256 = "f".repeat(64);
+        assert!(validate_terminal(&value, value.job_id, &contract, &value.request_sha256).is_err());
+    }
+
+    #[test]
+    fn evidence_output_limits_come_from_each_contract() {
+        let contract = contract();
+        assert_eq!(
+            output_maximum(&contract, "page.html").expect("DOM cap"),
+            1_024
+        );
+        assert_eq!(
+            output_maximum(&contract, "page.png").expect("screenshot cap"),
+            2_048
+        );
+        assert_eq!(
+            output_maximum(&contract, "extract.json").expect("extract cap"),
+            512
+        );
+    }
+
+    #[tokio::test]
+    async fn bounded_output_read_rejects_symlinks_without_a_second_path_lookup() {
+        let temporary = tempfile::tempdir().expect("tempdir");
+        let target = temporary.path().join("target");
+        let link = temporary.path().join("link");
+        fs::write(&target, b"hostile").expect("target");
+        symlink(&target, &link).expect("symlink");
+        assert!(super::read_regular_bounded(link, 1024).await.is_err());
     }
 }

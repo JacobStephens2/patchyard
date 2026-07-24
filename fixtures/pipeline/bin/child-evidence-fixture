@@ -9,22 +9,55 @@ jq -e '.schema_version == 1 and .contract.kind == "evidence"' "$REQUEST" >/dev/n
 JOB_ID=$(jq -r .job_id "$REQUEST")
 ALLOWED_URL=$(jq -r .contract.capture.allowed_url "$REQUEST")
 EXPECTED_SHA=$(jq -r .contract.capture.expected_sha "$REQUEST")
-STATE=${ALLOWED_URL##*/}
+FIXTURE=${ALLOWED_URL##*/}
+STATE=$FIXTURE
+LEAK_SECRET=false
+LEAK_BEARER=false
+SECRET_SYMLINK=false
+case "$FIXTURE" in
+  completed_secret_residue)
+    STATE=completed
+    LEAK_SECRET=true
+    ;;
+  completed_secret_symlink)
+    STATE=completed
+    SECRET_SYMLINK=true
+    ;;
+  completed_bearer_disclosure)
+    STATE=completed
+    LEAK_BEARER=true
+    ;;
+  completed_authority_probe_forgery)
+    STATE=completed
+    ;;
+esac
 case "$STATE" in
   completed|redirect_blocked|dns_binding_changed|cross_origin_blocked|popup_blocked|download_blocked|output_limit_exceeded|bearer_disclosure_blocked|browser_crashed|authority_probe_failed|egress_probe_failed|child_timed_out|teardown_failed) ;;
   *) STATE=contract_rejected ;;
 esac
 REQUEST_SHA=$(sha256sum "$REQUEST" | cut -d' ' -f1)
+BEARER=
+if [[ "$LEAK_BEARER" == true ]]; then
+  BEARER=$(jq -r .secret "$JOB/secret/bearer.json")
+fi
 
-# The fixture models the privileged helper's guaranteed tmpfs-secret removal
-# before it publishes any output or terminal record.
-rm -rf -- "$JOB/secret"
+if [[ "$LEAK_SECRET" == false ]]; then
+  # The fixture models the privileged helper's guaranteed tmpfs-secret removal
+  # before it publishes any output or terminal record.
+  rm -rf -- "$JOB/secret"
+fi
+if [[ "$SECRET_SYMLINK" == true ]]; then
+  ln -s /definitely-missing-patchyard-secret "$JOB/secret"
+fi
 
 OUTPUTS='[]'
 if [[ "$STATE" == completed ]]; then
   printf '%s\n' \
     '<!doctype html><select id="sales_person_id"><option value="1">Ada</option></select>' \
     >"$JOB/output/page.html"
+  if [[ "$LEAK_BEARER" == true ]]; then
+    printf '%s\n' "$BEARER" >>"$JOB/output/page.html"
+  fi
   printf '\211PNG\r\n\032\nfixture' >"$JOB/output/page.png"
   jq -n \
     '{selects:[{id:"sales_person_id",options:[{label:"Ada",value:"1",selected:false,blank_sentinel:false}]}]}' \
@@ -86,6 +119,11 @@ PRIVATE_UNREACHABLE=true
   POSTGRES_UNREACHABLE=false
   ARTIFACT_UNREACHABLE=false
 }
+[[ "$FIXTURE" == completed_authority_probe_forgery ]] && {
+  AUTHORITY_UNREACHABLE=false
+  POSTGRES_UNREACHABLE=false
+  ARTIFACT_UNREACHABLE=false
+}
 [[ "$STATE" == egress_probe_failed ]] && {
   METADATA_UNREACHABLE=false
   PRIVATE_UNREACHABLE=false
@@ -109,13 +147,19 @@ jq -n \
   --argjson private_unreachable "$PRIVATE_UNREACHABLE" \
   --argjson teardown_complete "$TEARDOWN_COMPLETE" \
   --argjson processes "$PROCESSES" \
+  --arg network_policy_sha256 "$(
+    HOST=${ALLOWED_URL#https://}
+    HOST=${HOST%%/*}
+    printf 'preview=%s\ntransport=tcp/443\ndns=none\n' "$HOST" |
+      sha256sum | cut -d' ' -f1
+  )" \
   '{
     schema_version: 1,
     job_id: $job_id,
     kind: "evidence",
     state: $state,
     request_sha256: $request_sha256,
-    network_policy_sha256: ("1" * 64),
+    network_policy_sha256: $network_policy_sha256,
     outputs: $outputs,
     isolation: {
       sibling_unreachable: true,

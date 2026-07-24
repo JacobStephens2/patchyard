@@ -124,7 +124,7 @@ impl EvidenceCapture {
                 return Err(EvidenceError::BearerDisclosure(name.to_owned()));
             }
         }
-        validate_execution(execution, &contract)?;
+        validate_execution_attestation(execution, &contract)?;
         validate_hashes(
             hashes,
             &contract,
@@ -137,19 +137,25 @@ impl EvidenceCapture {
         )?;
 
         let mut stored = Vec::with_capacity(5);
+        let maximum_dom_bytes =
+            usize::try_from(contract.maximum_dom_bytes).map_err(|_| EvidenceError::Length)?;
+        let maximum_screenshot_bytes = usize::try_from(contract.maximum_screenshot_bytes)
+            .map_err(|_| EvidenceError::Length)?;
+        let maximum_extract_bytes =
+            usize::try_from(contract.maximum_extract_bytes).map_err(|_| EvidenceError::Length)?;
         for (name, kind, bytes, maximum) in [
-            ("page.html", "evidence-dom", page, MAX_DOM_BYTES),
+            ("page.html", "evidence-dom", page, maximum_dom_bytes),
             (
                 "page.png",
                 "evidence-screenshot",
                 screenshot,
-                MAX_SCREENSHOT_BYTES,
+                maximum_screenshot_bytes,
             ),
             (
                 "extract.json",
                 "evidence-extract",
                 extract,
-                MAX_EXTRACT_BYTES,
+                maximum_extract_bytes,
             ),
             ("hashes.json", "evidence-hashes", hashes, MAX_MANIFEST_BYTES),
             (
@@ -287,7 +293,13 @@ struct ExecutionManifest {
     bearer_disclosures: u16,
 }
 
-fn validate_execution(bytes: &[u8], contract: &EvidenceContract) -> Result<(), EvidenceError> {
+// These are observations by the fixed, reviewed controller. This validates
+// their typed attestation; independent supervisor checks cover returned bytes,
+// policy identity, authority probes, teardown, and capability-bound SHA.
+fn validate_execution_attestation(
+    bytes: &[u8],
+    contract: &EvidenceContract,
+) -> Result<(), EvidenceError> {
     let manifest: ExecutionManifest = serde_json::from_slice(bytes)?;
     if manifest.schema_version != 1
         || manifest.allowed_url != contract.allowed_url

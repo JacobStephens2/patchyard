@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 from pathlib import Path
+from contextlib import redirect_stdout
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +47,23 @@ class PreviewResolutionBinding(unittest.TestCase):
                 resolver=lambda _host: next(answers),
                 pause=lambda _seconds: None,
             )
+
+    def test_changed_set_process_contract_is_exit_42_with_named_state(self) -> None:
+        output = io.StringIO()
+        with (
+            patch.object(
+                resolver,
+                "resolve_stable",
+                side_effect=resolver.DnsBindingChanged,
+            ),
+            patch.object(resolver.sys, "argv", ["resolver", "15.preview.example.dev"]),
+            redirect_stdout(output),
+        ):
+            self.assertEqual(resolver.main(), 42)
+        self.assertEqual(
+            output.getvalue(),
+            '{"schema_version": 1, "state": "dns_binding_changed"}\n',
+        )
 
     def test_non_preview_name_is_rejected_before_resolution(self) -> None:
         with self.assertRaises(ValueError):

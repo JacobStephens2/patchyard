@@ -28,6 +28,7 @@ TRANSCRIPT_BYTES=$(stat -c %s "$JOB/output/transcript.log")
 jq -n \
   --arg job_id "$JOB_ID" \
   --arg request_sha256 "$REQUEST_SHA" \
+  --arg network_policy_sha256 "$(printf '%s' offline-review | sha256sum | cut -d' ' -f1)" \
   --arg review_sha256 "$REVIEW_SHA" \
   --arg transcript_sha256 "$TRANSCRIPT_SHA" \
   --argjson review_bytes "$REVIEW_BYTES" \
@@ -38,7 +39,7 @@ jq -n \
     kind: "review",
     state: "completed",
     request_sha256: $request_sha256,
-    network_policy_sha256: ("0" * 64),
+    network_policy_sha256: $network_policy_sha256,
     outputs: [
       {name: "review.json", sha256: $review_sha256, bytes: $review_bytes},
       {name: "transcript.log", sha256: $transcript_sha256, bytes: $transcript_bytes}

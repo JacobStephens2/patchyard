@@ -16,6 +16,7 @@ systemctl is-active --quiet patchyard-snapshot-metric.timer
 systemctl is-active --quiet factory-supervisor.service
 systemctl is-active --quiet factory-dashboard.service
 systemctl is-active --quiet caddy.service
+test "$(rpm -q chromium)" = chromium-150.0.7871.124-1.el9.x86_64
 ss -lntH | grep -Fq "$PRIVATE_IP:9100"
 ss -lntH | grep -Fq "$PRIVATE_IP:9187"
 ss -lntH | grep -Fq "$PRIVATE_IP:5432"

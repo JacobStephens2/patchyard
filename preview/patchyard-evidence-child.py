@@ -326,7 +326,7 @@ def run_controlled_browser(
     browser = (
         os.environ.get("PATCHYARD_EVIDENCE_TEST_CHROMIUM", "/opt/google/chrome/chrome")
         if TEST_MODE
-        else "/usr/bin/chromium-browser"
+        else "/usr/lib64/chromium-browser/chromium-browser"
     )
     command = [
         browser,

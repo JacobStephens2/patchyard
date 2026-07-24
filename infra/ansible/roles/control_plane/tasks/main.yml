@@ -7,7 +7,7 @@
 - name: Install control-plane packages
   ansible.builtin.dnf:
     name:
-      - chromium
+      - "{{ chromium_nevra }}"
       - bubblewrap
       - fontconfig
       - git
@@ -18,6 +18,7 @@
       - polkit
       - python3-pip
     state: present
+  tags: [session13]
 
 - name: Create the factory-owned Ansible desired-state directory
   ansible.builtin.file:
@@ -210,6 +211,7 @@
     owner: "{{ factory_manager_user }}"
     group: "{{ factory_manager_user }}"
     mode: "0700"
+  tags: [session13]
 
 - name: Recreate the isolated-child staging root after boot
   ansible.builtin.copy:
@@ -221,6 +223,7 @@
     owner: root
     group: root
     mode: "0644"
+  tags: [session13]
 
 - name: Create the per-child network-namespace configuration root
   ansible.builtin.file:
@@ -229,6 +232,7 @@
     owner: root
     group: root
     mode: "0755"
+  tags: [session13]
 
 - name: Create dashboard-writable intake spool
   ansible.builtin.file:
@@ -633,6 +637,7 @@
       - factory_supervisor_binary | length > 0
       - factory_supervisor_sha256 is defined
       - factory_supervisor_sha256 is match('^[0-9a-f]{64}$')
+  tags: [session13]
 
 - name: Hash the local factory-supervisor build artifact
   ansible.builtin.stat:
@@ -641,12 +646,14 @@
   delegate_to: localhost
   become: false
   register: local_factory_supervisor
+  tags: [session13]
 
 - name: Require the exact factory-supervisor build artifact
   ansible.builtin.assert:
     that:
       - local_factory_supervisor.stat.exists
       - local_factory_supervisor.stat.checksum == factory_supervisor_sha256
+  tags: [session13]
 
 - name: Install the reviewed factory-supervisor binary
   ansible.builtin.copy:
@@ -656,6 +663,7 @@
     group: root
     mode: "0755"
   notify: Restart factory supervisor
+  tags: [session13]
 
 - name: Require the reviewed factory-web build artifact
   ansible.builtin.assert:
@@ -988,6 +996,7 @@
     owner: root
     group: root
     mode: "0755"
+  tags: [session13]
 
 - name: Require a credential-free repository bundle
   ansible.builtin.assert:
@@ -997,11 +1006,13 @@
       - factory_repo_revision is defined
       - factory_repo_revision is match('^[0-9a-f]{40}$')
     fail_msg: "Use converge.sh so the control plane receives an exact Git bundle and revision."
+  tags: [session13]
 
 - name: Inspect the control-plane checkout
   ansible.builtin.stat:
     path: /opt/patchyard/.git
   register: factory_checkout
+  tags: [session13]
 
 - name: Transfer the existing checkout to the factory management identity
   ansible.builtin.file:
@@ -1010,6 +1021,7 @@
     group: "{{ factory_manager_user }}"
     recurse: true
   when: factory_checkout.stat.exists
+  tags: [session13]
 
 - name: Read the installed desired-state revision
   ansible.builtin.command:
@@ -1024,6 +1036,7 @@
   become_user: "{{ factory_manager_user }}"
   changed_when: false
   failed_when: false
+  tags: [session13]
 
 - name: Create the credential-free checkout root
   ansible.builtin.file:
@@ -1033,6 +1046,7 @@
     group: "{{ factory_manager_user }}"
     mode: "0750"
   when: not factory_checkout.stat.exists
+  tags: [session13]
 
 - name: Copy the bundle only when the checkout needs an update
   ansible.builtin.copy:
@@ -1042,6 +1056,7 @@
     group: "{{ factory_manager_user }}"
     mode: "0600"
   when: installed_factory_revision.stdout != factory_repo_revision
+  tags: [session13]
 
 - name: Create the credential-free control-plane checkout
   ansible.builtin.command:
@@ -1057,6 +1072,7 @@
   become_user: "{{ factory_manager_user }}"
   changed_when: true
   when: not factory_checkout.stat.exists
+  tags: [session13]
 
 - name: Fetch the exact desired state from the bundle
   ansible.builtin.command:
@@ -1071,6 +1087,7 @@
   become_user: "{{ factory_manager_user }}"
   changed_when: false
   when: installed_factory_revision.stdout != factory_repo_revision
+  tags: [session13]
 
 - name: Check out the exact desired-state revision
   ansible.builtin.command:
@@ -1086,6 +1103,7 @@
   become_user: "{{ factory_manager_user }}"
   changed_when: true
   when: installed_factory_revision.stdout != factory_repo_revision
+  tags: [session13]
 
 - name: Record the credential-free upstream URL
   ansible.builtin.command:
@@ -1100,6 +1118,7 @@
   become: true
   become_user: "{{ factory_manager_user }}"
   changed_when: false
+  tags: [session13]
 
 - name: Install the private-VPC management inventory
   ansible.builtin.template:
@@ -1238,6 +1257,7 @@
   become_user: "{{ factory_manager_user }}"
   register: session9_target_sha
   changed_when: false
+  tags: [session13]
 
 - name: Install the explicit fail-closed deployed-version source
   ansible.builtin.copy:
@@ -1323,6 +1343,7 @@
     group: "{{ factory_manager_user }}"
     mode: "0640"
   notify: Restart factory supervisor
+  tags: [session13]
 
 - name: Install the fixed A104 isolated-child operations
   ansible.builtin.copy:
@@ -1345,6 +1366,7 @@
       group: "{{ factory_manager_user }}"
       mode: "0750"
   notify: Restart factory supervisor
+  tags: [session13]
 
 - name: Install the fixed in-child browser and authority probes
   ansible.builtin.copy:
@@ -1358,6 +1380,7 @@
       destination: /usr/local/libexec/patchyard-evidence-child
     - source: patchyard-child-probe.py
       destination: /usr/local/libexec/patchyard-child-probe
+  tags: [session13]
 
 - name: Install the scoped isolated-child systemd template
   ansible.builtin.copy:
@@ -1367,6 +1390,7 @@
     group: root
     mode: "0644"
   notify: Restart factory supervisor
+  tags: [session13]
 
 - name: Install the UUID-only isolated-child Polkit delegation
   ansible.builtin.copy:
@@ -1376,6 +1400,7 @@
     group: root
     mode: "0644"
   notify: Restart Polkit
+  tags: [session13]
 
 - name: Install the factory supervisor systemd unit
   ansible.builtin.copy:
@@ -1385,6 +1410,7 @@
     group: root
     mode: "0644"
   notify: Restart factory supervisor
+  tags: [session13]
 
 - name: Enable the factory supervisor daemon
   ansible.builtin.systemd:
@@ -1392,6 +1418,7 @@
     enabled: true
     state: started
     daemon_reload: true
+  tags: [session13]
 
 - name: Remove the superseded direct Session 7 browser entry points
   ansible.builtin.file:
@@ -1400,6 +1427,7 @@
   loop:
     - /usr/local/libexec/patchyard-headless
     - /usr/local/sbin/patchyard-preview-capture
+  tags: [session13]
 
 - name: Publish the expected PHPUnit checksum to the verifier coordinator
   ansible.builtin.copy:
@@ -1414,3 +1442,4 @@
     path: /var/tmp/patchyard.bundle
     state: absent
   when: installed_factory_revision.stdout != factory_repo_revision
+  tags: [session13]

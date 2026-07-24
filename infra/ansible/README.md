@@ -90,6 +90,7 @@ From a committed revision, after the DigitalOcean apply:
 ```bash
 infra/ansible/converge.sh
 infra/ansible/converge.sh --check
+infra/ansible/converge-session13.sh
 infra/ansible/converge-preview.sh
 infra/ansible/qualify.sh
 ```
@@ -112,6 +113,12 @@ forced lease command, one-job capability translator, internal-only translator
 network, factory-slot Traefik middleware, and lease expiry timer. The preview's
 long-lived authority remains root-readable on that host; convergence removes
 the superseded control-plane copy.
+
+`converge-session13.sh` is the narrow control-plane apply path for the A104
+child boundary while the unrelated dashboard identity roster remains
+deliberately unresolved. It builds and hashes only `factory-supervisor`, sends
+the committed repository as a credential-free bundle, and selects only tasks
+tagged `session13`; it does not bypass or synthesize dashboard identities.
 
 After bootstrap, the control plane can re-apply the current host-local desired
 state without orchestration or cloud credentials:

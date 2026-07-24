@@ -2,7 +2,7 @@
   "schema_version": 1,
   "generated_by": "tools/check-codebase.sh",
   "tokei_version": "14.0.0",
-  "source_revision": "sha256:10be22e2258832a2d83962c50a7a4777ce5b09cd4709598e62068bf08760b8b1",
+  "source_revision": "sha256:443da1b1c2a397a54fabddf8392efbb6ed5e554b5cbefa6ea89f980c72b72745",
   "roles": [
     {
       "role": "product",
@@ -73,14 +73,14 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 9612,
-      "comments": 379,
-      "blanks": 983,
-      "files": 112,
+      "code": 9680,
+      "comments": 385,
+      "blanks": 991,
+      "files": 113,
       "languages": [
         {
           "language": "BASH",
-          "code": 3202,
+          "code": 3204,
           "comments": 87,
           "blanks": 250,
           "files": 30
@@ -116,8 +116,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 215,
-          "blanks": 58,
+          "comments": 220,
+          "blanks": 59,
           "files": 6
         },
         {
@@ -136,10 +136,10 @@
         },
         {
           "language": "Shell",
-          "code": 480,
-          "comments": 15,
-          "blanks": 70,
-          "files": 14
+          "code": 516,
+          "comments": 16,
+          "blanks": 77,
+          "files": 15
         },
         {
           "language": "Snakemake",
@@ -157,7 +157,7 @@
         },
         {
           "language": "YAML",
-          "code": 2434,
+          "code": 2464,
           "comments": 4,
           "blanks": 270,
           "files": 19

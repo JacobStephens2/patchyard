@@ -22,7 +22,11 @@ The helper accepts two closed job kinds:
 
 The helper creates the same fresh Bubblewrap mount/PID/IPC/UTS boundary for
 both kinds. For evidence it additionally creates a fresh network namespace and
-host firewall rules before starting Chromium. The child sees only explicit
+host firewall rules before starting Chromium. A fixed DevTools-protocol
+controller intercepts every page request before use, rejects any origin other
+than the contract origin, and adds the preview capability only to accepted
+requests; selectors are data in fixed reviewed controller code, never
+caller-supplied JavaScript. The child sees only explicit
 read-only inputs, a tmpfs home and secret path, and one new output directory.
 It never sees a PostgreSQL socket, GitHub App key, model or vault credential,
 repository credential, sibling review, shared scratch, or artifact-tree mount.
@@ -101,19 +105,25 @@ The evidence manifest permits only:
   manifest.
 
 Every redirect target and observed HTTP(S) request is re-parsed and compared
-with the exact allowed origin. Host resolution is checked twice before launch;
-the allowed A/AAAA set is installed into the network-layer rule and pinned for
+with the exact allowed origin before the request continues. Host resolution is
+checked twice before launch; the allowed IPv4 set is installed into the
+network-layer rule and pinned for
 the browser. A changed set fails before Chromium starts. The firewall starts
 from deny-all, permits the pinned preview addresses on TCP 443 and the declared
 resolver addresses on TCP/UDP 53, and therefore denies metadata, loopback,
 link-local, RFC 1918, CGNAT, ULA, and the rest of the private fleet unless one
 is the preview lease itself (private preview targets are never accepted).
 
-The bearer envelope has a unique capability ID, an expiry no more than five
-minutes after launch, and one secret. It is staged only beneath `/run` tmpfs,
-mounted read-only into the child, unmounted before output validation, and
-destroyed on every exit path. Output validation rejects the bearer bytes and
-capability ID in every returned file.
+The preview lease manager issues a random capability bound to one lease ID,
+slot, exact SHA, origin, capture ID, and expiry no more than five minutes after
+issuance. The preview edge accepts it only while that hashed capability record
+is active and translates it to the preview's existing authority on an internal,
+no-egress Docker network. The long-lived preview authority never leaves the
+preview host. The envelope is staged only beneath `/run` tmpfs, mounted
+read-only into the child, and destroyed on every exit path. The scoped helper
+revokes the remote capability after the child ends; revocation failure
+overrides every other outcome with `teardown_failed`. Output validation rejects
+the bearer bytes and capability ID in every returned file.
 
 ## Predeclared negative-fixture inventory
 
@@ -133,7 +143,7 @@ evidence artifact:
 | S13-N09 | In-child probe reaches a credential path, PostgreSQL/management socket, repository credential, sibling/shared scratch, or artifact path | `authority_probe_failed` |
 | S13-N10 | In-child probe reaches cloud metadata, a representative private-fleet address, an undeclared DNS server, or any non-preview destination | `egress_probe_failed` |
 | S13-N11 | Child forks or hangs past cancellation/timeout | `child_timed_out` |
-| S13-N12 | Any process, mount, namespace, tmpfs bearer, staging path, or firewall rule remains after normal, failed, cancelled, or crashed execution | `teardown_failed` |
+| S13-N12 | Any process, mount, namespace, tmpfs bearer, active preview capability, staging path, or firewall rule remains after normal, failed, cancelled, or crashed execution | `teardown_failed` |
 
 Positive fixtures are one provider-free review-bearing dry run through the
 hardened daemon and one isolated evidence capture whose screenshot, DOM
@@ -157,4 +167,3 @@ reports complete teardown.
 - Browser and review output are untrusted bytes. Schema, count, size, path,
   ownership, link count, file type, and digest checks occur before artifact
   import.
-

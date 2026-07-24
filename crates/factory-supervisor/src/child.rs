@@ -72,6 +72,7 @@ pub struct EvidenceContract {
 #[serde(deny_unknown_fields)]
 pub struct PreviewBearer {
     pub capability_id: String,
+    pub lease_id: String,
     pub expires_at_unix: i64,
     pub secret: String,
 }
@@ -144,6 +145,7 @@ pub struct TeardownFacts {
     pub secret_files: u32,
     pub staging_paths: u32,
     pub firewall_rules: u32,
+    pub preview_capabilities: u32,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -342,7 +344,8 @@ fn validate_terminal(
         && clean.namespaces == 0
         && clean.secret_files == 0
         && clean.staging_paths == 0
-        && clean.firewall_rules == 0;
+        && clean.firewall_rules == 0
+        && clean.preview_capabilities == 0;
     if terminal.state == ChildTerminalState::TeardownFailed {
         if clean.complete && zero_residue {
             return Err(ChildError::MalformedTerminal);
@@ -564,6 +567,7 @@ mod tests {
                 secret_files: 0,
                 staging_paths: 0,
                 firewall_rules: 0,
+                preview_capabilities: 0,
             },
         }
     }

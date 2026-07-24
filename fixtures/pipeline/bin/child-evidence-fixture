@@ -133,7 +133,8 @@ jq -n \
       namespaces: 0,
       secret_files: 0,
       staging_paths: 0,
-      firewall_rules: 0
+      firewall_rules: 0,
+      preview_capabilities: 0
     }
   }' >"$JOB/terminal.json"
 chmod 0600 "$JOB/terminal.json"

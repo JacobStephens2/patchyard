@@ -237,6 +237,8 @@ fn validate_bearer(bearer: &PreviewBearer) -> Result<(), EvidenceError> {
         || bearer.secret.len() < 16
         || bearer.secret.len() > 8192
         || bearer.secret.contains(['\n', '\r'])
+        || bearer.lease_id.len() != 32
+        || !lower_hex(&bearer.lease_id)
         || bearer.expires_at_unix <= now
         || bearer.expires_at_unix > now + 300
     {

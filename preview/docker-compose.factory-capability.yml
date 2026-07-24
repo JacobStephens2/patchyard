@@ -1,0 +1,38 @@
+networks:
+  factory-capability:
+    name: patchyard-preview-capability
+    internal: true
+
+services:
+  traefik:
+    networks:
+      - preview-net
+      - factory-capability
+
+  factory-capability:
+    image: python:3.13.5-alpine3.22@sha256:f1a962d8ffa50b2006b72b4713a09a89e57def2d28ac28a36900bc070a00db61
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 32
+    mem_limit: 64m
+    cpus: 0.25
+    command:
+      - /usr/local/bin/python
+      - -I
+      - /app/patchyard-preview-capability.py
+    volumes:
+      - /usr/local/libexec/patchyard-preview-capability.py:/app/patchyard-preview-capability.py:ro,Z
+      - /var/lib/patchyard-preview/capabilities:/capabilities:ro,Z
+      - /etc/patchyard-preview/patchyard-api-key:/secret/patchyard-api-key:ro,Z
+    networks:
+      - factory-capability
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: patchyard-preview-capability
+      traefik.http.middlewares.patchyard-capability.forwardauth.address: "http://factory-capability:8080/auth"
+      traefik.http.middlewares.patchyard-capability.forwardauth.authResponseHeaders: "Authorization"
+      traefik.http.middlewares.patchyard-capability.forwardauth.trustForwardHeader: "false"

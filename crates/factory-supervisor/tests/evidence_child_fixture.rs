@@ -211,6 +211,7 @@ fn bearer() -> PreviewBearer {
         .as_secs();
     PreviewBearer {
         capability_id: format!("fixture-{}", Uuid::new_v4().simple()),
+        lease_id: Uuid::new_v4().simple().to_string(),
         expires_at_unix: i64::try_from(now).expect("clock range") + 60,
         secret: format!("secret-{}", Uuid::new_v4().simple()),
     }

@@ -6,4 +6,6 @@ ANSIBLE_ROOT="$REPO_ROOT/infra/ansible"
 
 cd "$ANSIBLE_ROOT"
 ansible-lint site.yml
+ansible-lint preview.yml
 ansible-playbook --syntax-check -i inventory/ci.yml site.yml
+ansible-playbook --syntax-check -i inventory/ci.yml -i inventory/preview.yml preview.yml

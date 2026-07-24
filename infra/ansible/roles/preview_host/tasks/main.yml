@@ -1,0 +1,155 @@
+---
+- name: Validate the factory control-plane inventory
+  ansible.builtin.assert:
+    that:
+      - groups['control_plane'] | length == 1
+      - hostvars[groups['control_plane'][0]].private_ip is match('^10\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}$')
+      - hostvars[groups['control_plane'][0]].factory_preview_public_key.content | length > 0
+    quiet: true
+
+- name: Create preview capability configuration paths
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: /etc/patchyard-preview
+      owner: root
+      group: root
+      mode: "0755"
+    - path: /var/lib/patchyard-preview
+      owner: conductor
+      group: conductor
+      mode: "0700"
+    - path: /var/lib/patchyard-preview/capabilities
+      owner: conductor
+      group: conductor
+      mode: "0700"
+
+- name: Install the preview lease and capability programs
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../preview/{{ item.source }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - source: patchyard-preview-lease.py
+      dest: /usr/local/sbin/patchyard-preview-lease
+      mode: "0755"
+    - source: patchyard-preview-access
+      dest: /usr/local/sbin/patchyard-preview-access
+      mode: "0755"
+    - source: patchyard-preview-access.service
+      dest: /etc/systemd/system/patchyard-preview-access.service
+      mode: "0644"
+    - source: patchyard-preview-sweep.service
+      dest: /etc/systemd/system/patchyard-preview-sweep.service
+      mode: "0644"
+    - source: patchyard-preview-sweep.timer
+      dest: /etc/systemd/system/patchyard-preview-sweep.timer
+      mode: "0644"
+    - source: patchyard-preview-capability.py
+      dest: /usr/local/libexec/patchyard-preview-capability.py
+      mode: "0555"
+    - source: docker-compose.factory-capability.yml
+      dest: /etc/patchyard-preview/docker-compose.factory-capability.yml
+      mode: "0644"
+    - source: docker-compose.factory-slot.yml
+      dest: /etc/patchyard-preview/docker-compose.factory-slot.yml
+      mode: "0644"
+  notify:
+    - Reload preview systemd
+    - Restart preview access
+
+- name: Install the factory control private address
+  ansible.builtin.copy:
+    content: "{{ hostvars[groups['control_plane'][0]].private_ip }}\n"
+    dest: /etc/patchyard-preview/control-private-ip
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart preview access
+
+- name: Install the forced-command control-plane bridge key
+  ansible.posix.authorized_key:
+    user: conductor
+    state: present
+    key: "{{ hostvars[groups['control_plane'][0]].factory_preview_public_key.content | b64decode | trim }}"
+    key_options: restrict,command="/usr/local/sbin/patchyard-preview-lease"
+  no_log: true
+
+- name: Derive the preview authority without exporting it from the preview host
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -euo pipefail
+      temporary=$(mktemp /etc/patchyard-preview/patchyard-api-key.XXXXXX)
+      trap 'rm -f -- "$temporary"' EXIT
+      awk -F= '$1 == "ETA_API_KEY" {sub(/^[^=]*=/, ""); print; found=1; exit} END {exit !found}' \
+        /opt/preview-fieldbooks/.env >"$temporary"
+      test -s "$temporary"
+      chmod 0400 "$temporary"
+      chown root:root "$temporary"
+      if test -f /etc/patchyard-preview/patchyard-api-key &&
+         cmp -s "$temporary" /etc/patchyard-preview/patchyard-api-key; then
+        echo unchanged
+        exit 0
+      fi
+      mv -f -- "$temporary" /etc/patchyard-preview/patchyard-api-key
+      trap - EXIT
+      echo changed
+  register: factory_preview_authority
+  changed_when: factory_preview_authority.stdout == "changed"
+  no_log: true
+
+- name: Flush preview service handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Start the isolated preview capability translator
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/docker
+      - compose
+      - -p
+      - preview
+      - -f
+      - /opt/preview-fieldbooks/docker-compose.traefik.yml
+      - -f
+      - /etc/patchyard-preview/docker-compose.factory-capability.yml
+      - --env-file
+      - /opt/preview-fieldbooks/.env
+      - up
+      - -d
+  register: factory_preview_compose
+  changed_when: >-
+    'Created' in factory_preview_compose.stderr or
+    'Recreated' in factory_preview_compose.stderr or
+    'Started' in factory_preview_compose.stderr
+
+- name: Enable preview capability expiry and lease cleanup
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - patchyard-preview-access.service
+    - patchyard-preview-sweep.timer
+
+- name: Qualify the preview capability boundary
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -euo pipefail
+      test "$(stat -c '%U:%G:%a' /var/lib/patchyard-preview/capabilities)" = conductor:conductor:700
+      test "$(stat -c '%U:%G:%a' /etc/patchyard-preview/patchyard-api-key)" = root:root:400
+      docker inspect preview-factory-capability-1 --format '{{ "{{" }}.State.Running{{ "}}" }} {{ "{{" }}.HostConfig.ReadonlyRootfs{{ "}}" }} {{ "{{" }}.HostConfig.NetworkMode{{ "}}" }}' |
+        grep -Fx 'true true patchyard-preview-capability'
+      docker inspect preview-traefik-1 --format '{{ "{{" }}json .NetworkSettings.Networks{{ "}}" }}' |
+        jq -e 'has("patchyard-preview-capability") and has("preview-net")' >/dev/null
+      test "$(docker inspect preview-factory-capability-1 --format '{{ "{{" }}len .NetworkSettings.Networks{{ "}}" }}')" = 1
+      ! docker inspect preview-factory-capability-1 --format '{{ "{{" }}json .Config.Env{{ "}}" }}' |
+        grep -q 'ETA_API_KEY'
+  changed_when: false

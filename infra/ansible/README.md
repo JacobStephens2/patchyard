@@ -90,6 +90,7 @@ From a committed revision, after the DigitalOcean apply:
 ```bash
 infra/ansible/converge.sh
 infra/ansible/converge.sh --check
+infra/ansible/converge-preview.sh
 infra/ansible/qualify.sh
 ```
 
@@ -104,6 +105,13 @@ worker rule rejects orchestration, the control-plane identity still reaches and
 qualifies the worker over the private VPC. Worker qualification also verifies
 the Firecracker/kernel/rootfs pins, 30-day host lifetime, zero runtime residue,
 and the fail-closed boundary-taint state.
+
+`converge-preview.sh` is the separate, narrow GitOps path for the shared
+preview host and its credential-free control-plane client. It installs the
+forced lease command, one-job capability translator, internal-only translator
+network, factory-slot Traefik middleware, and lease expiry timer. The preview's
+long-lived authority remains root-readable on that host; convergence removes
+the superseded control-plane copy.
 
 After bootstrap, the control plane can re-apply the current host-local desired
 state without orchestration or cloud credentials:

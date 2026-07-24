@@ -8,6 +8,8 @@ ID=${JOB#"$ROOT/"}
 [[ "$ID" =~ ^[0-9a-f]{32}$ && "$JOB" == "$ROOT/$ID" ]]
 [[ "$(readlink -f -- "$JOB")" == "$JOB" ]]
 [[ "$(stat -c '%U:%a' "$JOB")" == factory-manager:700 ]]
-/usr/bin/systemctl start "patchyard-child@$ID.service"
+# A child policy failure deliberately makes the transient unit fail.  The
+# terminal record, not systemd's unit result, is the typed protocol result.
+/usr/bin/systemctl start "patchyard-child@$ID.service" >/dev/null 2>&1 || true
 [[ -f "$JOB/terminal.json" && ! -L "$JOB/terminal.json" ]]
 printf 'child_terminal=%s\n' "$JOB/terminal.json"

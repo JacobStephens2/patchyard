@@ -5,6 +5,7 @@ REPO_ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 cd "$REPO_ROOT"
 
 tools/check-constitution.sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s preview/tests -v
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 # PostgreSQL integration binaries share singleton supervisor/control state.

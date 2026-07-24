@@ -300,8 +300,9 @@ if [[ "$KIND" == review ]]; then
   WORKSPACE=$(jq -r .contract.workspace "$REQUEST")
   REVIEWED_SHA=$(jq -r .contract.reviewed_sha "$REQUEST")
   [[ "$(readlink -f -- "$WORKSPACE")" == "$WORKSPACE" ]]
-  [[ "$(git -C "$WORKSPACE" rev-parse HEAD)" == "$REVIEWED_SHA" ]]
-  [[ -z "$(git -C "$WORKSPACE" status --porcelain)" ]]
+  [[ "$(git -c "safe.directory=$WORKSPACE" -C "$WORKSPACE" rev-parse HEAD)" \
+    == "$REVIEWED_SHA" ]]
+  [[ -z "$(git -c "safe.directory=$WORKSPACE" -C "$WORKSPACE" status --porcelain)" ]]
   path_contract "$JOB/input/packet.json" "$MANAGER_USER" 600 file
   path_contract "$JOB/input/prompt.md" "$MANAGER_USER" 600 file
   [[ "$(sha256sum "$JOB/input/packet.json" | cut -d' ' -f1)" \

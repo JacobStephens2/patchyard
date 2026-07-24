@@ -1421,6 +1421,40 @@
   notify: Restart Polkit
   tags: [session13]
 
+- name: List failed isolated-child unit records
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - list-units
+      - --failed
+      - --plain
+      - --no-legend
+      - "patchyard-child@*.service"
+  register: failed_isolated_child_units
+  changed_when: false
+  tags: [session13]
+
+- name: Require UUID-only failed isolated-child unit records
+  ansible.builtin.assert:
+    that:
+      - (item.split() | first) is match('^patchyard-child@[0-9a-f]{32}[.]service$')
+  loop: "{{ failed_isolated_child_units.stdout_lines }}"
+  loop_control:
+    label: "{{ item.split() | first }}"
+  tags: [session13]
+
+- name: Clear failed isolated-child unit records
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - reset-failed
+      - "{{ item.split() | first }}"
+  loop: "{{ failed_isolated_child_units.stdout_lines }}"
+  loop_control:
+    label: "{{ item.split() | first }}"
+  changed_when: true
+  tags: [session13]
+
 - name: Install the factory supervisor systemd unit
   ansible.builtin.copy:
     src: factory-supervisor.service

@@ -53,6 +53,18 @@ instance eligible for systemd garbage collection; it grants no new execution
 verb. The helper accepts no command, shell text, mount list, environment name,
 destination address, JavaScript, or Chromium argument from a job manifest.
 
+Live evidence qualification uses
+`factory-evidence-qualification.service`, a fixed one-shot entry point to the
+same Rust `EvidenceCapture` and `IsolatedChildSpawner` path. It runs as
+`factory-manager` with `NoNewPrivileges=true`, `ProtectSystem=strict`, no
+database or GitHub environment, and `AF_UNIX` only. A root-owned staging
+command obtains the one-use capability through the credential-free preview
+bridge, writes the fixed capture contract into `/run` tmpfs, starts the
+qualification service, validates its terminal proof, prints only a
+secret-free summary, and removes the qualification input and result. The
+one-shot service is a qualification caller, not another isolation boundary:
+both review and evidence still cross only the UUID-templated child helper.
+
 ## Alternatives considered
 
 ### Direct `systemd-run` transient scopes
@@ -180,3 +192,46 @@ reports complete teardown.
 - Browser and review output are untrusted bytes. Schema, count, size, path,
   ownership, link count, file type, and digest checks occur before artifact
   import.
+
+## Qualification results
+
+The provider-free review exit ran through the resident hardened supervisor:
+
+- request `9e5ec323-5c70-4c14-a0c3-0ae327a7b802`;
+- run `ded245ab-f7c6-4f26-91ea-3304d0f21af3`;
+- exact reviewed Fieldbook SHA
+  `fdb9b62ac58ec28730e3076c4cdbaa679708432b`;
+- two independent `review.submitted` events followed by `verify.passed` and
+  `run.dry_run_complete`;
+- no child unit or `/run/patchyard-children` entry after completion.
+
+The live evidence exit leased preview slot 15 at exact Fieldbook SHA
+`4ef35181f7a700b02e63808e483d7c23f33b91d8` and completed:
+
+- qualification request `25969aad-e7ce-4733-85e0-43322b5448a0`;
+- qualification run `7e55f3b9-3f8e-4b7b-941c-6afc581304ad`;
+- isolated job `ab2bb1fc-ca01-4f9d-b4c6-bf06415e2705`;
+- five post-teardown imports: DOM
+  `28f1d17dee3ec8086f30744491aea4e1a09f63220803fbc480666bf260a3c40b`,
+  screenshot
+  `d4c1f6039718d268b6ac193b3144d87ce10e3da49b52933ef9519be1bf68461e`,
+  extract
+  `5e220d5fde8aeebe7e28d09dd366c789a929993b200c5099be2ddcf42fa6d7a0`,
+  hashes
+  `041726dab380fcf5e749120496f5899e2dada688ccf9dbae21ce74847f2c796f`,
+  and execution manifest
+  `19352c490866de4685713a85276d5da14e52f954e1fcf63937cbebe6c419230a`;
+- all seven isolation facts true and all eight teardown residue counters zero;
+- preview release reported `cleanup_complete`, with no child unit, child
+  staging entry, network namespace, veth, or child nftables table remaining.
+
+The declared negative inventory is executable at two layers. The real
+Chromium suite reaches the named redirect, cross-origin, popup, download,
+oversize, bearer-disclosure, browser-crash, and timeout states. The stable
+resolver suite changes the answer set between its two production resolution
+calls and reaches `dns_binding_changed`. The Rust boundary fixture asserts all
+S13-N01 through S13-N12 terminal states, zero imported artifacts, and empty
+staging after each case. The live positive child independently runs the
+authority and network probes inside the actual Bubblewrap/network namespace;
+any reachable protected path or destination maps to
+`authority_probe_failed` or `egress_probe_failed` before import.

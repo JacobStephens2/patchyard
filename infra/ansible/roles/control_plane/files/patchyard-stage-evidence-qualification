@@ -22,6 +22,7 @@ RUN_ID=$(uuidgen)
 cleanup() {
   local temporary=${TEMPORARY:-}
   [[ -z "$temporary" ]] || rm -f -- "$temporary"
+  rm -f -- "$INPUT" "$RESULT"
   unset AUTHORIZATION
   /usr/sbin/runuser -u factory-manager -- \
     env -i HOME=/var/lib/patchyard-manager PATH=/usr/bin:/bin \
@@ -108,4 +109,16 @@ jq -e \
      "evidence-extract",
      "evidence-hashes",
      "evidence-screenshot"
-   ]' "$RESULT"
+   ]' "$RESULT" >/dev/null
+jq -c '{
+  request_id,
+  run_id,
+  artifact_sha256: [.artifacts[].sha256],
+  terminal: {
+    job_id: .terminal.job_id,
+    state: .terminal.state,
+    network_policy_sha256: .terminal.network_policy_sha256,
+    isolation: .terminal.isolation,
+    teardown: .terminal.teardown
+  }
+}' "$RESULT"

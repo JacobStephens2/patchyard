@@ -425,19 +425,22 @@ ALLOWED_URL=$(jq -r .contract.capture.allowed_url "$REQUEST")
 HOST=${ALLOWED_URL#https://}
 HOST=${HOST%%/*}
 
-mapfile -t RESOLUTION_ONE < <(getent ahostsv4 "$HOST" | awk '{print $1}' | sort -u)
-[[ "${#RESOLUTION_ONE[@]}" -gt 0 ]]
-sleep 0.05
-mapfile -t RESOLUTION_TWO < <(getent ahostsv4 "$HOST" | awk '{print $1}' | sort -u)
-if [[ "${RESOLUTION_ONE[*]}" != "${RESOLUTION_TWO[*]}" ]]; then
+set +e
+RESOLUTION=$(/usr/local/libexec/patchyard-preview-resolver "$HOST")
+RESOLUTION_STATUS=$?
+set -e
+if [[ "$RESOLUTION_STATUS" -eq 42 ]]; then
   STATE=dns_binding_changed
   exit 1
 fi
-for address in "${RESOLUTION_ONE[@]}"; do
-  python3 -c \
-    'import ipaddress,sys; a=ipaddress.ip_address(sys.argv[1]); raise SystemExit(0 if a.is_global else 1)' \
-    "$address"
-done
+[[ "$RESOLUTION_STATUS" -eq 0 ]]
+jq -e \
+  --arg host "$HOST" \
+  '.schema_version == 1 and .state == "stable" and .host == $host
+   and (.addresses | type == "array" and length > 0)
+   and all(.[]; test("^[0-9]{1,3}(\\.[0-9]{1,3}){3}$"))' \
+  <<<"$RESOLUTION" >/dev/null
+mapfile -t RESOLUTION_ONE < <(jq -r '.addresses[]' <<<"$RESOLUTION")
 mapfile -t DNS_SERVERS < <(awk '$1 == "nameserver" {print $2}' /etc/resolv.conf | sort -u)
 [[ "${#DNS_SERVERS[@]}" -gt 0 ]]
 

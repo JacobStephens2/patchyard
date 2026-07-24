@@ -2,7 +2,7 @@
   "schema_version": 1,
   "generated_by": "tools/check-codebase.sh",
   "tokei_version": "14.0.0",
-  "source_revision": "sha256:926a22b2a41a9a579f8a7f9eae5f5f92eb9cdb021c4252667dbb7f91e392516c",
+  "source_revision": "sha256:e2a5838c2ca1c7c0c5aaf4943344d03157567d5544ae9b859a74f9caf9fb03fe",
   "roles": [
     {
       "role": "product",
@@ -73,14 +73,14 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 9985,
-      "comments": 386,
-      "blanks": 1007,
-      "files": 114,
+      "code": 10115,
+      "comments": 387,
+      "blanks": 1034,
+      "files": 116,
       "languages": [
         {
           "language": "BASH",
-          "code": 3371,
+          "code": 3388,
           "comments": 88,
           "blanks": 255,
           "files": 31
@@ -129,10 +129,10 @@
         },
         {
           "language": "Python",
-          "code": 1866,
-          "comments": 7,
-          "blanks": 199,
-          "files": 8
+          "code": 1977,
+          "comments": 8,
+          "blanks": 226,
+          "files": 10
         },
         {
           "language": "Shell",
@@ -157,7 +157,7 @@
         },
         {
           "language": "YAML",
-          "code": 2588,
+          "code": 2590,
           "comments": 4,
           "blanks": 281,
           "files": 19
@@ -248,8 +248,8 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8004,
-      "comments": 8302,
-      "blanks": 2608,
+      "comments": 8350,
+      "blanks": 2615,
       "files": 98,
       "languages": [
         {
@@ -269,8 +269,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 8288,
-          "blanks": 2557,
+          "comments": 8336,
+          "blanks": 2564,
           "files": 78
         },
         {

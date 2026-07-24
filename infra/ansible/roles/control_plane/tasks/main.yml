@@ -1424,6 +1424,8 @@
       destination: /usr/local/libexec/patchyard-evidence-child
     - source: patchyard-child-probe.py
       destination: /usr/local/libexec/patchyard-child-probe
+    - source: patchyard-preview-resolver.py
+      destination: /usr/local/libexec/patchyard-preview-resolver
   tags: [session13]
 
 - name: Install the fixed evidence qualification runner

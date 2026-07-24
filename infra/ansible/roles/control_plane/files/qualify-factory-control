@@ -94,6 +94,7 @@ test -x /usr/local/libexec/patchyard-spawn-child
 test -x /usr/local/libexec/patchyard-cancel-child
 test -x /usr/local/libexec/patchyard-evidence-child
 test -x /usr/local/libexec/patchyard-child-probe
+test -x /usr/local/libexec/patchyard-preview-resolver
 test -x /usr/local/bin/factory-evidence-qualify
 test -x /usr/local/sbin/patchyard-stage-evidence-qualification
 test -x /usr/local/libexec/patchyard-deployed-version-unconfigured

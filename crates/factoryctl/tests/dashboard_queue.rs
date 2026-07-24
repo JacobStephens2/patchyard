@@ -1,4 +1,6 @@
-use std::{error::Error, path::Path, process::Stdio, time::Duration};
+use std::{
+    error::Error, fs, os::unix::fs::PermissionsExt as _, path::Path, process::Stdio, time::Duration,
+};
 
 use axum::{
     body::Body,
@@ -44,6 +46,9 @@ async fn form_notify_claim_and_factoryctl_pause_are_one_durable_path() -> Result
         .expect("workspace root")
         .to_path_buf();
     let artifact_root = tempfile::tempdir()?;
+    let upload_root = artifact_root.path().join("uploads");
+    fs::create_dir(&upload_root)?;
+    fs::set_permissions(&upload_root, fs::Permissions::from_mode(0o700))?;
     let dashboard = DashboardStore::connect(&dashboard_url).await?;
     let app =
         router(AppState::load(dashboard, checkout, artifact_root.path().to_path_buf()).await?);
@@ -353,14 +358,21 @@ async fn submit(
     csrf: &str,
     body: &str,
 ) -> Result<StatusCode, Box<dyn Error>> {
-    let encoded_body = body.replace(' ', "+");
+    let boundary = format!("patchyard-{}", Uuid::new_v4());
+    let multipart = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{csrf}\r\n\
+         --{boundary}\r\nContent-Disposition: form-data; name=\"request_body\"\r\n\r\n{body}\r\n\
+         --{boundary}--\r\n"
+    );
     let request = Request::builder()
         .method(Method::POST)
         .uri("/new")
         .header(header::COOKIE, cookie)
-        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-        .body(Body::from(format!(
-            "request_body={encoded_body}&csrf_token={csrf}"
-        )))?;
+        .header(
+            header::CONTENT_TYPE,
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .header(header::CONTENT_LENGTH, multipart.len().to_string())
+        .body(Body::from(multipart))?;
     Ok(app.clone().oneshot(request).await?.status())
 }

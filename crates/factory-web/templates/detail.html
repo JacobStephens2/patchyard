@@ -48,6 +48,12 @@
   {% endfor %}
 </section>
 <section>
+  <h2>Request screenshots - untrusted content</h2>
+  {% for upload in uploads %}
+    <p><a href="/upload/{{ upload.id }}">{{ upload.id }}</a> // {{ upload.kind }} // {{ upload.created_at }} // downloads as an attachment</p>
+  {% endfor %}
+</section>
+<section>
   <h2>Evidence</h2>
   {% for artifact in artifacts %}
     <p><a href="/evidence/{{ artifact.run_id }}/{{ artifact.name }}">{{ artifact.name }}</a> // {{ artifact.kind }} // {{ artifact.created_at }}</p>

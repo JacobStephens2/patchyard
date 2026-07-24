@@ -1,4 +1,6 @@
-use std::{error::Error, fs, path::Path, time::Duration};
+use std::{
+    error::Error, fs, io::Cursor, os::unix::fs::PermissionsExt as _, path::Path, time::Duration,
+};
 
 use axum::{
     Router,
@@ -11,8 +13,10 @@ use factory_web::{
     auth::{LOGIN_COOKIE, SESSION_COOKIE, csrf_for_secret, hash_secret, new_secret},
     router,
     store::{DashboardStore, LOGIN_PAIR_FAILURE_LIMIT},
+    upload::MAX_MULTIPART_BYTES,
 };
 use http_body_util::BodyExt as _;
+use image::{DynamicImage, ImageBuffer, ImageFormat, Rgb};
 use sha2::{Digest as _, Sha256};
 use sqlx::PgPool;
 use tempfile::TempDir;
@@ -73,6 +77,9 @@ async fn harness(hostile_body: &str) -> Result<Option<Harness>, Box<dyn Error>> 
 
     let checkout = fixture_checkout()?;
     let artifacts = tempfile::tempdir()?;
+    let upload_root = artifacts.path().join("uploads");
+    fs::create_dir(&upload_root)?;
+    fs::set_permissions(&upload_root, fs::Permissions::from_mode(0o700))?;
     let evidence_name = "proof.txt".to_owned();
     let relative = format!("{run_id}/{evidence_name}");
     fs::create_dir_all(artifacts.path().join(run_id.to_string()))?;
@@ -284,6 +291,356 @@ async fn exact_route_by_role_matrix() -> Result<(), Box<dyn Error>> {
             .iter()
             .any(|action| action == "reconcile.queued")
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn upload_adversarial_fixtures_fail_closed_and_clean_bytes_serve_inactive()
+-> Result<(), Box<dyn Error>> {
+    let Some(harness) = harness("upload adversarial harness").await? else {
+        return Ok(());
+    };
+    let valid_png = png_fixture(1, 1);
+    let csrf_identity = seed_identity(&harness.admin, AccountRole::Submitter).await?;
+    let invalid_csrf = submit_screenshot_with_token(
+        &harness.app,
+        &csrf_identity,
+        "invalid",
+        "invalid CSRF upload",
+        "screen.png",
+        "image/png",
+        &valid_png,
+    )
+    .await?;
+    assert_eq!(invalid_csrf.status(), StatusCode::FORBIDDEN);
+    let admission_reason: String =
+        sqlx::query_scalar("SELECT reason FROM factory.upload_admissions WHERE user_id=$1")
+            .bind(csrf_identity.id)
+            .fetch_one(&harness.admin)
+            .await?;
+    assert_eq!(
+        admission_reason, "invalid-csrf",
+        "quota reservation must close after invalid CSRF"
+    );
+
+    let boundary = format!("patchyard-{}", Uuid::new_v4());
+    let reordered = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"request_body\"\r\n\r\nrequest first\r\n\
+         --{boundary}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{}\r\n\
+         --{boundary}--\r\n",
+        csrf_identity.csrf
+    );
+    let reordered_response = harness
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/new")
+                .header(header::COOKIE, &csrf_identity.cookie)
+                .header(
+                    header::CONTENT_TYPE,
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .header(header::CONTENT_LENGTH, reordered.len().to_string())
+                .body(Body::from(reordered))?,
+        )
+        .await?;
+    assert_eq!(
+        reordered_response.status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let oversize_response = harness
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/new")
+                .header(header::COOKIE, &csrf_identity.cookie)
+                .header(
+                    header::CONTENT_TYPE,
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .header(
+                    header::CONTENT_LENGTH,
+                    (MAX_MULTIPART_BYTES + 1).to_string(),
+                )
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(oversize_response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+
+    let oversized_dimensions = png_fixture(4_097, 1);
+    let cases: Vec<(&str, &str, &str, Vec<u8>, StatusCode)> = vec![
+        (
+            "traversal",
+            "../../escape.png",
+            "image/png",
+            valid_png.clone(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            "double-extension",
+            "screen.png.php",
+            "image/png",
+            valid_png.clone(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            "mime-spoof",
+            "screen.png",
+            "image/png",
+            b"PK\x03\x04not-an-image".to_vec(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        ),
+        (
+            "active-svg",
+            "screen.svg",
+            "image/svg+xml",
+            b"<svg xmlns='http://www.w3.org/2000/svg'><script/></svg>".to_vec(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        ),
+        (
+            "executable",
+            "screen.bin",
+            "application/octet-stream",
+            b"\x7fELFnot-an-image".to_vec(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        ),
+        (
+            "malformed",
+            "screen.png",
+            "image/png",
+            b"\x89PNG\r\n\x1a\nmalformed".to_vec(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            "dimension-bomb",
+            "screen.png",
+            "image/png",
+            oversized_dimensions,
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+    ];
+    for (label, filename, content_type, bytes, expected) in cases {
+        let identity = seed_identity(&harness.admin, AccountRole::Submitter).await?;
+        let response = submit_screenshot(
+            &harness.app,
+            &identity,
+            &format!("upload fixture {label} {}", Uuid::new_v4()),
+            filename,
+            content_type,
+            &bytes,
+        )
+        .await?;
+        assert_eq!(response.status(), expected, "{label}");
+    }
+
+    let submitter = seed_identity(&harness.admin, AccountRole::Submitter).await?;
+    let admin = seed_identity(&harness.admin, AccountRole::Admin).await?;
+    let clean_request = format!("clean upload fixture {}", Uuid::new_v4());
+    let mut polyglot = valid_png.clone();
+    polyglot.extend_from_slice(b"<script>original bytes must not survive</script>");
+    let accepted = submit_screenshot(
+        &harness.app,
+        &submitter,
+        &clean_request,
+        "screen.png",
+        "text/html",
+        &polyglot,
+    )
+    .await?;
+    assert_eq!(accepted.status(), StatusCode::OK);
+    let upload_row = sqlx::query(
+        r#"
+        SELECT artifact.id,artifact.path
+        FROM factory.artifacts artifact
+        JOIN factory.requests request ON request.id=artifact.request_id
+        WHERE request.body=$1 AND artifact.run_id IS NULL
+        "#,
+    )
+    .bind(&clean_request)
+    .fetch_one(&harness.admin)
+    .await?;
+    let upload_id: Uuid = sqlx::Row::try_get(&upload_row, "id")?;
+    let stored_path: String = sqlx::Row::try_get(&upload_row, "path")?;
+    assert!(!stored_path.contains("screen.png"));
+    let stored = fs::read(harness._artifacts.path().join(&stored_path))?;
+    assert!(
+        !stored
+            .windows(b"<script>".len())
+            .any(|window| window == b"<script>")
+    );
+    assert_ne!(stored, polyglot);
+
+    let served = call(
+        &harness.app,
+        Method::GET,
+        &format!("/upload/{upload_id}"),
+        Some(&admin),
+        FormKind::None,
+    )
+    .await?;
+    assert_eq!(served.status(), StatusCode::OK);
+    assert_eq!(
+        served
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("image/png")
+    );
+    assert_eq!(
+        served
+            .headers()
+            .get(header::X_CONTENT_TYPE_OPTIONS)
+            .and_then(|value| value.to_str().ok()),
+        Some("nosniff")
+    );
+    assert_eq!(
+        served
+            .headers()
+            .get(header::CONTENT_SECURITY_POLICY)
+            .and_then(|value| value.to_str().ok()),
+        Some("sandbox; default-src 'none'")
+    );
+    assert_eq!(
+        served
+            .headers()
+            .get("cross-origin-resource-policy")
+            .and_then(|value| value.to_str().ok()),
+        Some("same-site")
+    );
+    assert!(
+        served
+            .headers()
+            .get(header::CONTENT_DISPOSITION)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value == format!("attachment; filename=\"{upload_id}.png\""))
+    );
+    let served_bytes = served.into_body().collect().await?.to_bytes();
+    assert_eq!(served_bytes.as_ref(), stored.as_slice());
+    assert_eq!(
+        call(
+            &harness.app,
+            Method::GET,
+            &format!("/upload/{upload_id}"),
+            Some(&submitter),
+            FormKind::None,
+        )
+        .await?
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+
+    let duplicate_body = format!("concurrent duplicate fixture {}", Uuid::new_v4());
+    let first = submit_screenshot(
+        &harness.app,
+        &submitter,
+        &duplicate_body,
+        "screen.png",
+        "image/png",
+        &valid_png,
+    );
+    let second = submit_screenshot(
+        &harness.app,
+        &submitter,
+        &duplicate_body,
+        "screen.png",
+        "image/png",
+        &valid_png,
+    );
+    let (first, second) = tokio::join!(first, second);
+    let mut statuses = [first?.status(), second?.status()];
+    statuses.sort();
+    assert_eq!(statuses, [StatusCode::OK, StatusCode::CONFLICT]);
+    let request_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM factory.requests WHERE source=$1 AND body=$2")
+            .bind(format!("dashboard:{}", submitter.id))
+            .bind(&duplicate_body)
+            .fetch_one(&harness.admin)
+            .await?;
+    let artifact_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM factory.artifacts artifact JOIN factory.requests request ON request.id=artifact.request_id WHERE request.source=$1 AND request.body=$2 AND artifact.run_id IS NULL",
+    )
+    .bind(format!("dashboard:{}", submitter.id))
+    .bind(&duplicate_body)
+    .fetch_one(&harness.admin)
+    .await?;
+    assert_eq!((request_count, artifact_count), (1, 1));
+    Ok(())
+}
+
+#[tokio::test]
+async fn upload_rate_and_daily_user_quotas_are_transactional() -> Result<(), Box<dyn Error>> {
+    let Some(harness) = harness("upload quota harness").await? else {
+        return Ok(());
+    };
+    let rate_identity = seed_identity(&harness.admin, AccountRole::Submitter).await?;
+    for attempt in 0..5 {
+        let response = call(
+            &harness.app,
+            Method::POST,
+            "/new",
+            Some(&rate_identity),
+            FormKind::Submission,
+        )
+        .await?;
+        assert_eq!(response.status(), StatusCode::OK, "attempt {attempt}");
+    }
+    let limited = call(
+        &harness.app,
+        Method::POST,
+        "/new",
+        Some(&rate_identity),
+        FormKind::Submission,
+    )
+    .await?;
+    assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+    let rate_reason: String = sqlx::query_scalar(
+        "SELECT reason FROM factory.upload_admissions WHERE user_id=$1 ORDER BY admitted_at DESC,id DESC LIMIT 1",
+    )
+    .bind(rate_identity.id)
+    .fetch_one(&harness.admin)
+    .await?;
+    assert_eq!(rate_reason, "rate-limit");
+
+    let quota_identity = seed_identity(&harness.admin, AccountRole::Submitter).await?;
+    for _ in 0..20 {
+        sqlx::query(
+            r#"
+            INSERT INTO factory.upload_admissions (
+                id,user_id,state,content_length,reserved_bytes,
+                admitted_at,expires_at
+            ) VALUES (
+                $1,$2,'admitted',1,1,
+                date_trunc('day',clock_timestamp() AT TIME ZONE 'UTC')
+                    AT TIME ZONE 'UTC',
+                clock_timestamp()+interval '1 hour'
+            )
+            "#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(quota_identity.id)
+        .execute(&harness.admin)
+        .await?;
+    }
+    let quota_limited = call(
+        &harness.app,
+        Method::POST,
+        "/new",
+        Some(&quota_identity),
+        FormKind::Submission,
+    )
+    .await?;
+    assert_eq!(quota_limited.status(), StatusCode::TOO_MANY_REQUESTS);
+    let quota_reason: String = sqlx::query_scalar(
+        "SELECT reason FROM factory.upload_admissions WHERE user_id=$1 AND state='rejected' ORDER BY admitted_at DESC,id DESC LIMIT 1",
+    )
+    .bind(quota_identity.id)
+    .fetch_one(&harness.admin)
+    .await?;
+    assert_eq!(quota_reason, "daily-quota");
     Ok(())
 }
 
@@ -639,12 +996,20 @@ async fn call(
             ))
         }
         FormKind::Submission => {
-            builder = builder.header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
-            Body::from(format!(
-                "request_body=route-matrix-{}&csrf_token={}",
-                Uuid::new_v4(),
-                identity.map_or("missing", |value| &value.csrf)
-            ))
+            let boundary = format!("patchyard-{}", Uuid::new_v4());
+            let bytes = multipart_submission(
+                &boundary,
+                identity.map_or("missing", |value| &value.csrf),
+                &format!("route-matrix-{}", Uuid::new_v4()),
+                None,
+            );
+            builder = builder
+                .header(
+                    header::CONTENT_TYPE,
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .header(header::CONTENT_LENGTH, bytes.len().to_string());
+            Body::from(bytes)
         }
         FormKind::Login => {
             builder = builder.header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
@@ -652,6 +1017,94 @@ async fn call(
         }
     };
     Ok(app.clone().oneshot(builder.body(body)?).await?)
+}
+
+fn multipart_submission(
+    boundary: &str,
+    csrf: &str,
+    request_body: &str,
+    screenshot: Option<(&str, &str, &[u8])>,
+) -> Vec<u8> {
+    let mut body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{csrf}\r\n\
+         --{boundary}\r\nContent-Disposition: form-data; name=\"request_body\"\r\n\r\n{request_body}\r\n"
+    )
+    .into_bytes();
+    if let Some((filename, content_type, bytes)) = screenshot {
+        body.extend_from_slice(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"screenshot\"; filename=\"{filename}\"\r\nContent-Type: {content_type}\r\n\r\n"
+            )
+            .as_bytes(),
+        );
+        body.extend_from_slice(bytes);
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    body
+}
+
+async fn submit_screenshot(
+    app: &Router,
+    identity: &Identity,
+    request_body: &str,
+    filename: &str,
+    content_type: &str,
+    screenshot: &[u8],
+) -> Result<axum::response::Response, Box<dyn Error>> {
+    submit_screenshot_with_token(
+        app,
+        identity,
+        &identity.csrf,
+        request_body,
+        filename,
+        content_type,
+        screenshot,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn submit_screenshot_with_token(
+    app: &Router,
+    identity: &Identity,
+    csrf: &str,
+    request_body: &str,
+    filename: &str,
+    content_type: &str,
+    screenshot: &[u8],
+) -> Result<axum::response::Response, Box<dyn Error>> {
+    let boundary = format!("patchyard-{}", Uuid::new_v4());
+    let bytes = multipart_submission(
+        &boundary,
+        csrf,
+        request_body,
+        Some((filename, content_type, screenshot)),
+    );
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/new")
+        .header(header::COOKIE, &identity.cookie)
+        .header(
+            header::CONTENT_TYPE,
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .header(header::CONTENT_LENGTH, bytes.len().to_string())
+        .body(Body::from(bytes))?;
+    Ok(app.clone().oneshot(request).await?)
+}
+
+fn png_fixture(width: u32, height: u32) -> Vec<u8> {
+    let image = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(
+        width,
+        height,
+        Rgb([1_u8, 2_u8, 3_u8]),
+    ));
+    let mut output = Cursor::new(Vec::new());
+    image
+        .write_to(&mut output, ImageFormat::Png)
+        .expect("PNG fixture should encode");
+    output.into_inner()
 }
 
 fn fixture_checkout() -> Result<TempDir, Box<dyn Error>> {

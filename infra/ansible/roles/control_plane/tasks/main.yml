@@ -144,18 +144,21 @@
     group: factory-web
     mode: "2750"
 
-- name: Put existing artifact entries in the dashboard-readable group
+- name: Create the dashboard-private clean-upload root
   ansible.builtin.file:
-    path: /var/lib/patchyard/artifacts
-    owner: "{{ factory_manager_user }}"
+    path: /var/lib/patchyard/artifacts/uploads
+    state: directory
+    owner: factory-web
     group: factory-web
-    recurse: true
+    mode: "0700"
 
 - name: Find existing artifact directories
   ansible.builtin.find:
     paths: /var/lib/patchyard/artifacts
     file_type: directory
     recurse: true
+    excludes:
+      - uploads
   register: factory_artifact_directories
 
 - name: Enforce setgid dashboard-readable artifact directories
@@ -173,6 +176,8 @@
     paths: /var/lib/patchyard/artifacts
     file_type: file
     recurse: true
+    excludes:
+      - uploads
   register: factory_artifact_files
 
 - name: Enforce dashboard-readable, non-executable artifact files

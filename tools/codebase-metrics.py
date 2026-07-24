@@ -4,9 +4,7 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -46,7 +44,6 @@ ROLE_DESCRIPTIONS = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--repo-root", type=Path, required=True)
     parser.add_argument("--tokei-version", required=True)
     for role in ROLE_PATHS:
         parser.add_argument(f"--{role}", type=Path, required=True)
@@ -108,32 +105,6 @@ def role_metrics(role: str, report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def source_revision(root: Path) -> str:
-    digest = hashlib.sha256()
-    role_paths = sorted({entry for entries in ROLE_PATHS.values() for entry in entries})
-    tracked = subprocess.run(
-        ["git", "-C", str(root), "ls-files", "-z", "--", *role_paths],
-        check=True,
-        stdout=subprocess.PIPE,
-    ).stdout
-    paths = {
-        root / Path(encoded.decode())
-        for encoded in tracked.split(b"\0")
-        if encoded
-    }
-    excluded = root / "docs/codebase-metrics.json"
-    for path in sorted(paths):
-        if path == excluded:
-            continue
-        relative = path.relative_to(root).as_posix().encode()
-        digest.update(len(relative).to_bytes(4, "big"))
-        digest.update(relative)
-        content = path.read_bytes()
-        digest.update(len(content).to_bytes(8, "big"))
-        digest.update(content)
-    return f"sha256:{digest.hexdigest()}"
-
-
 def main() -> None:
     args = parse_args()
     roles = []
@@ -144,7 +115,6 @@ def main() -> None:
         "schema_version": 1,
         "generated_by": "tools/check-codebase.sh",
         "tokei_version": args.tokei_version,
-        "source_revision": source_revision(args.repo_root.resolve()),
         "roles": roles,
     }
     args.output.write_text(json.dumps(projection, indent=2) + "\n")

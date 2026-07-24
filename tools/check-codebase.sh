@@ -26,7 +26,6 @@ tokei docs policy research reviews rulings-queue AGENTS.md PLAN.md SPEC.md READM
   --output json > "$CODEBASE_TEMP/governance.json"
 
 python3 tools/codebase-metrics.py \
-  --repo-root "$REPO_ROOT" \
   --tokei-version "$TOKEI_VERSION" \
   --product "$CODEBASE_TEMP/product.json" \
   --infrastructure "$CODEBASE_TEMP/infrastructure.json" \

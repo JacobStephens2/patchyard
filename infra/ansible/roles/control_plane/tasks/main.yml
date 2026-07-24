@@ -1433,7 +1433,6 @@
     owner: root
     group: root
     mode: "0755"
-    checksum: "sha256:{{ factory_evidence_qualify_sha256 }}"
   tags: [session13]
 
 - name: Install the fixed evidence qualification desired state

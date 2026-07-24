@@ -1659,7 +1659,17 @@ fn binary_asset(content: Vec<u8>, content_type: &'static str) -> Response {
 
 async fn security_headers(request: axum::extract::Request, next: Next) -> Response {
     let mut response = next.run(request).await;
-    let headers = response.headers_mut();
+    apply_security_baseline(response.headers_mut());
+    response
+}
+
+/// Response-header floor applied to every route. Each header is inserted only
+/// when the handler has not already set its own value, so route-specific
+/// hardening (e.g. the upload route's stricter `sandbox` CSP) is preserved while
+/// every other response still inherits the baseline. Cross-Origin-Resource-Policy
+/// is part of the baseline so untrusted-derived bytes cannot be embedded
+/// cross-site from any byte-serving route, not just the upload endpoint.
+fn apply_security_baseline(headers: &mut HeaderMap) {
     headers
         .entry(header::X_CONTENT_TYPE_OPTIONS)
         .or_insert(HeaderValue::from_static("nosniff"));
@@ -1669,6 +1679,9 @@ async fn security_headers(request: axum::extract::Request, next: Next) -> Respon
     headers
         .entry(header::X_FRAME_OPTIONS)
         .or_insert(HeaderValue::from_static("DENY"));
+    headers
+        .entry(HeaderName::from_static("cross-origin-resource-policy"))
+        .or_insert(HeaderValue::from_static("same-site"));
     headers
         .entry(HeaderName::from_static("permissions-policy"))
         .or_insert(HeaderValue::from_static(
@@ -1687,7 +1700,6 @@ async fn security_headers(request: axum::extract::Request, next: Next) -> Respon
         .or_insert(HeaderValue::from_static(
             "default-src 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; report-uri /csp-report",
         ));
-    response
 }
 
 async fn render_page<T: Template + HasNonce + Send + 'static>(
@@ -2041,6 +2053,57 @@ mod tests {
     use factory_core::{REQUEST_BODY_MAX_UTF16_CODE_UNITS, auth::hash_password};
 
     use super::{AppState, DashboardStore, NewTemplate, PageChrome, Template, UPLOAD_ACCEPT};
+
+    #[test]
+    fn security_baseline_sets_corp_and_never_overrides_route_headers() {
+        use axum::http::{
+            HeaderMap, HeaderValue,
+            header::{self, HeaderName},
+        };
+
+        // A response that sets none of its own headers inherits the full
+        // baseline, including Cross-Origin-Resource-Policy: same-site.
+        let mut headers = HeaderMap::new();
+        super::apply_security_baseline(&mut headers);
+        assert_eq!(
+            headers
+                .get("cross-origin-resource-policy")
+                .and_then(|value| value.to_str().ok()),
+            Some("same-site")
+        );
+        assert_eq!(
+            headers
+                .get(header::X_CONTENT_TYPE_OPTIONS)
+                .and_then(|value| value.to_str().ok()),
+            Some("nosniff")
+        );
+
+        // A route that sets its own value keeps it: the baseline uses or_insert
+        // and never overrides, which is what lets the upload route ship a
+        // stricter sandbox CSP and its own CORP value.
+        let mut explicit = HeaderMap::new();
+        explicit.insert(
+            HeaderName::from_static("cross-origin-resource-policy"),
+            HeaderValue::from_static("same-origin"),
+        );
+        explicit.insert(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("sandbox; default-src 'none'"),
+        );
+        super::apply_security_baseline(&mut explicit);
+        assert_eq!(
+            explicit
+                .get("cross-origin-resource-policy")
+                .and_then(|value| value.to_str().ok()),
+            Some("same-origin")
+        );
+        assert_eq!(
+            explicit
+                .get(header::CONTENT_SECURITY_POLICY)
+                .and_then(|value| value.to_str().ok()),
+            Some("sandbox; default-src 'none'")
+        );
+    }
 
     #[test]
     fn form_constraints_are_projected_from_factory_core() {

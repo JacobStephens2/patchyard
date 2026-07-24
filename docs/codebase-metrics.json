@@ -2,7 +2,7 @@
   "schema_version": 1,
   "generated_by": "tools/check-codebase.sh",
   "tokei_version": "14.0.0",
-  "source_revision": "sha256:e2a5838c2ca1c7c0c5aaf4943344d03157567d5544ae9b859a74f9caf9fb03fe",
+  "source_revision": "sha256:30cfc2855b8a0e76f421370908c88846f75812b3ab22f3a971f58dab53ddbf8c",
   "roles": [
     {
       "role": "product",

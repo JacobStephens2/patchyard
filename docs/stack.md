@@ -7,7 +7,7 @@
 | Language | Used for |
 | :-- | :-- |
 | Rust | Everything the factory *is*: `factory-core`, `factory-supervisor` (A67), `factory-verify`, `factoryctl`, `factory-web`. Toolchain pinned (`rust-toolchain.toml`), `Cargo.lock` committed, `cargo audit` + `cargo deny` in CI |
-| Python | Where its ecosystem owns the job: model tooling, Selenium evidence harness, bench/AA tooling (`tools/`) |
+| Python | Where its ecosystem owns the job: model tooling, headless-Chromium evidence harness, bench/AA tooling (`tools/`) |
 | SQL | PostgreSQL schema and migrations |
 | HCL | OpenTofu configuration (`infra/<provider>/`) - the tool itself is a pinned Go binary; HCL is what we author and review |
 | YAML | Ansible (all host configuration) and GitHub Actions workflows - declaration languages only, never application code |
@@ -45,7 +45,7 @@
 
 ## Verification and CI
 
-- **factory-verify** with mutation self-tests (A10); **pass^k** acceptance; targeted **PHPUnit**; **Selenium/Chromium** preview evidence.
+- **factory-verify** with mutation self-tests (A10); **pass^k** acceptance; targeted **PHPUnit**; **headless-Chromium** preview evidence (one-shot `--headless=new --dump-dom --screenshot` CLI capture via the Python harness `preview/patchyard-headless.py`, authenticated by a generated bearer-header extension; no Selenium/WebDriver/CDP automation surface).
 - **GitHub Actions**, factory-repo hygiene only (R4): thin YAML wrappers over repo scripts so the CI backend is swappable in an afternoon. Executes on **GitHub-hosted runners** (A76 amended by A88, disposition E-1): `runs-on: ubuntu-latest` + a Rust cache action for warm builds; no runner process on any factory host - kernel co-tenancy with the ledger was the council's unanimous top removal. Escalation path if private-network CI is ever measured to be needed: an ephemeral single-job runner on a disposable droplet, never the ledger VM. **GitHub App** bot identity (A45/A62).
 
 ## Observability (A79/A80/A82-A84, A90/A92/A94 ruled; Loki direction)

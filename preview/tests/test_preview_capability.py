@@ -237,6 +237,15 @@ class LeaseCapabilityTests(unittest.TestCase):
         self.assertNotIn("Authorization", command)
         self.assertNotIn("Bearer", command)
 
+    def test_route_readiness_retries_before_the_bounded_success(self) -> None:
+        responses = [SimpleNamespace(stdout="404"), SimpleNamespace(stdout="302")]
+        with mock.patch.object(lease.subprocess, "run", side_effect=responses) as run, mock.patch.object(
+            lease.time, "sleep"
+        ) as sleep:
+            lease.require_route_ready(8)
+        self.assertEqual(run.call_count, 2)
+        sleep.assert_called_once_with(1)
+
     def test_log_scan_reports_matches_as_typed_output(self) -> None:
         capability_id = "a" * 32
         (self.capabilities / f"{capability_id}.json").write_text(

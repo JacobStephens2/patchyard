@@ -16,6 +16,7 @@ import shlex
 import subprocess
 import sys
 import hashlib
+import time
 
 
 ROOT = Path("/opt/preview-fieldbooks")

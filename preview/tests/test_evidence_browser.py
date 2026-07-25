@@ -95,6 +95,16 @@ class EvidenceBrowserControls(unittest.TestCase):
         cls.port = cls.server.server_address[1]
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
+        # Warm Chromium before any assertion runs. unittest executes a class in
+        # alphabetical order, so whichever test sorts first would otherwise
+        # absorb process cold start - paging the binary in, building a fresh
+        # profile - inside its own deadline, and fail as `child_timed_out` on a
+        # loaded runner. Deliberately unasserted: this is not a test, and a real
+        # breakage still surfaces in the cases below.
+        try:
+            cls.capture("completed")
+        except (OSError, subprocess.SubprocessError):
+            pass
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -103,17 +113,18 @@ class EvidenceBrowserControls(unittest.TestCase):
         cls.thread.join(timeout=5)
         cls.temporary.cleanup()
 
+    @classmethod
     def capture(
-        self,
+        cls,
         fixture: str,
         *,
         maximum_dom_bytes: int = 2_000_000,
         total_timeout_ms: int = 30_000,
         chromium: Path | None = None,
     ) -> tuple[subprocess.CompletedProcess, Path]:
-        case = Path(tempfile.mkdtemp(dir=self.root))
+        case = Path(tempfile.mkdtemp(dir=cls.root))
         contract = {
-            "allowed_url": f"https://{HOST}:{self.port}/{fixture}",
+            "allowed_url": f"https://{HOST}:{cls.port}/{fixture}",
             "expected_sha": "c" * 40,
             "actions": [
                 {"wait_for": {"selector": "#sales_person_id"}},

@@ -13,6 +13,18 @@ class PreviewCapabilityDeploymentContract(unittest.TestCase):
         self.assertIn(label, COMPOSE.read_text())
         self.assertIn("traefik.http.services.patchyard-capability.loadbalancer.server.port", TASKS.read_text())
 
+    def test_preview_router_orders_capability_strip_after_forward_auth(self) -> None:
+        capability = COMPOSE.read_text()
+        slot = (ROOT / "preview/docker-compose.factory-slot.yml").read_text()
+        self.assertIn(
+            "traefik.http.middlewares.patchyard-capability-strip.headers.customrequestheaders.X-Patchyard-Factory-Capability",
+            capability,
+        )
+        self.assertIn(
+            '"patchyard-capability@docker,patchyard-capability-strip@docker"',
+            slot,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

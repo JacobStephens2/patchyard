@@ -16,7 +16,10 @@ draft pull request:
 3. It leases Session 7's preview slice at the exact baseline SHA, authorizes
    one short-lived evidence capability, runs Session 13's isolated browser,
    re-verifies the SHA, scans control-plane and preview logs for the bearer and
-   capability ID, and explicitly releases the lease.
+   capability ID, and explicitly releases the lease. The browser supplies the
+   capability only to Traefik's forward-auth boundary; an ordered Traefik
+   middleware removes the private header before legacy PHP receives the
+   translated application authorization.
 4. It repeats that sequence for the exact candidate SHA.
 5. Only after each isolated child has ended, the SHA proof and both log scans
    have passed, and the lease has been released does it import the bounded
@@ -114,6 +117,9 @@ GitHub-hosted CI can prove source-level and provider-free behavior:
   tested;
 - real-stream planted-secret tests prove detection and require a visible
   non-secret sentinel plus positive bytes from both scan implementations;
+- a real Traefik integration test proves the forward-auth service receives the
+  private capability, while the downstream backend receives the translated
+  application `Authorization` and no `X-Patchyard-Factory-Capability` header;
 - only the exact numbered leased preview origin is accepted;
 - final bodies contain the A11/A26 contract, authenticated `/evidence` links,
   artifact SHA-256 values, and no sent reply;
@@ -128,6 +134,8 @@ test cannot:
   ready-for-review only after both evidence packs are durable;
 - the baseline and candidate slots run the exact requested SHAs and all
   browser navigation remains on the leased numbered host;
+- the deployed Traefik middleware order authenticates the private capability
+  and removes it before the legacy PHP backend;
 - the installed journal and preview-container scan reads its real bounded log
   sources and reports zero bearer/capability matches;
 - success and an injected post-authorization failure both leave no lease,
@@ -225,15 +233,21 @@ Live coverage found and repaired the following source-insufficient defects:
   recoverable only through the original dashboard request and only when no
   live foreign holder exists;
 - legacy PHP seeing the short-lived capability in `Authorization` instead of
-  the translated preview authority. The browser now sends the capability to
-  the auth boundary in `X-Patchyard-Factory-Capability`; Traefik forwards only the
-  returned application `Authorization` to Fieldbook.
+  the translated preview authority. Moving the capability into
+  `X-Patchyard-Factory-Capability` eliminated that name collision, but review then
+  correctly found that the custom header still reached PHP. The edge-strip
+  correction in this branch orders a Traefik Headers middleware after
+  ForwardAuth, so it authenticates the private header and removes it before
+  Fieldbook receives the translated application `Authorization`. Its real
+  Traefik integration test is GitHub-hosted CI coverage; deployment and live
+  qualification must still prove the installed boundary.
 
-The last fix is converged on both hosts. The final successful live run is
-intentionally pending the next UTC daily-claim window: the predeclared
-failure-path exercise consumed the approved roster's existing per-submitter
-quota. No quota was raised, no request was created through a console or SQL,
-and no terminal run was reopened. At the next window the remaining proof is a
-fresh dashboard-submitted ALPHABETIZE run reaching `ready_for_review`, with
-twelve hashed artifacts, two zero-match scan proofs, and the full A11/A26 PR
-body contract.
+The collision fix is converged on both hosts; the edge-strip correction awaits
+the same controlled convergence and installed-boundary proof. The final
+successful live run is intentionally pending both that correction and the next
+UTC daily-claim window: the predeclared failure-path exercise consumed the
+approved roster's existing per-submitter quota. No quota was raised, no
+request was created through a console or SQL, and no terminal run was reopened.
+At the next window the remaining proof is a fresh dashboard-submitted
+ALPHABETIZE run reaching `ready_for_review`, with twelve hashed artifacts, two
+zero-match scan proofs, and the full A11/A26 PR body contract.

@@ -1,4 +1,6 @@
 services:
   fieldbook:
     labels:
-      traefik.http.routers.preview-${PREVIEW_SLOT}.middlewares: "patchyard-capability@docker"
+      # Order is security-sensitive: authenticate with the private capability
+      # header first, then remove it before proxying to legacy PHP.
+      traefik.http.routers.preview-${PREVIEW_SLOT}.middlewares: "patchyard-capability@docker,patchyard-capability-strip@docker"

@@ -13,6 +13,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 CAPABILITY_COMPOSE = (ROOT / "docker-compose.factory-capability.yml").read_text()
+SLOT_COMPOSE = (ROOT / "docker-compose.factory-slot.yml").read_text()
 
 
 def load(name: str, path: Path):
@@ -106,6 +107,16 @@ class CapabilityBoundaryTests(unittest.TestCase):
         self.assertIn(
             'traefik.http.services.patchyard-capability.loadbalancer.server.port: "8080"',
             CAPABILITY_COMPOSE,
+        )
+
+    def test_traefik_authenticates_then_strips_the_private_capability_header(self) -> None:
+        self.assertIn(
+            "traefik.http.middlewares.patchyard-capability-strip.headers.customrequestheaders.X-Patchyard-Factory-Capability",
+            CAPABILITY_COMPOSE,
+        )
+        self.assertIn(
+            '"patchyard-capability@docker,patchyard-capability-strip@docker"',
+            SLOT_COMPOSE,
         )
 
 

@@ -231,7 +231,7 @@ class LeaseCapabilityTests(unittest.TestCase):
             lease,
             "scan_stream",
             side_effect=[(100, 0, 1), (200, 1, 0)],
-        ), mock.patch.object(lease.subprocess, "run"):
+        ) as scan_stream, mock.patch.object(lease.subprocess, "run"):
             result = lease.scan_logs(
                 SimpleNamespace(slot=1, lease_id="b" * 32)
             )
@@ -240,6 +240,15 @@ class LeaseCapabilityTests(unittest.TestCase):
         self.assertEqual(result["bytes_scanned"], 300)
         self.assertEqual(result["matches"], 1)
         self.assertEqual(result["sentinel_matches"], 1)
+        created_at = json.loads(self.slots.read_text())["1"]["factory_lease"]["created_at"]
+        self.assertEqual(
+            scan_stream.call_args_list[0].args[0][:3],
+            [
+                "/usr/bin/journalctl",
+                "--since",
+                f"@{int(lease.parse_stamp(created_at).timestamp())}",
+            ],
+        )
 
     def test_log_scan_stream_detects_planted_bearer_and_visible_sentinel(self) -> None:
         bearer = b"efc1.capability.planted-preview-secret"

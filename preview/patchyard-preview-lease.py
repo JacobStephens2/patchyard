@@ -581,7 +581,10 @@ def scan_logs(args: argparse.Namespace) -> dict:
         "PREVIEW_BRANCH": entry["branch"],
         "PREVIEW_SLOT": str(args.slot),
     }
-    since = lease["created_at"]
+    # Rocky's journalctl accepts an epoch boundary reliably but rejects the
+    # RFC-3339 `Z` form persisted in the lease.  Keep the scan bounded to the
+    # same recorded instant while using the executable's portable grammar.
+    since = f"@{int(parse_stamp(lease['created_at']).timestamp())}"
     commands = [
         ["/usr/bin/journalctl", "--since", since, "--no-pager", "--output=cat"],
         [

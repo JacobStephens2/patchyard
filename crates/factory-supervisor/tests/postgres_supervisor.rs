@@ -112,6 +112,50 @@ async fn durable_sweep_claims_recovery_limits_and_control_rows() -> Result<(), B
             .await,
         Err(StoreError::ClaimingPaused)
     ));
+    let qualification = request(&format!("qualification-{}", Uuid::new_v4()));
+    admin.create_request(&qualification).await?;
+    assert!(matches!(
+        store
+            .claim_session14_qualification(
+                qualification.id,
+                "not-the-session14-holder",
+                Duration::from_secs(60),
+                limits,
+            )
+            .await,
+        Err(StoreError::InvalidLabel("session 14 qualification holder"))
+    ));
+    let qualification_claim = store
+        .claim_session14_qualification(
+            qualification.id,
+            "factory-session14-qualification",
+            Duration::from_secs(60),
+            limits,
+        )
+        .await?;
+    assert_eq!(qualification_claim.request_id, qualification.id);
+    store
+        .release_lease(qualification.id, "factory-session14-qualification")
+        .await?;
+    store
+        .set_claiming_state(true, true, "integration-test")
+        .await?;
+    let full_stop = request(&format!("full-stop-{}", Uuid::new_v4()));
+    admin.create_request(&full_stop).await?;
+    assert!(matches!(
+        store
+            .claim_session14_qualification(
+                full_stop.id,
+                "factory-session14-qualification",
+                Duration::from_secs(60),
+                limits,
+            )
+            .await,
+        Err(StoreError::ClaimingPaused)
+    ));
+    store
+        .set_claiming_state(false, false, "integration-test")
+        .await?;
 
     let resume_id = store
         .enqueue_control(

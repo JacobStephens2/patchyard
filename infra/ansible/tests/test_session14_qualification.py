@@ -28,6 +28,7 @@ class Session14QualificationContract(unittest.TestCase):
 
     def test_injected_failure_requires_durable_zero_secret_and_cleanup_proof(self) -> None:
         self.assertIn('FACTORY_EVIDENCE_SELECTORS="#session14_qualification_absent"', self.runner)
+        self.assertIn('factoryctl run "$REQUEST_ID" --session14-qualification', self.runner)
         self.assertIn('.state == "evidence_failed"', self.stage)
         self.assertIn(".artifact_count == 0", self.stage)
         self.assertIn(".security_proofs == 1", self.stage)

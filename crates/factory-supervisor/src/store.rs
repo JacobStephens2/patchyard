@@ -650,6 +650,7 @@ impl PgPipelineStore {
         holder: &str,
         ttl: Duration,
         limits: DailyLimits,
+        allow_paused_qualification: bool,
     ) -> Result<Option<WorkClaim>, StoreError> {
         validate_label("holder", holder, 128)?;
         let limits = limits.validate()?;
@@ -663,7 +664,14 @@ impl PgPipelineStore {
         )
         .fetch_one(&mut *transaction)
         .await?;
-        if state.try_get::<bool, _>("paused")? || state.try_get::<bool, _>("full_stop")? {
+        let paused = state.try_get::<bool, _>("paused")?;
+        let full_stop = state.try_get::<bool, _>("full_stop")?;
+        let paused_qualification = paused
+            && !full_stop
+            && requested.is_some()
+            && allow_paused_qualification
+            && holder == "factory-session14-qualification";
+        if (paused || full_stop) && !paused_qualification {
             transaction.commit().await?;
             return if requested.is_some() {
                 Err(StoreError::ClaimingPaused)
@@ -882,6 +890,15 @@ impl PgPipelineStore {
                 .await?;
         }
         if append_claim {
+            let payload = if paused_qualification {
+                serde_json::json!({
+                    "holder": holder,
+                    "fencing_token": fencing_token,
+                    "paused_qualification_bypass": true,
+                })
+            } else {
+                serde_json::json!({"holder": holder, "fencing_token": fencing_token})
+            };
             append_event(
                 &mut transaction,
                 request_id,
@@ -890,7 +907,7 @@ impl PgPipelineStore {
                 Some(&status),
                 Some("claimed"),
                 &trace_id,
-                serde_json::json!({"holder": holder, "fencing_token": fencing_token}),
+                payload,
             )
             .await?;
         }
@@ -905,6 +922,24 @@ impl PgPipelineStore {
         transaction.commit().await?;
         Ok(Some(claim))
     }
+
+    /// Claim exactly one request for the root-owned Session 14 operator unit.
+    /// This bypasses a normal pause only after the caller proves its dedicated
+    /// holder label; full-stop remains absolute and the ledger records it.
+    pub async fn claim_session14_qualification(
+        &self,
+        request_id: Uuid,
+        holder: &str,
+        ttl: Duration,
+        limits: DailyLimits,
+    ) -> Result<WorkClaim, StoreError> {
+        if holder != "factory-session14-qualification" {
+            return Err(StoreError::InvalidLabel("session 14 qualification holder"));
+        }
+        self.claim(Some(request_id), holder, ttl, limits, true)
+            .await?
+            .ok_or(StoreError::RequestNotClaimable(request_id))
+    }
 }
 
 impl PipelineStore for PgPipelineStore {
@@ -914,7 +949,7 @@ impl PipelineStore for PgPipelineStore {
         ttl: Duration,
         limits: DailyLimits,
     ) -> Result<Option<WorkClaim>, StoreError> {
-        self.claim(None, holder, ttl, limits).await
+        self.claim(None, holder, ttl, limits, false).await
     }
 
     async fn claim_specific(
@@ -924,7 +959,7 @@ impl PipelineStore for PgPipelineStore {
         ttl: Duration,
         limits: DailyLimits,
     ) -> Result<WorkClaim, StoreError> {
-        self.claim(Some(request_id), holder, ttl, limits)
+        self.claim(Some(request_id), holder, ttl, limits, false)
             .await?
             .ok_or(StoreError::RequestNotClaimable(request_id))
     }

@@ -60,7 +60,7 @@ enum Command {
     /// Provider-free replay of recorded typed triage outputs.
     TriageReplay(TriageReplayArgs),
     /// Run one request in the foreground through the daemon's exact pipeline.
-    Run(RequestIdArgs),
+    Run(RunArgs),
     /// Queue a durable pause control row.
     Pause(ControlReasonArgs),
     /// Queue a durable resume control row.
@@ -149,6 +149,15 @@ struct NewRequestArgs {
 #[derive(Debug, Args)]
 struct RequestIdArgs {
     request_id: Uuid,
+}
+
+#[derive(Debug, Args)]
+struct RunArgs {
+    request_id: Uuid,
+    /// Root-owned Session 14 qualification only: claim its queued dashboard
+    /// request while normal claiming is paused, with a durable audit marker.
+    #[arg(long, hide = true)]
+    session14_qualification: bool,
 }
 
 #[derive(Debug, Args)]
@@ -278,7 +287,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .ok_or("DATABASE_URL or --database-url is required for state commands")?;
     match &cli.command {
         Command::Run(arguments) => {
-            foreground_run(database_url.to_owned(), arguments.request_id).await?;
+            foreground_run(
+                database_url.to_owned(),
+                arguments.request_id,
+                arguments.session14_qualification,
+            )
+            .await?;
             return Ok(());
         }
         Command::Reconcile(arguments) => {
@@ -373,17 +387,33 @@ async fn reconcile(database_url: String, request_id: Uuid) -> Result<(), Box<dyn
     Ok(())
 }
 
-async fn foreground_run(database_url: String, request_id: Uuid) -> Result<(), Box<dyn Error>> {
+async fn foreground_run(
+    database_url: String,
+    request_id: Uuid,
+    session14_qualification: bool,
+) -> Result<(), Box<dyn Error>> {
     let runtime = bootstrap::from_environment(database_url).await?;
-    let claim = runtime
-        .store
-        .claim_specific(
-            request_id,
-            &runtime.daemon.holder,
-            runtime.daemon.lease_ttl,
-            runtime.daemon.limits,
-        )
-        .await?;
+    let claim = if session14_qualification {
+        runtime
+            .store
+            .claim_session14_qualification(
+                request_id,
+                &runtime.daemon.holder,
+                runtime.daemon.lease_ttl,
+                runtime.daemon.limits,
+            )
+            .await?
+    } else {
+        runtime
+            .store
+            .claim_specific(
+                request_id,
+                &runtime.daemon.holder,
+                runtime.daemon.lease_ttl,
+                runtime.daemon.limits,
+            )
+            .await?
+    };
     let cancellation = tokio_util::sync::CancellationToken::new();
     let signal_token = cancellation.clone();
     let signal = tokio::spawn(async move {

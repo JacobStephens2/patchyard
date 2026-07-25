@@ -33,4 +33,4 @@ if [[ "$EXPECTED_OUTCOME" == failure ]]; then
   export FACTORY_EVIDENCE_SELECTORS="#session14_qualification_absent"
 fi
 
-exec /usr/local/bin/factoryctl run "$REQUEST_ID"
+exec /usr/local/bin/factoryctl run "$REQUEST_ID" --session14-qualification

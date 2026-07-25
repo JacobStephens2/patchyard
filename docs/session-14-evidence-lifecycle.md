@@ -239,15 +239,17 @@ Live coverage found and repaired the following source-insufficient defects:
   correction in this branch orders a Traefik Headers middleware after
   ForwardAuth, so it authenticates the private header and removes it before
   Fieldbook receives the translated application `Authorization`. Its real
-  Traefik integration test is GitHub-hosted CI coverage; deployment and live
-  qualification must still prove the installed boundary.
+  Traefik integration test is GitHub-hosted CI coverage. Preview convergence
+  on 2026-07-25 installed the edge-strip correction and passed the deployed
+  label/order qualifier; the remaining live qualification must exercise it on
+  a leased Fieldbook route.
 
-The collision fix is converged on both hosts; the edge-strip correction awaits
-the same controlled convergence and installed-boundary proof. The final
-successful live run is intentionally pending both that correction and the next
-UTC daily-claim window: the predeclared failure-path exercise consumed the
-approved roster's existing per-submitter quota. No quota was raised, no
-request was created through a console or SQL, and no terminal run was reopened.
-At the next window the remaining proof is a fresh dashboard-submitted
-ALPHABETIZE run reaching `ready_for_review`, with twelve hashed artifacts, two
-zero-match scan proofs, and the full A11/A26 PR body contract.
+The collision and edge-strip fixes are converged on the preview boundary. The
+final successful live run is intentionally pending the next UTC daily-claim
+window: the predeclared failure-path exercise consumed the approved roster's
+existing per-submitter quota. No quota was raised, no request was created
+through a console or SQL, and no terminal run was reopened. At the next window
+the remaining proof is a fresh dashboard-submitted ALPHABETIZE run reaching
+`ready_for_review`, with twelve hashed artifacts, two zero-match scan proofs,
+and the full A11/A26 PR body contract, including the leased-route edge-strip
+proof.

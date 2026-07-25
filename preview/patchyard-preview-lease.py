@@ -281,6 +281,37 @@ def rev_parse(slot: int) -> tuple[str, str]:
     return host, guest
 
 
+def checkout_exact(slot: int, expected_sha: str, environment: dict[str, str]) -> None:
+    """Make the recorded commit locally reachable before exact detachment.
+
+    The editable builder may use a shallow branch checkout.  Fetching the
+    already validated, bounded SHA prevents a shallow clone from silently
+    turning a lifecycle evidence run into a branch-relative preview.
+    """
+    checkout = ROOT / "checkouts" / str(slot)
+    subprocess.run(
+        [
+            "/usr/bin/git", "-C", str(checkout), "fetch", "--no-tags",
+            "--depth=1", "origin", expected_sha,
+        ],
+        env=environment,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=60,
+        check=True,
+    )
+    subprocess.run(
+        ["/usr/bin/git", "-C", str(checkout), "checkout", "--detach", expected_sha],
+        env=environment,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=60,
+        check=True,
+    )
+
+
 def acquire(args: argparse.Namespace) -> dict:
     lease_id = args.lease_id
     created = now()
@@ -355,15 +386,7 @@ def acquire(args: argparse.Namespace) -> dict:
             timeout=min(args.ttl_seconds, 1200),
             check=True,
         )
-        subprocess.run(
-            ["/usr/bin/git", "-C", str(ROOT / "checkouts" / str(slot)),
-             "checkout", "--detach", args.expected_sha],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=60,
-            check=True,
-        )
+        checkout_exact(slot, args.expected_sha, environment)
         compose(slot, "up", "-d")
         host_sha, guest_sha = rev_parse(slot)
         if host_sha != args.expected_sha or guest_sha != args.expected_sha:

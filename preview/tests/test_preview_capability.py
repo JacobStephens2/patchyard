@@ -186,6 +186,37 @@ class LeaseCapabilityTests(unittest.TestCase):
         self.assertEqual(result["lease_id"], "b" * 32)
         self.assertEqual(result["host_head"], "c" * 40)
 
+    def test_new_acquire_fetches_the_recorded_sha_before_detaching(self) -> None:
+        self.slots.write_text("{}")
+        expected_sha = "c" * 40
+        arguments = SimpleNamespace(
+            owner="factory-supervisor",
+            request_id="request-1",
+            branch="factory/example",
+            expected_sha=expected_sha,
+            lease_id="b" * 32,
+            ttl_seconds=1200,
+        )
+        completed = SimpleNamespace(stdout="")
+        with mock.patch.object(lease, "environment_token", return_value="token"), mock.patch.object(
+            lease, "compose"
+        ), mock.patch.object(lease.subprocess, "run", return_value=completed) as run:
+            result = lease.acquire(arguments)
+
+        self.assertTrue(result["ok"])
+        commands = [call.args[0] for call in run.call_args_list]
+        fetch = [
+            "/usr/bin/git", "-C", str(self.root / "checkouts" / "1"),
+            "fetch", "--no-tags", "--depth=1", "origin", expected_sha,
+        ]
+        checkout = [
+            "/usr/bin/git", "-C", str(self.root / "checkouts" / "1"),
+            "checkout", "--detach", expected_sha,
+        ]
+        self.assertIn(fetch, commands)
+        self.assertIn(checkout, commands)
+        self.assertLess(commands.index(fetch), commands.index(checkout))
+
     def test_log_scan_reports_matches_as_typed_output(self) -> None:
         capability_id = "a" * 32
         (self.capabilities / f"{capability_id}.json").write_text(

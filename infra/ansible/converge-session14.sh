@@ -21,7 +21,7 @@ FACTORY_BUNDLE="$CONVERGE_TEMP/factory.bundle"
 git -C "$REPO_ROOT" bundle create "$FACTORY_BUNDLE" --all
 
 "$CARGO_BIN" build --locked --release \
-  --package factoryctl --package factory-supervisor --package factory-web
+  --package factoryctl --package factory-supervisor
 FACTORYCTL_BINARY="$REPO_ROOT/target/release/factoryctl"
 FACTORYCTL_SHA256=$(sha256sum "$FACTORYCTL_BINARY" | cut -d' ' -f1)
 FACTORY_SUPERVISOR_BINARY="$REPO_ROOT/target/release/factory-supervisor"
@@ -30,8 +30,6 @@ FACTORY_EVIDENCE_QUALIFY_BINARY="$REPO_ROOT/target/release/factory-evidence-qual
 FACTORY_EVIDENCE_QUALIFY_SHA256=$(
   sha256sum "$FACTORY_EVIDENCE_QUALIFY_BINARY" | cut -d' ' -f1
 )
-FACTORY_WEB_BINARY="$REPO_ROOT/target/release/factory-web"
-FACTORY_WEB_SHA256=$(sha256sum "$FACTORY_WEB_BINARY" | cut -d' ' -f1)
 
 if [[ -x "$ANSIBLE_ROOT/.venv/bin/ansible-playbook" ]]; then
   ANSIBLE_PLAYBOOK="$ANSIBLE_ROOT/.venv/bin/ansible-playbook"
@@ -52,8 +50,6 @@ exec "$ANSIBLE_PLAYBOOK" \
   -e "factory_supervisor_sha256=$FACTORY_SUPERVISOR_SHA256" \
   -e "factory_evidence_qualify_binary=$FACTORY_EVIDENCE_QUALIFY_BINARY" \
   -e "factory_evidence_qualify_sha256=$FACTORY_EVIDENCE_QUALIFY_SHA256" \
-  -e "factory_web_binary=$FACTORY_WEB_BINARY" \
-  -e "factory_web_sha256=$FACTORY_WEB_SHA256" \
   -e "factory_github_app_id=$GH_PATCHYARD_APP_ID" \
   -e "factory_github_app_installation_id=$GH_PATCHYARD_APP_INSTALLATION_ID" \
   "$@"

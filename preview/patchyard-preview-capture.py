@@ -57,10 +57,14 @@ def main() -> None:
     if not args.path.startswith("/") or "//" in args.path:
         raise ValueError("path must be absolute")
     args.output_dir.mkdir(mode=0o700)
+    lease_id = hashlib.sha256(
+        f"{args.owner}\0{args.request_id}\0{args.expected_sha}".encode()
+    ).hexdigest()[:32]
 
     _, acquired = remote(
         "acquire", "--owner", args.owner, "--request-id", args.request_id,
         "--branch", args.branch, "--expected-sha", args.expected_sha,
+        "--lease-id", lease_id,
         "--ttl-seconds", str(args.ttl_seconds), check=False,
     )
     if not acquired.get("ok"):

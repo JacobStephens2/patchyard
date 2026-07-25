@@ -17,6 +17,7 @@ use factory_supervisor::{
     child::{ChildSpawnConfig, IsolatedChildSpawner},
     config::RoutingConfig,
     contracts::InvocationUsage,
+    lifecycle::{LifecycleFuture, LifecycleResult, LifecycleService},
     pipeline::{Pipeline, PipelineConfig, PipelineOutcome, RunMode},
     publisher::{PublishInput, PublishService, PublishedPullRequest, PublisherFuture},
     review::{ReviewSandboxConfig, SandboxedReviewer},
@@ -537,6 +538,11 @@ impl Fixture {
             live_network: false,
         });
         let artifacts = ArtifactStore::open(&artifact_root).expect("artifact store");
+        let lifecycle = publisher.as_ref().map(|_| {
+            Arc::new(RecordingLifecycle {
+                store: store.clone(),
+            }) as Arc<dyn LifecycleService>
+        });
         let pipeline = Pipeline::new(
             store.clone(),
             PipelineConfig {
@@ -562,6 +568,7 @@ impl Fixture {
             verifier,
             reviewer,
             publisher,
+            lifecycle,
         );
         Self {
             _temp: temp,
@@ -614,6 +621,39 @@ impl PublishService for RecordingPublisher {
                 branch: input.branch.clone(),
                 head_sha: "d".repeat(40),
                 author_login: "patchyard[bot]".to_owned(),
+            })
+        })
+    }
+}
+
+#[derive(Clone)]
+struct RecordingLifecycle {
+    store: MemoryStore,
+}
+
+impl LifecycleService for RecordingLifecycle {
+    fn complete<'a>(
+        &'a self,
+        input: &'a PublishInput,
+        _cancellation: &'a CancellationToken,
+    ) -> LifecycleFuture<'a> {
+        Box::pin(async move {
+            let pull_request = PublishedPullRequest {
+                number: 42,
+                url: "https://github.invalid/pull/42".to_owned(),
+                branch: input.branch.clone(),
+                head_sha: "d".repeat(40),
+                author_login: "patchyard[bot]".to_owned(),
+            };
+            let mut state = self.store.state.lock().expect("memory store");
+            state.run_state = Some("ready_for_review".to_owned());
+            state.events.push(Event {
+                event_type: "run.ready_for_review".to_owned(),
+                payload: serde_json::json!({"pull_request": pull_request}),
+            });
+            Ok(LifecycleResult {
+                pull_request,
+                evidence: Vec::new(),
             })
         })
     }

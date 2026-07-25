@@ -8,7 +8,7 @@ Requires=postgresql.service
 Type=simple
 User=factory-manager
 Group=factory
-SupplementaryGroups=factory-manager
+SupplementaryGroups=factory-manager systemd-journal
 Environment=DATABASE_URL=postgresql:///patchyard?host=/run/patchyard-postgres&user=patchyard_supervisor&sslmode=disable
 EnvironmentFile=/etc/patchyard/supervisor.env
 ExecStart=/usr/local/bin/factory-supervisor

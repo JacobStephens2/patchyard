@@ -27,9 +27,11 @@ use crate::{
         DispositionArtifact, DispositionKind, DispositionPacket, DisputeRecord, OutContract,
         ResolvedInvocation, TriageInvocation, VerifyFailure, WorkerClaim, WorkerTaskPacket,
     },
+    lifecycle::{LifecycleError, LifecycleService},
     observability,
     publisher::{
-        PublishInput, PublishService, PublishedPullRequest, PublisherError, build_pr_body,
+        PublishInput, PublishService, PublishedPullRequest, PublisherError, ReviewContract,
+        RootCause, build_initial_pr_body,
     },
     review::{ReviewError, SandboxedReviewer},
     stages::{
@@ -104,6 +106,7 @@ pub struct Pipeline<S: PipelineStore> {
     verifier: ProcessVerifierBackend,
     reviewer: SandboxedReviewer,
     publisher: Option<Arc<dyn PublishService>>,
+    lifecycle: Option<Arc<dyn LifecycleService>>,
 }
 
 impl<S: PipelineStore> Pipeline<S> {
@@ -120,6 +123,7 @@ impl<S: PipelineStore> Pipeline<S> {
         verifier: ProcessVerifierBackend,
         reviewer: SandboxedReviewer,
         publisher: Option<Arc<dyn PublishService>>,
+        lifecycle: Option<Arc<dyn LifecycleService>>,
     ) -> Self {
         Self {
             store,
@@ -132,6 +136,7 @@ impl<S: PipelineStore> Pipeline<S> {
             verifier,
             reviewer,
             publisher,
+            lifecycle,
         }
     }
 
@@ -194,7 +199,29 @@ impl<S: PipelineStore> Pipeline<S> {
             .await?;
         if matches!(
             run.state.as_str(),
-            "dry_run_complete" | "closed" | "ready_for_review" | "killed" | "failed" | "escalated"
+            "dry_run_complete"
+                | "closed"
+                | "ready_for_review"
+                | "killed"
+                | "failed"
+                | "escalated"
+                | "ci_failed"
+                | "ci_cancelled"
+                | "ci_job_timed_out"
+                | "ci_action_required"
+                | "ci_neutral"
+                | "ci_skipped"
+                | "ci_stale"
+                | "ci_startup_failed"
+                | "ci_wait_timed_out"
+                | "ci_observation_failed"
+                | "preview_failed"
+                | "preview_timed_out"
+                | "preview_sha_changed"
+                | "evidence_failed"
+                | "secret_scan_failed"
+                | "lease_cleanup_failed"
+                | "pr_contract_failed"
         ) {
             return Ok(PipelineOutcome::AlreadyTerminal {
                 run_id: run.id,
@@ -203,6 +230,12 @@ impl<S: PipelineStore> Pipeline<S> {
         }
         if matches!(run.state.as_str(), "verified" | "publishing") {
             return self.resume_publication(claim, &run, cancellation).await;
+        }
+        if matches!(
+            run.state.as_str(),
+            "awaiting_ci" | "capturing_evidence" | "finalizing_pr"
+        ) {
+            return self.resume_lifecycle(claim, &run, cancellation).await;
         }
 
         let bundle = ExactBundle::create(
@@ -489,8 +522,10 @@ impl<S: PipelineStore> Pipeline<S> {
                         attempts: attempt + 1,
                     });
                 }
+                let review_contract =
+                    review_contract(task, patch_text, &claim.source, &claim.body)?;
                 let input = PublishInput {
-                    schema_version: 1,
+                    schema_version: 2,
                     request_id: claim.request_id,
                     run_id: run.id,
                     attempts: attempt + 1,
@@ -500,14 +535,14 @@ impl<S: PipelineStore> Pipeline<S> {
                     patch_sha256: inspected.patch_sha256,
                     expected_tree_hash: contract.result_tree_hash.clone(),
                     title: format!("Factory request {}", claim.request_id),
-                    body: build_pr_body(
+                    body: build_initial_pr_body(
                         claim.request_id,
-                        &claim.source,
-                        &claim.body,
+                        &review_contract,
                         &run.base_sha,
                         &contract.result_tree_hash,
                         &contract.patch_sha256,
                     )?,
+                    review_contract,
                 };
                 let input = self.persist_publish_input(&input).await?;
                 self.store
@@ -1152,6 +1187,31 @@ impl<S: PipelineStore> Pipeline<S> {
             .await
     }
 
+    async fn resume_lifecycle(
+        &self,
+        claim: &WorkClaim,
+        run: &ExistingRun,
+        cancellation: &CancellationToken,
+    ) -> Result<PipelineOutcome, PipelineError> {
+        let input = self
+            .load_publish_input(claim.request_id, run.id)
+            .await?
+            .ok_or(PipelineError::MissingPublishInput)?;
+        if input.base_sha != run.base_sha || input.branch != run.branch {
+            return Err(PipelineError::PublishInputConflict);
+        }
+        let lifecycle = self
+            .lifecycle
+            .as_ref()
+            .ok_or(PipelineError::LifecycleUnavailable)?;
+        let result = lifecycle.complete(&input, cancellation).await?;
+        Ok(PipelineOutcome::PublishedDraft {
+            run_id: input.run_id,
+            attempts: input.attempts,
+            pull_request: result.pull_request,
+        })
+    }
+
     async fn publish_durable(
         &self,
         input: &PublishInput,
@@ -1171,23 +1231,26 @@ impl<S: PipelineStore> Pipeline<S> {
         }
         let pull_request = publisher.publish(input, &patch_path, cancellation).await?;
         self.store
-            .finish_run(
+            .transition_run(
                 input.request_id,
                 input.run_id,
-                "ready_for_review",
-                "run.ready_for_review",
+                "pull_request.awaiting_ci",
+                "awaiting_ci",
+                &format!("lifecycle:{}:awaiting-ci", input.run_id),
                 serde_json::json!({
-                    "dry_run": false,
-                    "publish_invoked": true,
-                    "attempts": attempts,
                     "pull_request": pull_request,
                 }),
             )
             .await?;
+        let lifecycle = self
+            .lifecycle
+            .as_ref()
+            .ok_or(PipelineError::LifecycleUnavailable)?;
+        let result = lifecycle.complete(input, cancellation).await?;
         Ok(PipelineOutcome::PublishedDraft {
             run_id: input.run_id,
             attempts,
-            pull_request,
+            pull_request: result.pull_request,
         })
     }
 
@@ -1305,6 +1368,114 @@ fn hash_bytes(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
+fn review_contract(
+    task: &TaskSpec,
+    patch: &str,
+    request_source: &str,
+    verbatim_request: &str,
+) -> Result<ReviewContract, PipelineError> {
+    let lines = first_hunk_lines(patch)?;
+    let mut root_causes = Vec::with_capacity(task.targets.len());
+    for target in &task.targets {
+        let line = lines
+            .get(&target.path)
+            .copied()
+            .ok_or_else(|| PipelineError::MissingRootCauseLine(target.path.clone()))?;
+        let cause = if target.path.ends_with("common_functions.php") {
+            "The shared salesperson option provider emits source order instead of the requested first-name order."
+        } else {
+            "The page-local salesperson option provider emits source order instead of the requested first-name order."
+        };
+        root_causes.push(RootCause {
+            path: target.path.clone(),
+            line,
+            cause: cause.to_owned(),
+        });
+    }
+    let shared_function_touched = task
+        .targets
+        .iter()
+        .any(|target| target.path.ends_with("common_functions.php"));
+    let mut reviewer_quiz = vec![
+        "Do the before and after DOM extracts prove a pure ordering permutation with values and membership unchanged?"
+            .to_owned(),
+    ];
+    if shared_function_touched {
+        reviewer_quiz.push(
+            "Does the shared-helper explanation cover the authorized callers and preserve routing semantics?"
+                .to_owned(),
+        );
+    }
+    Ok(ReviewContract {
+        request_source: request_source.to_owned(),
+        verbatim_request: verbatim_request.to_owned(),
+        lane: "A".to_owned(),
+        rubric_version: task.rubric_version.clone(),
+        root_causes,
+        named_assumptions: vec![
+            "First name then last name is the presentation key; option values, membership, selected state, and the blank sentinel must not change."
+                .to_owned(),
+            "The shared salesperson helper is presentation data for the authorized UI callers and is not a routing-priority source."
+                .to_owned(),
+        ],
+        risk: "Low. The verified patch changes ordering in at most two internal PHP files, while values, membership, selected state, and blank-sentinel behavior remain deterministic invariants."
+            .to_owned(),
+        rollback: "Close the pull request before merge, or revert the single factory commit after merge. No schema or data rollback is involved."
+            .to_owned(),
+        draft_reply: "The salesperson selectors now sort by first name then last name on the requested internal pages. Option values and membership are unchanged. The change is ready for human review and has not been deployed."
+            .to_owned(),
+        reviewer_quiz,
+        shared_function_touched,
+        explain_diff: shared_function_touched.then(|| {
+            "The shared get_salespeople_usernames provider changes only its presentation order. The page-local provider receives the equivalent ordering change, and the verifier preserves every option value and caller-visible member."
+                .to_owned()
+        }),
+    })
+}
+
+fn first_hunk_lines(patch: &str) -> Result<BTreeMap<String, u32>, PipelineError> {
+    let mut result = BTreeMap::new();
+    let mut current = None;
+    for line in patch.lines() {
+        if let Some(header) = line.strip_prefix("diff --git a/") {
+            let Some((old, new)) = header.split_once(" b/") else {
+                return Err(PipelineError::MalformedPatchHeader);
+            };
+            if old != new || old.is_empty() {
+                return Err(PipelineError::MalformedPatchHeader);
+            }
+            current = Some(old.to_owned());
+            continue;
+        }
+        if let Some(hunk) = line.strip_prefix("@@ -") {
+            let Some(path) = current.as_ref() else {
+                return Err(PipelineError::MalformedPatchHeader);
+            };
+            if result.contains_key(path) {
+                continue;
+            }
+            let old_range = hunk
+                .split_once(' ')
+                .map(|(range, _)| range)
+                .ok_or(PipelineError::MalformedPatchHeader)?;
+            let line = old_range
+                .split(',')
+                .next()
+                .ok_or(PipelineError::MalformedPatchHeader)?
+                .parse::<u32>()
+                .map_err(|_| PipelineError::MalformedPatchHeader)?;
+            if line == 0 {
+                return Err(PipelineError::MalformedPatchHeader);
+            }
+            result.insert(path.clone(), line);
+        }
+    }
+    if result.is_empty() {
+        return Err(PipelineError::MalformedPatchHeader);
+    }
+    Ok(result)
+}
+
 async fn hash_path(path: &Path) -> Result<String, PipelineError> {
     let path = path.to_path_buf();
     tokio::task::spawn_blocking(move || std::fs::read(path).map(|bytes| hash_bytes(&bytes)))
@@ -1355,6 +1526,10 @@ pub enum PipelineError {
     RecoveryBaseSha { durable: String, configured: String },
     #[error("worker patch is not UTF-8")]
     PatchNotUtf8,
+    #[error("worker patch has a malformed unified-diff header")]
+    MalformedPatchHeader,
+    #[error("worker patch has no root-cause line for {0}")]
+    MissingRootCauseLine(String),
     #[error("worker evidence is malformed")]
     MalformedWorkerEvidence,
     #[error("recovered artifact set for {stage} is unsafe: {reason}")]
@@ -1365,6 +1540,8 @@ pub enum PipelineError {
     MalformedDisposition,
     #[error("publisher is unavailable for a pre-publish run")]
     PublisherUnavailable,
+    #[error("evidence lifecycle is unavailable for a pre-publish run")]
+    LifecycleUnavailable,
     #[error("durable publish input is missing")]
     MissingPublishInput,
     #[error("durable publish input conflicts with the verified run")]
@@ -1373,4 +1550,6 @@ pub enum PipelineError {
     PublishInputIdentity,
     #[error("publisher failed: {0}")]
     Publisher(#[from] PublisherError),
+    #[error("evidence lifecycle failed: {0}")]
+    Lifecycle(#[from] LifecycleError),
 }

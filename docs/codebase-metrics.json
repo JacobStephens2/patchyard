@@ -6,10 +6,10 @@
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 27129,
-      "comments": 478,
-      "blanks": 1801,
-      "files": 76,
+      "code": 30938,
+      "comments": 493,
+      "blanks": 2010,
+      "files": 80,
       "languages": [
         {
           "language": "CSS",
@@ -42,23 +42,23 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 367,
+          "comments": 379,
           "blanks": 19,
-          "files": 42
+          "files": 45
         },
         {
           "language": "Rust",
-          "code": 25013,
-          "comments": 92,
-          "blanks": 1553,
-          "files": 49
+          "code": 28798,
+          "comments": 95,
+          "blanks": 1760,
+          "files": 52
         },
         {
           "language": "SQL",
-          "code": 702,
+          "code": 726,
           "comments": 0,
-          "blanks": 59,
-          "files": 6
+          "blanks": 61,
+          "files": 7
         },
         {
           "language": "TOML",
@@ -72,10 +72,10 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 10496,
-      "comments": 399,
-      "blanks": 1071,
-      "files": 119,
+      "code": 10823,
+      "comments": 400,
+      "blanks": 1093,
+      "files": 120,
       "languages": [
         {
           "language": "BASH",
@@ -100,7 +100,7 @@
         },
         {
           "language": "Jinja2",
-          "code": 435,
+          "code": 449,
           "comments": 0,
           "blanks": 27,
           "files": 14
@@ -128,10 +128,10 @@
         },
         {
           "language": "Python",
-          "code": 2104,
-          "comments": 16,
-          "blanks": 241,
-          "files": 11
+          "code": 2413,
+          "comments": 17,
+          "blanks": 263,
+          "files": 12
         },
         {
           "language": "Shell",
@@ -156,7 +156,7 @@
         },
         {
           "language": "YAML",
-          "code": 2620,
+          "code": 2624,
           "comments": 4,
           "blanks": 284,
           "files": 19
@@ -247,9 +247,9 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8004,
-      "comments": 8460,
-      "blanks": 2654,
-      "files": 99,
+      "comments": 8565,
+      "blanks": 2673,
+      "files": 100,
       "languages": [
         {
           "language": "BASH",
@@ -268,9 +268,9 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 8446,
-          "blanks": 2603,
-          "files": 79
+          "comments": 8551,
+          "blanks": 2622,
+          "files": 80
         },
         {
           "language": "Shell",

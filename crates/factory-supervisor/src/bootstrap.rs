@@ -16,12 +16,16 @@ use crate::{
     child::{ChildSpawnConfig, IsolatedChildSpawner},
     config::RoutingConfig,
     daemon::DaemonConfig,
+    evidence::EvidenceCapture,
+    lifecycle::{EvidenceLifecycle, LifecycleConfig, LifecycleService},
     pipeline::{Pipeline, PipelineConfig, RunMode},
+    preview::{ProcessPreview, ProcessPreviewConfig},
     publisher::{
         GhGitHub, GhGitHubConfig, PublishService, Publisher, PublisherConfig, RepositoryScope,
     },
     reconcile::{DeployedVersionConfig, Reconciler},
     review::{ReviewSandboxConfig, SandboxedReviewer},
+    secret_scan::ProcessSecretScanner,
     stages::{
         ProcessAgentBackend, ProcessVerifierBackend, ProcessWorkerBackend, StageCommand,
         VerifierCommand, WorkerCommand,
@@ -40,6 +44,12 @@ pub struct ReconcileComponents {
     pub store: PgPipelineStore,
     pub reconciler: Reconciler<PgPipelineStore>,
 }
+
+type PublicationComponents = (
+    PathBuf,
+    Option<Arc<dyn PublishService>>,
+    Option<Arc<dyn LifecycleService>>,
+);
 
 impl ReconcileComponents {
     pub async fn close(self) {
@@ -165,7 +175,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
     });
     child_spawner.recover_orphans().await?;
     let reviewer = SandboxedReviewer::new(ReviewSandboxConfig {
-        spawner: child_spawner,
+        spawner: child_spawner.clone(),
         prompt: root.join("policy/review.md"),
         worktree_root: scratch.join("review-worktrees"),
         live_network: false,
@@ -177,13 +187,13 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         repository_scope(),
         deployed_version_config()?,
     )?;
-    let (repository, publisher): (PathBuf, Option<Arc<dyn PublishService>>) = match mode {
-        RunMode::DryRun => (required_path("FACTORY_TARGET_REPOSITORY")?, None),
+    let (repository, publisher, lifecycle): PublicationComponents = match mode {
+        RunMode::DryRun => (required_path("FACTORY_TARGET_REPOSITORY")?, None, None),
         RunMode::PrePublish => {
             let github = github_from_environment(scratch.join("github-private"))?;
             let publisher = Publisher::new(
                 store.clone(),
-                github,
+                github.clone(),
                 PublisherConfig {
                     repository: repository_scope(),
                     base_branch: required_or("FACTORY_GITHUB_BASE_BRANCH", "master"),
@@ -209,7 +219,59 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
                 .prepare_base(&base_sha, &tokio_util::sync::CancellationToken::new())
                 .await?;
             let repository = publisher.repository_path();
-            (repository, Some(Arc::new(publisher)))
+            let preview = Arc::new(ProcessPreview::new(ProcessPreviewConfig {
+                ssh_program: path_env("FACTORY_PREVIEW_SSH_PROGRAM", "/bin/ssh"),
+                ssh_config: path_env(
+                    "FACTORY_PREVIEW_SSH_CONFIG",
+                    "/etc/patchyard/preview-ssh.conf",
+                ),
+                ssh_host: required_or("FACTORY_PREVIEW_SSH_HOST", "patchyard-preview"),
+                home: path_env("FACTORY_PREVIEW_SSH_HOME", "/var/lib/patchyard-manager"),
+                owner: required_or("FACTORY_PREVIEW_OWNER", "factory-supervisor"),
+                lease_ttl: duration_env("FACTORY_PREVIEW_LEASE_SECONDS", 1_200)?,
+                capability_ttl: duration_env("FACTORY_PREVIEW_CAPABILITY_SECONDS", 300)?,
+                command_timeout: duration_env("FACTORY_PREVIEW_COMMAND_TIMEOUT_SECONDS", 1_300)?,
+            })?);
+            let secret_scan = Arc::new(ProcessSecretScanner::new(
+                path_env(
+                    "FACTORY_LOG_SECRET_SCAN_PROGRAM",
+                    "/usr/local/libexec/patchyard-log-secret-scan",
+                ),
+                scratch.join("evidence-log-scan"),
+                duration_env("FACTORY_LOG_SECRET_SCAN_TIMEOUT_SECONDS", 60)?,
+            )?);
+            let selectors = {
+                let configured = required_or("FACTORY_EVIDENCE_SELECTORS", "#sales_person_id");
+                configured
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            };
+            let lifecycle = EvidenceLifecycle::new(
+                store.clone(),
+                github,
+                preview,
+                secret_scan,
+                EvidenceCapture::new(child_spawner, artifacts.clone()),
+                artifacts.clone(),
+                LifecycleConfig {
+                    repository: repository_scope(),
+                    ci_wait_timeout: duration_env("FACTORY_CI_WAIT_TIMEOUT_SECONDS", 1_800)?,
+                    ci_poll_interval: duration_env("FACTORY_CI_POLL_SECONDS", 10)?,
+                    preview_path: required_or(
+                        "FACTORY_EVIDENCE_PREVIEW_PATH",
+                        "/mfieldbook/leads/assign?rqst_id=96429",
+                    ),
+                    selectors,
+                },
+            )?;
+            (
+                repository,
+                Some(Arc::new(publisher)),
+                Some(Arc::new(lifecycle)),
+            )
         }
     };
     let config = PipelineConfig {
@@ -238,6 +300,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         verifier,
         reviewer,
         publisher,
+        lifecycle,
     );
     let daemon = DaemonConfig {
         database_url,
@@ -432,6 +495,12 @@ pub enum BootstrapError {
     GitHub(#[from] crate::publisher::GitHubError),
     #[error("publisher setup failed: {0}")]
     Publisher(#[from] crate::publisher::PublisherError),
+    #[error("preview lifecycle setup failed: {0}")]
+    Lifecycle(#[from] crate::lifecycle::LifecycleError),
+    #[error("preview client setup failed: {0}")]
+    Preview(#[from] crate::preview::PreviewError),
+    #[error("log secret scanner setup failed: {0}")]
+    SecretScan(#[from] crate::secret_scan::SecretScanError),
     #[error("reconcile setup failed: {0}")]
     Reconcile(#[from] crate::reconcile::ReconcileError),
 }

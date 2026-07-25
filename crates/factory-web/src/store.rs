@@ -1061,7 +1061,14 @@ impl DashboardStore {
             FROM factory.runs
             WHERE state NOT IN (
                 'ready_for_review', 'dry_run_complete', 'failed', 'killed',
-                'closed', 'escalated'
+                'closed', 'escalated',
+                'ci_failed', 'ci_cancelled', 'ci_job_timed_out',
+                'ci_action_required', 'ci_neutral', 'ci_skipped', 'ci_stale',
+                'ci_startup_failed', 'ci_wait_timed_out',
+                'ci_observation_failed', 'preview_failed',
+                'preview_timed_out', 'preview_sha_changed',
+                'evidence_failed', 'secret_scan_failed',
+                'lease_cleanup_failed', 'pr_contract_failed'
             )
             ORDER BY queued_at,id
             "#,

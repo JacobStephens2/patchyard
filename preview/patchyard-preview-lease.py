@@ -15,7 +15,6 @@ import secrets
 import shlex
 import subprocess
 import sys
-import uuid
 import hashlib
 
 
@@ -30,6 +29,7 @@ LEASE = re.compile(r"^[0-9a-f]{32}$")
 CAPABILITY = re.compile(r"^[0-9a-f]{32}$")
 CAPABILITIES = Path("/var/lib/patchyard-preview/capabilities")
 FACTORY_SLOT_COMPOSE = Path("/etc/patchyard-preview/docker-compose.factory-slot.yml")
+MAX_LOG_SCAN_BYTES = 16 * 1024 * 1024
 
 
 def now() -> datetime:
@@ -140,9 +140,35 @@ def lease_entry(slot: int, lease_id: str) -> tuple[dict[str, dict], dict]:
     return slots, entry
 
 
+def find_lease(slots: dict[str, dict], lease_id: str) -> tuple[int, dict] | None:
+    found: list[tuple[int, dict]] = []
+    for slot, entry in slots.items():
+        lease = entry.get("factory_lease") if isinstance(entry, dict) else None
+        if isinstance(lease, dict) and lease.get("lease_id") == lease_id:
+            found.append((int(slot), entry))
+    if len(found) > 1:
+        raise RuntimeError("lease id is duplicated")
+    return found[0] if found else None
+
+
 def destroy(slot: int, lease_id: str) -> dict:
     with slot_lock():
-        lease_entry(slot, lease_id)
+        slots = load_slots()
+        located = find_lease(slots, lease_id)
+        if located is None:
+            capability_errors = remove_lease_capabilities(lease_id)
+            return {
+                "slot": slot,
+                "lease_id": lease_id,
+                "cleanup_complete": not capability_errors,
+                "cleanup_errors": [
+                    f"capability:{name}" for name in capability_errors
+                ],
+                "already_absent": True,
+            }
+        actual_slot, _ = located
+        if actual_slot != slot:
+            raise RuntimeError("lease moved to another slot")
 
     errors: list[str] = []
     try:
@@ -180,6 +206,7 @@ def destroy(slot: int, lease_id: str) -> dict:
         "lease_id": lease_id,
         "cleanup_complete": complete,
         "cleanup_errors": errors,
+        "already_absent": False,
     }
 
 
@@ -211,8 +238,40 @@ def rev_parse(slot: int) -> tuple[str, str]:
 
 
 def acquire(args: argparse.Namespace) -> dict:
-    lease_id = uuid.uuid4().hex
+    lease_id = args.lease_id
     created = now()
+    with slot_lock():
+        located = find_lease(load_slots(), lease_id)
+    if located is not None:
+        existing_slot, existing = located
+        lease = existing["factory_lease"]
+        if (
+            existing.get("branch") != args.branch
+            or lease.get("owner") != args.owner
+            or lease.get("request_id") != args.request_id
+            or lease.get("expected_sha") != args.expected_sha
+        ):
+            raise RuntimeError("existing lease id belongs to another contract")
+        if existing.get("status") == "running":
+            host_sha, guest_sha = rev_parse(existing_slot)
+            if host_sha != args.expected_sha or guest_sha != args.expected_sha:
+                raise RuntimeError("recovered preview HEAD does not match expected SHA")
+            return {
+                "ok": True,
+                "slot": existing_slot,
+                "url": f"https://{existing_slot}.preview.example.dev",
+                "lease_id": lease_id,
+                "owner": args.owner,
+                "request_id": args.request_id,
+                "expected_sha": args.expected_sha,
+                "host_head": host_sha,
+                "preview_head": guest_sha,
+                "expires_at": lease["expires_at"],
+            }
+        cleanup = destroy(existing_slot, lease_id)
+        if not cleanup["cleanup_complete"]:
+            raise RuntimeError("incomplete recovered lease could not be cleaned")
+
     with slot_lock():
         slots = load_slots()
         slot = next((number for number in range(1, MAX_SLOTS + 1) if str(number) not in slots), None)
@@ -250,6 +309,15 @@ def acquire(args: argparse.Namespace) -> dict:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=min(args.ttl_seconds, 1200),
+            check=True,
+        )
+        subprocess.run(
+            ["/usr/bin/git", "-C", str(ROOT / "checkouts" / str(slot)),
+             "checkout", "--detach", args.expected_sha],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=60,
             check=True,
         )
         compose(slot, "up", "-d")
@@ -371,6 +439,93 @@ def revoke(args: argparse.Namespace) -> dict:
     }
 
 
+def scan_stream(
+    command: list[str], environment: dict[str, str], needles: list[bytes]
+) -> tuple[int, int]:
+    process = subprocess.Popen(
+        command,
+        cwd=ROOT,
+        env=environment,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    assert process.stdout is not None
+    maximum_needle = max(map(len, needles))
+    tail = b""
+    scanned = 0
+    matches = 0
+    while True:
+        chunk = process.stdout.read(64 * 1024)
+        if not chunk:
+            break
+        scanned += len(chunk)
+        if scanned > MAX_LOG_SCAN_BYTES:
+            process.kill()
+            process.wait(timeout=10)
+            raise RuntimeError("preview log scan exceeded its byte ceiling")
+        window = tail + chunk
+        matches += sum(needle in window for needle in needles)
+        tail = window[-maximum_needle:]
+    if process.wait(timeout=30) != 0:
+        raise RuntimeError("preview log source could not be read")
+    return scanned, matches
+
+
+def scan_logs(args: argparse.Namespace) -> dict:
+    with slot_lock():
+        _, entry = lease_entry(args.slot, args.lease_id)
+        lease = entry["factory_lease"]
+        capability_ids: list[str] = []
+        for path in CAPABILITIES.glob("*.json"):
+            try:
+                value = json.loads(path.read_text())
+            except (OSError, json.JSONDecodeError) as error:
+                raise RuntimeError("capability state is unreadable") from error
+            if value.get("lease_id") == args.lease_id:
+                capability_ids.append(str(value.get("capability_id", "")))
+    if not capability_ids or any(not CAPABILITY.fullmatch(item) for item in capability_ids):
+        raise RuntimeError("lease capability set is unavailable")
+    needles = [
+        needle
+        for capability_id in capability_ids
+        for needle in (
+            capability_id.encode(),
+            f"efc1.{capability_id}.".encode(),
+        )
+    ]
+    environment = {
+        "HOME": "/home/conductor",
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "PREVIEW_BRANCH": entry["branch"],
+        "PREVIEW_SLOT": str(args.slot),
+    }
+    since = lease["created_at"]
+    commands = [
+        ["/usr/bin/journalctl", "--since", since, "--no-pager", "--output=cat"],
+        [
+            "/usr/bin/docker", "compose", "-p", f"preview-{args.slot}",
+            "-f", "docker-compose.editable.yml",
+            "-f", str(FACTORY_SLOT_COMPOSE),
+            "--env-file", ".env", "logs", "--no-color",
+        ],
+    ]
+    scanned = 0
+    matches = 0
+    for command in commands:
+        source_bytes, source_matches = scan_stream(command, environment, needles)
+        scanned += source_bytes
+        matches += source_matches
+    return {
+        "ok": True,
+        "slot": args.slot,
+        "lease_id": args.lease_id,
+        "sources": len(commands),
+        "bytes_scanned": scanned,
+        "matches": matches,
+    }
+
+
 def sweep() -> dict:
     expired: list[tuple[int, str]] = []
     with slot_lock():
@@ -403,8 +558,13 @@ def parser() -> argparse.ArgumentParser:
     take.add_argument("--request-id", required=True)
     take.add_argument("--branch", required=True)
     take.add_argument("--expected-sha", required=True)
+    take.add_argument("--lease-id", required=True)
     take.add_argument("--ttl-seconds", type=int, default=1200)
-    for command in (commands.add_parser("verify"), commands.add_parser("release")):
+    for command in (
+        commands.add_parser("verify"),
+        commands.add_parser("release"),
+        commands.add_parser("scan-logs"),
+    ):
         command.add_argument("--slot", type=int, required=True)
         command.add_argument("--lease-id", required=True)
     grant = commands.add_parser("authorize")
@@ -456,6 +616,8 @@ def main() -> int:
         result = authorize(args)
     elif args.command == "revoke":
         result = revoke(args)
+    elif args.command == "scan-logs":
+        result = scan_logs(args)
     else:
         result = sweep()
     print(json.dumps(result, sort_keys=True))

@@ -682,8 +682,10 @@ mod tests {
             .expect("timestamp");
         PullRequest {
             number: 42,
+            node_id: "PR_42".to_owned(),
             draft: false,
             state: "closed".to_owned(),
+            body: None,
             html_url: "https://github.invalid/pull/42".to_owned(),
             head: PullRequestRef {
                 branch: branch.to_owned(),

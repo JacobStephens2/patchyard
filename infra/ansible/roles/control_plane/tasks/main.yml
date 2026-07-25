@@ -1423,6 +1423,10 @@
       destination: /usr/local/libexec/patchyard-cancel-child
       group: "{{ factory_manager_user }}"
       mode: "0750"
+    - source: patchyard-log-secret-scan
+      destination: /usr/local/libexec/patchyard-log-secret-scan
+      group: "{{ factory_manager_user }}"
+      mode: "0750"
     - source: qualify-factory-session13
       destination: /usr/local/sbin/qualify-factory-session13
       group: root

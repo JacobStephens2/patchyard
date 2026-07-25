@@ -5,8 +5,9 @@ publisher on the factory control plane. The worker remains secret-free and
 receives an exact-SHA archive with no Git remote. The pipeline accepts its
 bounded patch/evidence contract, runs the existing review and verifier gates,
 then persists a typed `publish-input` artifact before entering `verified`.
-Only the publisher can move the run through `publishing` to
-`ready_for_review`.
+Only the publisher can move the run through `publishing` to a durable draft.
+Session 14's supervisor lifecycle then owns `awaiting_ci`,
+`capturing_evidence`, `finalizing_pr`, and `ready_for_review`.
 
 ## Identity and credential boundary
 
@@ -53,8 +54,9 @@ The state machine:
    fresh detached worktree, recomputes the result tree hash, commits as the App
    bot, closes the worktree, and pushes the exact commit object.
 7. Creates a draft PR and confirms GitHub reports the App bot as author.
-8. Completes both durable side-effect rows and then transitions the run to
-   `ready_for_review`.
+8. Completes both durable side-effect rows and transitions the run to
+   `awaiting_ci`; Session 14 waits for the exact-head checks, captures evidence,
+   completes the PR contract, and performs the ready-for-review flip.
 
 Failed clone fragments and all disposable worktrees have awaited cleanup.
 Worker cleanup remains the existing explicit two-host lifecycle; no publisher

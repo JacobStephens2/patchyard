@@ -105,6 +105,7 @@ class LeaseCapabilityTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         root = Path(self.temporary.name)
+        self.root = root
         self.slots = root / "slots.json"
         self.lock = root / "slots.lock"
         self.capabilities = root / "capabilities"
@@ -114,11 +115,15 @@ class LeaseCapabilityTests(unittest.TestCase):
             json.dumps(
                 {
                     "1": {
+                        "branch": "factory/example",
                         "status": "running",
                         "sha": "c" * 40,
                         "factory_lease": {
                             "lease_id": "b" * 32,
+                            "owner": "factory-supervisor",
+                            "request_id": "request-1",
                             "expected_sha": "c" * 40,
+                            "created_at": utc_stamp(datetime.now(timezone.utc)),
                             "expires_at": utc_stamp(expiry),
                         },
                     }
@@ -129,6 +134,7 @@ class LeaseCapabilityTests(unittest.TestCase):
             mock.patch.object(lease, "SLOTS", self.slots),
             mock.patch.object(lease, "LOCK", self.lock),
             mock.patch.object(lease, "CAPABILITIES", self.capabilities),
+            mock.patch.object(lease, "ROOT", root),
             mock.patch.object(lease, "rev_parse", return_value=("c" * 40, "c" * 40)),
         ]
         for patch in self.patches:
@@ -163,6 +169,56 @@ class LeaseCapabilityTests(unittest.TestCase):
         self.assertNotIn("token_sha256", state)
         with self.assertRaises(RuntimeError):
             lease.authorize(arguments)
+
+    def test_recovered_acquire_is_idempotent_for_the_exact_contract(self) -> None:
+        result = lease.acquire(
+            SimpleNamespace(
+                owner="factory-supervisor",
+                request_id="request-1",
+                branch="factory/example",
+                expected_sha="c" * 40,
+                lease_id="b" * 32,
+                ttl_seconds=1200,
+            )
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["slot"], 1)
+        self.assertEqual(result["lease_id"], "b" * 32)
+        self.assertEqual(result["host_head"], "c" * 40)
+
+    def test_log_scan_reports_matches_as_typed_output(self) -> None:
+        capability_id = "a" * 32
+        (self.capabilities / f"{capability_id}.json").write_text(
+            json.dumps(
+                {
+                    "capability_id": capability_id,
+                    "lease_id": "b" * 32,
+                }
+            )
+        )
+        with mock.patch.object(
+            lease,
+            "scan_stream",
+            side_effect=[(100, 0), (200, 1)],
+        ):
+            result = lease.scan_logs(
+                SimpleNamespace(slot=1, lease_id="b" * 32)
+            )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["sources"], 2)
+        self.assertEqual(result["bytes_scanned"], 300)
+        self.assertEqual(result["matches"], 1)
+
+    def test_absent_release_still_removes_capability_residue(self) -> None:
+        capability_id = "a" * 32
+        (self.capabilities / f"{capability_id}.json").write_text(
+            json.dumps({"lease_id": "b" * 32})
+        )
+        self.slots.write_text("{}")
+        result = lease.destroy(1, "b" * 32)
+        self.assertTrue(result["cleanup_complete"])
+        self.assertTrue(result["already_absent"])
+        self.assertFalse((self.capabilities / f"{capability_id}.json").exists())
 
 
 if __name__ == "__main__":

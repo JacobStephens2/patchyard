@@ -26,7 +26,7 @@ test "$(systemctl show factory-session14-qualification.service \
 test "$(systemctl show factory-session14-qualification.service \
   --property=ProtectSystem --value)" = strict
 test "$(systemctl show factory-session14-qualification.service \
-  --property=KillSignal --value)" = SIGINT
+  --property=KillSignal --value)" = 2
 test "$(systemctl show factory-session14-qualification.service \
   --property=TimeoutStartUSec --value)" = 2h
 systemctl is-active --quiet factory-supervisor.service

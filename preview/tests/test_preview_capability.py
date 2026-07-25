@@ -12,6 +12,7 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
+CAPABILITY_COMPOSE = (ROOT / "docker-compose.factory-capability.yml").read_text()
 
 
 def load(name: str, path: Path):
@@ -99,6 +100,12 @@ class CapabilityBoundaryTests(unittest.TestCase):
         path.symlink_to(self.key)
         with self.assertRaises(ValueError):
             capability.authorize(f"Bearer {token}", "1.preview.example.dev", "GET")
+
+    def test_traefik_can_resolve_the_capability_middleware_backend(self) -> None:
+        self.assertIn(
+            'traefik.http.services.patchyard-capability.loadbalancer.server.port: "8080"',
+            CAPABILITY_COMPOSE,
+        )
 
 
 class LeaseCapabilityTests(unittest.TestCase):

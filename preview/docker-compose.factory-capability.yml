@@ -36,3 +36,4 @@ services:
       traefik.http.middlewares.patchyard-capability.forwardauth.address: "http://factory-capability:8080/auth"
       traefik.http.middlewares.patchyard-capability.forwardauth.authResponseHeaders: "Authorization"
       traefik.http.middlewares.patchyard-capability.forwardauth.trustForwardHeader: "false"
+      traefik.http.services.patchyard-capability.loadbalancer.server.port: "8080"

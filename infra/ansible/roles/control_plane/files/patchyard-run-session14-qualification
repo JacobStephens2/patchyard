@@ -27,9 +27,9 @@ export FACTORY_WORKER_CLEANUP=/opt/patchyard/fixtures/pipeline/bin/worker-cleanu
 export FACTORY_VERIFIER_PROGRAM="$PUBLISHER_FIXTURE/verifier-stub"
 export FACTORY_BUILDER_CLI_VERSION=publisher-demo-fixture/1
 if [[ "$EXPECTED_OUTCOME" == failure ]]; then
-  # This selector is deliberately absent. Authorization has already happened
-  # when the isolated browser rejects it, so the real failure path must scan
-  # both log sources and release the preview lease before returning.
+  # This selector is deliberately absent. Its action deadline must produce
+  # preview_timed_out after authorization, while the real failure path still
+  # scans both log sources and releases the preview lease before returning.
   export FACTORY_EVIDENCE_SELECTORS="#session14_qualification_absent"
 fi
 

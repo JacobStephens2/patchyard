@@ -154,7 +154,7 @@ if [[ "$EXPECTED_OUTCOME" == success ]]; then
 else
   test "$SERVICE_STATUS" -ne 0
   jq -e '
-    .state == "evidence_failed"
+    .state == "preview_timed_out"
     and .is_draft == true
     and .artifact_count == 0
     and .security_proofs == 1

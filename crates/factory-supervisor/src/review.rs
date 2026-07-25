@@ -67,19 +67,55 @@ impl SandboxedReviewer {
         if invocations.is_empty() {
             return Ok(Vec::new());
         }
-        let mut set = JoinSet::new();
+        // Git's worktree administration updates one repository-level registry.
+        // Prepare and close those entries sequentially; the isolated reviewers
+        // still execute concurrently and no lock is held across their awaits.
+        let mut workspaces: Vec<(Uuid, ResolvedInvocation, DetachedWorktree)> =
+            Vec::with_capacity(invocations.len());
         for invocation in invocations {
+            let review_id = Uuid::new_v4();
+            let workspace_name = format!("review-{}", review_id.simple());
+            let workspace = match DetachedWorktree::create(
+                repository,
+                reviewed_sha,
+                &self.config.worktree_root,
+                &workspace_name,
+                cancellation,
+            )
+            .await
+            {
+                Ok(workspace) => workspace,
+                Err(error) => {
+                    let mut cleanup_error = None;
+                    for (_, _, workspace) in workspaces {
+                        if let Err(cleanup) = workspace.close(&CancellationToken::new()).await {
+                            cleanup_error.get_or_insert(cleanup);
+                        }
+                    }
+                    if let Some(cleanup) = cleanup_error {
+                        return Err(cleanup.into());
+                    }
+                    return Err(error.into());
+                }
+            };
+            workspaces.push((review_id, invocation, workspace));
+        }
+        let mut set = JoinSet::new();
+        for (review_id, invocation, workspace) in &workspaces {
             let reviewer = self.clone();
-            let repository = repository.to_path_buf();
             let reviewed_sha = reviewed_sha.to_owned();
             let task_spec = task_spec.clone();
             let patch_sha256 = patch_sha256.to_owned();
             let manifest = manifest.clone();
             let cancellation = cancellation.clone();
+            let review_id = *review_id;
+            let invocation = invocation.clone();
+            let workspace = workspace.path().to_path_buf();
             set.spawn(async move {
                 reviewer
-                    .review_one(
-                        &repository,
+                    .review_prepared(
+                        review_id,
+                        &workspace,
                         &reviewed_sha,
                         task_spec,
                         patch_sha256,
@@ -101,6 +137,15 @@ impl SandboxedReviewer {
                 Err(_) => {}
             }
         }
+        let mut cleanup_error = None;
+        for (_, _, workspace) in workspaces {
+            if let Err(error) = workspace.close(&CancellationToken::new()).await {
+                cleanup_error = Some(error);
+            }
+        }
+        if let Some(error) = cleanup_error {
+            return Err(error.into());
+        }
         if let Some(error) = first_error {
             return Err(error);
         }
@@ -109,9 +154,10 @@ impl SandboxedReviewer {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn review_one(
+    async fn review_prepared(
         &self,
-        repository: &Path,
+        review_id: Uuid,
+        workspace: &Path,
         reviewed_sha: &str,
         task_spec: TaskSpec,
         patch_sha256: String,
@@ -122,44 +168,25 @@ impl SandboxedReviewer {
         if self.config.live_network {
             return Err(ReviewError::LiveProviderNotQualified);
         }
-        let review_id = Uuid::new_v4();
-        let workspace_name = format!("review-{}", review_id.simple());
-        let workspace = DetachedWorktree::create(
-            repository,
-            reviewed_sha,
-            &self.config.worktree_root,
-            &workspace_name,
+        let packet = ReviewPacket {
+            schema_version: 1,
+            review_id,
+            reviewed_sha: reviewed_sha.to_owned(),
+            task_spec,
+            patch_sha256,
+            manifest,
+        };
+        let packet_bytes = serde_json::to_vec(&packet)?;
+        let prompt_bytes = tokio::fs::read(&self.config.prompt).await?;
+        self.run_isolated(
+            workspace,
+            packet_bytes,
+            prompt_bytes,
+            &packet,
+            &invocation.seat,
             cancellation,
         )
-        .await?;
-        let result = async {
-            let packet = ReviewPacket {
-                schema_version: 1,
-                review_id,
-                reviewed_sha: reviewed_sha.to_owned(),
-                task_spec,
-                patch_sha256,
-                manifest,
-            };
-            let packet_bytes = serde_json::to_vec(&packet)?;
-            let prompt_bytes = tokio::fs::read(&self.config.prompt).await?;
-            self.run_isolated(
-                workspace.path(),
-                packet_bytes,
-                prompt_bytes,
-                &packet,
-                &invocation.seat,
-                cancellation,
-            )
-            .await
-        }
-        .await;
-        let workspace_cleanup = workspace.close(&CancellationToken::new()).await;
-        match (result, workspace_cleanup) {
-            (Ok(value), Ok(())) => Ok(value),
-            (Err(error), Ok(())) => Err(error),
-            (_, Err(error)) => Err(error.into()),
-        }
+        .await
         .map(|mut execution| {
             execution.invocation = invocation;
             execution

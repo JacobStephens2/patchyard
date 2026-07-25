@@ -143,11 +143,12 @@ the PR/run IDs, exact base/head SHAs, check-run facts, artifact hashes,
 zero-match scans, and cleanup proofs without recording the preview bearer.
 
 The fixed operator entry point is
-`/usr/local/sbin/patchyard-stage-session14-qualification`. It accepts only a
-queued request whose source is an enabled dashboard account, stops the resident
-dry-run supervisor, runs `factoryctl run` through the production pipeline, and
-restores the resident supervisor on every exit. The form remains the only
-intake. The operator never creates or edits a request.
+`/usr/local/sbin/patchyard-stage-session14-qualification`. It accepts a
+queued request whose source is an enabled dashboard account, or only the same
+released claimed row when a foreground attempt failed before creating any run.
+It stops the resident dry-run supervisor, runs `factoryctl run` through the
+production pipeline, and restores the resident supervisor on every exit. The
+form remains the only intake. The operator never creates or edits a request.
 
 Qualification uses two form submissions containing the verbatim sanitized
 `fixtures/acceptance/alphabetize/request.md` request, both pinned to the same
@@ -199,11 +200,40 @@ qualifiers (`factory-control`: `ok=53`, `failed=0`; `factory-worker`: `ok=1`,
 (`factory-control`: `ok=48`, `changed=0`, `failed=0`; `factory-worker`:
 `ok=1`, `changed=0`, `failed=0`).
 
-The form-driven failure and success runs still cannot start without inventing
-a credential path. The Orchestrator 1Password service account can read the
-vault but refused creation of the three new dashboard password records, and
-no bootstrap account secret file exists. A69 forbids persisting generated
-passwords outside the vault; A66 forbids substituting `factoryctl request
-new`, raw SQL, or another intake path. A vault writer must create those three
-password records before full dashboard convergence and the two form
-submissions can complete the remaining live exit.
+The approved roster's three password references are now vault-backed inputs;
+the qualification used real authenticated dashboard submissions only. Neither
+the passwords nor the preview bearer were written to this repository, the
+ledger, the journals, or this record.
+
+The live path has exercised GitHub CI wait, preview acquisition, browser
+rejection, both bounded log scans, and explicit preview release repeatedly.
+Fieldbook PRs #255, #261, #262, #263, and #264 are all closed unmerged draft
+qualification artifacts. Their terminal evidence failures each retained no
+evidence pack, reported `matches=0` with a positive sentinel/byte proof on
+both scanners, and reported `cleanup_complete=true`.
+
+Live coverage found and repaired the following source-insufficient defects:
+
+- a missing Traefik backend-port declaration and a post-start route readiness
+  race; the lease now waits locally and bearer-free for an allowed route;
+- an omitted Python `time` import in that readiness retry;
+- selector polling that could consume the whole action deadline and be
+  misclassified as a timeout;
+- a Git `initializing` worktree lock requiring two explicit `--force` flags,
+  covered by a real-Git regression test;
+- a foreground qualification claim released before run creation, which is now
+  recoverable only through the original dashboard request and only when no
+  live foreign holder exists;
+- legacy PHP seeing the short-lived capability in `Authorization` instead of
+  the translated preview authority. The browser now sends the capability to
+  the auth boundary in `X-Patchyard-Factory-Capability`; Traefik forwards only the
+  returned application `Authorization` to Fieldbook.
+
+The last fix is converged on both hosts. The final successful live run is
+intentionally pending the next UTC daily-claim window: the predeclared
+failure-path exercise consumed the approved roster's existing per-submitter
+quota. No quota was raised, no request was created through a console or SQL,
+and no terminal run was reopened. At the next window the remaining proof is a
+fresh dashboard-submitted ALPHABETIZE run reaching `ready_for_review`, with
+twelve hashed artifacts, two zero-match scan proofs, and the full A11/A26 PR
+body contract.

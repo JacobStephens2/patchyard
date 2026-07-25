@@ -59,7 +59,8 @@ GRANT UPDATE (
     skill_hash,
     prompt_template_hash,
     verifier_binary_hash,
-    base_tree_hash
+    base_tree_hash,
+    lifecycle_attempts
 ) ON factory.runs TO patchyard_supervisor;
 GRANT INSERT ON factory.events TO patchyard_supervisor;
 GRANT USAGE, SELECT ON SEQUENCE factory.events_id_seq TO patchyard_supervisor;

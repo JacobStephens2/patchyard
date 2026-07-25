@@ -6,6 +6,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[3]
 FILES = ROOT / "infra/ansible/roles/control_plane/files"
 ENVIRONMENT = ROOT / "infra/ansible/roles/control_plane/templates/patchyard-supervisor.env.j2"
 GROUP_VARS = ROOT / "infra/ansible/group_vars/all.yml"
+GRANTS = ROOT / "infra/ansible/roles/control_plane/files/postgresql-grants.sql"
 
 
 class Session14QualificationContract(unittest.TestCase):
@@ -16,6 +17,7 @@ class Session14QualificationContract(unittest.TestCase):
         cls.unit = (FILES / "factory-session14-qualification.service").read_text()
         cls.environment = ENVIRONMENT.read_text()
         cls.group_vars = GROUP_VARS.read_text()
+        cls.grants = GRANTS.read_text()
 
     def test_form_intake_is_required_before_the_supervisor_stops(self) -> None:
         intake = self.stage.index("JOIN factory.users")
@@ -59,6 +61,12 @@ class Session14QualificationContract(unittest.TestCase):
         self.assertRegex(
             self.group_vars,
             r"(?m)^factory_fieldbook_base_sha: [0-9a-f]{40}$",
+        )
+
+    def test_ci_wait_retry_counter_is_granted_to_the_supervisor(self) -> None:
+        self.assertRegex(
+            self.grants,
+            r"(?s)GRANT UPDATE \(.*?lifecycle_attempts.*?\) ON factory\.runs TO patchyard_supervisor;",
         )
 
 

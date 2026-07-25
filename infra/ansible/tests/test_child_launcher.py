@@ -68,6 +68,9 @@ class ChildLauncherContract(unittest.TestCase):
 
     def test_evidence_failure_diagnostic_is_allowlisted_before_journaling(self) -> None:
         self.assertIn("patchyard_child_failure_diagnostic", self.launcher)
+        self.assertIn("patchyard_child_failure_document_status", self.launcher)
+        self.assertIn(".document_status >= 100", self.launcher)
+        self.assertIn(".document_status <= 599", self.launcher)
         for value in (
             "document_2xx",
             "document_3xx",

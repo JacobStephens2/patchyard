@@ -169,7 +169,12 @@ class EvidenceBrowserControls(unittest.TestCase):
         return result, output
 
     def assert_state(
-        self, fixture: str, expected: str, diagnostic: str | None = None, **kwargs: object
+        self,
+        fixture: str,
+        expected: str,
+        diagnostic: str | None = None,
+        document_status: int | None = None,
+        **kwargs: object,
     ) -> None:
         result, output = self.capture(fixture, **kwargs)
         self.assertNotEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
@@ -177,6 +182,8 @@ class EvidenceBrowserControls(unittest.TestCase):
         expected_failure = {"schema_version": 1, "state": expected}
         if diagnostic is not None:
             expected_failure["diagnostic"] = diagnostic
+        if document_status is not None:
+            expected_failure["document_status"] = document_status
         self.assertEqual(failure, expected_failure)
         self.assertEqual([path.name for path in output.iterdir()], ["failure.json"])
 
@@ -224,7 +231,7 @@ class EvidenceBrowserControls(unittest.TestCase):
         )
 
     def test_absent_selector_is_a_contract_rejection_not_a_timeout(self) -> None:
-        self.assert_state("missing", "contract_rejected", "document_2xx")
+        self.assert_state("missing", "contract_rejected", "document_2xx", 200)
 
 
 if __name__ == "__main__":

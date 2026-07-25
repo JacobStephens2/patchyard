@@ -49,13 +49,18 @@ TEST_MODE = os.environ.get("PATCHYARD_EVIDENCE_TEST") == "1"
 
 
 class CaptureFailure(Exception):
-    def __init__(self, state: str, diagnostic: str | None = None) -> None:
+    def __init__(
+        self, state: str, diagnostic: str | None = None, document_status: int | None = None
+    ) -> None:
         if state not in FAILURE_STATES:
             raise ValueError("unknown fixed failure state")
         if diagnostic is not None and diagnostic not in FAILURE_DIAGNOSTICS:
             raise ValueError("unknown fixed failure diagnostic")
+        if document_status is not None and not 100 <= document_status <= 599:
+            raise ValueError("invalid document response status")
         self.state = state
         self.diagnostic = diagnostic
+        self.document_status = document_status
         super().__init__(state)
 
 
@@ -111,7 +116,9 @@ class SelectParser(HTMLParser):
             self.current_select = None
 
 
-def fail(output: Path, state: str, diagnostic: str | None = None) -> NoReturn:
+def fail(
+    output: Path, state: str, diagnostic: str | None = None, document_status: int | None = None
+) -> NoReturn:
     output.mkdir(mode=0o700, exist_ok=True)
     for path in output.iterdir():
         if path.is_dir() and not path.is_symlink():
@@ -122,6 +129,8 @@ def fail(output: Path, state: str, diagnostic: str | None = None) -> NoReturn:
     value: dict[str, object] = {"schema_version": 1, "state": state}
     if diagnostic is not None:
         value["diagnostic"] = diagnostic
+    if document_status is not None:
+        value["document_status"] = document_status
     failure.write_text(json.dumps(value) + "\n")
     failure.chmod(0o600)
     raise SystemExit(1)
@@ -578,7 +587,9 @@ def run_controlled_browser(
         if value.get("download"):
             raise CaptureFailure("download_blocked")
         if value.get("missing"):
-            raise CaptureFailure("contract_rejected", document_diagnostic(document_status))
+            raise CaptureFailure(
+                "contract_rejected", document_diagnostic(document_status), document_status
+            )
         dom_result = cdp.call(
             "Runtime.evaluate",
             {
@@ -708,7 +719,9 @@ def main() -> None:
                 )
             )
             if missing:
-                raise CaptureFailure("contract_rejected", document_diagnostic(document_status))
+                raise CaptureFailure(
+                    "contract_rejected", document_diagnostic(document_status), document_status
+                )
             extract = output / "extract.json"
             extract.write_text(
                 json.dumps(
@@ -768,7 +781,7 @@ def main() -> None:
         )
         hashes.chmod(0o600)
     except CaptureFailure as error:
-        fail(output, error.state, error.diagnostic)
+        fail(output, error.state, error.diagnostic, error.document_status)
     except Exception:
         fail(output, "browser_crashed")
 

@@ -17,6 +17,7 @@ use factory_core::{
 };
 use factory_supervisor::{
     bootstrap,
+    observability::TelemetryGuard,
     store::{ControlKind, PgPipelineStore, PipelineStore},
 };
 use serde::Deserialize;
@@ -392,6 +393,11 @@ async fn foreground_run(
     request_id: Uuid,
     session14_qualification: bool,
 ) -> Result<(), Box<dyn Error>> {
+    // Foreground qualification uses the daemon's exact lifecycle, including
+    // its control-plane log-scan sentinel.  It must therefore install the
+    // same structured journal subscriber as the resident supervisor.
+    let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok();
+    let telemetry = TelemetryGuard::install(endpoint.as_deref())?;
     let runtime = bootstrap::from_environment(database_url).await?;
     let claim = if session14_qualification {
         runtime
@@ -424,6 +430,9 @@ async fn foreground_run(
     signal.abort();
     let _signal_result = signal.await;
     runtime.close().await;
+    if let Err(error) = telemetry.shutdown().await {
+        eprintln!("foreground telemetry shutdown failed open: {error}");
+    }
     match result {
         Ok(outcome) => println!("{}", serde_json::to_string_pretty(&outcome)?),
         Err(error) => return Err(error.into()),

@@ -120,3 +120,29 @@ It is not a second lifecycle implementation. The qualification record captures
 the PR/run IDs, exact base/head SHAs, check-run facts, artifact hashes,
 zero-match scans, and cleanup proofs without recording the preview bearer.
 
+The fixed operator entry point is
+`/usr/local/sbin/patchyard-stage-session14-qualification`. It accepts only a
+queued request whose source is an enabled dashboard account, stops the resident
+dry-run supervisor, runs `factoryctl run` through the production pipeline, and
+restores the resident supervisor on every exit. The form remains the only
+intake. The operator never creates or edits a request.
+
+Qualification uses two form submissions containing the verbatim sanitized
+`fixtures/acceptance/alphabetize/request.md` request, both pinned to the same
+observed Fieldbook `master` SHA:
+
+1. `failure` replaces the evidence selector with a deliberately absent ID.
+   Preview authorization therefore precedes the isolated browser rejection.
+   The expected result is `evidence_failed`, a still-draft PR, no imported
+   artifacts, one durable pair of zero-match log scans, and an explicit clean
+   preview release.
+2. `success` uses the real `#sales_person_id` selector. The expected result is
+   `ready_for_review`, a non-draft PR, twelve hashed baseline/candidate
+   artifacts, two durable pairs of zero-match log scans, and two explicit clean
+   preview releases.
+
+The qualification service is a bounded two-hour oneshot with `SIGINT` graceful
+cancellation, the same database role, GitHub App, preview SSH boundary, child
+launcher, and artifact roots as the resident supervisor. Its deterministic
+publisher fixture applies the real two-file SQL ordering patch to current
+Fieldbook source; it does not substitute the synthetic Session 9 repository.

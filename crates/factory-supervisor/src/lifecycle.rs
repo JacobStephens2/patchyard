@@ -527,7 +527,54 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
                 return Err(failed("lease_cleanup_failed", "preview_release", error));
             }
         };
-        let completed = operation?;
+        let completed = match operation {
+            Ok(completed) => {
+                let evidence_outcome = if completed.validated.is_ok() {
+                    "validated"
+                } else {
+                    "failed_closed"
+                };
+                self.store
+                    .transition_lifecycle(
+                        input.request_id,
+                        input.run_id,
+                        "evidence.security_checks_completed",
+                        "capturing_evidence",
+                        &format!("lifecycle:{}:evidence-{label}-security", input.run_id),
+                        serde_json::json!({
+                            "label": label,
+                            "expected_sha": expected_sha,
+                            "before": completed.before,
+                            "after": completed.after,
+                            "local_log_scan": completed.local_log_scan,
+                            "preview_log_scan": completed.preview_log_scan,
+                            "evidence_outcome": evidence_outcome,
+                            "release": release,
+                        }),
+                    )
+                    .await?;
+                completed
+            }
+            Err(error) => {
+                self.store
+                    .transition_lifecycle(
+                        input.request_id,
+                        input.run_id,
+                        "evidence.lease_released",
+                        "capturing_evidence",
+                        &format!("lifecycle:{}:evidence-{label}-release", input.run_id),
+                        serde_json::json!({
+                            "label": label,
+                            "expected_sha": expected_sha,
+                            "security_checks_complete": false,
+                            "release": release,
+                        }),
+                    )
+                    .await?;
+                return Err(error);
+            }
+        };
+        let validated = completed.validated?;
         let imported = self
             .evidence
             .import(
@@ -535,7 +582,7 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
                 input.run_id,
                 &stage,
                 Some(label),
-                completed.validated,
+                validated,
             )
             .await
             .map_err(|error| failed("evidence_failed", "artifact_import", error))?;
@@ -618,7 +665,7 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
         expected_sha: &str,
         lease: &PreviewLease,
         cancellation: &CancellationToken,
-    ) -> Result<CompletedCapture, LifecycleError> {
+    ) -> Result<CaptureAttempt, LifecycleError> {
         let before = self
             .preview
             .verify(lease, cancellation)
@@ -676,8 +723,8 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
             .map_err(|error| map_preview_error(error, "preview_log_scan"))?;
         let after =
             after_result.map_err(|error| map_preview_error(error, "preview_after_capture"))?;
-        let validated = evidence_result.map_err(map_evidence_error)?;
-        Ok(CompletedCapture {
+        let validated = evidence_result.map_err(map_evidence_error);
+        Ok(CaptureAttempt {
             validated,
             before,
             after,
@@ -846,8 +893,8 @@ impl<S: LifecycleStore> LifecycleService for EvidenceLifecycle<S> {
     }
 }
 
-struct CompletedCapture {
-    validated: ValidatedEvidence,
+struct CaptureAttempt {
+    validated: Result<ValidatedEvidence, LifecycleError>,
     before: PreviewVerification,
     after: PreviewVerification,
     local_log_scan: SecretScan,
@@ -1418,6 +1465,14 @@ mod tests {
         assert_eq!(fixture.secret_scan.scan_count(), 1);
         assert_eq!(fixture.preview.log_scan_count(), 1);
         assert_eq!(fixture.preview.release_count(), 1);
+        let proof = fixture
+            .store
+            .event_payload("evidence.security_checks_completed")
+            .expect("durable failure cleanup proof");
+        assert_eq!(proof["evidence_outcome"], "failed_closed");
+        assert_eq!(proof["local_log_scan"]["matches"], 0);
+        assert_eq!(proof["preview_log_scan"]["matches"], 0);
+        assert_eq!(proof["release"]["cleanup_complete"], true);
     }
 
     #[tokio::test]
@@ -1610,6 +1665,7 @@ mod tests {
         artifacts: Vec<StoredArtifact>,
         completed_effects: HashSet<String>,
         calls: Option<Arc<Mutex<Vec<String>>>>,
+        lifecycle_events: Vec<(String, serde_json::Value)>,
     }
 
     impl MemoryLifecycleStore {
@@ -1621,6 +1677,7 @@ mod tests {
                     artifacts: Vec::new(),
                     completed_effects: HashSet::new(),
                     calls: None,
+                    lifecycle_events: Vec::new(),
                 })),
             }
         }
@@ -1635,6 +1692,16 @@ mod tests {
 
         fn artifact_count(&self) -> usize {
             self.state.lock().expect("store").artifacts.len()
+        }
+
+        fn event_payload(&self, event_type: &str) -> Option<serde_json::Value> {
+            self.state
+                .lock()
+                .expect("store")
+                .lifecycle_events
+                .iter()
+                .find(|(kind, _)| kind == event_type)
+                .map(|(_, payload)| payload.clone())
         }
     }
 
@@ -1672,12 +1739,16 @@ mod tests {
             &self,
             _request_id: Uuid,
             _run_id: Uuid,
-            _event_type: &str,
+            event_type: &str,
             to_state: &str,
             _idempotency_key: &str,
-            _payload: serde_json::Value,
+            payload: serde_json::Value,
         ) -> Result<bool, StoreError> {
-            self.state.lock().expect("store").terminal = Some(to_state.to_owned());
+            let mut state = self.state.lock().expect("store");
+            state.terminal = Some(to_state.to_owned());
+            state
+                .lifecycle_events
+                .push((event_type.to_owned(), payload));
             Ok(true)
         }
 

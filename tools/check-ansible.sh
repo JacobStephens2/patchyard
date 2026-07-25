@@ -19,7 +19,11 @@ shellcheck --exclude=SC2329 --shell=bash \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-child-launcher" \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-reap-child" \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-spawn-child" \
-  "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-cancel-child"
+  "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-cancel-child" \
+  "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-run-session14-qualification" \
+  "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-stage-session14-qualification" \
+  "$ANSIBLE_ROOT/roles/control_plane/files/qualify-factory-session14" \
+  "$ANSIBLE_ROOT/converge-session14.sh"
 
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
   -s "$ANSIBLE_ROOT/tests" -v

@@ -722,6 +722,7 @@
       - factory_web_binary | length > 0
       - factory_web_sha256 is defined
       - factory_web_sha256 is match('^[0-9a-f]{64}$')
+  tags: [session14]
 
 - name: Hash the local factory-web build artifact
   ansible.builtin.stat:
@@ -730,12 +731,14 @@
   delegate_to: localhost
   become: false
   register: local_factory_web
+  tags: [session14]
 
 - name: Require the exact factory-web build artifact
   ansible.builtin.assert:
     that:
       - local_factory_web.stat.exists
       - local_factory_web.stat.checksum == factory_web_sha256
+  tags: [session14]
 
 - name: Install the reviewed factory-web binary
   ansible.builtin.copy:
@@ -745,6 +748,7 @@
     group: root
     mode: "0755"
   notify: Restart factory dashboard
+  tags: [session14]
 
 - name: Require the reviewed factory-verify build artifact
   ansible.builtin.assert:
@@ -1579,6 +1583,53 @@
       - "{{ factory_repo_revision }}"
   changed_when: false
   tags: [session13]
+
+- name: Install the fixed Session 14 lifecycle qualification operations
+  ansible.builtin.copy:
+    src: "{{ item.source }}"
+    dest: "{{ item.destination }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - source: patchyard-run-session14-qualification
+      destination: /usr/local/libexec/patchyard-run-session14-qualification
+      mode: "0755"
+    - source: patchyard-stage-session14-qualification
+      destination: /usr/local/sbin/patchyard-stage-session14-qualification
+      mode: "0750"
+    - source: qualify-factory-session14
+      destination: /usr/local/sbin/qualify-factory-session14
+      mode: "0755"
+    - source: factory-session14-qualification.service
+      destination: /etc/systemd/system/factory-session14-qualification.service
+      mode: "0644"
+    - source: patchyard-session14-qualification.tmpfiles
+      destination: /etc/tmpfiles.d/patchyard-session14-qualification.conf
+      mode: "0644"
+  tags: [session14]
+
+- name: Create the Session 14 lifecycle qualification staging directory
+  ansible.builtin.command:
+    argv:
+      - systemd-tmpfiles
+      - --create
+      - /etc/tmpfiles.d/patchyard-session14-qualification.conf
+  changed_when: false
+  tags: [session14]
+
+- name: Reload systemd for the Session 14 lifecycle qualification unit
+  ansible.builtin.systemd:
+    daemon_reload: true
+  tags: [session14]
+
+- name: Qualify the converged Session 14 control-plane boundary
+  ansible.builtin.command:
+    argv:
+      - /usr/local/sbin/qualify-factory-session14
+      - "{{ factory_repo_revision }}"
+  changed_when: false
+  tags: [session14]
 
 - name: Publish the expected PHPUnit checksum to the verifier coordinator
   ansible.builtin.copy:

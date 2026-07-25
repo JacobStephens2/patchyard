@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+REQUEST_ID=${1:?dashboard request UUID required}
+BASE_SHA=${2:?exact Fieldbook base SHA required}
+EXPECTED_OUTCOME=${3:?success or failure required}
+[[ "$REQUEST_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]
+[[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+[[ "$EXPECTED_OUTCOME" =~ ^(success|failure)$ ]]
+test "$EUID" -eq 0
+
+ROOT=/run/patchyard-session14-qualification
+INPUT="$ROOT/input"
+SERVICE=factory-session14-qualification.service
+SUPERVISOR=factory-supervisor.service
+
+exec 9>"$ROOT/operator.lock"
+flock -n 9 || {
+  echo "another Session 14 qualification owns the operator lock" >&2
+  exit 1
+}
+test ! -e "$INPUT"
+systemctl is-active --quiet "$SUPERVISOR"
+if systemctl is-active --quiet "$SERVICE"; then
+  echo "Session 14 qualification service is already active" >&2
+  exit 1
+fi
+
+# A66's form is the only intake. A qualification request must still be queued
+# and its source must name an enabled dashboard account before the resident
+# supervisor is stopped.
+INTAKE_COUNT=$(
+  runuser -u postgres -- \
+    psql --host=/run/patchyard-postgres --dbname=patchyard \
+      --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+      --command="SELECT count(*)
+        FROM factory.requests AS requests
+        JOIN factory.users AS users ON users.username = requests.source
+        WHERE requests.id = '$REQUEST_ID'::uuid
+          AND requests.status = 'queued'
+          AND users.enabled"
+)
+test "$INTAKE_COUNT" = 1
+
+cleanup() {
+  rm -f -- "$INPUT"
+  systemctl start "$SUPERVISOR"
+}
+trap cleanup EXIT HUP INT TERM
+
+systemctl stop "$SUPERVISOR"
+TEMP_INPUT=$(mktemp "$ROOT/input.XXXXXX")
+printf '%s %s %s\n' "$REQUEST_ID" "$BASE_SHA" "$EXPECTED_OUTCOME" >"$TEMP_INPUT"
+chown root:factory-manager "$TEMP_INPUT"
+chmod 0640 "$TEMP_INPUT"
+mv -T -- "$TEMP_INPUT" "$INPUT"
+
+if systemctl is-failed --quiet "$SERVICE"; then
+  systemctl reset-failed "$SERVICE"
+fi
+set +e
+systemctl start "$SERVICE"
+SERVICE_STATUS=$?
+set -e
+
+QUALIFICATION=$(
+  runuser -u postgres -- \
+    psql --host=/run/patchyard-postgres --dbname=patchyard \
+      --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+      --command="WITH selected_run AS (
+          SELECT runs.*
+          FROM factory.runs AS runs
+          WHERE runs.request_id = '$REQUEST_ID'::uuid
+          ORDER BY runs.queued_at DESC, runs.id DESC
+          LIMIT 1
+        )
+        SELECT json_build_object(
+          'request_id', selected_run.request_id,
+          'run_id', selected_run.id,
+          'state', selected_run.state::text,
+          'pr_number', pr_state.number,
+          'head_sha', pr_state.head_sha,
+          'is_draft', pr_state.is_draft,
+          'artifact_count', (
+            SELECT count(*) FROM factory.artifacts
+            WHERE artifacts.run_id = selected_run.id
+              AND artifacts.kind IN (
+                'evidence-dom',
+                'evidence-screenshot',
+                'evidence-extract',
+                'evidence-hashes',
+                'evidence-execution',
+                'evidence-lifecycle'
+              )
+          ),
+          'security_proofs', (
+            SELECT count(*) FROM factory.events
+            WHERE events.run_id = selected_run.id
+              AND events.event_type = 'evidence.security_checks_completed'
+              AND events.payload->'local_log_scan'->>'matches' = '0'
+              AND events.payload->'preview_log_scan'->>'matches' = '0'
+              AND events.payload->'release'->>'cleanup_complete' = 'true'
+          )
+        )
+        FROM selected_run
+        JOIN factory.pr_state ON pr_state.run_id = selected_run.id"
+)
+
+if [[ "$EXPECTED_OUTCOME" == success ]]; then
+  test "$SERVICE_STATUS" -eq 0
+  jq -e '
+    .state == "ready_for_review"
+    and .is_draft == false
+    and .artifact_count == 12
+    and .security_proofs == 2
+  ' <<<"$QUALIFICATION" >/dev/null
+else
+  test "$SERVICE_STATUS" -ne 0
+  jq -e '
+    .state == "evidence_failed"
+    and .is_draft == true
+    and .artifact_count == 0
+    and .security_proofs == 1
+  ' <<<"$QUALIFICATION" >/dev/null
+fi
+
+if systemctl is-failed --quiet "$SERVICE"; then
+  systemctl reset-failed "$SERVICE"
+fi
+printf '%s\n' "$QUALIFICATION"

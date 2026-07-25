@@ -266,6 +266,10 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
             &links,
         )
         .map_err(|error| failed("pr_contract_failed", "final_body_invalid", error))?;
+        // The final body is the reviewer-facing A11/A26 product. Check its
+        // semantic contract before the mutation that can make the PR
+        // reviewable, rather than relying on byte equality alone later.
+        validate_ready_for_review_body(input, &body)?;
         let final_pull = self
             .finalize_pull(input, &durable, &token, &body, cancellation)
             .await?;
@@ -1184,13 +1188,112 @@ fn validate_live_pull(
         || pull.user.login != token.bot.login
         || pull.user.login != durable.author_login
         || pull.node_id.trim().is_empty()
-        || expected_body.is_some_and(|body| pull.body.as_deref() != Some(body))
     {
         return Err(failed_message(
             "pr_contract_failed",
             "live_pull_mismatch",
             "live PR differs from its durable exact-head contract",
         ));
+    }
+    if let Some(expected_body) = expected_body {
+        let Some(actual_body) = pull.body.as_deref() else {
+            return Err(failed_message(
+                "pr_contract_failed",
+                "live_pull_mismatch",
+                "live PR lost its finalized body",
+            ));
+        };
+        if actual_body != expected_body {
+            return Err(failed_message(
+                "pr_contract_failed",
+                "live_pull_mismatch",
+                "live PR body differs from its finalized exact-body contract",
+            ));
+        }
+        validate_ready_for_review_body(input, actual_body)?;
+    }
+    Ok(())
+}
+
+/// Verifies the reviewer-facing A11/A26 fields immediately before the
+/// ready-for-review path can mutate GitHub state.
+fn validate_ready_for_review_body(input: &PublishInput, body: &str) -> Result<(), LifecycleError> {
+    let contract = &input.review_contract;
+    let mut required = vec![
+        ("A11 lane", format!("- Lane: `{}`", contract.lane)),
+        (
+            "A11 rubric version",
+            format!("- Rubric version: `{}`", contract.rubric_version),
+        ),
+        (
+            "A11 untrusted request heading",
+            "### Untrusted request data".to_owned(),
+        ),
+        (
+            "A11 verbatim request",
+            format!(
+                "Source label: {}\n\nRequest body:\n{}",
+                contract.request_source, contract.verbatim_request
+            ),
+        ),
+        ("A11 root-cause heading", "### Root cause".to_owned()),
+        (
+            "A11 named-assumptions heading",
+            "### Named assumptions".to_owned(),
+        ),
+        ("A11 evidence-pack heading", "### Evidence pack".to_owned()),
+        (
+            "A11 risk-and-rollback heading",
+            "### Risk and rollback".to_owned(),
+        ),
+        ("A11 risk", format!("Risk: {}", contract.risk)),
+        ("A11 rollback", format!("Rollback: {}", contract.rollback)),
+        (
+            "A11 drafted requester-reply heading",
+            "### Draft requester reply - written, never sent".to_owned(),
+        ),
+        ("A11 drafted requester reply", contract.draft_reply.clone()),
+        ("A26 reviewer-quiz heading", "### Reviewer quiz".to_owned()),
+    ];
+    for root_cause in &contract.root_causes {
+        required.push((
+            "A11 root cause at file:line",
+            format!(
+                "- `{}`:`{}` - {}",
+                root_cause.path, root_cause.line, root_cause.cause
+            ),
+        ));
+    }
+    for (index, assumption) in contract.named_assumptions.iter().enumerate() {
+        required.push((
+            "A11 named assumption",
+            format!("{}. {}", index + 1, assumption),
+        ));
+    }
+    for (index, question) in contract.reviewer_quiz.iter().enumerate() {
+        required.push((
+            "A26 reviewer-quiz question",
+            format!("{}. {}", index + 1, question),
+        ));
+    }
+    if contract.shared_function_touched {
+        required.push((
+            "A26 explain-diff heading",
+            "### Explain diff for shared function".to_owned(),
+        ));
+        required.push((
+            "A26 explain-diff text",
+            contract.explain_diff.clone().unwrap_or_default(),
+        ));
+    }
+    for (label, fragment) in required {
+        if fragment.is_empty() || !body.contains(&fragment) {
+            return Err(failed_message(
+                "pr_contract_failed",
+                "ready_for_review_body_contract",
+                format!("final PR body lacks {label}"),
+            ));
+        }
     }
     Ok(())
 }
@@ -1515,7 +1618,7 @@ mod tests {
 
     use super::{
         CiEvaluation, EvidenceLifecycle, LifecycleConfig, LifecycleError, LifecycleService,
-        evaluate_checks,
+        evaluate_checks, validate_ready_for_review_body,
     };
     use crate::{
         artifacts::{ArtifactStore, StoredArtifact},
@@ -1718,6 +1821,65 @@ mod tests {
             }
         }
         assert!(github.ready_called);
+    }
+
+    #[tokio::test]
+    async fn ready_for_review_body_rejects_each_a11_and_a26_contract_field() {
+        let fixture = LifecycleFixture::new(
+            "/completed",
+            false,
+            false,
+            checks("completed", Some("success")),
+        );
+        fixture
+            .lifecycle
+            .complete(&fixture.input, &CancellationToken::new())
+            .await
+            .expect("complete lifecycle");
+        let body = fixture
+            .github
+            .state
+            .lock()
+            .expect("GitHub state")
+            .pull
+            .body
+            .clone()
+            .expect("final body");
+        let contract = &fixture.input.review_contract;
+        let required = vec![
+            format!("- Lane: `{}`", contract.lane),
+            format!("- Rubric version: `{}`", contract.rubric_version),
+            format!(
+                "Source label: {}\n\nRequest body:\n{}",
+                contract.request_source, contract.verbatim_request
+            ),
+            format!(
+                "- `{}`:`{}` - {}",
+                contract.root_causes[0].path,
+                contract.root_causes[0].line,
+                contract.root_causes[0].cause
+            ),
+            format!("1. {}", contract.named_assumptions[0]),
+            "### Reviewer quiz".to_owned(),
+            "### Explain diff for shared function".to_owned(),
+            "### Draft requester reply - written, never sent".to_owned(),
+            format!("Risk: {}", contract.risk),
+            format!("Rollback: {}", contract.rollback),
+        ];
+        for fragment in required {
+            let invalid = body.replacen(&fragment, "[missing contract field]", 1);
+            let error = validate_ready_for_review_body(&fixture.input, &invalid)
+                .expect_err("missing final-body contract field must fail closed");
+            assert!(
+                matches!(
+                    error,
+                    LifecycleError::Failed(ref failure)
+                        if failure.state == "pr_contract_failed"
+                            && failure.reason_code == "ready_for_review_body_contract"
+                ),
+                "missing {fragment:?} did not produce the ready-body contract failure: {error:?}"
+            );
+        }
     }
 
     #[tokio::test]

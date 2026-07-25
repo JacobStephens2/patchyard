@@ -36,6 +36,17 @@ The dashboard remains a read-only scribe (A53/A66). The supervisor performs
 every transition and side effect (A65). The orchestration host is absent from
 the runtime path (A68). No process self-merges or deploys (A1).
 
+## A26 explain-diff scope
+
+The Session 14 implementation does not infer PHP call-graph sharing. Its
+`shared_function_touched` gate is deliberately conservative but filename-based:
+every changed target whose path ends in `.php`, including the Session 7 target
+`mfieldbook/common_functions.php`, requires the A26 explain-diff section. The
+guarantee is therefore limited to PHP-suffix matching; it does not establish
+semantic shared-function detection or cover shared functions in non-PHP files.
+This is the actual installed scope, recorded here rather than implied to be a
+general shared-function analysis.
+
 ## Durable and cancellation semantics
 
 `awaiting_ci`, `capturing_evidence`, and `finalizing_pr` are resumable durable

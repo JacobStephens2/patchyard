@@ -1390,9 +1390,11 @@ fn review_contract(
             ),
         });
     }
-    // PHP has no reliable static marker that distinguishes a local helper
-    // from a shared function. Conservatively explain every PHP diff so an
-    // unrecognized shared-function edit cannot silently omit A26.
+    // A26's current explain-diff guarantee is deliberately scoped to PHP
+    // filename suffixes. PHP has no reliable static marker that distinguishes
+    // a local helper from a shared function, so every changed `.php` target
+    // (including `common_functions.php`) gets the explanation. This does not
+    // claim semantic shared-function detection for non-PHP targets.
     let shared_function_touched = task
         .targets
         .iter()

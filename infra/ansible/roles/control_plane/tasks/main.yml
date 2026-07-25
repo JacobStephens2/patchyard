@@ -1174,6 +1174,15 @@
   changed_when: false
   tags: [session13]
 
+- name: Grant the dashboard read-only checkout traversal
+  ansible.builtin.file:
+    path: /opt/patchyard
+    state: directory
+    owner: "{{ factory_manager_user }}"
+    group: factory
+    mode: "0750"
+  tags: [session13]
+
 - name: Install the private-VPC management inventory
   ansible.builtin.template:
     src: factory-management-inventory.yml.j2

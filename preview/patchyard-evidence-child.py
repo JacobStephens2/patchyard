@@ -44,6 +44,8 @@ FAILURE_DIAGNOSTICS = {
     "document_4xx",
     "document_5xx",
     "document_other",
+    "document_login_form_2xx",
+    "document_php_error_2xx",
 }
 TEST_MODE = os.environ.get("PATCHYARD_EVIDENCE_TEST") == "1"
 
@@ -269,6 +271,23 @@ def document_diagnostic(status: int | None) -> str:
     if status is None:
         return "document_other"
     return f"document_{status // 100}xx" if 2 <= status // 100 <= 5 else "document_other"
+
+
+def missing_selector_diagnostic(status: int | None, page_kind: object) -> str:
+    """Return one fixed, response-content-free clue for an absent selector.
+
+    The child may inspect the DOM while deciding whether it is safe to retain.
+    On failure it must retain neither that DOM nor a substring from it.  These
+    two fixed classifications make a live preview's auth or PHP failure
+    distinguishable from an ordinary stale selector without widening the
+    bounded child output contract.
+    """
+    if status is not None and 200 <= status < 300:
+        if page_kind == "login_form":
+            return "document_login_form_2xx"
+        if page_kind == "php_error":
+            return "document_php_error_2xx"
+    return document_diagnostic(status)
 
 
 class Cdp:
@@ -567,7 +586,17 @@ def run_controlled_browser(
   return {{
     missing: selectors.filter(selector => !document.querySelector(selector)),
     popup: !!document.querySelector('a[target="_blank" i]'),
-    download: !!document.querySelector('a[download]')
+    download: !!document.querySelector('a[download]'),
+    pageKind: (() => {{
+      const text = (document.body?.innerText || '').slice(0, 8192);
+      if (document.querySelector('input[type="password"], form[action*="login" i]')) {{
+        return 'login_form';
+      }}
+      if (/(?:Fatal error|Parse error|Uncaught (?:Error|Exception)|PDOException)/i.test(text)) {{
+        return 'php_error';
+      }}
+      return 'unknown';
+    }})()
   }};
 }})()
 """
@@ -588,7 +617,9 @@ def run_controlled_browser(
             raise CaptureFailure("download_blocked")
         if value.get("missing"):
             raise CaptureFailure(
-                "contract_rejected", document_diagnostic(document_status), document_status
+                "contract_rejected",
+                missing_selector_diagnostic(document_status, value.get("pageKind")),
+                document_status,
             )
         dom_result = cdp.call(
             "Runtime.evaluate",
@@ -719,9 +750,12 @@ def main() -> None:
                 )
             )
             if missing:
-                raise CaptureFailure(
-                    "contract_rejected", document_diagnostic(document_status), document_status
-                )
+                # This is an extraction-contract failure after a successful
+                # retained DOM parse (for example, a select with no options).
+                # Network status and page classification are intentionally
+                # confined to the browser helper, so do not fabricate either
+                # from this later parsing phase.
+                raise CaptureFailure("contract_rejected")
             extract = output / "extract.json"
             extract.write_text(
                 json.dumps(

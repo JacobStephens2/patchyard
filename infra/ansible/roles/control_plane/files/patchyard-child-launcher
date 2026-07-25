@@ -652,6 +652,8 @@ if ! wait "$CHILD_PID"; then
       if .diagnostic == "document_2xx" or .diagnostic == "document_3xx"
         or .diagnostic == "document_4xx" or .diagnostic == "document_5xx"
         or .diagnostic == "document_other"
+        or .diagnostic == "document_login_form_2xx"
+        or .diagnostic == "document_php_error_2xx"
       then .diagnostic else "document_other" end
     ' "$OUTPUT/capture/failure.json")
     DOCUMENT_STATUS=$(jq -r '

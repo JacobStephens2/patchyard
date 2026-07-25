@@ -146,3 +146,31 @@ cancellation, the same database role, GitHub App, preview SSH boundary, child
 launcher, and artifact roots as the resident supervisor. Its deterministic
 publisher fixture applies the real two-file SQL ordering patch to current
 Fieldbook source; it does not substitute the synthetic Session 9 repository.
+
+## Live qualification record
+
+The preview host and control plane were converged from this branch on
+2026-07-25. Preview convergence completed with `failed=0`; the control plane
+applied migration 7, installed the lifecycle supervisor and qualification
+entry point, and passed both the Session 13 and Session 14 host qualifiers.
+Fieldbook `master` remained
+`4ef35181f7a700b02e63808e483d7c23f33b91d8`, and the real two-file
+ALPHABETIZE patch applied cleanly to that exact tree.
+
+The first Session 14 host qualifier also found a live-only assertion defect:
+systemd reports `KillSignal=SIGINT` canonically as `2`. The unit was correctly
+configured, but the assertion expected the symbolic spelling. Commit
+`9c577c3` now checks the canonical value, and the subsequent exact-head
+converge passed (`factory-control`: `ok=52`, `failed=0`; `factory-worker`:
+`ok=1`, `failed=0`). This is the same category of source-insufficient check
+that the Session 13 verification-limits declaration anticipated.
+
+The full failure and success runs are blocked at the intentionally fail-closed
+form gate. Production currently has zero `factory.users`,
+`factory-dashboard.service` is absent, and
+`https://factory.example.com` refuses connections. Session 11's open A69
+escalation deliberately left `factory_dashboard_account_identities` empty
+until the two admin identities and one bare submitter are ruled. A66 forbids
+substituting `factoryctl request new`, raw SQL, or another intake path. Once
+that roster is named and converged, the two form submissions above are the
+only remaining live steps.

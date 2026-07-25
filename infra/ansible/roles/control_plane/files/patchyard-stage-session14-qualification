@@ -36,7 +36,8 @@ INTAKE_COUNT=$(
       --tuples-only --no-align --set=ON_ERROR_STOP=1 \
       --command="SELECT count(*)
         FROM factory.requests AS requests
-        JOIN factory.users AS users ON users.username = requests.source
+        JOIN factory.users AS users
+          ON requests.source = 'dashboard:' || users.id::text
         WHERE requests.id = '$REQUEST_ID'::uuid
           AND requests.status = 'queued'
           AND users.enabled"

@@ -17,6 +17,7 @@ class Session14QualificationContract(unittest.TestCase):
         intake = self.stage.index("JOIN factory.users")
         stop = self.stage.index('systemctl stop "$SUPERVISOR"')
         self.assertLess(intake, stop)
+        self.assertIn("requests.source = 'dashboard:' || users.id::text", self.stage)
         self.assertIn("requests.status = 'queued'", self.stage)
         self.assertIn("users.enabled", self.stage)
         self.assertNotIn("factoryctl request new", self.stage)

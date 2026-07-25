@@ -72,15 +72,16 @@ class CapabilityBoundaryTests(unittest.TestCase):
     def test_active_capability_translates_only_for_bound_get(self) -> None:
         token = f"efc1.{'a' * 32}.{'d' * 64}"
         self.activate(token)
-        translated = capability.authorize(
-            f"Bearer {token}", "1.preview.example.dev", "GET"
-        )
+        translated = capability.authorize(token, "1.preview.example.dev", "GET")
         self.assertEqual(translated, "Bearer preview-static-authority")
         self.assertIsNone(capability.authorize("", "1.preview.example.dev", "GET"))
         with self.assertRaises(ValueError):
-            capability.authorize(f"Bearer {token}", "2.preview.example.dev", "GET")
+            capability.authorize(token, "2.preview.example.dev", "GET")
         with self.assertRaises(ValueError):
-            capability.authorize(f"Bearer {token}", "1.preview.example.dev", "POST")
+            capability.authorize(token, "1.preview.example.dev", "POST")
+        self.assertIsNone(
+            capability.authorize(f"Bearer {token}", "1.preview.example.dev", "GET")
+        )
 
     def test_revoked_expired_and_symlinked_capabilities_fail_closed(self) -> None:
         token = f"efc1.{'a' * 32}.{'d' * 64}"
@@ -90,16 +91,16 @@ class CapabilityBoundaryTests(unittest.TestCase):
         value["state"] = "revoked"
         path.write_text(json.dumps(value))
         with self.assertRaises(ValueError):
-            capability.authorize(f"Bearer {token}", "1.preview.example.dev", "GET")
+            capability.authorize(token, "1.preview.example.dev", "GET")
         value["state"] = "active"
         value["expires_at"] = utc_stamp(datetime.now(timezone.utc) - timedelta(seconds=1))
         path.write_text(json.dumps(value))
         with self.assertRaises(ValueError):
-            capability.authorize(f"Bearer {token}", "1.preview.example.dev", "GET")
+            capability.authorize(token, "1.preview.example.dev", "GET")
         path.unlink()
         path.symlink_to(self.key)
         with self.assertRaises(ValueError):
-            capability.authorize(f"Bearer {token}", "1.preview.example.dev", "GET")
+            capability.authorize(token, "1.preview.example.dev", "GET")
 
     def test_traefik_can_resolve_the_capability_middleware_backend(self) -> None:
         self.assertIn(

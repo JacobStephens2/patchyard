@@ -24,19 +24,19 @@ def stamp(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def authorize(authorization: str, forwarded_host: str, forwarded_method: str) -> str | None:
-    if len(authorization) > MAX_HEADER or len(forwarded_host) > 253:
+def authorize(capability: str, forwarded_host: str, forwarded_method: str) -> str | None:
+    if len(capability) > MAX_HEADER or len(forwarded_host) > 253:
         raise ValueError("header exceeds boundary")
     if forwarded_method not in {"GET", "HEAD"}:
         raise ValueError("capture method is not allowed")
     host = forwarded_host.lower().split(":", 1)[0]
     if not PREVIEW_HOST.fullmatch(host):
         raise ValueError("preview host is not allowed")
-    if not authorization:
+    if not capability:
         return None
-    if not authorization.startswith("Bearer efc1."):
+    if not capability.startswith("efc1."):
         return None
-    match = CAPABILITY.fullmatch(authorization.removeprefix("Bearer "))
+    match = CAPABILITY.fullmatch(capability)
     if match is None:
         raise ValueError("malformed factory capability")
     capability_id = match.group(1)
@@ -56,7 +56,7 @@ def authorize(authorization: str, forwarded_host: str, forwarded_method: str) ->
         or value.get("allowed_host") != host
         or not secrets.compare_digest(
             str(value.get("token_sha256", "")),
-            sha256(authorization.removeprefix("Bearer ").encode()).hexdigest(),
+            sha256(capability.encode()).hexdigest(),
         )
         or stamp(str(value.get("expires_at", ""))) <= datetime.now(timezone.utc)
     ):
@@ -76,7 +76,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             translated = authorize(
-                self.headers.get("Authorization", ""),
+                self.headers.get("X-Patchyard-Factory-Capability", ""),
                 self.headers.get("X-Forwarded-Host", ""),
                 self.headers.get("X-Forwarded-Method", ""),
             )
@@ -88,6 +88,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Cache-Control", "no-store")
         if translated is not None:
+            # The browser's original Authorization header contains the
+            # short-lived factory capability.  Traefik must not ask legacy
+            # PHP to overwrite a same-named request header: it can leave that
+            # capability visible to the app.  The private auth-boundary header
+            # has no name collision, so this is the sole Authorization value
+            # forwarded to Fieldbook.
             self.send_header("Authorization", translated)
         self.end_headers()
 

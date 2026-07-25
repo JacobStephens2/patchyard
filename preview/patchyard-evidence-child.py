@@ -486,9 +486,10 @@ def run_controlled_browser(
             forwarded = [
                 {"name": str(name), "value": str(value)}
                 for name, value in headers.items()
-                if str(name).lower() != "authorization"
+                if str(name).lower()
+                not in {"authorization", "x-patchyard-capability"}
             ]
-            forwarded.append({"name": "Authorization", "value": f"Bearer {bearer}"})
+            forwarded.append({"name": "X-Patchyard-Factory-Capability", "value": bearer})
             cdp.send(
                 "Fetch.continueRequest",
                 {"requestId": request_id, "headers": forwarded},

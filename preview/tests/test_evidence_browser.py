@@ -25,7 +25,11 @@ class FixtureHandler(BaseHTTPRequestHandler):
     server_version = "patchyard-evidence-fixture/1"
 
     def do_GET(self) -> None:
-        if self.headers.get("Authorization") != f"Bearer {TOKEN}":
+        if self.headers.get("X-Patchyard-Factory-Capability") != TOKEN:
+            self.send_response(401)
+            self.end_headers()
+            return
+        if self.headers.get("Authorization"):
             self.send_response(401)
             self.end_headers()
             return

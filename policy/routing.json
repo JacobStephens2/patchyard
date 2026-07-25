@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "version": "2026-07-23.1",
-  "bench_sha256": "e9d992df13138551be90a6fe556c8b04c782c428c2039d7813474af7b3d6d25d",
+  "bench_sha256": "3860fde79c29d35b0f71efe68e4c0881e50c80c671a763087972c29dd18c4716",
   "live_provider_execution": false,
   "rules": {
     "triage": {

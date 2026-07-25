@@ -24,6 +24,12 @@ class PreviewCapabilityDeploymentContract(unittest.TestCase):
             '"patchyard-capability@docker,patchyard-capability-strip@docker"',
             slot,
         )
+        tasks = TASKS.read_text()
+        self.assertIn(
+            '"traefik.http.middlewares.patchyard-capability-strip.headers.customrequestheaders.X-Patchyard-Factory-Capability" == ""',
+            tasks,
+        )
+        self.assertIn("docker-compose.factory-slot.yml", tasks)
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ pub struct SecretScan {
     pub sources: u32,
     pub bytes_scanned: u64,
     pub matches: u32,
+    pub sentinel_matches: u32,
 }
 
 pub type SecretScanFuture<'a> =
@@ -35,6 +36,7 @@ pub trait SecretScanApi: Send + Sync {
         &'a self,
         secret: &'a str,
         capability_id: &'a str,
+        sentinel: &'a str,
         since_unix: i64,
         cancellation: &'a CancellationToken,
     ) -> SecretScanFuture<'a>;
@@ -67,6 +69,7 @@ impl ProcessSecretScanner {
         &self,
         secret: &str,
         capability_id: &str,
+        sentinel: &str,
         since_unix: i64,
         cancellation: &CancellationToken,
     ) -> Result<SecretScan, SecretScanError> {
@@ -75,11 +78,14 @@ impl ProcessSecretScanner {
             || secret.contains(['\r', '\n'])
             || capability_id.len() < 8
             || capability_id.len() > 128
+            || sentinel.len() < 16
+            || sentinel.len() > 128
+            || sentinel.contains(['\r', '\n'])
             || since_unix <= 0
         {
             return Err(SecretScanError::InvalidInput);
         }
-        let needles = format!("{secret}\n{capability_id}\n");
+        let needles = format!("{secret}\n{capability_id}\n{sentinel}\n");
         let file = PrivateNeedles::create(&self.scratch, needles.into_bytes()).await?;
         let mut spec = ProcessSpec::new(&self.program);
         spec.args = vec![
@@ -98,7 +104,11 @@ impl ProcessSecretScanner {
             (_, Err(error)) => return Err(error),
         };
         let scan: SecretScan = serde_json::from_slice(&process.stdout)?;
-        if scan.schema_version != 1 || scan.sources == 0 {
+        if scan.schema_version != 1
+            || scan.sources == 0
+            || scan.bytes_scanned == 0
+            || scan.sentinel_matches == 0
+        {
             return Err(SecretScanError::MalformedResult);
         }
         if scan.matches != 0 {
@@ -116,10 +126,11 @@ impl SecretScanApi for ProcessSecretScanner {
         &'a self,
         secret: &'a str,
         capability_id: &'a str,
+        sentinel: &'a str,
         since_unix: i64,
         cancellation: &'a CancellationToken,
     ) -> SecretScanFuture<'a> {
-        Box::pin(self.scan_inner(secret, capability_id, since_unix, cancellation))
+        Box::pin(self.scan_inner(secret, capability_id, sentinel, since_unix, cancellation))
     }
 }
 

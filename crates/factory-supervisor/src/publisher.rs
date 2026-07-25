@@ -960,7 +960,7 @@ impl ReviewContract {
             || self.named_assumptions.is_empty()
             || self.named_assumptions.len() > 8
             || !(1..=2).contains(&self.reviewer_quiz.len())
-            || self.shared_function_touched != self.explain_diff.is_some()
+            || (self.shared_function_touched && self.explain_diff.is_none())
         {
             return Err(PublisherError::InvalidInput("review contract shape"));
         }

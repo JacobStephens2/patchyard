@@ -337,6 +337,12 @@ pub trait PublisherStore: Clone + Send + Sync + 'static {
 
 /// Narrow durable surface for the post-draft evidence lifecycle.
 pub trait LifecycleStore: Clone + Send + Sync + 'static {
+    fn begin_lifecycle_attempt(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+    ) -> impl Future<Output = Result<Option<u8>, StoreError>> + Send;
+
     fn pull_request_for_run(
         &self,
         run_id: Uuid,
@@ -387,6 +393,11 @@ pub trait LifecycleStore: Clone + Send + Sync + 'static {
         key: &str,
         effect_type: &str,
     ) -> impl Future<Output = Result<SideEffectDisposition, StoreError>> + Send;
+
+    fn lifecycle_effect_started_at(
+        &self,
+        key: &str,
+    ) -> impl Future<Output = Result<Option<OffsetDateTime>, StoreError>> + Send;
 
     fn finish_lifecycle_effect(
         &self,
@@ -1800,6 +1811,28 @@ impl PublisherStore for PgPipelineStore {
 }
 
 impl LifecycleStore for PgPipelineStore {
+    async fn begin_lifecycle_attempt(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+    ) -> Result<Option<u8>, StoreError> {
+        let attempt: Option<i16> = sqlx::query_scalar(
+            r#"
+            UPDATE factory.runs
+            SET lifecycle_attempts=lifecycle_attempts + 1
+            WHERE id=$1 AND request_id=$2 AND lifecycle_attempts < 3
+            RETURNING lifecycle_attempts
+            "#,
+        )
+        .bind(run_id)
+        .bind(request_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        attempt
+            .map(|value| u8::try_from(value).map_err(|_| StoreError::MalformedRow))
+            .transpose()
+    }
+
     async fn pull_request_for_run(
         &self,
         run_id: Uuid,
@@ -1934,6 +1967,20 @@ impl LifecycleStore for PgPipelineStore {
     ) -> Result<SideEffectDisposition, StoreError> {
         self.begin_side_effect(request_id, Some(run_id), key, effect_type, 0)
             .await
+    }
+
+    async fn lifecycle_effect_started_at(
+        &self,
+        key: &str,
+    ) -> Result<Option<OffsetDateTime>, StoreError> {
+        validate_label("side-effect key", key, 256)?;
+        let started_at = sqlx::query_scalar(
+            "SELECT started_at FROM factory.side_effects WHERE idempotency_key=$1",
+        )
+        .bind(key)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(started_at.flatten())
     }
 
     async fn finish_lifecycle_effect(

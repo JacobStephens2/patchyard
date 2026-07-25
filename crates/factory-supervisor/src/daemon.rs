@@ -275,13 +275,7 @@ impl SupervisorDaemon {
             .await
             .map_err(|_| StoreError::KillCleanupFailed(run_id))?;
         let request_id = self.store.kill_run(run_id, control_id, reason).await?;
-        Ok(serde_json::json!({
-            "run_id": run_id,
-            "request_id": request_id,
-            "worker_teardown": "complete",
-            "lease_release": "complete",
-            "terminal_event": "run.killed",
-        }))
+        Ok(kill_outcome(run_id, request_id))
     }
 
     async fn execute_full_stop(
@@ -352,6 +346,30 @@ impl SupervisorDaemon {
             reconcile.handle.await??;
         }
         Ok(())
+    }
+}
+
+fn kill_outcome(run_id: Uuid, request_id: Option<Uuid>) -> serde_json::Value {
+    serde_json::json!({
+        "run_id": run_id,
+        "request_id": request_id,
+        "worker_teardown": "complete",
+        "terminal_event": "run.killed",
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use uuid::Uuid;
+
+    use super::kill_outcome;
+
+    #[test]
+    fn kill_outcome_claims_only_the_cleanup_it_performed() {
+        let outcome = kill_outcome(Uuid::new_v4(), Some(Uuid::new_v4()));
+
+        assert_eq!(outcome["worker_teardown"], "complete");
+        assert!(outcome.get("lease_release").is_none());
     }
 }
 

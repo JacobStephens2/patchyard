@@ -36,11 +36,11 @@ runtime contract.
 ## Dashboard account bootstrap
 
 `factory_dashboard_account_identities` in `group_vars/all.yml` is the
-Git-controlled A69 roster. It is intentionally empty until the Session 11
-submit-only identity escalation is ruled; convergence fails closed while it
-is empty.
+Git-controlled A69 roster. The Session 14 adversarial review ruled Jacob
+Stephens and Engineer Two as `factory_admin`, and the Owner as the
+bare `factory_submit` identity.
 
-After that ruling is committed, `converge.sh` requires
+`converge.sh` requires
 `FACTORY_DASHBOARD_ACCOUNTS_FILE` to name a controller-local JSON file readable
 only by its owner. The file adds one password to each exact committed identity;
 it is secret input, never copied to the control plane or committed:

@@ -6,10 +6,10 @@
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 31032,
-      "comments": 496,
-      "blanks": 2011,
-      "files": 80,
+      "code": 31923,
+      "comments": 501,
+      "blanks": 2068,
+      "files": 81,
       "languages": [
         {
           "language": "CSS",
@@ -48,17 +48,17 @@
         },
         {
           "language": "Rust",
-          "code": 28892,
-          "comments": 98,
-          "blanks": 1761,
+          "code": 29754,
+          "comments": 103,
+          "blanks": 1816,
           "files": 52
         },
         {
           "language": "SQL",
-          "code": 726,
+          "code": 755,
           "comments": 0,
-          "blanks": 61,
-          "files": 7
+          "blanks": 63,
+          "files": 8
         },
         {
           "language": "TOML",
@@ -72,14 +72,14 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 11135,
+      "code": 11292,
       "comments": 410,
-      "blanks": 1132,
-      "files": 125,
+      "blanks": 1154,
+      "files": 126,
       "languages": [
         {
           "language": "BASH",
-          "code": 3788,
+          "code": 3792,
           "comments": 99,
           "blanks": 292,
           "files": 36
@@ -128,10 +128,10 @@
         },
         {
           "language": "Python",
-          "code": 2453,
+          "code": 2597,
           "comments": 17,
-          "blanks": 273,
-          "files": 13
+          "blanks": 295,
+          "files": 14
         },
         {
           "language": "Shell",
@@ -156,7 +156,7 @@
         },
         {
           "language": "YAML",
-          "code": 2667,
+          "code": 2676,
           "comments": 4,
           "blanks": 288,
           "files": 19
@@ -247,8 +247,8 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8004,
-      "comments": 8612,
-      "blanks": 2680,
+      "comments": 8626,
+      "blanks": 2681,
       "files": 100,
       "languages": [
         {
@@ -268,8 +268,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 8598,
-          "blanks": 2629,
+          "comments": 8612,
+          "blanks": 2630,
           "files": 80
         },
         {

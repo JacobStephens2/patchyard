@@ -58,6 +58,7 @@ pub struct PreviewLogScan {
     pub sources: u32,
     pub bytes_scanned: u64,
     pub matches: u32,
+    pub sentinel_matches: u32,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -69,6 +70,17 @@ pub struct PreviewRelease {
     pub cleanup_complete: bool,
     pub cleanup_errors: Vec<String>,
     #[serde(default)]
+    pub already_absent: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PreviewCompensation {
+    pub ok: bool,
+    pub slot: Option<u8>,
+    pub lease_id: String,
+    pub cleanup_complete: bool,
+    pub cleanup_errors: Vec<String>,
     pub already_absent: bool,
 }
 
@@ -109,6 +121,12 @@ pub trait PreviewApi: Send + Sync {
         lease: &'a PreviewLease,
         cancellation: &'a CancellationToken,
     ) -> PreviewFuture<'a, PreviewRelease>;
+
+    fn release_by_id<'a>(
+        &'a self,
+        lease_id: &'a str,
+        cancellation: &'a CancellationToken,
+    ) -> PreviewFuture<'a, PreviewCompensation>;
 }
 
 #[derive(Clone, Debug)]
@@ -138,6 +156,7 @@ impl ProcessPreview {
             || config.capability_ttl > Duration::from_secs(300)
             || config.command_timeout.is_zero()
             || config.command_timeout > Duration::from_secs(3_600)
+            || config.command_timeout >= config.lease_ttl
         {
             return Err(PreviewError::InvalidConfig);
         }
@@ -322,6 +341,8 @@ impl PreviewApi for ProcessPreview {
                 || scan.slot != lease.slot
                 || scan.lease_id != lease.lease_id
                 || scan.sources == 0
+                || scan.bytes_scanned == 0
+                || scan.sentinel_matches == 0
             {
                 return Err(PreviewError::MalformedResponse);
             }
@@ -355,6 +376,37 @@ impl PreviewApi for ProcessPreview {
                 || release.lease_id != lease.lease_id
                 || !release.cleanup_complete
                 || !release.cleanup_errors.is_empty()
+            {
+                return Err(PreviewError::CleanupFailed);
+            }
+            Ok(release)
+        })
+    }
+
+    fn release_by_id<'a>(
+        &'a self,
+        lease_id: &'a str,
+        cancellation: &'a CancellationToken,
+    ) -> PreviewFuture<'a, PreviewCompensation> {
+        Box::pin(async move {
+            if lease_id.len() != 32 || !lower_hex(lease_id) {
+                return Err(PreviewError::InvalidInput);
+            }
+            let release: PreviewCompensation = self
+                .json(
+                    vec![
+                        OsString::from("release-id"),
+                        OsString::from("--lease-id"),
+                        OsString::from(lease_id),
+                    ],
+                    cancellation,
+                )
+                .await?;
+            if !release.ok
+                || release.lease_id != lease_id
+                || !release.cleanup_complete
+                || !release.cleanup_errors.is_empty()
+                || release.slot.is_some_and(|slot| !(1..=30).contains(&slot))
             {
                 return Err(PreviewError::CleanupFailed);
             }

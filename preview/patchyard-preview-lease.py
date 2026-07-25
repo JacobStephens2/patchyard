@@ -151,25 +151,7 @@ def find_lease(slots: dict[str, dict], lease_id: str) -> tuple[int, dict] | None
     return found[0] if found else None
 
 
-def destroy(slot: int, lease_id: str) -> dict:
-    with slot_lock():
-        slots = load_slots()
-        located = find_lease(slots, lease_id)
-        if located is None:
-            capability_errors = remove_lease_capabilities(lease_id)
-            return {
-                "slot": slot,
-                "lease_id": lease_id,
-                "cleanup_complete": not capability_errors,
-                "cleanup_errors": [
-                    f"capability:{name}" for name in capability_errors
-                ],
-                "already_absent": True,
-            }
-        actual_slot, _ = located
-        if actual_slot != slot:
-            raise RuntimeError("lease moved to another slot")
-
+def remove_runtime(slot: int) -> list[str]:
     errors: list[str] = []
     try:
         compose(slot, "down", "-v", check=False)
@@ -191,23 +173,85 @@ def destroy(slot: int, lease_id: str) -> dict:
         )
     except (OSError, subprocess.SubprocessError):
         errors.append("checkout-remove")
+    try:
+        containers = subprocess.run(
+            [
+                "/usr/bin/docker",
+                "ps",
+                "-aq",
+                "--filter",
+                f"label=com.docker.compose.project=preview-{slot}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        ).stdout.strip()
+        if containers:
+            errors.append("compose-residue")
+    except (OSError, subprocess.SubprocessError):
+        errors.append("compose-inspect")
+    if checkout.exists():
+        errors.append("checkout-residue")
+    return errors
+
+
+def destroy(slot: int, lease_id: str) -> dict:
     with slot_lock():
-        slots, _ = lease_entry(slot, lease_id)
-        del slots[str(slot)]
+        slots = load_slots()
+        located = find_lease(slots, lease_id)
+        if located is None:
+            entry = slots.get(str(slot))
+            if isinstance(entry, dict) and entry.get("factory_lease") is not None:
+                raise RuntimeError("slot belongs to another lease")
+            was_absent = True
+        else:
+            actual_slot, _ = located
+            if actual_slot != slot:
+                raise RuntimeError("lease moved to another slot")
+            was_absent = False
+
+    errors = remove_runtime(slot)
+    with slot_lock():
+        slots = load_slots()
+        if was_absent:
+            entry = slots.get(str(slot))
+            if isinstance(entry, dict) and entry.get("factory_lease") is not None:
+                raise RuntimeError("slot was acquired while cleanup ran")
+            slots.pop(str(slot), None)
+        else:
+            slots, _ = lease_entry(slot, lease_id)
+            del slots[str(slot)]
         write_slots(slots)
         absent = str(slot) not in load_slots()
         capability_errors = remove_lease_capabilities(lease_id)
-    complete = absent and not checkout.exists()
-    if not complete:
-        errors.append("residue")
     errors.extend(f"capability:{name}" for name in capability_errors)
+    complete = absent and not errors
     return {
         "slot": slot,
         "lease_id": lease_id,
         "cleanup_complete": complete,
         "cleanup_errors": errors,
-        "already_absent": False,
+        "already_absent": was_absent,
     }
+
+
+def destroy_by_id(lease_id: str) -> dict:
+    with slot_lock():
+        located = find_lease(load_slots(), lease_id)
+        if located is None:
+            capability_errors = remove_lease_capabilities(lease_id)
+            return {
+                "slot": None,
+                "lease_id": lease_id,
+                "cleanup_complete": not capability_errors,
+                "cleanup_errors": [
+                    f"capability:{name}" for name in capability_errors
+                ],
+                "already_absent": True,
+            }
+        slot, _ = located
+    return destroy(slot, lease_id)
 
 
 def rev_parse(slot: int) -> tuple[str, str]:
@@ -440,8 +484,11 @@ def revoke(args: argparse.Namespace) -> dict:
 
 
 def scan_stream(
-    command: list[str], environment: dict[str, str], needles: list[bytes]
-) -> tuple[int, int]:
+    command: list[str],
+    environment: dict[str, str],
+    needles: list[bytes],
+    sentinel: bytes,
+) -> tuple[int, int, int]:
     process = subprocess.Popen(
         command,
         cwd=ROOT,
@@ -451,10 +498,11 @@ def scan_stream(
         stderr=subprocess.DEVNULL,
     )
     assert process.stdout is not None
-    maximum_needle = max(map(len, needles))
+    maximum_needle = max([len(sentinel), *map(len, needles)])
     tail = b""
     scanned = 0
     matches = 0
+    sentinel_matches = 0
     while True:
         chunk = process.stdout.read(64 * 1024)
         if not chunk:
@@ -466,10 +514,12 @@ def scan_stream(
             raise RuntimeError("preview log scan exceeded its byte ceiling")
         window = tail + chunk
         matches += sum(needle in window for needle in needles)
+        sentinel_matches += window.count(sentinel)
         tail = window[-maximum_needle:]
+    process.stdout.close()
     if process.wait(timeout=30) != 0:
         raise RuntimeError("preview log source could not be read")
-    return scanned, matches
+    return scanned, matches, sentinel_matches
 
 
 def scan_logs(args: argparse.Namespace) -> dict:
@@ -494,6 +544,14 @@ def scan_logs(args: argparse.Namespace) -> dict:
             f"efc1.{capability_id}.".encode(),
         )
     ]
+    sentinel = f"patchyard-preview-scan-{secrets.token_hex(16)}"
+    subprocess.run(
+        ["/usr/bin/logger", "--tag", "patchyard-preview-lease", "--", sentinel],
+        check=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     environment = {
         "HOME": "/home/conductor",
         "PATH": "/usr/local/bin:/usr/bin:/bin",
@@ -512,10 +570,14 @@ def scan_logs(args: argparse.Namespace) -> dict:
     ]
     scanned = 0
     matches = 0
+    sentinel_matches = 0
     for command in commands:
-        source_bytes, source_matches = scan_stream(command, environment, needles)
+        source_bytes, source_matches, source_sentinel_matches = scan_stream(
+            command, environment, needles, sentinel.encode()
+        )
         scanned += source_bytes
         matches += source_matches
+        sentinel_matches += source_sentinel_matches
     return {
         "ok": True,
         "slot": args.slot,
@@ -523,6 +585,7 @@ def scan_logs(args: argparse.Namespace) -> dict:
         "sources": len(commands),
         "bytes_scanned": scanned,
         "matches": matches,
+        "sentinel_matches": sentinel_matches,
     }
 
 
@@ -567,6 +630,8 @@ def parser() -> argparse.ArgumentParser:
     ):
         command.add_argument("--slot", type=int, required=True)
         command.add_argument("--lease-id", required=True)
+    release_id = commands.add_parser("release-id")
+    release_id.add_argument("--lease-id", required=True)
     grant = commands.add_parser("authorize")
     grant.add_argument("--slot", type=int, required=True)
     grant.add_argument("--lease-id", required=True)
@@ -611,6 +676,9 @@ def main() -> int:
         result = verify(args)
     elif args.command == "release":
         result = destroy(args.slot, args.lease_id)
+        result["ok"] = result["cleanup_complete"]
+    elif args.command == "release-id":
+        result = destroy_by_id(args.lease_id)
         result["ok"] = result["cleanup_complete"]
     elif args.command == "authorize":
         result = authorize(args)

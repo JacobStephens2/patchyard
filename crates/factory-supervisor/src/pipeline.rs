@@ -1374,38 +1374,58 @@ fn review_contract(
     request_source: &str,
     verbatim_request: &str,
 ) -> Result<ReviewContract, PipelineError> {
-    let lines = first_hunk_lines(patch)?;
+    let lines = first_changed_lines(patch)?;
     let mut root_causes = Vec::with_capacity(task.targets.len());
     for target in &task.targets {
         let line = lines
             .get(&target.path)
             .copied()
             .ok_or_else(|| PipelineError::MissingRootCauseLine(target.path.clone()))?;
-        let cause = if target.path.ends_with("common_functions.php") {
-            "The shared salesperson option provider emits source order instead of the requested first-name order."
-        } else {
-            "The page-local salesperson option provider emits source order instead of the requested first-name order."
-        };
         root_causes.push(RootCause {
             path: target.path.clone(),
             line,
-            cause: cause.to_owned(),
+            cause: format!(
+                "{}: {}. At this changed line, the implementation did not yet satisfy the objective: {}",
+                target.page, target.evidence, task.objective
+            ),
         });
     }
+    // PHP has no reliable static marker that distinguishes a local helper
+    // from a shared function. Conservatively explain every PHP diff so an
+    // unrecognized shared-function edit cannot silently omit A26.
     let shared_function_touched = task
         .targets
         .iter()
-        .any(|target| target.path.ends_with("common_functions.php"));
-    let mut reviewer_quiz = vec![
-        "Do the before and after DOM extracts prove a pure ordering permutation with values and membership unchanged?"
-            .to_owned(),
-    ];
-    if shared_function_touched {
-        reviewer_quiz.push(
-            "Does the shared-helper explanation cover the authorized callers and preserve routing semantics?"
-                .to_owned(),
-        );
-    }
+        .any(|target| target.path.ends_with(".php"));
+    let reviewer_quiz = task
+        .acceptance_tests
+        .iter()
+        .take(2)
+        .map(|test| {
+            format!(
+                "Does the evidence prove acceptance assertion {}: {}",
+                test.id, test.assertion
+            )
+        })
+        .collect();
+    let target_assumption = task
+        .targets
+        .iter()
+        .map(|target| format!("{} - {}", target.page, target.evidence))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let target_paths = task
+        .targets
+        .iter()
+        .map(|target| target.path.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let acceptance = task
+        .acceptance_tests
+        .iter()
+        .map(|test| test.assertion.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
     Ok(ReviewContract {
         request_source: request_source.to_owned(),
         verbatim_request: verbatim_request.to_owned(),
@@ -1413,29 +1433,40 @@ fn review_contract(
         rubric_version: task.rubric_version.clone(),
         root_causes,
         named_assumptions: vec![
-            "First name then last name is the presentation key; option values, membership, selected state, and the blank sentinel must not change."
-                .to_owned(),
-            "The shared salesperson helper is presentation data for the authorized UI callers and is not a routing-priority source."
-                .to_owned(),
+            format!(
+                "The implementation is limited to the authorized target paths and objective: {}",
+                task.objective
+            ),
+            format!(
+                "The target evidence is assumed to identify the affected behavior, without granting authority beyond it: {target_assumption}"
+            ),
         ],
-        risk: "Low. The verified patch changes ordering in at most two internal PHP files, while values, membership, selected state, and blank-sentinel behavior remain deterministic invariants."
-            .to_owned(),
-        rollback: "Close the pull request before merge, or revert the single factory commit after merge. No schema or data rollback is involved."
-            .to_owned(),
-        draft_reply: "The salesperson selectors now sort by first name then last name on the requested internal pages. Option values and membership are unchanged. The change is ready for human review and has not been deployed."
-            .to_owned(),
+        risk: format!(
+            "The change is bounded to {} target file(s): {target_paths}. Review must confirm every recorded acceptance assertion: {acceptance}",
+            task.targets.len()
+        ),
+        rollback: format!(
+            "Close the pull request before merge, or revert the factory commit after merge to restore the prior versions of: {target_paths}. No deployment is performed by this lifecycle."
+        ),
+        draft_reply: format!(
+            "{} The change is ready for human review, the recorded acceptance assertions passed, and nothing has been deployed.",
+            task.objective
+        ),
         reviewer_quiz,
         shared_function_touched,
         explain_diff: shared_function_touched.then(|| {
-            "The shared get_salespeople_usernames provider changes only its presentation order. The page-local provider receives the equivalent ordering change, and the verifier preserves every option value and caller-visible member."
-                .to_owned()
+            format!(
+                "PHP sharing is classified conservatively, so this section covers every changed PHP target: {target_paths}. The authorized objective is: {} The reviewer must confirm caller-visible behavior against: {acceptance}",
+                task.objective
+            )
         }),
     })
 }
 
-fn first_hunk_lines(patch: &str) -> Result<BTreeMap<String, u32>, PipelineError> {
+fn first_changed_lines(patch: &str) -> Result<BTreeMap<String, u32>, PipelineError> {
     let mut result = BTreeMap::new();
-    let mut current = None;
+    let mut current_path = None;
+    let mut current_new_line = None;
     for line in patch.lines() {
         if let Some(header) = line.strip_prefix("diff --git a/") {
             let Some((old, new)) = header.split_once(" b/") else {
@@ -1444,30 +1475,50 @@ fn first_hunk_lines(patch: &str) -> Result<BTreeMap<String, u32>, PipelineError>
             if old != new || old.is_empty() {
                 return Err(PipelineError::MalformedPatchHeader);
             }
-            current = Some(old.to_owned());
+            current_path = Some(old.to_owned());
+            current_new_line = None;
             continue;
         }
-        if let Some(hunk) = line.strip_prefix("@@ -") {
-            let Some(path) = current.as_ref() else {
+        if line.starts_with("@@ ") {
+            let Some(path) = current_path.as_ref() else {
                 return Err(PipelineError::MalformedPatchHeader);
             };
-            if result.contains_key(path) {
-                continue;
-            }
-            let old_range = hunk
-                .split_once(' ')
-                .map(|(range, _)| range)
+            let new_range = line
+                .split_whitespace()
+                .nth(2)
                 .ok_or(PipelineError::MalformedPatchHeader)?;
-            let line = old_range
+            let new_line = new_range
+                .strip_prefix('+')
+                .ok_or(PipelineError::MalformedPatchHeader)?
                 .split(',')
                 .next()
                 .ok_or(PipelineError::MalformedPatchHeader)?
                 .parse::<u32>()
                 .map_err(|_| PipelineError::MalformedPatchHeader)?;
-            if line == 0 {
+            if new_line == 0 {
                 return Err(PipelineError::MalformedPatchHeader);
             }
-            result.insert(path.clone(), line);
+            current_new_line = Some(new_line);
+            let _ = path;
+            continue;
+        }
+        let Some(new_line) = current_new_line.as_mut() else {
+            continue;
+        };
+        if line.starts_with('+') {
+            let path = current_path
+                .as_ref()
+                .ok_or(PipelineError::MalformedPatchHeader)?;
+            result.entry(path.clone()).or_insert(*new_line);
+            *new_line = new_line
+                .checked_add(1)
+                .ok_or(PipelineError::MalformedPatchHeader)?;
+        } else if line.starts_with(' ') {
+            *new_line = new_line
+                .checked_add(1)
+                .ok_or(PipelineError::MalformedPatchHeader)?;
+        } else if !line.starts_with('-') && !line.starts_with("\\ No newline") {
+            return Err(PipelineError::MalformedPatchHeader);
         }
     }
     if result.is_empty() {
@@ -1552,4 +1603,28 @@ pub enum PipelineError {
     Publisher(#[from] PublisherError),
     #[error("evidence lifecycle failed: {0}")]
     Lifecycle(#[from] LifecycleError),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::first_changed_lines;
+
+    #[test]
+    fn root_cause_lines_point_to_the_first_added_line_not_the_hunk_header() {
+        let patch = "\
+diff --git a/mfieldbook/example.php b/mfieldbook/example.php
+index 1111111..2222222 100644
+--- a/mfieldbook/example.php
++++ b/mfieldbook/example.php
+@@ -10,4 +10,4 @@
+ context
+-old behavior
++new behavior
+ context
+";
+
+        let lines = first_changed_lines(patch).expect("valid unified diff");
+
+        assert_eq!(lines["mfieldbook/example.php"], 11);
+    }
 }

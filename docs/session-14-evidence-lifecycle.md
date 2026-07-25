@@ -37,17 +37,30 @@ the runtime path (A68). No process self-merges or deploys (A1).
 
 `awaiting_ci`, `capturing_evidence`, and `finalizing_pr` are resumable durable
 states. CI success, each evidence pack, the final body update, and the
-ready-for-review mutation have idempotent side-effect rows. Recovery accepts
-an evidence pack only when all six kinds are present as bounded regular files
-and every stored digest still matches.
+ready-for-review mutation have idempotent side-effect rows. The CI effect's
+original `started_at` is the restart-stable deadline, and even a completed
+effect is re-observed against GitHub before evidence work resumes. Recovery
+accepts an evidence pack only when all six kinds are present as bounded
+regular files, every stored digest still matches, and the lifecycle manifest
+binds the exact stage and SHA being resumed. One initial lifecycle entry plus
+two resumptions is the durable maximum.
 
 No Rust or database lock is held across GitHub, SSH, preview, browser, log
 scan, or filesystem awaits. Caller cancellation before bearer issuance leaves
 the durable stage resumable. Once a bearer exists, the supervisor uses a
 fresh teardown token for the post-capture SHA check and both log scans; the
 outer preview lease release also uses a fresh token. Cleanup is an explicit
-checked close, never `Drop`. A cleanup error overrides success and every other
-operation result.
+checked close, never delegated to `Drop`. A checked holder logs any future
+that is dropped without observing explicit release, while the TTL sweeper
+remains only the non-graceful backstop. Acquisition errors run a deterministic
+lease-ID compensation through the bridge before the original error is
+returned. A cleanup error overrides success and every other operation result.
+
+Both log scanners now require a positive proof of observation: a unique,
+non-secret sentinel is emitted into the bounded window and must be found,
+`bytes_scanned` must be positive, and exact bearer/capability matches must
+remain zero. CI executes each scanner against a real subprocess stream with a
+planted bearer and independently counted sentinel.
 
 ## Predeclared failure-path inventory
 
@@ -86,12 +99,21 @@ allowlist; it makes the evidence operation fail closed.
 GitHub-hosted CI can prove source-level and provider-free behavior:
 
 - every GitHub terminal conclusion maps to its declared state;
-- CI wait timeout and malformed/wrong-head snapshots fail closed;
+- CI wait timeout and malformed/wrong-head snapshots fail closed, completed
+  waits are re-observed, and resume cannot reset the original deadline;
 - success and injected evidence failure both call explicit lease release;
 - cleanup failure overrides both successful and failed capture;
 - child output is not imported before child teardown, post-capture SHA proof,
   zero-match log scans, and lease release;
-- partial, symlinked, oversized, or digest-changed recovery packs are rejected;
+- partial, symlinked, oversized, digest-changed, or wrong-SHA recovery packs
+  are rejected;
+- every Session 13 browser terminal substate maps through the full lifecycle
+  to its declared Session 14 state;
+- preview acquisition compensation, bounded lifecycle attempts, premature
+  ready-effect resume, and retained failure classification are regression
+  tested;
+- real-stream planted-secret tests prove detection and require a visible
+  non-secret sentinel plus positive bytes from both scan implementations;
 - only the exact numbered leased preview origin is accepted;
 - final bodies contain the A11/A26 contract, authenticated `/evidence` links,
   artifact SHA-256 values, and no sent reply;
@@ -165,12 +187,8 @@ converge passed (`factory-control`: `ok=52`, `failed=0`; `factory-worker`:
 `ok=1`, `failed=0`). This is the same category of source-insufficient check
 that the Session 13 verification-limits declaration anticipated.
 
-The full failure and success runs are blocked at the intentionally fail-closed
-form gate. Production currently has zero `factory.users`,
-`factory-dashboard.service` is absent, and
-`https://factory.example.com` refuses connections. Session 11's open A69
-escalation deliberately left `factory_dashboard_account_identities` empty
-until the two admin identities and one bare submitter are ruled. A66 forbids
-substituting `factoryctl request new`, raw SQL, or another intake path. Once
-that roster is named and converged, the two form submissions above are the
-only remaining live steps.
+Fable's review supplied the ruled roster: Jacob Stephens and Engineer Two are `factory_admin`; the Owner is `factory_submit`. That roster
+is now committed as A69 desired state. The reviewer repairs add migration 8,
+so exact-head control/preview convergence and the form-driven failure/success
+runs must be repeated on the repaired head before this live record can claim
+the Session 14 exit.

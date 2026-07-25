@@ -29,6 +29,8 @@ class Session14QualificationContract(unittest.TestCase):
         self.assertIn("evidence.security_checks_completed", self.stage)
         self.assertIn("local_log_scan", self.stage)
         self.assertIn("preview_log_scan", self.stage)
+        self.assertEqual(self.stage.count("bytes_scanned"), 2)
+        self.assertEqual(self.stage.count("sentinel_matches"), 2)
         self.assertIn("cleanup_complete", self.stage)
 
     def test_operator_service_is_bounded_and_cancellation_uses_sigint(self) -> None:

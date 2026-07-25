@@ -6,10 +6,10 @@ use std::{
     path::Path,
     pin::Pin,
     sync::Arc,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -160,6 +160,18 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
         input
             .validate()
             .map_err(|error| failed("pr_contract_failed", "invalid_publish_input", error))?;
+        if self
+            .store
+            .begin_lifecycle_attempt(input.request_id, input.run_id)
+            .await?
+            .is_none()
+        {
+            return Err(failed_message(
+                "pr_contract_failed",
+                "lifecycle_retry_exhausted",
+                "the lifecycle exhausted its initial attempt and two resumptions",
+            ));
+        }
         let durable = self
             .store
             .pull_request_for_run(input.run_id)
@@ -222,6 +234,10 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
                 &durable.head_sha,
                 cancellation,
             )
+            .await?;
+        // Evidence work may outlive a check rerun. Re-observe the exact head
+        // immediately before any final-body or ready-for-review mutation.
+        self.wait_for_ci(input, &durable, &pull, &token, cancellation)
             .await?;
 
         self.store
@@ -324,7 +340,13 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
                 "expected exactly one PR for the durable branch",
             ));
         }
-        let pull = pulls.into_iter().next().expect("cardinality checked");
+        let Some(pull) = pulls.into_iter().next() else {
+            return Err(failed_message(
+                "pr_contract_failed",
+                "pull_request_cardinality",
+                "the validated pull-request collection became empty",
+            ));
+        };
         validate_live_pull(input, durable, token, &pull, None)?;
         Ok(pull)
     }
@@ -338,14 +360,30 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
         cancellation: &CancellationToken,
     ) -> Result<(), LifecycleError> {
         let key = format!("lifecycle:{}:ci-wait", input.run_id);
-        if self
+        let disposition = self
             .store
             .begin_lifecycle_effect(input.request_id, input.run_id, &key, "github-ci-wait")
+            .await?;
+        let started_at = self
+            .store
+            .lifecycle_effect_started_at(&key)
             .await?
-            == SideEffectDisposition::Completed
-        {
-            return Ok(());
-        }
+            .ok_or_else(|| {
+                failed_message(
+                    "ci_observation_failed",
+                    "ci_deadline_missing",
+                    "the durable CI wait has no original start time",
+                )
+            })?;
+        let wait_duration = time::Duration::try_from(self.config.ci_wait_timeout)
+            .map_err(|error| failed("ci_observation_failed", "ci_deadline_invalid", error))?;
+        let deadline = started_at.checked_add(wait_duration).ok_or_else(|| {
+            failed_message(
+                "ci_observation_failed",
+                "ci_deadline_invalid",
+                "the durable CI deadline overflowed",
+            )
+        })?;
         self.store
             .update_pull_lifecycle(
                 input.run_id,
@@ -359,7 +397,6 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
                 })?,
             )
             .await?;
-        let started = Instant::now();
         loop {
             let checks = match self
                 .github
@@ -393,6 +430,7 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
                             serde_json::json!({
                                 "head_sha": durable.head_sha,
                                 "checks": checks,
+                                "revalidated": disposition == SideEffectDisposition::Completed,
                             }),
                         )
                         .await?;
@@ -449,7 +487,7 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
                         .await?;
                 }
             }
-            if started.elapsed() >= self.config.ci_wait_timeout {
+            if OffsetDateTime::now_utc() >= deadline {
                 return Err(failed_message(
                     "ci_wait_timed_out",
                     "github_ci_deadline",
@@ -477,7 +515,7 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
             .lifecycle_artifacts(input.request_id, input.run_id, &stage)
             .await?;
         if !existing.is_empty() {
-            validate_recovered_pack(&self.artifacts, &existing).await?;
+            validate_recovered_pack(&self.artifacts, &existing, label, expected_sha).await?;
             return Ok(existing);
         }
         let effect_key = format!("lifecycle:{}:evidence-{label}", input.run_id);
@@ -512,17 +550,55 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
             .await
         {
             Ok(lease) => lease,
-            Err(error) => return Err(map_preview_error(error, "preview_acquire")),
+            Err(error) => {
+                let compensation = match self
+                    .preview
+                    .release_by_id(&lease_id, &CancellationToken::new())
+                    .await
+                {
+                    Ok(compensation) => compensation,
+                    Err(cleanup_error) => {
+                        return Err(failed(
+                            "lease_cleanup_failed",
+                            "preview_acquire_compensation",
+                            cleanup_error,
+                        ));
+                    }
+                };
+                self.store
+                    .transition_lifecycle(
+                        input.request_id,
+                        input.run_id,
+                        "evidence.acquire_compensated",
+                        "capturing_evidence",
+                        &format!(
+                            "lifecycle:{}:evidence-{label}-acquire-compensated",
+                            input.run_id
+                        ),
+                        serde_json::json!({
+                            "label": label,
+                            "expected_sha": expected_sha,
+                            "lease_id": lease_id,
+                            "compensation": compensation,
+                        }),
+                    )
+                    .await?;
+                return Err(map_preview_error(error, "preview_acquire"));
+            }
         };
+        let mut lease = CheckedPreviewLease::new(lease);
         let operation = self
-            .capture_under_lease(label, input, expected_sha, &lease, cancellation)
+            .capture_under_lease(label, input, expected_sha, lease.get(), cancellation)
             .await;
         let cleanup = self
             .preview
-            .release(&lease, &CancellationToken::new())
+            .release(lease.get(), &CancellationToken::new())
             .await;
         let release = match cleanup {
-            Ok(release) => release,
+            Ok(release) => {
+                lease.mark_closed();
+                release
+            }
             Err(error) => {
                 return Err(failed("lease_cleanup_failed", "preview_release", error));
             }
@@ -596,8 +672,8 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
             schema_version: 1,
             label: label.to_owned(),
             expected_sha: expected_sha.to_owned(),
-            lease_slot: lease.slot,
-            lease_id: lease.lease_id,
+            lease_slot: lease.get().slot,
+            lease_id: lease.get().lease_id.clone(),
             before: completed.before,
             after: completed.after,
             child_job_id: imported.terminal.job_id,
@@ -632,7 +708,7 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
                 serde_json::json!({
                     "label": label,
                     "expected_sha": expected_sha,
-                    "slot": lease.slot,
+                    "slot": lease.get().slot,
                     "lease_cleanup": "complete",
                     "artifact_sha256": artifacts.iter().map(|item| item.sha256.clone()).collect::<Vec<_>>(),
                     "log_secret_matches": 0,
@@ -673,6 +749,12 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
             .map_err(|error| map_preview_error(error, "preview_before_capture"))?;
         let scan_started = OffsetDateTime::now_utc().unix_timestamp();
         let capability_id = Uuid::new_v4().simple().to_string();
+        let scan_sentinel = format!("patchyard-control-scan-{}", Uuid::new_v4().simple());
+        tracing::info!(
+            scan_sentinel = %scan_sentinel,
+            lease_id = %lease.lease_id,
+            "emitted non-secret lifecycle log-scan sentinel"
+        );
         let authorization = self
             .preview
             .authorize(lease, expected_sha, &capability_id, cancellation)
@@ -713,6 +795,7 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
             .scan(
                 &authorization.bearer.secret,
                 &authorization.bearer.capability_id,
+                &scan_sentinel,
                 scan_started,
                 &teardown_cancellation,
             )
@@ -833,7 +916,7 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
                     ));
                 }
             }
-        } else if ready_disposition == SideEffectDisposition::Start {
+        } else if ready_disposition != SideEffectDisposition::Completed {
             return Err(failed_message(
                 "pr_contract_failed",
                 "premature_ready_for_review",
@@ -872,8 +955,9 @@ impl<S: LifecycleStore> LifecycleService for EvidenceLifecycle<S> {
     ) -> LifecycleFuture<'a> {
         Box::pin(async move {
             let result = self.complete_checked(input, cancellation).await;
-            if let Err(LifecycleError::Failed(failure)) = &result {
-                self.store
+            if let Err(LifecycleError::Failed(failure)) = &result
+                && let Err(source) = self
+                    .store
                     .finish_lifecycle_run(
                         input.request_id,
                         input.run_id,
@@ -886,7 +970,12 @@ impl<S: LifecycleStore> LifecycleService for EvidenceLifecycle<S> {
                             "draft_reply_sent": false,
                         }),
                     )
-                    .await?;
+                    .await
+            {
+                return Err(LifecycleError::FailurePersistence {
+                    failure: failure.clone(),
+                    source: Box::new(source),
+                });
             }
             result
         })
@@ -901,7 +990,42 @@ struct CaptureAttempt {
     preview_log_scan: PreviewLogScan,
 }
 
-#[derive(Serialize)]
+struct CheckedPreviewLease {
+    lease: PreviewLease,
+    closed: bool,
+}
+
+impl CheckedPreviewLease {
+    fn new(lease: PreviewLease) -> Self {
+        Self {
+            lease,
+            closed: false,
+        }
+    }
+
+    fn get(&self) -> &PreviewLease {
+        &self.lease
+    }
+
+    fn mark_closed(&mut self) {
+        self.closed = true;
+    }
+}
+
+impl Drop for CheckedPreviewLease {
+    fn drop(&mut self) {
+        if !self.closed {
+            tracing::error!(
+                lease_id = %self.lease.lease_id,
+                slot = self.lease.slot,
+                "preview lease dropped without an observed explicit release; TTL sweeper is the backstop"
+            );
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct CaptureLifecycleManifest {
     schema_version: u16,
     label: String,
@@ -1074,6 +1198,8 @@ fn validate_live_pull(
 async fn validate_recovered_pack(
     artifacts: &ArtifactStore,
     pack: &[StoredArtifact],
+    label: &str,
+    expected_sha: &str,
 ) -> Result<(), LifecycleError> {
     if pack.len() != EVIDENCE_KINDS.len() {
         return Err(failed_message(
@@ -1088,6 +1214,68 @@ async fn validate_recovered_pack(
             "evidence_failed",
             "partial_evidence_pack",
             "recovered evidence pack has missing or duplicate kinds",
+        ));
+    }
+    let lifecycle_artifact = pack
+        .iter()
+        .find(|item| item.kind == "evidence-lifecycle")
+        .ok_or_else(|| {
+            failed_message(
+                "evidence_failed",
+                "recovered_manifest_missing",
+                "recovered evidence pack has no lifecycle manifest",
+            )
+        })?;
+    let lifecycle_bytes = read_artifact(
+        &artifacts.root().join(&lifecycle_artifact.relative_path),
+        256 * 1024,
+    )
+    .await?;
+    let manifest: CaptureLifecycleManifest = serde_json::from_slice(&lifecycle_bytes)
+        .map_err(|error| failed("evidence_failed", "recovered_manifest_invalid", error))?;
+    if manifest.schema_version != 1 || manifest.label != label {
+        return Err(failed_message(
+            "evidence_failed",
+            "recovered_manifest_identity",
+            "recovered evidence manifest has the wrong schema or stage label",
+        ));
+    }
+    if manifest.expected_sha != expected_sha {
+        return Err(failed_message(
+            "preview_sha_changed",
+            "recovered_manifest_sha",
+            "recovered evidence was captured from a different exact head",
+        ));
+    }
+    let manifest_artifacts: BTreeSet<_> = manifest
+        .artifacts
+        .iter()
+        .map(|item| {
+            (
+                item.id,
+                item.relative_path.as_str(),
+                item.sha256.as_str(),
+                item.kind.as_str(),
+            )
+        })
+        .collect();
+    let durable_artifacts: BTreeSet<_> = pack
+        .iter()
+        .filter(|item| item.kind != "evidence-lifecycle")
+        .map(|item| {
+            (
+                item.id,
+                item.relative_path.as_str(),
+                item.sha256.as_str(),
+                item.kind.as_str(),
+            )
+        })
+        .collect();
+    if manifest_artifacts != durable_artifacts {
+        return Err(failed_message(
+            "evidence_failed",
+            "recovered_manifest_artifacts",
+            "recovered lifecycle manifest does not bind the durable artifact pack",
         ));
     }
     for item in pack {
@@ -1149,7 +1337,13 @@ fn evidence_links(
             "evidence-extract" => "extracted DOM order",
             "evidence-hashes" => "child hash manifest",
             "evidence-execution" => "execution manifest",
-            _ => unreachable!(),
+            _ => {
+                return Err(failed_message(
+                    "pr_contract_failed",
+                    "evidence_kind_invalid",
+                    "evidence link builder received an unsupported artifact kind",
+                ));
+            }
         };
         let name = Path::new(&artifact.relative_path)
             .file_name()
@@ -1253,7 +1447,16 @@ fn failed_message(
     reason_code: &'static str,
     detail: impl Into<String>,
 ) -> LifecycleError {
-    debug_assert!(FAIL_CLOSED_STATES.contains(&state));
+    if !FAIL_CLOSED_STATES.contains(&state) {
+        return LifecycleError::Failed(LifecycleFailure {
+            state: "pr_contract_failed",
+            reason_code: "invalid_fail_closed_state",
+            detail: format!(
+                "internal failure state {state:?} with reason {reason_code:?}: {}",
+                detail.into()
+            ),
+        });
+    }
     LifecycleError::Failed(LifecycleFailure {
         state,
         reason_code,
@@ -1278,6 +1481,14 @@ pub enum LifecycleError {
     Failed(LifecycleFailure),
     #[error("evidence lifecycle store failed: {0}")]
     Store(#[from] StoreError),
+    #[error(
+        "evidence lifecycle failed closed as {failure:?}, but terminal persistence failed: {source}"
+    )]
+    FailurePersistence {
+        failure: LifecycleFailure,
+        #[source]
+        source: Box<StoreError>,
+    },
     #[error("evidence lifecycle artifact store failed: {0}")]
     Artifact(#[from] ArtifactError),
     #[error("evidence lifecycle JSON failed: {0}")]
@@ -1289,7 +1500,7 @@ pub enum LifecycleError {
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::{BTreeSet, HashSet},
+        collections::{BTreeSet, HashMap, HashSet, VecDeque},
         fs,
         os::unix::fs::PermissionsExt as _,
         path::{Path, PathBuf},
@@ -1311,9 +1522,10 @@ mod tests {
         child::{ChildSpawnConfig, IsolatedChildSpawner, PreviewBearer},
         evidence::EvidenceCapture,
         preview::{
-            PreviewApi, PreviewAuthorization, PreviewError, PreviewFuture, PreviewLease,
-            PreviewLogScan, PreviewRelease, PreviewVerification,
+            PreviewApi, PreviewAuthorization, PreviewCompensation, PreviewError, PreviewFuture,
+            PreviewLease, PreviewLogScan, PreviewRelease, PreviewVerification,
         },
+        process::ProcessError,
         publisher::{
             BotIdentity, CheckRun, CheckRuns, CreatePullRequest, GitHubApi, GitHubFuture,
             GitHubUser, InstallationToken, OpenPullRequestSnapshot, PublishInput, PullRequest,
@@ -1372,6 +1584,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn every_ci_terminal_conclusion_fails_closed_end_to_end() {
+        for (conclusion, expected) in [
+            ("failure", "ci_failed"),
+            ("cancelled", "ci_cancelled"),
+            ("timed_out", "ci_job_timed_out"),
+            ("action_required", "ci_action_required"),
+            ("neutral", "ci_neutral"),
+            ("skipped", "ci_skipped"),
+            ("stale", "ci_stale"),
+            ("startup_failure", "ci_startup_failed"),
+        ] {
+            let fixture = LifecycleFixture::new(
+                "/completed",
+                false,
+                false,
+                checks("completed", Some(conclusion)),
+            );
+            let error = fixture
+                .lifecycle
+                .complete(&fixture.input, &CancellationToken::new())
+                .await
+                .expect_err("terminal CI conclusion must fail closed");
+            assert!(
+                matches!(
+                    error,
+                    LifecycleError::Failed(ref failure) if failure.state == expected
+                ),
+                "{conclusion} did not land in {expected}: {error:?}"
+            );
+            assert_eq!(fixture.store.terminal_state().as_deref(), Some(expected));
+            assert_eq!(fixture.store.artifact_count(), 0);
+            assert_eq!(fixture.preview.release_count(), 0);
+            let github = fixture.github.state.lock().expect("GitHub");
+            assert!(github.pull.draft);
+            assert!(!github.ready_called);
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_ci_snapshots_fail_as_observation_errors() {
+        let mut wrong_head = checks("completed", Some("success"));
+        wrong_head.check_runs[0].head_sha = "c".repeat(40);
+        let mut unknown = checks("completed", Some("success"));
+        unknown.check_runs[0].conclusion = Some("mystery".to_owned());
+        for snapshot in [wrong_head, unknown] {
+            let fixture = LifecycleFixture::new("/completed", false, false, snapshot);
+            let error = fixture
+                .lifecycle
+                .complete(&fixture.input, &CancellationToken::new())
+                .await
+                .expect_err("malformed CI must fail closed");
+            assert!(matches!(
+                error,
+                LifecycleError::Failed(ref failure)
+                    if failure.state == "ci_observation_failed"
+            ));
+            assert_eq!(fixture.store.artifact_count(), 0);
+            assert!(fixture.github.state.lock().expect("GitHub").pull.draft);
+        }
+    }
+
+    #[tokio::test]
     async fn complete_lifecycle_releases_before_import_and_finalizes_full_contract() {
         let fixture = LifecycleFixture::new(
             "/completed",
@@ -1427,6 +1701,14 @@ mod tests {
         assert!(body.contains("### Reviewer quiz"));
         assert!(body.contains("### Explain diff for shared function"));
         assert!(body.contains("### Draft requester reply - written, never sent"));
+        assert!(body.contains("ALPHABETIZE the salesperson selectors."));
+        assert!(body.contains("- Lane: `A`"));
+        assert!(body.contains("- Rubric version: `2026-07-21.1`"));
+        assert!(body.contains("`mfieldbook/common_functions.php`:`10`"));
+        assert!(body.contains("### Named assumptions"));
+        assert!(body.contains("### Risk and rollback"));
+        assert!(body.contains("Risk:"));
+        assert!(body.contains("Rollback:"));
         assert!(body.contains("https://factory.example.com/evidence/"));
         assert!(body.contains("Baseline screenshot"));
         assert!(body.contains("Candidate extracted DOM order"));
@@ -1436,6 +1718,337 @@ mod tests {
             }
         }
         assert!(github.ready_called);
+    }
+
+    #[tokio::test]
+    async fn completed_ci_effect_is_reobserved_instead_of_replayed_from_cache() {
+        let fixture = LifecycleFixture::new(
+            "/completed",
+            false,
+            false,
+            checks("completed", Some("success")),
+        );
+        fixture
+            .lifecycle
+            .complete(&fixture.input, &CancellationToken::new())
+            .await
+            .expect("first lifecycle");
+        {
+            let mut github = fixture.github.state.lock().expect("GitHub");
+            assert_eq!(github.check_calls, 2);
+            github.checks = checks("completed", Some("failure"));
+        }
+
+        let error = fixture
+            .lifecycle
+            .complete(&fixture.input, &CancellationToken::new())
+            .await
+            .expect_err("changed CI must be re-observed");
+
+        assert!(matches!(
+            error,
+            LifecycleError::Failed(ref failure) if failure.state == "ci_failed"
+        ));
+        assert_eq!(fixture.github.state.lock().expect("GitHub").check_calls, 3);
+    }
+
+    #[tokio::test]
+    async fn ci_is_reobserved_after_evidence_before_ready_mutation() {
+        let fixture = LifecycleFixture::new(
+            "/completed",
+            false,
+            false,
+            checks("completed", Some("success")),
+        );
+        fixture.github.state.lock().expect("GitHub").check_sequence = VecDeque::from([
+            checks("completed", Some("success")),
+            checks("completed", Some("failure")),
+        ]);
+
+        let error = fixture
+            .lifecycle
+            .complete(&fixture.input, &CancellationToken::new())
+            .await
+            .expect_err("CI flipped after evidence");
+
+        assert!(matches!(
+            error,
+            LifecycleError::Failed(ref failure) if failure.state == "ci_failed"
+        ));
+        assert_eq!(fixture.store.artifact_count(), 12);
+        let github = fixture.github.state.lock().expect("GitHub");
+        assert_eq!(github.check_calls, 2);
+        assert!(github.pull.draft);
+        assert!(!github.ready_called);
+    }
+
+    #[tokio::test]
+    async fn resumed_ci_wait_uses_original_durable_deadline() {
+        let mut pending = checks("in_progress", None);
+        pending.total_count = 1;
+        let mut fixture = LifecycleFixture::new("/completed", false, false, pending);
+        fixture.lifecycle.config.ci_wait_timeout = Duration::from_secs(1);
+        let key = format!("lifecycle:{}:ci-wait", fixture.input.run_id);
+        {
+            let mut store = fixture.store.state.lock().expect("store");
+            store.started_effects.insert(key.clone());
+            store
+                .effect_started_at
+                .insert(key, OffsetDateTime::now_utc() - time::Duration::seconds(5));
+        }
+
+        let error = fixture
+            .lifecycle
+            .complete(&fixture.input, &CancellationToken::new())
+            .await
+            .expect_err("expired durable deadline");
+
+        assert!(matches!(
+            error,
+            LifecycleError::Failed(ref failure) if failure.state == "ci_wait_timed_out"
+        ));
+        assert_eq!(fixture.github.state.lock().expect("GitHub").check_calls, 1);
+    }
+
+    #[tokio::test]
+    async fn preview_bridge_timeout_and_sha_change_have_named_states() {
+        for (fault, expected, compensation, releases) in [
+            (PreviewFault::AcquireBridge, "preview_failed", 1, 0),
+            (PreviewFault::AcquireTimeout, "preview_timed_out", 1, 0),
+            (PreviewFault::VerifyShaChanged, "preview_sha_changed", 0, 1),
+        ] {
+            let fixture = LifecycleFixture::new(
+                "/completed",
+                false,
+                false,
+                checks("completed", Some("success")),
+            );
+            fixture.preview.set_fault(fault);
+            let error = fixture
+                .lifecycle
+                .complete(&fixture.input, &CancellationToken::new())
+                .await
+                .expect_err("preview fault must fail closed");
+            assert!(
+                matches!(
+                    error,
+                    LifecycleError::Failed(ref failure) if failure.state == expected
+                ),
+                "preview fault did not land in {expected}: {error:?}"
+            );
+            assert_eq!(fixture.store.terminal_state().as_deref(), Some(expected));
+            assert_eq!(fixture.store.artifact_count(), 0);
+            assert_eq!(fixture.preview.compensation_count(), compensation);
+            assert_eq!(fixture.preview.release_count(), releases);
+            if compensation == 1 {
+                let proof = fixture
+                    .store
+                    .event_payload("evidence.acquire_compensated")
+                    .expect("durable acquire compensation proof");
+                assert_eq!(proof["compensation"]["cleanup_complete"], true);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn live_pull_mismatch_fails_before_preview_and_readiness() {
+        let fixture = LifecycleFixture::new(
+            "/completed",
+            false,
+            false,
+            checks("completed", Some("success")),
+        );
+        fixture.github.state.lock().expect("GitHub").pull.head.sha = "c".repeat(40);
+
+        let error = fixture
+            .lifecycle
+            .complete(&fixture.input, &CancellationToken::new())
+            .await
+            .expect_err("wrong live pull head");
+
+        assert!(matches!(
+            error,
+            LifecycleError::Failed(ref failure) if failure.state == "pr_contract_failed"
+        ));
+        assert_eq!(fixture.preview.release_count(), 0);
+        assert_eq!(fixture.store.artifact_count(), 0);
+        assert!(!fixture.github.state.lock().expect("GitHub").ready_called);
+    }
+
+    #[tokio::test]
+    async fn session13_browser_substates_map_to_declared_session14_states() {
+        for (path, expected) in [
+            ("/redirect_blocked", "evidence_failed"),
+            ("/dns_binding_changed", "evidence_failed"),
+            ("/cross_origin_blocked", "evidence_failed"),
+            ("/popup_blocked", "evidence_failed"),
+            ("/download_blocked", "evidence_failed"),
+            ("/output_limit_exceeded", "evidence_failed"),
+            ("/bearer_disclosure_blocked", "evidence_failed"),
+            ("/browser_crashed", "evidence_failed"),
+            ("/authority_probe_failed", "evidence_failed"),
+            ("/egress_probe_failed", "evidence_failed"),
+            ("/child_timed_out", "preview_timed_out"),
+            ("/teardown_failed", "lease_cleanup_failed"),
+        ] {
+            let fixture =
+                LifecycleFixture::new(path, false, false, checks("completed", Some("success")));
+            let error = fixture
+                .lifecycle
+                .complete(&fixture.input, &CancellationToken::new())
+                .await
+                .expect_err("browser substate must fail closed");
+            assert!(
+                matches!(
+                    error,
+                    LifecycleError::Failed(ref failure) if failure.state == expected
+                ),
+                "{path} did not map to {expected}: {error:?}"
+            );
+            assert_eq!(fixture.store.artifact_count(), 0);
+            assert_eq!(fixture.preview.release_count(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn recovered_pack_is_bound_to_its_capture_sha() {
+        let fixture = LifecycleFixture::new(
+            "/completed",
+            false,
+            false,
+            checks("completed", Some("success")),
+        );
+        let durable = fixture
+            .store
+            .pull_request_for_run(fixture.input.run_id)
+            .await
+            .expect("store")
+            .expect("pull");
+        fixture
+            .lifecycle
+            .capture_pack(
+                "candidate",
+                &fixture.input,
+                &durable,
+                &durable.head_sha,
+                &CancellationToken::new(),
+            )
+            .await
+            .expect("first exact-head pack");
+
+        let error = fixture
+            .lifecycle
+            .capture_pack(
+                "candidate",
+                &fixture.input,
+                &durable,
+                &"c".repeat(40),
+                &CancellationToken::new(),
+            )
+            .await
+            .expect_err("stale recovered pack");
+
+        assert!(matches!(
+            error,
+            LifecycleError::Failed(ref failure)
+                if failure.state == "preview_sha_changed"
+                    && failure.reason_code == "recovered_manifest_sha"
+        ));
+        assert_eq!(fixture.preview.release_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn lifecycle_retry_budget_stops_before_external_effects() {
+        let fixture = LifecycleFixture::new(
+            "/completed",
+            false,
+            false,
+            checks("completed", Some("success")),
+        );
+        fixture
+            .store
+            .state
+            .lock()
+            .expect("store")
+            .lifecycle_attempts = 3;
+
+        let error = fixture
+            .lifecycle
+            .complete(&fixture.input, &CancellationToken::new())
+            .await
+            .expect_err("retry budget");
+
+        assert!(matches!(
+            error,
+            LifecycleError::Failed(ref failure)
+                if failure.state == "pr_contract_failed"
+                    && failure.reason_code == "lifecycle_retry_exhausted"
+        ));
+        assert_eq!(fixture.github.state.lock().expect("GitHub").check_calls, 0);
+        assert_eq!(fixture.preview.release_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn terminal_persistence_error_retains_the_original_failure() {
+        let fixture = LifecycleFixture::new(
+            "/completed",
+            false,
+            false,
+            checks("completed", Some("failure")),
+        );
+        fixture
+            .store
+            .state
+            .lock()
+            .expect("store")
+            .fail_terminal_persistence = true;
+
+        let error = fixture
+            .lifecycle
+            .complete(&fixture.input, &CancellationToken::new())
+            .await
+            .expect_err("terminal persistence error");
+
+        assert!(matches!(
+            error,
+            LifecycleError::FailurePersistence {
+                ref failure,
+                source,
+            } if failure.state == "ci_failed" && matches!(*source, StoreError::MalformedRow)
+        ));
+    }
+
+    #[tokio::test]
+    async fn non_draft_pull_with_resumable_ready_effect_fails_closed() {
+        let fixture = LifecycleFixture::new(
+            "/completed",
+            false,
+            false,
+            checks("completed", Some("success")),
+        );
+        let ready_key = format!("lifecycle:{}:ready-for-review", fixture.input.run_id);
+        fixture
+            .store
+            .state
+            .lock()
+            .expect("store")
+            .started_effects
+            .insert(ready_key);
+        fixture.github.state.lock().expect("GitHub").pull.draft = false;
+
+        let error = fixture
+            .lifecycle
+            .complete(&fixture.input, &CancellationToken::new())
+            .await
+            .expect_err("premature non-draft PR");
+
+        assert!(matches!(
+            error,
+            LifecycleError::Failed(ref failure)
+                if failure.state == "pr_contract_failed"
+                    && failure.reason_code == "premature_ready_for_review"
+        ));
+        assert!(!fixture.github.state.lock().expect("GitHub").ready_called);
     }
 
     #[tokio::test]
@@ -1664,6 +2277,10 @@ mod tests {
         terminal: Option<String>,
         artifacts: Vec<StoredArtifact>,
         completed_effects: HashSet<String>,
+        started_effects: HashSet<String>,
+        effect_started_at: HashMap<String, OffsetDateTime>,
+        lifecycle_attempts: u8,
+        fail_terminal_persistence: bool,
         calls: Option<Arc<Mutex<Vec<String>>>>,
         lifecycle_events: Vec<(String, serde_json::Value)>,
     }
@@ -1676,6 +2293,10 @@ mod tests {
                     terminal: None,
                     artifacts: Vec::new(),
                     completed_effects: HashSet::new(),
+                    started_effects: HashSet::new(),
+                    effect_started_at: HashMap::new(),
+                    lifecycle_attempts: 0,
+                    fail_terminal_persistence: false,
                     calls: None,
                     lifecycle_events: Vec::new(),
                 })),
@@ -1706,6 +2327,19 @@ mod tests {
     }
 
     impl LifecycleStore for MemoryLifecycleStore {
+        async fn begin_lifecycle_attempt(
+            &self,
+            _request_id: Uuid,
+            _run_id: Uuid,
+        ) -> Result<Option<u8>, StoreError> {
+            let mut state = self.state.lock().expect("store");
+            if state.lifecycle_attempts == 3 {
+                return Ok(None);
+            }
+            state.lifecycle_attempts += 1;
+            Ok(Some(state.lifecycle_attempts))
+        }
+
         async fn pull_request_for_run(
             &self,
             run_id: Uuid,
@@ -1802,19 +2436,33 @@ mod tests {
             key: &str,
             _effect_type: &str,
         ) -> Result<SideEffectDisposition, StoreError> {
-            Ok(
-                if self
-                    .state
-                    .lock()
-                    .expect("store")
-                    .completed_effects
-                    .contains(key)
-                {
-                    SideEffectDisposition::Completed
-                } else {
-                    SideEffectDisposition::Start
-                },
-            )
+            let mut state = self.state.lock().expect("store");
+            state
+                .effect_started_at
+                .entry(key.to_owned())
+                .or_insert_with(OffsetDateTime::now_utc);
+            let disposition = if state.completed_effects.contains(key) {
+                SideEffectDisposition::Completed
+            } else if state.started_effects.contains(key) {
+                SideEffectDisposition::Resume
+            } else {
+                state.started_effects.insert(key.to_owned());
+                SideEffectDisposition::Start
+            };
+            Ok(disposition)
+        }
+
+        async fn lifecycle_effect_started_at(
+            &self,
+            key: &str,
+        ) -> Result<Option<OffsetDateTime>, StoreError> {
+            Ok(self
+                .state
+                .lock()
+                .expect("store")
+                .effect_started_at
+                .get(key)
+                .copied())
         }
 
         async fn finish_lifecycle_effect(
@@ -1841,6 +2489,9 @@ mod tests {
             _event_type: &str,
             _outcome: serde_json::Value,
         ) -> Result<(), StoreError> {
+            if self.state.lock().expect("store").fail_terminal_persistence {
+                return Err(StoreError::MalformedRow);
+            }
             self.state.lock().expect("store").terminal = Some(state_name.to_owned());
             Ok(())
         }
@@ -1854,6 +2505,8 @@ mod tests {
     struct FakeGitHubState {
         pull: PullRequest,
         checks: CheckRuns,
+        check_sequence: VecDeque<CheckRuns>,
+        check_calls: usize,
         ready_called: bool,
     }
 
@@ -1863,6 +2516,8 @@ mod tests {
                 state: Arc::new(Mutex::new(FakeGitHubState {
                     pull,
                     checks,
+                    check_sequence: VecDeque::new(),
+                    check_calls: 0,
                     ready_called: false,
                 })),
             }
@@ -1925,7 +2580,14 @@ mod tests {
             _head_sha: &'a str,
             _cancellation: &'a CancellationToken,
         ) -> GitHubFuture<'a, CheckRuns> {
-            Box::pin(async move { Ok(self.state.lock().expect("GitHub").checks.clone()) })
+            Box::pin(async move {
+                let mut state = self.state.lock().expect("GitHub");
+                state.check_calls += 1;
+                Ok(match state.check_sequence.pop_front() {
+                    Some(checks) => checks,
+                    None => state.checks.clone(),
+                })
+            })
         }
 
         fn update_pull_request_body<'a>(
@@ -1987,9 +2649,18 @@ mod tests {
 
     struct FakePreviewState {
         release_failure: bool,
+        fault: Option<PreviewFault>,
         releases: usize,
+        compensations: usize,
         log_scans: usize,
         calls: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[derive(Clone, Copy)]
+    enum PreviewFault {
+        AcquireBridge,
+        AcquireTimeout,
+        VerifyShaChanged,
     }
 
     impl FakePreview {
@@ -1997,7 +2668,9 @@ mod tests {
             Self {
                 state: Arc::new(Mutex::new(FakePreviewState {
                     release_failure,
+                    fault: None,
                     releases: 0,
+                    compensations: 0,
                     log_scans: 0,
                     calls,
                 })),
@@ -2011,6 +2684,14 @@ mod tests {
         fn log_scan_count(&self) -> usize {
             self.state.lock().expect("preview").log_scans
         }
+
+        fn set_fault(&self, fault: PreviewFault) {
+            self.state.lock().expect("preview").fault = Some(fault);
+        }
+
+        fn compensation_count(&self) -> usize {
+            self.state.lock().expect("preview").compensations
+        }
     }
 
     impl PreviewApi for FakePreview {
@@ -2023,6 +2704,17 @@ mod tests {
             _cancellation: &'a CancellationToken,
         ) -> PreviewFuture<'a, PreviewLease> {
             Box::pin(async move {
+                match self.state.lock().expect("preview").fault {
+                    Some(PreviewFault::AcquireBridge) => {
+                        return Err(PreviewError::Bridge("fixture acquire".to_owned()));
+                    }
+                    Some(PreviewFault::AcquireTimeout) => {
+                        return Err(PreviewError::Process(ProcessError::TimedOut(
+                            Duration::from_secs(1),
+                        )));
+                    }
+                    _ => {}
+                }
                 Ok(PreviewLease {
                     ok: true,
                     slot: 1,
@@ -2044,6 +2736,12 @@ mod tests {
             _cancellation: &'a CancellationToken,
         ) -> PreviewFuture<'a, PreviewVerification> {
             Box::pin(async move {
+                if matches!(
+                    self.state.lock().expect("preview").fault,
+                    Some(PreviewFault::VerifyShaChanged)
+                ) {
+                    return Err(PreviewError::ShaChanged);
+                }
                 Ok(PreviewVerification {
                     ok: true,
                     slot: lease.slot,
@@ -2096,6 +2794,7 @@ mod tests {
                     sources: 2,
                     bytes_scanned: 200,
                     matches: 0,
+                    sentinel_matches: 1,
                 })
             })
         }
@@ -2128,6 +2827,24 @@ mod tests {
                     cleanup_complete: true,
                     cleanup_errors: Vec::new(),
                     already_absent: false,
+                })
+            })
+        }
+
+        fn release_by_id<'a>(
+            &'a self,
+            lease_id: &'a str,
+            _cancellation: &'a CancellationToken,
+        ) -> PreviewFuture<'a, PreviewCompensation> {
+            Box::pin(async move {
+                self.state.lock().expect("preview").compensations += 1;
+                Ok(PreviewCompensation {
+                    ok: true,
+                    slot: None,
+                    lease_id: lease_id.to_owned(),
+                    cleanup_complete: true,
+                    cleanup_errors: Vec::new(),
+                    already_absent: true,
                 })
             })
         }
@@ -2165,6 +2882,7 @@ mod tests {
             &'a self,
             _secret: &'a str,
             _capability_id: &'a str,
+            _sentinel: &'a str,
             _since_unix: i64,
             _cancellation: &'a CancellationToken,
         ) -> SecretScanFuture<'a> {
@@ -2184,6 +2902,7 @@ mod tests {
                     sources: 1,
                     bytes_scanned: 100,
                     matches: 0,
+                    sentinel_matches: 1,
                 })
             })
         }

@@ -228,7 +228,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
                 ssh_host: required_or("FACTORY_PREVIEW_SSH_HOST", "patchyard-preview"),
                 home: path_env("FACTORY_PREVIEW_SSH_HOME", "/var/lib/patchyard-manager"),
                 owner: required_or("FACTORY_PREVIEW_OWNER", "factory-supervisor"),
-                lease_ttl: duration_env("FACTORY_PREVIEW_LEASE_SECONDS", 1_200)?,
+                lease_ttl: duration_env("FACTORY_PREVIEW_LEASE_SECONDS", 1_800)?,
                 capability_ttl: duration_env("FACTORY_PREVIEW_CAPABILITY_SECONDS", 300)?,
                 command_timeout: duration_env("FACTORY_PREVIEW_COMMAND_TIMEOUT_SECONDS", 1_300)?,
             })?);

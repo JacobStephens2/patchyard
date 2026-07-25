@@ -99,7 +99,11 @@ QUALIFICATION=$(
             WHERE events.run_id = selected_run.id
               AND events.event_type = 'evidence.security_checks_completed'
               AND events.payload->'local_log_scan'->>'matches' = '0'
+              AND (events.payload->'local_log_scan'->>'bytes_scanned')::bigint > 0
+              AND (events.payload->'local_log_scan'->>'sentinel_matches')::integer > 0
               AND events.payload->'preview_log_scan'->>'matches' = '0'
+              AND (events.payload->'preview_log_scan'->>'bytes_scanned')::bigint > 0
+              AND (events.payload->'preview_log_scan'->>'sentinel_matches')::integer > 0
               AND events.payload->'release'->>'cleanup_complete' = 'true'
           )
         )

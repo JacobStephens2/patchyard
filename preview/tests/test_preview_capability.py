@@ -199,8 +199,8 @@ class LeaseCapabilityTests(unittest.TestCase):
         with mock.patch.object(
             lease,
             "scan_stream",
-            side_effect=[(100, 0), (200, 1)],
-        ):
+            side_effect=[(100, 0, 1), (200, 1, 0)],
+        ), mock.patch.object(lease.subprocess, "run"):
             result = lease.scan_logs(
                 SimpleNamespace(slot=1, lease_id="b" * 32)
             )
@@ -208,6 +208,23 @@ class LeaseCapabilityTests(unittest.TestCase):
         self.assertEqual(result["sources"], 2)
         self.assertEqual(result["bytes_scanned"], 300)
         self.assertEqual(result["matches"], 1)
+        self.assertEqual(result["sentinel_matches"], 1)
+
+    def test_log_scan_stream_detects_planted_bearer_and_visible_sentinel(self) -> None:
+        bearer = b"efc1.capability.planted-preview-secret"
+        sentinel = b"patchyard-preview-scan-visible"
+        payload = b"before " + bearer + b" between " + sentinel + b" after"
+
+        scanned, matches, sentinel_matches = lease.scan_stream(
+            ["/usr/bin/printf", "%s", payload.decode()],
+            {},
+            [bearer],
+            sentinel,
+        )
+
+        self.assertEqual(scanned, len(payload))
+        self.assertEqual(matches, 1)
+        self.assertEqual(sentinel_matches, 1)
 
     def test_absent_release_still_removes_capability_residue(self) -> None:
         capability_id = "a" * 32
@@ -215,10 +232,31 @@ class LeaseCapabilityTests(unittest.TestCase):
             json.dumps({"lease_id": "b" * 32})
         )
         self.slots.write_text("{}")
-        result = lease.destroy(1, "b" * 32)
+        completed = SimpleNamespace(stdout="")
+        with mock.patch.object(lease, "compose"), mock.patch.object(
+            lease.subprocess, "run", return_value=completed
+        ):
+            result = lease.destroy(1, "b" * 32)
         self.assertTrue(result["cleanup_complete"])
         self.assertTrue(result["already_absent"])
         self.assertFalse((self.capabilities / f"{capability_id}.json").exists())
+
+    def test_release_by_id_locates_handle_lost_after_acquire(self) -> None:
+        with mock.patch.object(
+            lease,
+            "destroy",
+            return_value={
+                "slot": 1,
+                "lease_id": "b" * 32,
+                "cleanup_complete": True,
+                "cleanup_errors": [],
+                "already_absent": False,
+            },
+        ) as destroy:
+            result = lease.destroy_by_id("b" * 32)
+
+        self.assertTrue(result["cleanup_complete"])
+        destroy.assert_called_once_with(1, "b" * 32)
 
 
 if __name__ == "__main__":

@@ -47,6 +47,7 @@ FAILURE_DIAGNOSTICS = {
     "document_login_form_2xx",
     "document_php_error_2xx",
     "document_database_error_2xx",
+    "document_api_denied_2xx",
 }
 TEST_MODE = os.environ.get("PATCHYARD_EVIDENCE_TEST") == "1"
 
@@ -290,6 +291,8 @@ def missing_selector_diagnostic(status: int | None, page_kind: object) -> str:
             return "document_php_error_2xx"
         if page_kind == "database_error":
             return "document_database_error_2xx"
+        if page_kind == "api_denied":
+            return "document_api_denied_2xx"
     return document_diagnostic(status)
 
 
@@ -591,12 +594,18 @@ def run_controlled_browser(
     popup: !!document.querySelector('a[target="_blank" i]'),
     download: !!document.querySelector('a[download]'),
     pageKind: (() => {{
-      const text = (document.body?.innerText || '').slice(0, 8192);
+      // A legacy PHP include can emit its bounded error before <body> exists,
+      // so inspect the document root rather than body-only text.  This text
+      // never leaves the child; only an allowlisted classification can.
+      const text = (document.documentElement?.textContent || '').slice(0, 8192);
       if (document.querySelector('input[type="password"], form[action*="login" i]')) {{
         return 'login_form';
       }}
       if (/Error!:\s*(?:SQLSTATE|could not find driver|connection (?:refused|failed))/i.test(text)) {{
         return 'database_error';
+      }}
+      if (/API Access Denied: Invalid authentication credentials\./i.test(text)) {{
+        return 'api_denied';
       }}
       if (/(?:Fatal error|Parse error|Uncaught (?:Error|Exception)|PDOException)/i.test(text)) {{
         return 'php_error';

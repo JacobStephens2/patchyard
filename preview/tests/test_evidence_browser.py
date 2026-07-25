@@ -42,7 +42,9 @@ class FixtureHandler(BaseHTTPRequestHandler):
         if self.path == "/missing-php-error":
             select = "<p>Fatal error</p>"
         if self.path == "/missing-database-error":
-            select = "<p>Error!: SQLSTATE</p>"
+            select = "<head><title>Error!: SQLSTATE</title></head>"
+        if self.path == "/missing-api-denied":
+            select = "<p>API Access Denied: Invalid authentication credentials.</p>"
         if self.path == "/empty-select":
             select = '<select id="sales_person_id"></select>'
         if self.path == "/oversized":
@@ -251,6 +253,9 @@ class EvidenceBrowserControls(unittest.TestCase):
         self.assert_state(
             "missing-database-error", "contract_rejected", "document_database_error_2xx", 200
         )
+
+    def test_absent_selector_on_api_denial_is_classified_without_retaining_dom(self) -> None:
+        self.assert_state("missing-api-denied", "contract_rejected", "document_api_denied_2xx", 200)
 
     def test_select_without_options_is_a_contract_rejection(self) -> None:
         self.assert_state("empty-select", "contract_rejected")

@@ -46,21 +46,34 @@ INTAKE_COUNT=$(
             requests.status = 'queued'
             OR (
               requests.status = 'claimed'
-              AND EXISTS (
-                SELECT 1
-                FROM factory.runs AS runs
-                WHERE runs.request_id = requests.id
-                  AND runs.branch = 'factory/$REQUEST_ID-session14-evidence-lifecycle'
-                  AND runs.state NOT IN (
-                    'dry_run_complete', 'closed', 'ready_for_review', 'killed',
-                    'failed', 'escalated', 'ci_failed', 'ci_cancelled',
-                    'ci_job_timed_out', 'ci_action_required', 'ci_neutral',
-                    'ci_skipped', 'ci_stale', 'ci_startup_failed',
-                    'ci_wait_timed_out', 'ci_observation_failed',
-                    'preview_failed', 'preview_timed_out', 'preview_sha_changed',
-                    'evidence_failed', 'secret_scan_failed',
-                    'lease_cleanup_failed', 'pr_contract_failed'
+              AND (
+                EXISTS (
+                  SELECT 1
+                  FROM factory.runs AS runs
+                  WHERE runs.request_id = requests.id
+                    AND runs.branch = 'factory/$REQUEST_ID-session14-evidence-lifecycle'
+                    AND runs.state NOT IN (
+                      'dry_run_complete', 'closed', 'ready_for_review', 'killed',
+                      'failed', 'escalated', 'ci_failed', 'ci_cancelled',
+                      'ci_job_timed_out', 'ci_action_required', 'ci_neutral',
+                      'ci_skipped', 'ci_stale', 'ci_startup_failed',
+                      'ci_wait_timed_out', 'ci_observation_failed',
+                      'preview_failed', 'preview_timed_out', 'preview_sha_changed',
+                      'evidence_failed', 'secret_scan_failed',
+                      'lease_cleanup_failed', 'pr_contract_failed'
+                    )
                   )
+                OR NOT EXISTS (
+                  -- The foreground process can fail after the durable claim
+                  -- but before it creates a run (for example, while Git tears
+                  -- down a partial worktree).  The released, no-run row is
+                  -- recoverable through this same dashboard-origin operator
+                  -- path; it is not a new intake and cannot bypass a live
+                  -- foreign holder.
+                  SELECT 1
+                  FROM factory.runs AS runs
+                  WHERE runs.request_id = requests.id
+                )
               )
               AND NOT EXISTS (
                 SELECT 1

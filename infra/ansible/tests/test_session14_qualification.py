@@ -28,7 +28,7 @@ class Session14QualificationContract(unittest.TestCase):
         self.assertIn("users.enabled", self.stage)
         self.assertNotIn("factoryctl request new", self.stage)
 
-    def test_claimed_recovery_is_limited_to_the_session14_run_and_holder(self) -> None:
+    def test_claimed_recovery_requires_the_session14_run_or_a_released_no_run_claim(self) -> None:
         self.assertIn("requests.status = 'claimed'", self.stage)
         self.assertIn(
             "runs.branch = 'factory/$REQUEST_ID-session14-evidence-lifecycle'",
@@ -36,6 +36,8 @@ class Session14QualificationContract(unittest.TestCase):
         )
         self.assertIn("leases.holder <> 'factory-session14-qualification'", self.stage)
         self.assertIn("runs.state NOT IN", self.stage)
+        self.assertIn("foreground process can fail after the durable claim", self.stage)
+        self.assertIn("WHERE runs.request_id = requests.id", self.stage)
 
     def test_injected_evidence_rejection_requires_durable_zero_secret_and_cleanup_proof(self) -> None:
         self.assertIn('FACTORY_EVIDENCE_SELECTORS="#session14_qualification_absent"', self.runner)

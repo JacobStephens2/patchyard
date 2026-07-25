@@ -46,6 +46,7 @@ FAILURE_DIAGNOSTICS = {
     "document_other",
     "document_login_form_2xx",
     "document_php_error_2xx",
+    "document_database_error_2xx",
 }
 TEST_MODE = os.environ.get("PATCHYARD_EVIDENCE_TEST") == "1"
 
@@ -287,6 +288,8 @@ def missing_selector_diagnostic(status: int | None, page_kind: object) -> str:
             return "document_login_form_2xx"
         if page_kind == "php_error":
             return "document_php_error_2xx"
+        if page_kind == "database_error":
+            return "document_database_error_2xx"
     return document_diagnostic(status)
 
 
@@ -591,6 +594,9 @@ def run_controlled_browser(
       const text = (document.body?.innerText || '').slice(0, 8192);
       if (document.querySelector('input[type="password"], form[action*="login" i]')) {{
         return 'login_form';
+      }}
+      if (/Error!:\s*(?:SQLSTATE|could not find driver|connection (?:refused|failed))/i.test(text)) {{
+        return 'database_error';
       }}
       if (/(?:Fatal error|Parse error|Uncaught (?:Error|Exception)|PDOException)/i.test(text)) {{
         return 'php_error';

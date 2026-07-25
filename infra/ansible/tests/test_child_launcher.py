@@ -79,6 +79,7 @@ class ChildLauncherContract(unittest.TestCase):
             "document_other",
             "document_login_form_2xx",
             "document_php_error_2xx",
+            "document_database_error_2xx",
         ):
             self.assertIn(value, self.launcher)
 

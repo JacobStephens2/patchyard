@@ -41,6 +41,8 @@ class FixtureHandler(BaseHTTPRequestHandler):
             select = '<form action="/mfieldbook/login.php"><input type="password"></form>'
         if self.path == "/missing-php-error":
             select = "<p>Fatal error</p>"
+        if self.path == "/missing-database-error":
+            select = "<p>Error!: SQLSTATE</p>"
         if self.path == "/empty-select":
             select = '<select id="sales_person_id"></select>'
         if self.path == "/oversized":
@@ -244,6 +246,11 @@ class EvidenceBrowserControls(unittest.TestCase):
 
     def test_absent_selector_on_php_error_is_classified_without_retaining_dom(self) -> None:
         self.assert_state("missing-php-error", "contract_rejected", "document_php_error_2xx", 200)
+
+    def test_absent_selector_on_database_error_is_classified_without_retaining_dom(self) -> None:
+        self.assert_state(
+            "missing-database-error", "contract_rejected", "document_database_error_2xx", 200
+        )
 
     def test_select_without_options_is_a_contract_rejection(self) -> None:
         self.assert_state("empty-select", "contract_rejected")

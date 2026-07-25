@@ -513,10 +513,15 @@ def run_controlled_browser(
         action_deadline = min(
             total_deadline, time.monotonic() + action_timeout_ms / 1000
         )
+        # The browser-side poll must leave bounded time for CDP to deliver its
+        # settled promise.  Otherwise a genuinely absent selector consumes the
+        # full action budget and is misclassified as a transport timeout rather
+        # than the typed contract rejection it is.
+        selector_poll_timeout_ms = max(action_timeout_ms - 250, 0)
         expression = f"""
 (async () => {{
   const selectors = {selector_json};
-  const deadline = Date.now() + {action_timeout_ms};
+  const deadline = Date.now() + {selector_poll_timeout_ms};
   while (Date.now() < deadline &&
          selectors.some(selector => !document.querySelector(selector))) {{
     await new Promise(resolve => setTimeout(resolve, 25));

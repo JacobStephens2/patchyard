@@ -35,6 +35,8 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self.send_header("Location", "/completed")
             self.end_headers()
             return
+        if self.path == "/missing":
+            select = ""
         if self.path == "/oversized":
             body = f"<!doctype html>{select}<p>{'x' * 200_000}</p>"
         elif self.path == "/cross-origin":
@@ -215,6 +217,9 @@ class EvidenceBrowserControls(unittest.TestCase):
         self.assert_state(
             "completed", "child_timed_out", chromium=browser, total_timeout_ms=250
         )
+
+    def test_absent_selector_is_a_contract_rejection_not_a_timeout(self) -> None:
+        self.assert_state("missing", "contract_rejected")
 
 
 if __name__ == "__main__":

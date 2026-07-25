@@ -104,7 +104,9 @@ pub fn session_cookie(secret: &str, _absolute_expires_at: OffsetDateTime) -> Str
 
 #[must_use]
 pub fn login_cookie(secret: &str, lifetime: Duration) -> String {
-    secure_cookie(LOGIN_COOKIE, secret, lifetime, "/login")
+    // `__Host-` cookies are valid only with Path=/ (RFC 6265bis). Browsers
+    // reject a narrower path before the login POST can prove its CSRF token.
+    secure_cookie(LOGIN_COOKIE, secret, lifetime, "/")
 }
 
 #[must_use]
@@ -114,7 +116,7 @@ pub fn clear_session_cookie() -> String {
 
 #[must_use]
 pub fn clear_login_cookie() -> String {
-    clear_cookie(LOGIN_COOKIE, "/login")
+    clear_cookie(LOGIN_COOKIE, "/")
 }
 
 #[must_use]
@@ -182,11 +184,13 @@ pub enum AuthError {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use axum::http::{HeaderMap, HeaderValue, header};
 
     use super::{
-        LOGIN_COOKIE, SESSION_COOKIE, client_key, cookie, csrf_for_secret, new_secret,
-        session_cookie,
+        LOGIN_COOKIE, SESSION_COOKIE, clear_login_cookie, client_key, cookie, csrf_for_secret,
+        login_cookie, new_secret, session_cookie,
     };
 
     #[test]
@@ -197,6 +201,20 @@ mod tests {
         assert!(cookie.contains("; Path=/;"));
         assert!(cookie.contains("; Secure; HttpOnly; SameSite=Strict"));
         assert!(!cookie.contains("Domain="));
+    }
+
+    #[test]
+    fn host_prefixed_login_cookie_is_root_scoped_when_issued_and_cleared() {
+        let secret = new_secret();
+        let issued = login_cookie(&secret.value, Duration::from_secs(600));
+        let cleared = clear_login_cookie();
+
+        for cookie in [issued, cleared] {
+            assert!(cookie.starts_with(&format!("{LOGIN_COOKIE}=")));
+            assert!(cookie.contains("; Path=/;"));
+            assert!(!cookie.contains("Path=/login"));
+            assert!(!cookie.contains("Domain="));
+        }
     }
 
     #[test]

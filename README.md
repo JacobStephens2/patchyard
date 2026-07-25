@@ -27,7 +27,7 @@ Root stays thin: the Cargo workspace lives in `crates/`, runtime code grows ther
 ## Key documents
 
 - **Spec:** [SPEC.md](SPEC.md) - the phase-1 build contract.
-- **Bench status:** [`docs/bench.md`](docs/bench.md) - living at-a-glance status of every (model × harness) pair: floor result, seat eligibility, provenance. Evidence lives in the dated records it cites.
+- **Bench status:** [`docs/bench.md`](docs/bench.md) - living at-a-glance status of every pairing (provider/harness/model/reasoning): floor result, seat eligibility, provenance. Evidence lives in the dated records it cites.
 - **Bedrock Haiku runbook:** [`docs/bedrock-haiku.md`](docs/bedrock-haiku.md) - provisioned identities, 1Password mapping, STS boundary, verified Claude Code launcher, manual smoke test, costs, and remaining isolation work.
 - **Dated records:** [`reviews/`](reviews/) holds critiques of our own artifacts plus their dispositions; [`research/`](research/) holds world-facing evidence - harness and provider measurements, external research briefs and their responses. See [`research/README.md`](research/README.md).
 - **Ideas inbox:** [`docs/ideas.md`](docs/ideas.md) - hand-written, pre-ruling scratch space. Carries no authority; ideas graduate into the decision log or die there.

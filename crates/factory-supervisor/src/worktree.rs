@@ -201,6 +201,11 @@ impl DetachedWorktree {
             OsString::from("worktree"),
             OsString::from("remove"),
             OsString::from("--force"),
+            // `git worktree add` locks a tree while it initializes it.  If
+            // initialization itself fails, one force is deliberately not
+            // enough to remove that locked, partial tree.  The second force
+            // is narrowly paired with this exact generated worktree path.
+            OsString::from("--force"),
             self.path.as_os_str().to_owned(),
         ];
         spec.timeout = Duration::from_secs(60);
@@ -224,6 +229,7 @@ async fn cleanup_partial_worktree(repository: &Path, path: &Path) -> Result<(), 
         repository.as_os_str().to_owned(),
         OsString::from("worktree"),
         OsString::from("remove"),
+        OsString::from("--force"),
         OsString::from("--force"),
         path.as_os_str().to_owned(),
     ];
@@ -629,4 +635,72 @@ pub enum WorktreeError {
     Join(tokio::task::JoinError),
     #[error("tree hashing failed: {0}")]
     TreeHash(#[from] factory_verify::runtime::RuntimeError),
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs, process::Command};
+
+    use tempfile::tempdir;
+    use tokio_util::sync::CancellationToken;
+
+    use super::DetachedWorktree;
+
+    fn git(repository: &std::path::Path, arguments: &[&str]) {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(repository)
+            .args(arguments)
+            .output()
+            .expect("git must run in the worktree regression test");
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            arguments,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[tokio::test]
+    async fn close_removes_a_git_initialization_locked_worktree() {
+        let temporary = tempdir().expect("temporary repository");
+        let repository = temporary.path().join("repository");
+        fs::create_dir(&repository).expect("repository directory");
+        git(&repository, &["init"]);
+        git(&repository, &["config", "user.name", "Patchyard Factory test"]);
+        git(
+            &repository,
+            &["config", "user.email", "factory-test@invalid.example"],
+        );
+        fs::write(repository.join("README"), "fixture\n").expect("fixture file");
+        git(&repository, &["add", "README"]);
+        git(&repository, &["commit", "-m", "fixture"]);
+
+        let path = temporary.path().join("initializing");
+        git(
+            &repository,
+            &[
+                "worktree",
+                "add",
+                "--detach",
+                "--lock",
+                "--reason",
+                "initializing",
+                path.to_str().expect("UTF-8 temporary path"),
+                "HEAD",
+            ],
+        );
+        let worktree = DetachedWorktree {
+            repository: repository.clone(),
+            path: path.clone(),
+            reviewed_sha: "0".repeat(40),
+            closed: false,
+        };
+
+        worktree
+            .close(&CancellationToken::new())
+            .await
+            .expect("two --force flags remove Git's initializing lock");
+        assert!(!path.exists());
+    }
 }

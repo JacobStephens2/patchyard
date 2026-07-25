@@ -4,6 +4,8 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 FILES = ROOT / "infra/ansible/roles/control_plane/files"
+ENVIRONMENT = ROOT / "infra/ansible/roles/control_plane/templates/patchyard-supervisor.env.j2"
+GROUP_VARS = ROOT / "infra/ansible/group_vars/all.yml"
 
 
 class Session14QualificationContract(unittest.TestCase):
@@ -12,6 +14,8 @@ class Session14QualificationContract(unittest.TestCase):
         cls.stage = (FILES / "patchyard-stage-session14-qualification").read_text()
         cls.runner = (FILES / "patchyard-run-session14-qualification").read_text()
         cls.unit = (FILES / "factory-session14-qualification.service").read_text()
+        cls.environment = ENVIRONMENT.read_text()
+        cls.group_vars = GROUP_VARS.read_text()
 
     def test_form_intake_is_required_before_the_supervisor_stops(self) -> None:
         intake = self.stage.index("JOIN factory.users")
@@ -47,6 +51,14 @@ class Session14QualificationContract(unittest.TestCase):
         self.assertEqual(self.stage.count('systemctl is-failed --quiet "$SERVICE"'), 2)
         self.assertIn('trap cleanup EXIT HUP INT TERM', self.stage)
         self.assertIn('systemctl start "$SUPERVISOR"', self.stage)
+
+    def test_real_publisher_base_is_versioned_desired_state_not_a_fixture_sha(self) -> None:
+        self.assertIn("FACTORY_BASE_SHA={{ factory_fieldbook_base_sha }}", self.environment)
+        self.assertNotIn("session9_target_sha", self.environment)
+        self.assertRegex(
+            self.group_vars,
+            r"(?m)^factory_fieldbook_base_sha: [0-9a-f]{40}$",
+        )
 
 
 if __name__ == "__main__":

@@ -35,6 +35,9 @@ postgresql_tls_renewal_window_seconds: 2592000
 factory_migration_count: 8
 github_cli_nevra: gh-2.94.0-1.el9.x86_64
 artifact_retention_days: 90
+# Session 14's pinned real Fieldbook master used for the ALPHABETIZE preview
+# qualification. The publisher verifies this object after fetching origin.
+factory_fieldbook_base_sha: 4ef35181f7a700b02e63808e483d7c23f33b91d8
 
 # A69 desired-state roster ruled with the Session 14 adversarial review.
 # Passwords remain controller-local secret input and are never committed.

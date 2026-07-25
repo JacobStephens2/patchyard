@@ -30,6 +30,7 @@ CAPABILITY = re.compile(r"^[0-9a-f]{32}$")
 CAPABILITIES = Path("/var/lib/patchyard-preview/capabilities")
 FACTORY_SLOT_COMPOSE = Path("/etc/patchyard-preview/docker-compose.factory-slot.yml")
 MAX_LOG_SCAN_BYTES = 16 * 1024 * 1024
+ROUTE_READY_STATUSES = {200, 301, 302, 303, 307, 308}
 
 
 def now() -> datetime:
@@ -312,6 +313,46 @@ def checkout_exact(slot: int, expected_sha: str, environment: dict[str, str]) ->
     )
 
 
+def require_route_ready(slot: int) -> None:
+    """Wait only for Traefik's unauthenticated router to become visible.
+
+    The capability bearer is intentionally not used here.  A normal redirect
+    or success response proves that the dynamically registered route and its
+    middleware are available before the control plane can mint a capability.
+    """
+    host = f"{slot}.preview.example.dev"
+    for _ in range(15):
+        try:
+            response = subprocess.run(
+                [
+                    "/usr/bin/curl",
+                    "--silent",
+                    "--show-error",
+                    "--output",
+                    "/dev/null",
+                    "--write-out",
+                    "%{http_code}",
+                    "--resolve",
+                    f"{host}:443:127.0.0.1",
+                    "--connect-timeout",
+                    "3",
+                    "--max-time",
+                    "5",
+                    f"https://{host}/",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True,
+            )
+            if int(response.stdout.strip()) in ROUTE_READY_STATUSES:
+                return
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+        time.sleep(1)
+    raise RuntimeError("preview route did not become ready before lease return")
+
+
 def acquire(args: argparse.Namespace) -> dict:
     lease_id = args.lease_id
     created = now()
@@ -388,6 +429,7 @@ def acquire(args: argparse.Namespace) -> dict:
         )
         checkout_exact(slot, args.expected_sha, environment)
         compose(slot, "up", "-d")
+        require_route_ready(slot)
         host_sha, guest_sha = rev_parse(slot)
         if host_sha != args.expected_sha or guest_sha != args.expected_sha:
             raise RuntimeError("preview HEAD does not match expected SHA")

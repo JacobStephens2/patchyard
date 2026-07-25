@@ -207,7 +207,9 @@ class LeaseCapabilityTests(unittest.TestCase):
         completed = SimpleNamespace(stdout="")
         with mock.patch.object(lease, "environment_token", return_value="token"), mock.patch.object(
             lease, "compose"
-        ), mock.patch.object(lease.subprocess, "run", return_value=completed) as run:
+        ), mock.patch.object(lease, "require_route_ready") as route_ready, mock.patch.object(
+            lease.subprocess, "run", return_value=completed
+        ) as run:
             result = lease.acquire(arguments)
 
         self.assertTrue(result["ok"])
@@ -223,6 +225,17 @@ class LeaseCapabilityTests(unittest.TestCase):
         self.assertIn(fetch, commands)
         self.assertIn(checkout, commands)
         self.assertLess(commands.index(fetch), commands.index(checkout))
+        route_ready.assert_called_once_with(1)
+
+    def test_route_readiness_is_local_and_bearer_free(self) -> None:
+        completed = SimpleNamespace(stdout="302")
+        with mock.patch.object(lease.subprocess, "run", return_value=completed) as run:
+            lease.require_route_ready(7)
+        command = run.call_args.args[0]
+        self.assertIn("--resolve", command)
+        self.assertIn("7.preview.example.dev:443:127.0.0.1", command)
+        self.assertNotIn("Authorization", command)
+        self.assertNotIn("Bearer", command)
 
     def test_log_scan_reports_matches_as_typed_output(self) -> None:
         capability_id = "a" * 32

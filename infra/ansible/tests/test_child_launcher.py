@@ -66,6 +66,17 @@ class ChildLauncherContract(unittest.TestCase):
         self.assertIn("all(.addresses[]; test(", self.launcher)
         self.assertNotIn("all(.[]; test(", self.launcher)
 
+    def test_evidence_failure_diagnostic_is_allowlisted_before_journaling(self) -> None:
+        self.assertIn("patchyard_child_failure_diagnostic", self.launcher)
+        for value in (
+            "document_2xx",
+            "document_3xx",
+            "document_4xx",
+            "document_5xx",
+            "document_other",
+        ):
+            self.assertIn(value, self.launcher)
+
     def test_non_router_baseline_is_desired_qualified_and_required(self) -> None:
         self.assertIn(
             "name: Keep the factory control plane in its non-router baseline",

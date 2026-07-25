@@ -648,6 +648,13 @@ if ! wait "$CHILD_PID"; then
         ))
       then .state else "contract_rejected" end
     ' "$OUTPUT/capture/failure.json")
+    DIAGNOSTIC=$(jq -r '
+      if .diagnostic == "document_2xx" or .diagnostic == "document_3xx"
+        or .diagnostic == "document_4xx" or .diagnostic == "document_5xx"
+        or .diagnostic == "document_other"
+      then .diagnostic else "document_other" end
+    ' "$OUTPUT/capture/failure.json")
+    printf 'patchyard_child_failure_diagnostic=%s\n' "$DIAGNOSTIC" >&2
   else
     STATE=browser_crashed
   fi

@@ -38,14 +38,24 @@ FAILURE_STATES = {
     "child_timed_out",
     "contract_rejected",
 }
+FAILURE_DIAGNOSTICS = {
+    "document_2xx",
+    "document_3xx",
+    "document_4xx",
+    "document_5xx",
+    "document_other",
+}
 TEST_MODE = os.environ.get("PATCHYARD_EVIDENCE_TEST") == "1"
 
 
 class CaptureFailure(Exception):
-    def __init__(self, state: str) -> None:
+    def __init__(self, state: str, diagnostic: str | None = None) -> None:
         if state not in FAILURE_STATES:
             raise ValueError("unknown fixed failure state")
+        if diagnostic is not None and diagnostic not in FAILURE_DIAGNOSTICS:
+            raise ValueError("unknown fixed failure diagnostic")
         self.state = state
+        self.diagnostic = diagnostic
         super().__init__(state)
 
 
@@ -101,7 +111,7 @@ class SelectParser(HTMLParser):
             self.current_select = None
 
 
-def fail(output: Path, state: str) -> NoReturn:
+def fail(output: Path, state: str, diagnostic: str | None = None) -> NoReturn:
     output.mkdir(mode=0o700, exist_ok=True)
     for path in output.iterdir():
         if path.is_dir() and not path.is_symlink():
@@ -109,7 +119,10 @@ def fail(output: Path, state: str) -> NoReturn:
         else:
             path.unlink()
     failure = output / "failure.json"
-    failure.write_text(json.dumps({"schema_version": 1, "state": state}) + "\n")
+    value: dict[str, object] = {"schema_version": 1, "state": state}
+    if diagnostic is not None:
+        value["diagnostic"] = diagnostic
+    failure.write_text(json.dumps(value) + "\n")
     failure.chmod(0o600)
     raise SystemExit(1)
 
@@ -241,6 +254,12 @@ def origin(value: str) -> tuple[str, str, int | None] | None:
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         return None
     return parsed.scheme, parsed.hostname, parsed.port
+
+
+def document_diagnostic(status: int | None) -> str:
+    if status is None:
+        return "document_other"
+    return f"document_{status // 100}xx" if 2 <= status // 100 <= 5 else "document_other"
 
 
 class Cdp:
@@ -405,9 +424,10 @@ def run_controlled_browser(
     if allowed_origin is None:
         raise CaptureFailure("contract_rejected")
     loaded = False
+    document_status: int | None = None
 
     def handle(message: dict) -> None:
-        nonlocal loaded
+        nonlocal loaded, document_status
         method = message.get("method")
         params = message.get("params", {})
         session_id = message.get("sessionId")
@@ -449,6 +469,15 @@ def run_controlled_browser(
         elif method == "Network.responseReceived":
             response = params.get("response", {})
             headers = response.get("headers", {}) if isinstance(response, dict) else {}
+            response_url = response.get("url") if isinstance(response, dict) else None
+            status = response.get("status") if isinstance(response, dict) else None
+            if (
+                params.get("type") == "Document"
+                and isinstance(response_url, str)
+                and origin(response_url) == allowed_origin
+                and isinstance(status, (int, float))
+            ):
+                document_status = int(status)
             if isinstance(headers, dict) and any(
                 str(name).lower() == "content-disposition"
                 and "attachment" in str(value).lower()
@@ -549,7 +578,7 @@ def run_controlled_browser(
         if value.get("download"):
             raise CaptureFailure("download_blocked")
         if value.get("missing"):
-            raise CaptureFailure("contract_rejected")
+            raise CaptureFailure("contract_rejected", document_diagnostic(document_status))
         dom_result = cdp.call(
             "Runtime.evaluate",
             {
@@ -679,7 +708,7 @@ def main() -> None:
                 )
             )
             if missing:
-                raise CaptureFailure("contract_rejected")
+                raise CaptureFailure("contract_rejected", document_diagnostic(document_status))
             extract = output / "extract.json"
             extract.write_text(
                 json.dumps(
@@ -739,7 +768,7 @@ def main() -> None:
         )
         hashes.chmod(0o600)
     except CaptureFailure as error:
-        fail(output, error.state)
+        fail(output, error.state, error.diagnostic)
     except Exception:
         fail(output, "browser_crashed")
 

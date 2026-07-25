@@ -168,11 +168,16 @@ class EvidenceBrowserControls(unittest.TestCase):
         )
         return result, output
 
-    def assert_state(self, fixture: str, expected: str, **kwargs: object) -> None:
+    def assert_state(
+        self, fixture: str, expected: str, diagnostic: str | None = None, **kwargs: object
+    ) -> None:
         result, output = self.capture(fixture, **kwargs)
         self.assertNotEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
         failure = json.loads((output / "failure.json").read_text())
-        self.assertEqual(failure, {"schema_version": 1, "state": expected})
+        expected_failure = {"schema_version": 1, "state": expected}
+        if diagnostic is not None:
+            expected_failure["diagnostic"] = diagnostic
+        self.assertEqual(failure, expected_failure)
         self.assertEqual([path.name for path in output.iterdir()], ["failure.json"])
 
     def test_fixed_browser_completes_and_emits_only_bounded_contract_outputs(self) -> None:
@@ -219,7 +224,7 @@ class EvidenceBrowserControls(unittest.TestCase):
         )
 
     def test_absent_selector_is_a_contract_rejection_not_a_timeout(self) -> None:
-        self.assert_state("missing", "contract_rejected")
+        self.assert_state("missing", "contract_rejected", "document_2xx")
 
 
 if __name__ == "__main__":

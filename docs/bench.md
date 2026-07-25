@@ -44,7 +44,7 @@ This table is generated from [`bench.json`](bench.json) (schema: [`bench.schema.
 | Kimi K2.6 | default | Claude Code | No | Fireworks | - | ✅ | US infra | Long-spec A/B alternate: faster than Kimi Code but 0/3 content pass because every run exceeded the requested word range. |  | 50.3 / 92.5 s (+1 timeout) | 44 | 61.8 | 30.0 |
 | Kimi K2.6 | default | OpenHands | No | Fireworks | ✅ 3/3 | ✅ | US infra | Implement candidate; V1 SDK-script route (no CLI executable); good cost telemetry |  |  | 44 | 61.8 | 30.0 |
 | Kimi K3 | default | Kimi Code CLI | Yes | OpenRouter → Moonshot | ✅ 3/3 | ✅ | ⚠️ **interim exception** (CN money; ruled by Jacob pending open weights + US host, ~weeks) | Prime triage/verify candidate (intelligence #3) once a US host exists; then: fresh floor probe, allowlist entry, fixture gauntlet |  |  | 57 |  | 50.0 |
-| MiMo-V2.5-Pro | default | Claude Code | Yes | Novita | ✅ 3/3, 8-10 s/run | ? | CN-created; Novita hosting (jurisdiction to confirm for the allowlist ruling) | Jacob's ideas.md pick; first **direct** Claude Code × non-Anthropic pairing - Novita's Anthropic endpoint passes CLI model validation; intelligence 42 (#18) |  |  | 42 | 60.2 | 29.0 |
+| MiMo-V2.5-Pro | default | Claude Code | Yes | Novita | ✅ 3/3, 8-10 s/run | ? | CN-created; Novita hosting (jurisdiction to confirm for the allowlist ruling) | Jacob's ideas.md pick; first **direct** Claude Code pairing with a non-Anthropic model - Novita's Anthropic endpoint passes CLI model validation; intelligence 42 (#18) |  |  | 42 | 60.2 | 29.0 |
 | MiniMax-M3 | default | Claude Code | Yes | Fireworks | ✅ 3/3, 4-9 s/run | ✅ | US infra | **Preferred MiniMax harness** (2026-07-18): long-spec A/B 3/3 full pass at 51-92 s while OpenCode capped out 0/3 with no file ([record](../research/long-spec-speed/2026-07-18-docx-spec-speed-comparison.md) addendum 3) |  | 50.7-92.0 s | 44 | 58.6 | 35.0 |
 | MiniMax-M3 | default | OpenCode | No | Fireworks | ✅ 3/3 | ✅ | US infra | Short-probe floor passes, but 0/3 on the long-spec A/B (250 s cap-outs, no file) - the OpenCode long-form penalty on Fireworks models now reproduces across GLM and MiniMax. Eval-grid alternate; Claude Code preferred |  | 250 s timeout x3 | 44 | 58.6 | 35.0 |
 | Muse Spark 1.1 | xhigh | OpenCode | No | Meta | ❌ 0/13 | ✅ | US | **Implement seat closed** - stochastic identity-token substitution, dose-dependent, no mitigation reaches zero ([bisection](../research/muse-spark/2026-07-17-muse-spark-envelope-bisection.md)). Candidate for *tool-free* judgment calls only, not yet qualified ([role assessment](../research/muse-spark/2026-07-17-muse-spark-factory-role-assessment.md)). Retest on Meta model update: B2 variant, n=10 |  |  | 51 |  | 38.0 |
@@ -66,7 +66,7 @@ No loop on these seats, so the harness matters less (A58).
 | :-- | :-- | :-- | :-- | --: |
 | 1 | Claude Fable 5 (with fallback) | Claude Code | Anthropic | 60 |
 | 2 | GPT-5.6 Sol (max) | Codex | OpenAI | 59 |
-| 3 | Kimi K3 | Kimi Code CLI | OpenRouter (A59 interim; K2.6 × Fireworks stands in until K3 gets a US host) | 57 |
+| 3 | Kimi K3 | Kimi Code CLI | OpenRouter (A59 interim; K2.6 [default] via Kimi Code CLI on Fireworks stands in until K3 gets a US host) | 57 |
 | 4 | Grok 4.5 (high) | Grok Build | xAI | 54 |
 
 **Ceiling** ([AA Cost per Intelligence Index Task](https://artificialanalysis.ai/#cost-tabs), lowest-price American gateway/API per model; as of 2026-07-17):
@@ -147,29 +147,29 @@ One diagnostic harness run per pair on the same synthetic 1,400-1,800-word `docx
 
 | Pair | Harness wall | Content check | Speed standing |
 | :-- | --: | :-- | :-- |
-| gpt-oss-120b high × Cerebras, OpenCode | **12.651 s** | Miss: 2,372 words, over range | **Lead** - direct median 3.586 s and 1,889.8 visible common t/s |
-| gpt-oss-120b high × Cerebras, Harmony Agent | **18.412 s** | **Pass**, 1,621 words | Fastest exact long-spec result, but floor reliability is only 5/10 |
-| Command A+ high requested × Cohere | **22.514 s** | Miss: 1,290 words, under range | Runner-up; retain OpenCode, but high remains requested rather than verified |
-| Nemotron 3 Ultra × Blackbox | 38.165 s | Miss: over range and one heading | Hold; local direct 161.7 visible t/s and prior stalls |
-| GPT-5.6 Luna max × OpenAI, Codex | **~115 s** | **Pass**, 1,536 words | Fourth on wall; direct 166.2 visible t/s came only after 81.348 s to first answer |
-| GLM 5.2 max requested × Fireworks | 175.731 s | **Pass**, 1,747 words | Exact but about 14× slower than Cerebras; not the speed seat |
-| Gemini 3.5 Flash high × Google | **240.069 s, timeout** | File existed; over range; agent kept looping | Pair fails this workload; Gemini CLI would be a separate configuration |
-| Qwen3.7 Max × Novita | **240.115 s, timeout** | File existed at 1,802 words; agent kept looping | Do not advance for speed - the supplied 205 t/s was not Novita; live provider result and local direct runs are about 54-61 t/s |
+| gpt-oss-120b [high] via OpenCode on Cerebras | **12.651 s** | Miss: 2,372 words, over range | **Lead** - direct median 3.586 s and 1,889.8 visible common t/s |
+| gpt-oss-120b [high] via Harmony Agent on Cerebras | **18.412 s** | **Pass**, 1,621 words | Fastest exact long-spec result, but floor reliability is only 5/10 |
+| Command A+ [high (requested)] via OpenCode on Cohere | **22.514 s** | Miss: 1,290 words, under range | Runner-up; retain OpenCode, but high remains requested rather than verified |
+| Nemotron 3 Ultra [default] via OpenCode on Blackbox AI | 38.165 s | Miss: over range and one heading | Hold; local direct 161.7 visible t/s and prior stalls |
+| GPT-5.6 Luna [max] via Codex on OpenAI | **~115 s** | **Pass**, 1,536 words | Fourth on wall; direct 166.2 visible t/s came only after 81.348 s to first answer |
+| GLM 5.2 [max (requested)] via OpenCode on Fireworks | 175.731 s | **Pass**, 1,747 words | Exact but about 14× slower than Cerebras; not the speed seat |
+| Gemini 3.5 Flash [high] via OpenCode on Google AI Studio | **240.069 s, timeout** | File existed; over range; agent kept looping | Pair fails this workload; Gemini CLI would be a separate configuration |
+| Qwen3.7 Max [default] via OpenCode on Novita | **240.115 s, timeout** | File existed at 1,802 words; agent kept looping | Do not advance for speed - the supplied 205 t/s was not Novita; live provider result and local direct runs are about 54-61 t/s |
 
 ## Gateway routes (change what's runnable)
 
-- **Claude Code × non-Anthropic models is now viable**: verified through Patchyard's existing preview LiteLLM gateway (GLM `Write` call produced the exact requested file), and OpenRouter's Anthropic-compatible endpoint supports Claude Code directly ([gateways note](../research/claude-code/2026-07-17-claude-code-non-anthropic-gateways.md)). The smoke-test report's "not runnable" for Claude Code × GLM is stale.
+- **Claude Code with non-Anthropic models is now viable**: verified through Patchyard's existing preview LiteLLM gateway (GLM `Write` call produced the exact requested file), and OpenRouter's Anthropic-compatible endpoint supports Claude Code directly ([gateways note](../research/claude-code/2026-07-17-claude-code-non-anthropic-gateways.md)). The smoke-test report's "not runnable" for Claude Code with GLM is stale.
 - **Novita's Anthropic-compatible endpoint works with Claude Code directly** (no gateway): `ANTHROPIC_BASE_URL=https://api.novita.ai/anthropic`
   + the Novita model id as `--model`, in an isolated `CLAUDE_CONFIG_DIR`. First proof that the CLI's model validation is satisfied by a well-shaped third-party endpoint - the proxy requirement is per-endpoint, not absolute.
 - **Fireworks works with Claude Code directly too**: `ANTHROPIC_BASE_URL=https://api.fireworks.ai/inference` (base **without** `/v1` - the CLI appends its own paths; the 07-17 "rejects non-Claude names" finding was a double-pathed base URL). DeepInfra's `https://api.deepinfra.com/anthropic` likewise. Direct Anthropic surfaces now verified on three hosts: Novita, Fireworks, DeepInfra.
-- Meta's Anthropic-compatible endpoint does **not** alias Claude model names - Claude Code × Muse still needs one of the gateways above.
+- Meta's Anthropic-compatible endpoint does **not** alias Claude model names - Claude Code with Muse still needs one of the gateways above.
 
 ## Still blocked / not applicable
 
 | Item | Status |
 | :-- | :-- |
-| Cursor CLI × Composer 2.5 | Blocked: no Cursor credentials on this VM |
-| MiniMax Code × MiniMax-M3 | N/A: desktop app only (macOS/Windows), no MiniMax platform key; its Agent Teams pattern is R21-rejected anyway |
+| Composer 2.5 via Cursor CLI | Blocked: no Cursor credentials on this VM |
+| MiniMax-M3 via MiniMax Code | N/A: desktop app only (macOS/Windows), no MiniMax platform key; its Agent Teams pattern is R21-rejected anyway |
 | OpenSymphony | Not a harness - an orchestrator (control plane), which R11 says we build, not buy |
 | Hermes Agent (for Nemotron, per ideas.md speed list) | Discovered but not benched: only an *unofficial* npm bridge exists (0.18.2), and its headline design - "self-improving, creates skills from experience" - collides with R19 (no self-editing policy). Needs a deliberate call before any bench time |
 

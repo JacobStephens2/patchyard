@@ -9,7 +9,7 @@ Factory documentation that is not the phase-1 build contract (`SPEC.md` /
 | [`model-boundary.md`](model-boundary.md) | Design authority | What belongs in `model/factory-model.json` |
 | [`repository-boundary.md`](repository-boundary.md) | Design authority | Factory repo vs orchestration provenance |
 | [`schema.mmd`](schema.mmd) | Generated projection | Mermaid ERD byte-generated from the migrated PostgreSQL catalog; never hand-edited |
-| [`bench.md`](bench.md) | Living ops | At-a-glance (model × harness) status; cites `research/`. Its Pairs table is generated from `bench.json` |
+| [`bench.md`](bench.md) | Living ops | At-a-glance pairing (provider/harness/model/reasoning) status; cites `research/`. Its Pairs table is generated from `bench.json` |
 | [`bench.json`](bench.json) | Living ops | Structured source of truth for the Pairs table (schema: [`bench.schema.json`](bench.schema.json)). Edit it, then run `python3 tools/check-bench.py --write` |
 | [`rust-practices.md`](rust-practices.md) | Living ops | Binding Rust rules distilled from the council research; rules activate at tagged sessions |
 | [`agent-content-trust.md`](agent-content-trust.md) | Living ops | Binding content-trust floor (F1-F8) - hostile request content never becomes agent instructions; session-tagged |

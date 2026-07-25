@@ -41,7 +41,7 @@
 
 - **Claude Code headless** (`claude -p`) and **Codex** (`codex exec`, A73 adversarial reviews) as daemon-exec'd subprocesses - agents live on the far side of an exec boundary, never in-process.
 - **Seat routing** (A74): every invocation resolves through the versioned `policy/` routing config against the canonical bench (`docs/bench.json`); one provider per worker boot; A61 allowlist.
-- Construction: GPT-5.6 Sol × Codex builds; Fable 5 × Claude Code reviews every build PR (A41, seats amended by A78); humans merge.
+- Construction: GPT-5.6 Sol [xhigh] via Codex on OpenAI builds; Fable 5 [max] via Claude Code on Anthropic reviews every build PR (A41, seats amended by A78); humans merge.
 
 ## Verification and CI
 

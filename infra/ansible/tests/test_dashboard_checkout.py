@@ -30,6 +30,20 @@ class DashboardCheckoutContract(unittest.TestCase):
         self.assertNotIn("recurse:", task)
         self.assertIn("SupplementaryGroups=factory", self.service)
 
+    def test_root_validation_cannot_take_ownership_of_the_caddy_access_log(self) -> None:
+        task_name = "- name: Precreate the Caddy access log for the service identity"
+        start = self.tasks.index(task_name)
+        validate = self.tasks.index("- name: Validate the factory Caddy vhost", start)
+        task = self.tasks[start:validate]
+
+        self.assertIn("path: /var/log/caddy/factory-access.json", task)
+        self.assertIn("state: touch", task)
+        self.assertIn("owner: caddy", task)
+        self.assertIn("group: caddy", task)
+        self.assertIn('mode: "0640"', task)
+        self.assertIn("access_time: preserve", task)
+        self.assertIn("modification_time: preserve", task)
+
 
 if __name__ == "__main__":
     unittest.main()

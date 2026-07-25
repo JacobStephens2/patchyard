@@ -1373,6 +1373,16 @@
     mode: "0640"
   notify: Reload Caddy
 
+- name: Precreate the Caddy access log for the service identity
+  ansible.builtin.file:
+    path: /var/log/caddy/factory-access.json
+    state: touch
+    owner: caddy
+    group: caddy
+    mode: "0640"
+    access_time: preserve
+    modification_time: preserve
+
 - name: Validate the factory Caddy vhost
   ansible.builtin.command:
     argv:

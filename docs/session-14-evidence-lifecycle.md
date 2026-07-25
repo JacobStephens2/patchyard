@@ -188,7 +188,22 @@ converge passed (`factory-control`: `ok=52`, `failed=0`; `factory-worker`:
 that the Session 13 verification-limits declaration anticipated.
 
 Fable's review supplied the ruled roster: Jacob Stephens and Engineer Two are `factory_admin`; the Owner is `factory_submit`. That roster
-is now committed as A69 desired state. The reviewer repairs add migration 8,
-so exact-head control/preview convergence and the form-driven failure/success
-runs must be repeated on the repaired head before this live record can claim
-the Session 14 exit.
+is now committed as A69 desired state.
+
+The reviewer-repair head `2ebdf2c5e62e979f9fa18264ae3db94430a49faf`
+then converged on both live boundaries. Preview convergence completed with
+`failed=0`. Control convergence applied migration 8, installed the sentinel
+scanner and repaired lifecycle, and passed the Session 13 and Session 14 host
+qualifiers (`factory-control`: `ok=53`, `failed=0`; `factory-worker`: `ok=1`,
+`failed=0`). An immediate exact-head repeat was idempotent
+(`factory-control`: `ok=48`, `changed=0`, `failed=0`; `factory-worker`:
+`ok=1`, `changed=0`, `failed=0`).
+
+The form-driven failure and success runs still cannot start without inventing
+a credential path. The Orchestrator 1Password service account can read the
+vault but refused creation of the three new dashboard password records, and
+no bootstrap account secret file exists. A69 forbids persisting generated
+passwords outside the vault; A66 forbids substituting `factoryctl request
+new`, raw SQL, or another intake path. A vault writer must create those three
+password records before full dashboard convergence and the two form
+submissions can complete the remaining live exit.

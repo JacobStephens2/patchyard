@@ -72,6 +72,12 @@ class Session14QualificationContract(unittest.TestCase):
             r"(?m)^factory_fieldbook_base_sha: [0-9a-f]{40}$",
         )
 
+    def test_preview_target_is_the_live_php_endpoint_for_the_session7_slice(self) -> None:
+        self.assertIn(
+            "FACTORY_EVIDENCE_PREVIEW_PATH=/mfieldbook/leads/assign.php?rqst_id=96429",
+            self.environment,
+        )
+
     def test_ci_wait_retry_counter_is_granted_to_the_supervisor(self) -> None:
         self.assertRegex(
             self.grants,

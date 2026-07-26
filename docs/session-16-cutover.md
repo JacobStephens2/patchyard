@@ -105,26 +105,30 @@ into a generic cutover error.
 
 GitHub-hosted CI and local source checks can prove:
 
-- strict manifest schemas, path/ownership allowlists, bounded subprocesses,
-  command argument construction, hash/count comparison, and failure mapping;
-- backup and restore logic against disposable PostgreSQL and artifact fixtures,
-  including missing, extra, changed, symlinked, truncated, and corrupt inputs;
-- idempotent Ansible/OpenTofu declarations and syntax without credentials;
+- the application state machine and dashboard behavior against disposable
+  PostgreSQL, including A110's role matrix and hostile-content filter;
+- ShellCheck, Ansible lint/syntax, and static cutover contracts cover the
+  versioned quiescence, manifest, path/type, encryption, hash/count,
+  clean-host, rollback, and terminal-state shape;
+- OpenTofu formatting and schema validation succeed without live authority;
 - `GET /ideas` is admin-only, read-only, runtime-backed, raw-HTML-free,
   image-free, and restricted to safe link schemes through the same filter as
   `/decisions`;
-- the deploy-marker response parser rejects missing, stale, extra, malformed,
-  cross-repository, and non-SHA data;
 - A109 keeps the required-approval count unchanged and the factory has no
   merge API; and
-- runbook commands refuse dirty, uncommitted, unreviewed, over-budget, or
-  overly broad targets.
+- the complete application gate still passes formatting, clippy, tests,
+  deterministic replay, release reproducibility, audit, deny, vet, model, and
+  projection checks.
 
 Those checks cannot prove:
 
 - the real systemd, SELinux, filesystem, Caddy, PostgreSQL peer map, GitHub App,
   GitHub ref protection, private VPC, firewall, S3, Firecracker/KVM, or worker
   replacement behavior;
+- the backup and restore programs reject every corrupt-object variant against
+  the actual `age`, GNU tar, AWS CLI, and PostgreSQL versions;
+- the deploy-marker HTTP response parser sees GitHub's real response shape and
+  fails closed on real API/authority errors;
 - a human browser can authenticate, submit the production form, receive the
   receipt, and observe the same durable request the supervisor claims;
 - the real Fieldbook deployment SHA is projected through the protected marker;

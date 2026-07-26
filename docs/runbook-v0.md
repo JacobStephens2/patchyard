@@ -128,9 +128,9 @@ sudo journalctl -u patchyard-backup.service -n 100 --no-pager
 ```
 
 The executable contract takes an advisory lock; remembers which writers were
-active; stops dashboard and supervisor; rejects artifact/runtime symlinks and
-unsupported path characters; records exact table counts; creates a custom
-data-only `pg_dump` excluding `_sqlx_migrations`; manifests artifacts and the
+active; stops dashboard and supervisor; rejects non-regular artifact/runtime
+entries and unsupported path characters; records exact table counts; creates
+a custom data-only `pg_dump` excluding `_sqlx_migrations`; manifests artifacts and the
 runtime ideas projection; creates deterministic tar inputs; encrypts the whole
 payload to the recovery public key; uploads the ciphertext and receipt over
 HTTPS; round-trips its SHA-256 metadata; then advances `LATEST`. A trap resumes

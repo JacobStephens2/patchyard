@@ -15,7 +15,7 @@ class PreviewCapabilityDeploymentContract(unittest.TestCase):
         compose = COMPOSE.read_text()
         dynamic = TRAEFIK_DYNAMIC.read_text()
         self.assertIn(
-            "TRAEFIK_PROVIDERS_FILE_FILENAME: /etc/traefik/patchyard-dynamic.yml",
+            '"--providers.file.filename=/etc/traefik/patchyard-dynamic.yml"',
             compose,
         )
         self.assertIn(
@@ -25,6 +25,14 @@ class PreviewCapabilityDeploymentContract(unittest.TestCase):
         )
         self.assertIn('address: "http://factory-capability:8080/auth"', dynamic)
         self.assertIn("patchyard-traefik-dynamic.yml", TASKS.read_text())
+        for inherited_static_flag in (
+            '"--providers.docker.endpoint=tcp://socket-proxy:2375"',
+            '"--providers.docker.network=preview-net"',
+            '"--entrypoints.websecure.address=:443"',
+            '"--entrypoints.websecure.http.tls.certresolver=letsencrypt"',
+            '"--certificatesresolvers.letsencrypt.acme.dnschallenge.provider=digitalocean"',
+        ):
+            self.assertIn(inherited_static_flag, compose)
 
     def test_preview_router_orders_capability_strip_after_forward_auth(self) -> None:
         slot = SLOT_COMPOSE.read_text()
@@ -39,7 +47,7 @@ class PreviewCapabilityDeploymentContract(unittest.TestCase):
         )
         tasks = TASKS.read_text()
         self.assertIn(
-            'TRAEFIK_PROVIDERS_FILE_FILENAME=/etc/traefik/patchyard-dynamic.yml',
+            '--providers.file.filename=/etc/traefik/patchyard-dynamic.yml',
             tasks,
         )
         self.assertIn("docker-compose.factory-slot.yml", tasks)

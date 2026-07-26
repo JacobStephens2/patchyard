@@ -106,7 +106,7 @@ class CapabilityBoundaryTests(unittest.TestCase):
 
     def test_traefik_loads_the_file_provider_capability_chain(self) -> None:
         self.assertIn(
-            "TRAEFIK_PROVIDERS_FILE_FILENAME: /etc/traefik/patchyard-dynamic.yml",
+            '"--providers.file.filename=/etc/traefik/patchyard-dynamic.yml"',
             CAPABILITY_COMPOSE,
         )
         self.assertIn('address: "http://factory-capability:8080/auth"', TRAEFIK_DYNAMIC)

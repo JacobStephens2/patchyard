@@ -184,8 +184,8 @@
         /etc/patchyard-preview/patchyard-traefik-dynamic.yml
       grep -Fqx '          X-Patchyard-Factory-Capability: ""' \
         /etc/patchyard-preview/patchyard-traefik-dynamic.yml
-      docker inspect preview-fieldbooks-traefik-1 --format '{{ "{{" }}json .Config.Env{{ "}}" }}' |
-        jq -e 'index("TRAEFIK_PROVIDERS_FILE_FILENAME=/etc/traefik/patchyard-dynamic.yml") != null' >/dev/null
+      docker inspect preview-fieldbooks-traefik-1 --format '{{ "{{" }}json .Args{{ "}}" }}' |
+        jq -e 'index("--providers.file.filename=/etc/traefik/patchyard-dynamic.yml") != null' >/dev/null
       docker inspect preview-fieldbooks-traefik-1 --format '{{ "{{" }}json .Mounts{{ "}}" }}' |
         jq -e 'any(.[]; .Destination == "/etc/traefik/patchyard-dynamic.yml" and .RW == false)' >/dev/null
       test "$(stat -c '%U:%G:%a' /etc/patchyard-preview/patchyard-authorization.conf)" = root:root:644

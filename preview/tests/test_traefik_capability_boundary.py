@@ -188,7 +188,7 @@ class TraefikCapabilityBoundary(unittest.TestCase):
 
     def test_auth_service_receives_capability_and_backend_does_not(self) -> None:
         self.assertIn(
-            "TRAEFIK_PROVIDERS_FILE_FILENAME: /etc/traefik/patchyard-dynamic.yml",
+            '"--providers.file.filename=/etc/traefik/patchyard-dynamic.yml"',
             CAPABILITY_COMPOSE,
         )
         self.assertIn(

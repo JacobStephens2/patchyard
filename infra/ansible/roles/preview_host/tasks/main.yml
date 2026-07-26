@@ -177,8 +177,15 @@
       docker inspect preview-fieldbooks-factory-capability-1 --format "$CAPABILITY_FORMAT" |
         grep -Fx 'true true patchyard-preview-capability'
       grep -Fqx \
-        '      traefik.http.routers.preview-${PREVIEW_SLOT}.middlewares: "patchyard-capability@file"' \
+        '      - "traefik.http.routers.preview-${PREVIEW_SLOT}.middlewares=patchyard-capability@file"' \
         /etc/patchyard-preview/docker-compose.factory-slot.yml
+      cd /opt/preview-fieldbooks
+      PREVIEW_SLOT=30 PREVIEW_BRANCH=factory docker compose -p preview-30 \
+        -f docker-compose.editable.yml \
+        -f /etc/patchyard-preview/docker-compose.factory-slot.yml \
+        --env-file .env config --format json |
+        jq -e '.services.fieldbook.labels["traefik.http.routers.preview-30.middlewares"] ==
+          "patchyard-capability@file"' >/dev/null
       test "$(stat -c '%U:%G:%a' /etc/patchyard-preview/patchyard-traefik-dynamic.yml)" = root:root:644
       grep -Fqx '        address: "http://factory-capability:8080/auth"' \
         /etc/patchyard-preview/patchyard-traefik-dynamic.yml

@@ -7,4 +7,4 @@ services:
     labels:
       # ForwardAuth removes the private capability before forwarding the
       # translator's private Authorization replacement to Apache.
-      traefik.http.routers.preview-${PREVIEW_SLOT}.middlewares: "patchyard-capability@file"
+      - "traefik.http.routers.preview-${PREVIEW_SLOT}.middlewares=patchyard-capability@file"

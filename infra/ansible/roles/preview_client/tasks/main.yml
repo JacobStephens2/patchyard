@@ -15,12 +15,11 @@
     quiet: true
 
 - name: Read the preview host key over the private network
-  ansible.builtin.command:
-    argv:
-      - /usr/bin/ssh-keyscan
-      - -T
-      - "10"
-      - "{{ factory_preview_private_ip }}"
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -euo pipefail
+      /usr/bin/ssh-keyscan -T 10 {{ factory_preview_private_ip | quote }} | LC_ALL=C sort -u
   register: factory_preview_host_key
   changed_when: false
 

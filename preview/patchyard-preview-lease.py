@@ -354,6 +354,37 @@ def require_route_ready(slot: int) -> None:
     raise RuntimeError("preview route did not become ready before lease return")
 
 
+def require_capability_middleware(slot: int) -> None:
+    """Prove the started slot carries the concrete, interpolated middleware label."""
+    containers = subprocess.run(
+        [
+            "/usr/bin/docker", "ps",
+            "--filter", f"label=com.docker.compose.project=preview-{slot}",
+            "--filter", "label=com.docker.compose.service=fieldbook",
+            "--format", "{{.ID}}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    ).stdout.splitlines()
+    if len(containers) != 1:
+        raise RuntimeError("preview fieldbook container is not unique")
+    key = f"traefik.http.routers.preview-{slot}.middlewares"
+    label = subprocess.run(
+        [
+            "/usr/bin/docker", "inspect", containers[0],
+            "--format", f'{{{{ index .Config.Labels "{key}" }}}}',
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    ).stdout.strip()
+    if label != "patchyard-capability@file":
+        raise RuntimeError("preview capability middleware label is absent")
+
+
 def acquire(args: argparse.Namespace) -> dict:
     lease_id = args.lease_id
     created = now()
@@ -430,6 +461,7 @@ def acquire(args: argparse.Namespace) -> dict:
         )
         checkout_exact(slot, args.expected_sha, environment)
         compose(slot, "up", "-d")
+        require_capability_middleware(slot)
         require_route_ready(slot)
         host_sha, guest_sha = rev_parse(slot)
         if host_sha != args.expected_sha or guest_sha != args.expected_sha:

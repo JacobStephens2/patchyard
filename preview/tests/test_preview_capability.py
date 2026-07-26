@@ -155,7 +155,8 @@ class CapabilityBoundaryTests(unittest.TestCase):
         )
         self.assertIn("- X-Patchyard-Factory-Preview-Authorization", TRAEFIK_DYNAMIC)
         self.assertIn(
-            '"patchyard-capability@file"',
+            '"traefik.http.routers.preview-${PREVIEW_SLOT}.middlewares='
+            'patchyard-capability@file"',
             SLOT_COMPOSE,
         )
 
@@ -259,6 +260,8 @@ class LeaseCapabilityTests(unittest.TestCase):
         completed = SimpleNamespace(stdout="")
         with mock.patch.object(lease, "environment_token", return_value="token"), mock.patch.object(
             lease, "compose"
+        ), mock.patch.object(
+            lease, "require_capability_middleware"
         ), mock.patch.object(lease, "require_route_ready") as route_ready, mock.patch.object(
             lease.subprocess, "run", return_value=completed
         ) as run:
@@ -278,6 +281,29 @@ class LeaseCapabilityTests(unittest.TestCase):
         self.assertIn(checkout, commands)
         self.assertLess(commands.index(fetch), commands.index(checkout))
         route_ready.assert_called_once_with(1)
+
+    def test_started_slot_requires_the_interpolated_capability_label(self) -> None:
+        results = [
+            SimpleNamespace(stdout="container-id\n"),
+            SimpleNamespace(stdout="patchyard-capability@file\n"),
+        ]
+        with mock.patch.object(lease.subprocess, "run", side_effect=results) as run:
+            lease.require_capability_middleware(7)
+        self.assertIn(
+            "label=com.docker.compose.project=preview-7",
+            run.call_args_list[0].args[0],
+        )
+        self.assertIn(
+            '{{ index .Config.Labels "traefik.http.routers.preview-7.middlewares" }}',
+            run.call_args_list[1].args[0],
+        )
+
+    def test_started_slot_rejects_an_absent_capability_label(self) -> None:
+        results = [SimpleNamespace(stdout="container-id\n"), SimpleNamespace(stdout="\n")]
+        with mock.patch.object(lease.subprocess, "run", side_effect=results), self.assertRaises(
+            RuntimeError
+        ):
+            lease.require_capability_middleware(7)
 
     def test_route_readiness_is_local_and_bearer_free(self) -> None:
         completed = SimpleNamespace(stdout="302")

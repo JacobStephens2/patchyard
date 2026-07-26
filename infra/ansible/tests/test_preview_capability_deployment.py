@@ -48,8 +48,13 @@ class PreviewCapabilityDeploymentContract(unittest.TestCase):
         )
         self.assertIn("- X-Patchyard-Factory-Preview-Authorization", dynamic)
         self.assertIn(
-            '"patchyard-capability@file"',
+            '"traefik.http.routers.preview-${PREVIEW_SLOT}.middlewares='
+            'patchyard-capability@file"',
             slot,
+        )
+        self.assertIn(
+            '"traefik.http.routers.preview-30.middlewares"] ==',
+            TASKS.read_text(),
         )
         tasks = TASKS.read_text()
         self.assertIn(

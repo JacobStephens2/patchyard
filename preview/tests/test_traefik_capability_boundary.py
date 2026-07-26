@@ -197,7 +197,8 @@ class TraefikCapabilityBoundary(unittest.TestCase):
         )
         self.assertIn(f"image: {TRAEFIK_IMAGE}", CAPABILITY_COMPOSE)
         self.assertIn(
-            '"patchyard-capability@file"',
+            '"traefik.http.routers.preview-${PREVIEW_SLOT}.middlewares='
+            'patchyard-capability@file"',
             SLOT_COMPOSE,
         )
 

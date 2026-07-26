@@ -68,6 +68,12 @@ BROWSER_DIAGNOSTICS = {
     "browser_exception_key",
     "browser_exception_type",
     "browser_exception_other",
+    "browser_target_id_invalid",
+    "browser_session_id_invalid",
+    "browser_action_result_invalid",
+    "browser_dom_result_invalid",
+    "browser_screenshot_result_invalid",
+    "browser_screenshot_base64_invalid",
 }
 TEST_MODE = os.environ.get("PATCHYARD_EVIDENCE_TEST") == "1"
 
@@ -598,7 +604,9 @@ def run_controlled_browser(
         )
         target_id = created.get("targetId")
         if not isinstance(target_id, str):
-            raise CaptureFailure("browser_crashed")
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_target_id_invalid"
+            )
         attached = cdp.call(
             "Target.attachToTarget",
             {"targetId": target_id, "flatten": True},
@@ -608,7 +616,9 @@ def run_controlled_browser(
         )
         session_id = attached.get("sessionId")
         if not isinstance(session_id, str):
-            raise CaptureFailure("browser_crashed")
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_session_id_invalid"
+            )
         for method, params in [
             ("Page.enable", None),
             ("Runtime.enable", None),
@@ -691,7 +701,9 @@ def run_controlled_browser(
         result = action.get("result", {})
         value = result.get("value", {}) if isinstance(result, dict) else {}
         if not isinstance(value, dict):
-            raise CaptureFailure("browser_crashed")
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_action_result_invalid"
+            )
         if value.get("popup"):
             raise CaptureFailure("popup_blocked")
         if value.get("download"):
@@ -715,7 +727,9 @@ def run_controlled_browser(
         remote = dom_result.get("result", {})
         dom_value = remote.get("value") if isinstance(remote, dict) else None
         if not isinstance(dom_value, str):
-            raise CaptureFailure("browser_crashed")
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_dom_result_invalid"
+            )
         screenshot_result = cdp.call(
             "Page.captureScreenshot",
             {"format": "png", "captureBeyondViewport": False},
@@ -725,11 +739,15 @@ def run_controlled_browser(
         )
         encoded = screenshot_result.get("data")
         if not isinstance(encoded, str):
-            raise CaptureFailure("browser_crashed")
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_screenshot_result_invalid"
+            )
         try:
             screenshot = base64.b64decode(encoded, validate=True)
         except ValueError as error:
-            raise CaptureFailure("browser_crashed") from error
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_screenshot_base64_invalid"
+            ) from error
         return dom_value.encode(), screenshot
     except CaptureFailure:
         raise

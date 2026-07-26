@@ -92,6 +92,8 @@ class ChildLauncherContract(unittest.TestCase):
             "browser_command_rejected",
             "browser_exception_os",
             "browser_exception_other",
+            "browser_action_result_invalid",
+            "browser_dom_result_invalid",
         ):
             self.assertIn(value, self.launcher)
 

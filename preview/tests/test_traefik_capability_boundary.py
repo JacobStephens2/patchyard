@@ -140,8 +140,8 @@ class TraefikCapabilityBoundary(unittest.TestCase):
                     "      entryPoints: [web]",
                     '      rule: "PathPrefix(`/`)"',
                     "      middlewares:",
-                    "        - patchyard-capability",
                     "        - patchyard-capability-strip",
+                    "        - patchyard-capability",
                     "      service: fieldbook",
                     "  middlewares:",
                     "    patchyard-capability:",
@@ -196,7 +196,7 @@ class TraefikCapabilityBoundary(unittest.TestCase):
             TRAEFIK_DYNAMIC,
         )
         self.assertIn(
-            '"patchyard-capability@file,patchyard-capability-strip@file"',
+            '"patchyard-capability-strip@file,patchyard-capability@file"',
             SLOT_COMPOSE,
         )
 

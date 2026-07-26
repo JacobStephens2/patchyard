@@ -6,6 +6,7 @@ services:
       # legacy authenticate.php entry point can validate it.
       - /etc/patchyard-preview/patchyard-authorization.conf:/etc/httpd/conf.d/99-patchyard-authorization.conf:ro,Z
     labels:
-      # Order is security-sensitive: authenticate with the private capability
-      # header first, then remove it before proxying to legacy PHP.
-      traefik.http.routers.preview-${PREVIEW_SLOT}.middlewares: "patchyard-capability@file,patchyard-capability-strip@file"
+      # Traefik wraps this list in reverse request order: the capability
+      # middleware therefore runs first, then the strip removes the private
+      # header before proxying to legacy PHP.
+      traefik.http.routers.preview-${PREVIEW_SLOT}.middlewares: "patchyard-capability-strip@file,patchyard-capability@file"

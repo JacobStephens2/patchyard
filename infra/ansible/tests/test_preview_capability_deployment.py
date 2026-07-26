@@ -42,7 +42,7 @@ class PreviewCapabilityDeploymentContract(unittest.TestCase):
             dynamic,
         )
         self.assertIn(
-            '"patchyard-capability@file,patchyard-capability-strip@file"',
+            '"patchyard-capability-strip@file,patchyard-capability@file"',
             slot,
         )
         tasks = TASKS.read_text()

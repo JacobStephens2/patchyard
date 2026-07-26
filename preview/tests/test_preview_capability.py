@@ -117,7 +117,7 @@ class CapabilityBoundaryTests(unittest.TestCase):
             TRAEFIK_DYNAMIC,
         )
         self.assertIn(
-            '"patchyard-capability@file,patchyard-capability-strip@file"',
+            '"patchyard-capability-strip@file,patchyard-capability@file"',
             SLOT_COMPOSE,
         )
 

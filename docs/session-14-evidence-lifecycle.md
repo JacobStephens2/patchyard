@@ -28,7 +28,11 @@ draft pull request:
    child outputs into the private artifact store. Baseline and candidate
    filenames are unique. The artifact ledger carries the SHA-256 for every DOM
    snapshot, screenshot, extracted order, child hash manifest, execution
-   manifest, and lifecycle proof.
+   manifest, and lifecycle proof. The count is deliberately asymmetric in the
+   PR body: all twelve artifacts are ledgered, hash-listed, and available
+   through the authenticated dashboard, while its ten reviewer-facing links
+   cover the five bounded child outputs per stage and omit the two
+   supervisor-generated lifecycle proofs.
 6. It replaces the pending evidence section in the PR body with authenticated
    dashboard links and each artifact SHA-256, then verifies the full A11 and
    A26 contract as live GitHub state. Only at that final gate does it mint a
@@ -40,6 +44,11 @@ draft pull request:
 The dashboard remains a read-only scribe (A53/A66). The supervisor performs
 every transition and side effect (A65). The orchestration host is absent from
 the runtime path (A68). No process self-merges or deploys (A1).
+
+For option-ordering changes, a closed `select` renders only its selected
+option, so baseline and candidate screenshots may be byte-identical and do
+not prove the reorder. The differing DOM snapshot and extracted-order artifact
+carry that semantic proof; the screenshot records presentation only.
 
 ## Preview authorization boundary
 
@@ -521,6 +530,14 @@ The final candidate artifact hashes are:
 - DOM `f151bb2ce32eddb37c05e7dfa1c1f2f7cd07b65df7bb1c491fb2d66d8c7bad52`;
 - screenshot `6749ef2b541fe03a7f71598d5a5bd97265516f07fbb646c236c1dceb6b53f902`;
 - extract `cfd1a8d4f2af7a753a11dd4221d01e3a865a68dd81228ef5534af839178a1626`.
+
+The two screenshot hashes are intentionally identical. The closed selector
+shows the same selected option before and after the child-option reorder, so
+the screenshot is not evidence of this fix. The differing DOM and extracted
+order hashes above are the semantic before/after proof. The twelve ledgered
+artifacts comprise those five linked child outputs plus one unlinked lifecycle
+proof for each stage; the PR body therefore has ten links while retaining all
+twelve hashes.
 
 At 07:42:06.835982Z the baseline security proof reported
 `sources=1,bytes_scanned=1348,matches=0,sentinel_matches=1` on the control

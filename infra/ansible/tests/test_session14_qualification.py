@@ -15,6 +15,7 @@ class Session14QualificationContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.stage = (FILES / "patchyard-stage-session14-qualification").read_text()
+        cls.evidence_stage = (FILES / "patchyard-stage-evidence-qualification").read_text()
         cls.runner = (FILES / "patchyard-run-session14-qualification").read_text()
         cls.unit = (FILES / "factory-session14-qualification.service").read_text()
         cls.environment = ENVIRONMENT.read_text()
@@ -83,6 +84,12 @@ class Session14QualificationContract(unittest.TestCase):
             "FACTORY_EVIDENCE_PREVIEW_PATH=/mfieldbook/leads/assign.php?rqst_id=96429",
             self.environment,
         )
+
+    def test_fixed_evidence_qualifier_can_exercise_the_live_session14_contract(self) -> None:
+        self.assertIn('[[ "$MODE" =~ ^(smoke|session14)$ ]]', self.evidence_stage)
+        self.assertIn("/mfieldbook/leads/assign.php?rqst_id=96429", self.evidence_stage)
+        self.assertIn('{wait_for: {selector: "#sales_person_id"}}', self.evidence_stage)
+        self.assertIn('{extract_select: {selector: "#sales_person_id"}}', self.evidence_stage)
 
     def test_ci_wait_retry_counter_is_granted_to_the_supervisor(self) -> None:
         self.assertRegex(

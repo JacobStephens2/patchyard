@@ -264,3 +264,29 @@ the remaining proof is a fresh dashboard-submitted ALPHABETIZE run reaching
 `ready_for_review`, with twelve hashed artifacts, two zero-match scan proofs,
 and the full A11/A26 PR body contract, including the leased-route edge-strip
 proof.
+
+The first clean-success candidate was submitted through the production
+dashboard on 2026-07-26 after that UTC window opened (request
+`1f5851fe-3c59-45b0-86f4-32d853dcaf9c`; run
+`73da062c-9061-48fb-a98d-7a47e10ea1d3`). It used base
+`4ef35181f7a700b02e63808e483d7c23f33b91d8` and published Fieldbook PR #265 at
+`b3d3ee547316f4c7d154bd95b408cf110b6f2555`. GitHub CI reached `success`, but
+the baseline evidence child then returned `RedirectBlocked`, so the lifecycle
+ended `evidence_failed`. It imported no evidence pack. The control-plane scan
+reported `sources=1`, `bytes_scanned=1617`, `matches=0`, and
+`sentinel_matches=1`; the preview scan reported `sources=2`,
+`bytes_scanned=32910`, `matches=0`, and `sentinel_matches=1`. The explicit
+slot-15 release reported `cleanup_complete=true` with no cleanup errors.
+Neither scanner received nor recorded a bearer value.
+
+The redirect exposed a deployed-boundary gap rather than a bypass: Traefik
+had translated the capability and removed the private header, but the preview
+Fieldbook image uses Apache's PHP-FPM proxy and did not project the translated
+`Authorization` header into legacy PHP's `HTTP_AUTHORIZATION` environment.
+`authenticate.php` therefore redirected to its login route, and the isolated
+child correctly failed closed. The repair mounts a reviewed Apache
+`SetEnvIfNoCase` projection into only factory-leased slots, keeps the ordered
+Traefik strip intact, and adds desired-state regression coverage. PR #265 is
+retained draft and unmerged as this failed qualification artifact while the
+repair is converged and a fresh dashboard request is used for the replacement
+success run. No quota was raised and no existing terminal run was reopened.

@@ -1,5 +1,10 @@
 services:
   fieldbook:
+    volumes:
+      # The preview image uses Apache's php-fpm proxy.  Preserve Traefik's
+      # translated application authority in the FastCGI environment so the
+      # legacy authenticate.php entry point can validate it.
+      - /etc/patchyard-preview/patchyard-authorization.conf:/etc/httpd/conf.d/99-patchyard-authorization.conf:ro,Z
     labels:
       # Order is security-sensitive: authenticate with the private capability
       # header first, then remove it before proxying to legacy PHP.

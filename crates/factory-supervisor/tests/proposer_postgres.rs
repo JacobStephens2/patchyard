@@ -263,6 +263,7 @@ impl PolicyPublicationService for FixturePublisher {
 struct BlockingPublisher {
     entered: AtomicBool,
     published: AtomicUsize,
+    reconciled: Mutex<Option<ReconciledPublication>>,
 }
 
 impl PolicyPublicationService for BlockingPublisher {
@@ -270,7 +271,7 @@ impl PolicyPublicationService for BlockingPublisher {
         &'a self,
         _cancellation: &'a CancellationToken,
     ) -> PolicyPublisherFuture<'a, Option<ReconciledPublication>> {
-        Box::pin(async { Ok(None) })
+        Box::pin(async move { Ok(self.reconciled.lock().expect("reconciled").take()) })
     }
 
     fn has_open_proposer_pr<'a>(
@@ -697,20 +698,46 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
     assert_eq!(aborted_state, "publishing");
     assert!(abort_requested);
     assert_eq!(blocking_publisher.published.load(Ordering::SeqCst), 0);
+    let abort_events_before: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM factory.proposer_events WHERE proposer_run_id=$1 AND event_type='proposer.publication_abort_requested'",
+    )
+    .bind(aborted_run)
+    .fetch_one(&admin)
+    .await?;
+    assert_eq!(abort_events_before, 1);
+    *blocking_publisher.reconciled.lock().expect("reconciled") =
+        Some(ReconciledPublication::Aborted {
+            run_id: aborted_run,
+            observed_pull_request: None,
+        });
+    assert_eq!(
+        blocking_engine
+            .recover_existing(&CancellationToken::new())
+            .await?,
+        Some(ProposerOutcome::Killed {
+            run_id: aborted_run,
+        })
+    );
+    let (reconciled_state, abort_events_after): (String, i64) = sqlx::query_as(
+        r#"
+        SELECT r.state::text,
+               count(*) FILTER (WHERE e.event_type='proposer.publication_abort_requested')
+        FROM factory.proposer_runs r
+        LEFT JOIN factory.proposer_events e ON e.proposer_run_id=r.id
+        WHERE r.id=$1
+        GROUP BY r.state
+        "#,
+    )
+    .bind(aborted_run)
+    .fetch_one(&admin)
+    .await?;
+    assert_eq!(reconciled_state, "killed");
+    assert_eq!(abort_events_after, abort_events_before);
     sqlx::query(
         "UPDATE factory.supervisor_state SET paused=false,full_stop=false,updated_at=clock_timestamp(),updated_by='publishing-stop-test' WHERE singleton",
     )
     .execute(&admin)
     .await?;
-    ProposerRunStore::new(runtime.clone())
-        .transition(
-            aborted_run,
-            factory_supervisor::proposer::ProposerState::Publishing,
-            factory_supervisor::proposer::ProposerState::Killed,
-            "fixture_abort_cleanup",
-            serde_json::json!({}),
-        )
-        .await?;
 
     let adjudication_publisher = Arc::new(FixturePublisher::default());
     let adjudication_engine = ImprovementProposer::new(

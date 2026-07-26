@@ -315,12 +315,23 @@ impl ProposerRunStore {
     ) -> Result<(), ProposerError> {
         let mut transaction = self.pool.begin().await?;
         let updated = sqlx::query(
-            "UPDATE factory.proposer_runs SET abort_requested=true WHERE id=$1 AND state='publishing'",
+            "UPDATE factory.proposer_runs SET abort_requested=true WHERE id=$1 AND state='publishing' AND abort_requested=false",
         )
         .bind(run_id)
         .execute(&mut *transaction)
         .await?;
-        if updated.rows_affected() != 1 {
+        if updated.rows_affected() == 0 {
+            let already_requested: Option<bool> = sqlx::query_scalar(
+                "SELECT abort_requested FROM factory.proposer_runs WHERE id=$1 AND state='publishing'",
+            )
+            .bind(run_id)
+            .fetch_optional(&mut *transaction)
+            .await?;
+            if already_requested == Some(true) {
+                transaction.commit().await?;
+                return Ok(());
+            }
+            transaction.rollback().await?;
             return Err(ProposerError::MissingProposerRun(run_id));
         }
         sqlx::query(
@@ -344,7 +355,7 @@ impl ProposerRunStore {
         reason: &'static str,
     ) -> Result<(), ProposerError> {
         let run_id = sqlx::query_scalar(
-            "SELECT id FROM factory.proposer_runs WHERE state='publishing' ORDER BY queued_at,id LIMIT 1",
+            "SELECT id FROM factory.proposer_runs WHERE state='publishing' AND abort_requested=false ORDER BY queued_at,id LIMIT 1",
         )
         .fetch_optional(&self.pool)
         .await?;
@@ -1142,11 +1153,18 @@ impl ImprovementProposer {
             self.store
                 .request_incomplete_publication_abort(reason)
                 .await?;
-            if full_stop {
-                return Ok(None);
-            }
         }
-        let Some(reconciled) = self.publisher.reconcile_incomplete(cancellation).await? else {
+        let full_stop_cancellation = CancellationToken::new();
+        let reconciliation_cancellation = if full_stop {
+            &full_stop_cancellation
+        } else {
+            cancellation
+        };
+        let Some(reconciled) = self
+            .publisher
+            .reconcile_incomplete(reconciliation_cancellation)
+            .await?
+        else {
             return Ok(None);
         };
         match reconciled {

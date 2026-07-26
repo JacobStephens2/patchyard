@@ -42,13 +42,14 @@ The isolated evidence browser sends its short-lived authority only as
 `X-Patchyard-Factory-Capability` to the numbered preview origin. Traefik passes that
 header to its file-provider `forwardAuth`, whose translator validates the
 capability's host, method, expiry, lease, and digest before returning the
-preview authority as `ETA_API_KEY`. Traefik's `authResponseHeadersRegex`
-removes the capability from the forwarded request, while
-`authResponseHeaders` copies the returned application header into it. Apache
-needs no special `Authorization` projection: its ordinary FastCGI request
-header path exposes `ETA_API_KEY` to legacy `authenticate.php`, which already
-accepts that header. The capability therefore terminates at Traefik and never
-reaches Apache, PHP-FPM, or the Fieldbook application.
+preview authority as `X-Patchyard-Factory-Preview-Key`. Traefik's
+`authResponseHeadersRegex` removes the capability from the forwarded request,
+while `authResponseHeaders` copies the returned replacement header into it.
+Apache receives that replacement, projects its value byte-for-byte into the
+legacy `ETA_API_KEY` request header, and removes the replacement before its
+ordinary FastCGI path exposes `ETA_API_KEY` to `authenticate.php`. The
+capability therefore terminates at Traefik and never reaches Apache, PHP-FPM,
+or the Fieldbook application.
 
 ## A26 explain-diff scope
 
@@ -144,7 +145,8 @@ GitHub-hosted CI can prove source-level and provider-free behavior:
   non-secret sentinel plus positive bytes from both scan implementations;
 - a real Traefik integration test proves the forward-auth service receives the
   private capability, while the downstream backend receives the translated
-  application `ETA_API_KEY` and no `X-Patchyard-Factory-Capability` header;
+  replacement and no `X-Patchyard-Factory-Capability` header; desired-state tests
+  prove Apache projects only that replacement into application `ETA_API_KEY`;
 - only the exact numbered leased preview origin is accepted;
 - final bodies contain the A11/A26 contract, authenticated `/evidence` links,
   artifact SHA-256 values, and no sent reply;

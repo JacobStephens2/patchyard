@@ -5,6 +5,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[3]
 COMPOSE = ROOT / "preview/docker-compose.factory-capability.yml"
 SLOT_COMPOSE = ROOT / "preview/docker-compose.factory-slot.yml"
+AUTHORIZATION_CONF = ROOT / "preview/patchyard-authorization.conf"
 TRAEFIK_DYNAMIC = ROOT / "preview/patchyard-traefik-dynamic.yml"
 TASKS = ROOT / "infra/ansible/roles/preview_host/tasks/main.yml"
 
@@ -40,7 +41,7 @@ class PreviewCapabilityDeploymentContract(unittest.TestCase):
             'authResponseHeadersRegex: "^X-Patchyard-Factory-Capability$"',
             dynamic,
         )
-        self.assertIn("- ETA_API_KEY", dynamic)
+        self.assertIn("- X-Patchyard-Factory-Preview-Key", dynamic)
         self.assertIn(
             '"patchyard-capability@file"',
             slot,
@@ -52,12 +53,24 @@ class PreviewCapabilityDeploymentContract(unittest.TestCase):
         )
         self.assertIn("docker-compose.factory-slot.yml", tasks)
 
-    def test_legacy_php_uses_the_ordinary_translated_header(self) -> None:
+    def test_legacy_php_receives_only_the_projected_application_header(self) -> None:
+        authorization = AUTHORIZATION_CONF.read_text()
         slot = SLOT_COMPOSE.read_text()
         tasks = TASKS.read_text()
-        self.assertNotIn("patchyard-authorization.conf:", slot)
-        self.assertIn("Remove the superseded Apache authorization projection", tasks)
-        self.assertIn("test ! -e /etc/patchyard-preview/patchyard-authorization.conf", tasks)
+        self.assertIn(
+            'RequestHeader set ETA_API_KEY "expr=%{req:X-Patchyard-Factory-Preview-Key}"',
+            authorization,
+        )
+        self.assertIn(
+            "RequestHeader unset X-Patchyard-Factory-Preview-Key",
+            authorization,
+        )
+        self.assertIn(
+            "/etc/patchyard-preview/patchyard-authorization.conf:"
+            "/etc/httpd/conf.d/99-patchyard-authorization.conf:ro,Z",
+            slot,
+        )
+        self.assertIn("patchyard-authorization.conf", tasks)
 
 
 if __name__ == "__main__":

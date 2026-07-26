@@ -88,9 +88,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Cache-Control", "no-store")
         if application_key is not None:
-            # Legacy PHP accepts ETA_API_KEY directly. Traefik copies this
-            # response header after removing the browser's private capability.
-            self.send_header("ETA_API_KEY", application_key)
+            # Traefik removes the browser's private capability and copies this
+            # hyphenated replacement for Apache to project into ETA_API_KEY.
+            self.send_header("X-Patchyard-Factory-Preview-Key", application_key)
         self.end_headers()
 
     def log_message(self, format: str, *args: object) -> None:

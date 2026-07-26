@@ -107,7 +107,10 @@ class CapabilityBoundaryTests(unittest.TestCase):
             response = connection.getresponse()
             response.read()
             self.assertEqual(response.status, 200)
-            self.assertEqual(response.getheader("ETA_API_KEY"), "preview-static-authority")
+            self.assertEqual(
+                response.getheader("X-Patchyard-Factory-Preview-Key"),
+                "preview-static-authority",
+            )
             self.assertIsNone(response.getheader("X-Patchyard-Factory-Capability"))
             connection.close()
         finally:
@@ -146,7 +149,7 @@ class CapabilityBoundaryTests(unittest.TestCase):
             'authResponseHeadersRegex: "^X-Patchyard-Factory-Capability$"',
             TRAEFIK_DYNAMIC,
         )
-        self.assertIn("- ETA_API_KEY", TRAEFIK_DYNAMIC)
+        self.assertIn("- X-Patchyard-Factory-Preview-Key", TRAEFIK_DYNAMIC)
         self.assertIn(
             '"patchyard-capability@file"',
             SLOT_COMPOSE,

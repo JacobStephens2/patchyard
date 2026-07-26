@@ -127,6 +127,26 @@ pub struct DurablePolicyCandidate {
     pub head_sha: String,
     pub title: String,
     pub body: String,
+    pub abort_requested: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ReconciledPublication {
+    Ready {
+        run_id: Uuid,
+        pull_request: PublishedPullRequest,
+    },
+    Aborted {
+        run_id: Uuid,
+        observed_pull_request: Option<PublishedPullRequest>,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AbandonedProposerRun {
+    pub run_id: Uuid,
+    pub state: String,
+    pub report_sha256: String,
 }
 
 impl ProposerRunStore {
@@ -186,47 +206,152 @@ impl ProposerRunStore {
         Ok(())
     }
 
-    pub async fn reconcile_abandoned_no_effect(&self) -> Result<usize, ProposerError> {
-        let mut transaction = self.pool.begin().await?;
+    pub async fn abandoned_before_publication(
+        &self,
+    ) -> Result<Vec<AbandonedProposerRun>, ProposerError> {
         let rows = sqlx::query(
             r#"
-            SELECT id,state::text AS state FROM factory.proposer_runs
+            SELECT id,state::text AS state,encode(report_sha256,'hex') AS report_sha256
+            FROM factory.proposer_runs
             WHERE state IN ('queued','reporting','proposing','reviewing')
-            ORDER BY queued_at,id FOR UPDATE
+            ORDER BY queued_at,id
             "#,
         )
-        .fetch_all(&mut *transaction)
+        .fetch_all(&self.pool)
         .await?;
-        for row in &rows {
-            let run_id: Uuid = row.try_get("id")?;
-            let state: String = row.try_get("state")?;
+        rows.iter()
+            .map(|row| {
+                Ok(AbandonedProposerRun {
+                    run_id: row.try_get("id")?,
+                    state: row.try_get("state")?,
+                    report_sha256: row.try_get("report_sha256")?,
+                })
+            })
+            .collect()
+    }
+
+    pub async fn finish_abandoned_before_publication(
+        &self,
+        abandoned: &AbandonedProposerRun,
+        idea_effect_observed: bool,
+    ) -> Result<(), ProposerError> {
+        let mut transaction = self.pool.begin().await?;
+        let affected = if idea_effect_observed {
+            if abandoned.state != ProposerState::Proposing.as_str() {
+                return Err(ProposerError::MalformedLedger(
+                    "idea effect observed outside proposing state",
+                ));
+            }
+            sqlx::query(
+                r#"
+                UPDATE factory.proposer_runs
+                SET state='idea_appended',finished_at=clock_timestamp(),failure_code=NULL
+                WHERE id=$1 AND state='proposing'
+                "#,
+            )
+            .bind(abandoned.run_id)
+            .execute(&mut *transaction)
+            .await?
+            .rows_affected()
+        } else {
             sqlx::query(
                 r#"
                 UPDATE factory.proposer_runs
                 SET state='killed',finished_at=clock_timestamp(),
                     failure_code='process_exit_before_external_effect'
-                WHERE id=$1
+                WHERE id=$1 AND state=$2::factory.proposer_state
                 "#,
             )
-            .bind(run_id)
+            .bind(abandoned.run_id)
+            .bind(&abandoned.state)
             .execute(&mut *transaction)
-            .await?;
-            sqlx::query(
-                r#"
-                INSERT INTO factory.proposer_events (
-                    proposer_run_id,event_type,from_state,to_state,reason_code,facts
-                ) VALUES ($1,'proposer.killed',$2::factory.proposer_state,'killed',
-                          'process_exit_before_external_effect',
-                          '{"external_effect_possible":false}'::jsonb)
-                "#,
-            )
-            .bind(run_id)
-            .bind(state)
-            .execute(&mut *transaction)
-            .await?;
+            .await?
+            .rows_affected()
+        };
+        if affected != 1 {
+            return Err(ProposerError::MissingProposerRun(abandoned.run_id));
         }
+        let (event_type, target, reason, facts) = if idea_effect_observed {
+            (
+                "proposer.idea_appended",
+                ProposerState::IdeaAppended,
+                "process_exit_after_idempotent_idea_effect",
+                serde_json::json!({
+                    "external_effect_observed": true,
+                    "report_sha256": abandoned.report_sha256,
+                }),
+            )
+        } else {
+            (
+                "proposer.killed",
+                ProposerState::Killed,
+                "process_exit_before_external_effect",
+                serde_json::json!({"external_effect_possible": false}),
+            )
+        };
+        sqlx::query(
+            r#"
+            INSERT INTO factory.proposer_events (
+                proposer_run_id,event_type,from_state,to_state,reason_code,facts
+            ) VALUES ($1,$2,$3::factory.proposer_state,$4::factory.proposer_state,$5,$6)
+            "#,
+        )
+        .bind(abandoned.run_id)
+        .bind(event_type)
+        .bind(&abandoned.state)
+        .bind(target.as_str())
+        .bind(reason)
+        .bind(facts)
+        .execute(&mut *transaction)
+        .await?;
         transaction.commit().await?;
-        Ok(rows.len())
+        Ok(())
+    }
+
+    pub async fn request_publication_abort(
+        &self,
+        run_id: Uuid,
+        reason: &'static str,
+    ) -> Result<(), ProposerError> {
+        let mut transaction = self.pool.begin().await?;
+        let updated = sqlx::query(
+            "UPDATE factory.proposer_runs SET abort_requested=true WHERE id=$1 AND state='publishing'",
+        )
+        .bind(run_id)
+        .execute(&mut *transaction)
+        .await?;
+        if updated.rows_affected() != 1 {
+            return Err(ProposerError::MissingProposerRun(run_id));
+        }
+        sqlx::query(
+            r#"
+            INSERT INTO factory.proposer_events (
+                proposer_run_id,event_type,from_state,to_state,reason_code,facts
+            ) VALUES ($1,'proposer.publication_abort_requested','publishing','publishing',$2,
+                      '{"publication_authorized":false}'::jsonb)
+            "#,
+        )
+        .bind(run_id)
+        .bind(reason)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        Ok(())
+    }
+
+    pub async fn request_incomplete_publication_abort(
+        &self,
+        reason: &'static str,
+    ) -> Result<(), ProposerError> {
+        let run_id = sqlx::query_scalar(
+            "SELECT id FROM factory.proposer_runs WHERE state='publishing' ORDER BY queued_at,id LIMIT 1",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        if let Some(run_id) = run_id {
+            self.request_publication_abort(run_id, reason).await?;
+        }
+        Ok(())
     }
 
     pub async fn incomplete_publication(
@@ -235,7 +360,7 @@ impl ProposerRunStore {
         let rows = sqlx::query(
             r#"
             SELECT id,branch,encode(patch_sha256,'hex') AS patch_sha256,
-                   reviewed_sha,pr_title,pr_body
+                   reviewed_sha,pr_title,pr_body,abort_requested
             FROM factory.proposer_runs WHERE state='publishing'
             ORDER BY queued_at,id LIMIT 2
             "#,
@@ -256,6 +381,7 @@ impl ProposerRunStore {
                     head_sha: row.try_get("reviewed_sha")?,
                     title: row.try_get("pr_title")?,
                     body: row.try_get("pr_body")?,
+                    abort_requested: row.try_get("abort_requested")?,
                 })
             })
             .transpose()
@@ -743,7 +869,7 @@ pub trait PolicyPublicationService: Send + Sync {
     fn reconcile_incomplete<'a>(
         &'a self,
         cancellation: &'a CancellationToken,
-    ) -> PolicyPublisherFuture<'a, Option<(Uuid, PublishedPullRequest)>>;
+    ) -> PolicyPublisherFuture<'a, Option<ReconciledPublication>>;
 
     fn has_open_proposer_pr<'a>(
         &'a self,
@@ -777,7 +903,9 @@ pub struct ImprovementProposerConfig {
     pub repository: PathBuf,
     pub ideas_path: PathBuf,
     pub scratch: PathBuf,
+    pub review_worktree_root: PathBuf,
     pub base_sha: String,
+    pub publication_enabled: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -791,6 +919,9 @@ pub enum ProposerOutcome {
         pull_request: PublishedPullRequest,
     },
     OpenPrCapReached {
+        run_id: Uuid,
+    },
+    Killed {
         run_id: Uuid,
     },
 }
@@ -886,7 +1017,9 @@ impl ImprovementProposer {
         if let Some(outcome) = self.reconcile_incomplete(cancellation).await? {
             return Ok(outcome);
         }
-        self.store.reconcile_abandoned_no_effect().await?;
+        if let Some(outcome) = self.reconcile_abandoned_before_publication().await? {
+            return Ok(outcome);
+        }
         let run_id = self.start_reporting().await?;
         self.run_report(run_id, report, cancellation).await
     }
@@ -957,7 +1090,9 @@ impl ImprovementProposer {
         if let Some(outcome) = self.reconcile_incomplete(cancellation).await? {
             return Ok(outcome);
         }
-        self.store.reconcile_abandoned_no_effect().await?;
+        if let Some(outcome) = self.reconcile_abandoned_before_publication().await? {
+            return Ok(outcome);
+        }
         let run_id = self.start_reporting().await?;
         let generated = tokio::select! {
             () = cancellation.cancelled() => {
@@ -996,28 +1131,114 @@ impl ImprovementProposer {
         &self,
         cancellation: &CancellationToken,
     ) -> Result<Option<ProposerOutcome>, ProposerError> {
-        let Some((run_id, pull)) = self.publisher.reconcile_incomplete(cancellation).await? else {
+        let Some(reconciled) = self.publisher.reconcile_incomplete(cancellation).await? else {
             return Ok(None);
         };
-        self.store
-            .transition(
+        match reconciled {
+            ReconciledPublication::Ready {
                 run_id,
-                ProposerState::Publishing,
-                ProposerState::ReadyForReview,
-                "draft_pr_reconciled_after_process_exit",
-                serde_json::json!({
-                    "number": pull.number,
-                    "url": pull.url,
-                    "branch": pull.branch,
-                    "head_sha": pull.head_sha,
-                    "author_login": pull.author_login,
-                }),
-            )
-            .await?;
-        Ok(Some(ProposerOutcome::ReadyForReview {
-            run_id,
-            pull_request: pull,
-        }))
+                pull_request,
+            } => {
+                self.cleanup_proposer_scratch(run_id).await?;
+                self.store
+                    .transition(
+                        run_id,
+                        ProposerState::Publishing,
+                        ProposerState::ReadyForReview,
+                        "draft_pr_reconciled_after_process_exit",
+                        serde_json::json!({
+                            "number": pull_request.number,
+                            "url": pull_request.url,
+                            "branch": pull_request.branch,
+                            "head_sha": pull_request.head_sha,
+                            "author_login": pull_request.author_login,
+                        }),
+                    )
+                    .await?;
+                Ok(Some(ProposerOutcome::ReadyForReview {
+                    run_id,
+                    pull_request,
+                }))
+            }
+            ReconciledPublication::Aborted {
+                run_id,
+                observed_pull_request,
+            } => {
+                self.cleanup_proposer_scratch(run_id).await?;
+                self.store
+                    .transition(
+                        run_id,
+                        ProposerState::Publishing,
+                        ProposerState::Killed,
+                        "publication_abort_reconciled",
+                        serde_json::json!({
+                            "publication_authorized": false,
+                            "observed_pull_request": observed_pull_request,
+                        }),
+                    )
+                    .await?;
+                Ok(Some(ProposerOutcome::Killed { run_id }))
+            }
+        }
+    }
+
+    async fn reconcile_abandoned_before_publication(
+        &self,
+    ) -> Result<Option<ProposerOutcome>, ProposerError> {
+        let abandoned = self.store.abandoned_before_publication().await?;
+        let mut recovered_idea = None;
+        for run in abandoned {
+            let idea_effect_observed = if run.state == ProposerState::Proposing.as_str()
+                && run.report_sha256 != "0".repeat(64)
+            {
+                let ideas_path = self.config.ideas_path.clone();
+                let report_sha256 = run.report_sha256.clone();
+                tokio::task::spawn_blocking(move || {
+                    idea_marker_present(&ideas_path, &report_sha256)
+                })
+                .await??
+            } else {
+                false
+            };
+            self.cleanup_proposer_scratch(run.run_id).await?;
+            self.store
+                .finish_abandoned_before_publication(&run, idea_effect_observed)
+                .await?;
+            if idea_effect_observed {
+                recovered_idea = Some(ProposerOutcome::IdeaAppended { run_id: run.run_id });
+            }
+        }
+        Ok(recovered_idea)
+    }
+
+    /// Reconciles only already-durable proposer work. It never creates a new
+    /// report or invokes an agent and therefore runs even while scheduling is
+    /// disabled.
+    pub async fn recover_existing(
+        &self,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<ProposerOutcome>, ProposerError> {
+        let execution = self.store.acquire_execution_lock().await?;
+        let result = async {
+            let full_stop = self.store.full_stop_active().await?;
+            if full_stop || !self.config.publication_enabled {
+                let reason = if full_stop {
+                    "full_stop_during_recovery"
+                } else {
+                    "dual_human_review_not_enforced_during_recovery"
+                };
+                self.store
+                    .request_incomplete_publication_abort(reason)
+                    .await?;
+            }
+            if let Some(outcome) = self.reconcile_incomplete(cancellation).await? {
+                return Ok(Some(outcome));
+            }
+            self.reconcile_abandoned_before_publication().await
+        }
+        .await;
+        let release = self.store.release_execution_lock(execution).await;
+        merge_execution_release(result, release)
     }
 
     async fn start_reporting(&self) -> Result<Uuid, ProposerError> {
@@ -1130,6 +1351,19 @@ impl ImprovementProposer {
             .cohorts
             .iter()
             .any(|cohort| cohort.eligible_for_policy_pr);
+        if threshold_reached && !self.config.publication_enabled {
+            let error = ProposerError::DualHumanReviewNotEnforced;
+            self.store
+                .transition(
+                    run_id,
+                    ProposerState::Proposing,
+                    ProposerState::PublicationFailed,
+                    "dual_human_review_not_enforced",
+                    serde_json::json!({"error": error.to_string()}),
+                )
+                .await?;
+            return Err(error);
+        }
         if threshold_reached {
             match self.publisher.has_open_proposer_pr(cancellation).await {
                 Ok(true) => {
@@ -1356,7 +1590,7 @@ impl ImprovementProposer {
         let validated = match inspect_policy_intent(
             &self.config.repository,
             &self.config.base_sha,
-            &self.config.scratch.join("inspect"),
+            &self.config.scratch.join("inspect").join(run_id.to_string()),
             &author_bundle.manifest,
             &reviewer_bundle.manifest,
             &execution.intent,
@@ -1700,7 +1934,7 @@ impl ImprovementProposer {
                 cancellation,
             )
             .await;
-        let cleanup = cleanup_patch(&validated.patch_path).await;
+        let cleanup = self.cleanup_proposer_scratch(run_id).await;
         let published = match (published, cleanup) {
             (Ok(pull), Ok(())) => pull,
             (Err(ProposerError::OpenProposerPrCap), Ok(())) => {
@@ -1716,6 +1950,11 @@ impl ImprovementProposer {
                 return Ok(ProposerOutcome::OpenPrCapReached { run_id });
             }
             (Err(error), Ok(())) => {
+                if cancellation.is_cancelled() {
+                    self.store
+                        .request_publication_abort(run_id, "cancelled_during_publication")
+                        .await?;
+                }
                 self.store
                     .observation(
                         run_id,
@@ -1728,6 +1967,11 @@ impl ImprovementProposer {
                 return Err(error);
             }
             (_, Err(error)) => {
+                if cancellation.is_cancelled() {
+                    self.store
+                        .request_publication_abort(run_id, "cancelled_during_publication_cleanup")
+                        .await?;
+                }
                 self.store
                     .observation(
                         run_id,
@@ -1740,6 +1984,27 @@ impl ImprovementProposer {
                 return Err(error);
             }
         };
+        if cancellation.is_cancelled() {
+            self.store
+                .request_publication_abort(run_id, "cancelled_after_publication_effect")
+                .await?;
+            self.store
+                .transition(
+                    run_id,
+                    ProposerState::Publishing,
+                    ProposerState::Killed,
+                    "cancelled_after_publication_effect",
+                    serde_json::json!({
+                        "number": published.number,
+                        "url": published.url,
+                        "branch": published.branch,
+                        "head_sha": published.head_sha,
+                        "author_login": published.author_login,
+                    }),
+                )
+                .await?;
+            return Err(ProposerError::Cancelled);
+        }
         self.store
             .transition(
                 run_id,
@@ -1790,6 +2055,25 @@ impl ImprovementProposer {
         Ok(artifact)
     }
 
+    async fn cleanup_proposer_scratch(&self, run_id: Uuid) -> Result<(), ProposerError> {
+        let inspection = self.config.scratch.join("inspect").join(run_id.to_string());
+        remove_scratch_tree(&inspection).await?;
+        remove_scratch_tree(&self.config.review_worktree_root).await?;
+        let mut spec = ProcessSpec::new("/usr/bin/git");
+        spec.args = vec![
+            "-C".into(),
+            self.config.repository.as_os_str().to_owned(),
+            "worktree".into(),
+            "prune".into(),
+            "--expire".into(),
+            "now".into(),
+        ];
+        spec.timeout = Duration::from_secs(30);
+        spec.output_limit = 1024 * 1024;
+        let output = run_bounded(&spec, &CancellationToken::new()).await?;
+        require_process_success("prune proposer worktree registrations", output.code)
+    }
+
     async fn terminate_after_patch_cleanup(
         &self,
         failure: PatchTermination<'_>,
@@ -1803,7 +2087,11 @@ impl ImprovementProposer {
             primary,
             mut facts,
         } = failure;
-        match cleanup_patch(patch_path).await {
+        let expected_root = self.config.scratch.join("inspect").join(run_id.to_string());
+        if !patch_path.starts_with(&expected_root) {
+            return Err(ProposerError::UnsafeScratchPath);
+        }
+        match self.cleanup_proposer_scratch(run_id).await {
             Ok(()) => {
                 if let Some(object) = facts.as_object_mut() {
                     object.insert(
@@ -1835,12 +2123,17 @@ impl ImprovementProposer {
     }
 }
 
-async fn cleanup_patch(path: &Path) -> Result<(), ProposerError> {
-    match tokio::fs::remove_file(path).await {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error.into()),
+async fn remove_scratch_tree(path: &Path) -> Result<(), ProposerError> {
+    let metadata = match tokio::fs::symlink_metadata(path).await {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err(ProposerError::UnsafeScratchPath);
     }
+    tokio::fs::remove_dir_all(path).await?;
+    Ok(())
 }
 
 #[derive(Clone, Debug)]
@@ -1952,62 +2245,63 @@ impl PolicyPublisher {
             if existing.len() > 1 {
                 return Err(ProposerError::MultiplePullRequests);
             }
-            if let Some(pull) = existing.first() {
-                return validate_policy_pull(pull, &token, &branch, &self.config.base_branch);
-            }
-            if self.fresh_open_count(&token, cancellation).await? >= 1 {
-                return Err(ProposerError::OpenProposerPrCap);
-            }
-            let object = self
-                .git(
-                    &token,
-                    vec![
-                        "-C".into(),
-                        mirror.as_os_str().to_owned(),
-                        "cat-file".into(),
-                        "-e".into(),
-                        format!("{}^{{commit}}", prepared.head_sha).into(),
-                    ],
-                    cancellation,
-                )
-                .await?;
-            require_process_success("verify prepared policy commit", object.code)?;
-            let pushed = self
-                .git(
-                    &token,
-                    vec![
-                        "-C".into(),
-                        mirror.as_os_str().to_owned(),
-                        "push".into(),
-                        "origin".into(),
-                        format!("{}:refs/heads/{branch}", prepared.head_sha).into(),
-                    ],
-                    cancellation,
-                )
-                .await?;
-            require_process_success("push exact reviewed policy commit", pushed.code)?;
-            // Re-observe immediately before PR creation. The singleton lease
-            // serializes this publisher; fresh GitHub truth catches external
-            // bot-authored proposer branches/PRs.
-            if self.fresh_open_count(&token, cancellation).await? >= 1 {
-                return Err(ProposerError::OpenProposerPrCap);
-            }
-            let pull = self
-                .github
-                .create_draft_pull_request(
-                    &token,
-                    &self.config.repository,
-                    &CreatePullRequest {
-                        title: format!("Policy: {}", intent.title()),
-                        head: branch.clone(),
-                        base: self.config.base_branch.clone(),
-                        body: body.to_owned(),
-                        draft: true,
-                    },
-                    cancellation,
-                )
-                .await?;
-            let published = validate_policy_pull(&pull, &token, &branch, &self.config.base_branch)?;
+            let published = if let Some(pull) = existing.first() {
+                validate_policy_pull(pull, &token, &branch, &self.config.base_branch)?
+            } else {
+                if self.fresh_open_count(&token, cancellation).await? >= 1 {
+                    return Err(ProposerError::OpenProposerPrCap);
+                }
+                let object = self
+                    .git(
+                        &token,
+                        vec![
+                            "-C".into(),
+                            mirror.as_os_str().to_owned(),
+                            "cat-file".into(),
+                            "-e".into(),
+                            format!("{}^{{commit}}", prepared.head_sha).into(),
+                        ],
+                        cancellation,
+                    )
+                    .await?;
+                require_process_success("verify prepared policy commit", object.code)?;
+                let pushed = self
+                    .git(
+                        &token,
+                        vec![
+                            "-C".into(),
+                            mirror.as_os_str().to_owned(),
+                            "push".into(),
+                            "origin".into(),
+                            format!("{}:refs/heads/{branch}", prepared.head_sha).into(),
+                        ],
+                        cancellation,
+                    )
+                    .await?;
+                require_process_success("push exact reviewed policy commit", pushed.code)?;
+                // Re-observe immediately before PR creation. The singleton lease
+                // serializes this publisher; fresh GitHub truth catches external
+                // bot-authored proposer branches/PRs.
+                if self.fresh_open_count(&token, cancellation).await? >= 1 {
+                    return Err(ProposerError::OpenProposerPrCap);
+                }
+                let pull = self
+                    .github
+                    .create_draft_pull_request(
+                        &token,
+                        &self.config.repository,
+                        &CreatePullRequest {
+                            title: format!("Policy: {}", intent.title()),
+                            head: branch.clone(),
+                            base: self.config.base_branch.clone(),
+                            body: body.to_owned(),
+                            draft: true,
+                        },
+                        cancellation,
+                    )
+                    .await?;
+                validate_policy_pull(&pull, &token, &branch, &self.config.base_branch)?
+            };
             if published.head_sha != prepared.head_sha {
                 return Err(ProposerError::PublishedHeadMismatch);
             }
@@ -2033,7 +2327,7 @@ impl PolicyPublisher {
     async fn reconcile_incomplete_inner(
         &self,
         cancellation: &CancellationToken,
-    ) -> Result<Option<(Uuid, PublishedPullRequest)>, ProposerError> {
+    ) -> Result<Option<ReconciledPublication>, ProposerError> {
         let Some(candidate) = self.store.incomplete_publication().await? else {
             return Ok(None);
         };
@@ -2076,6 +2370,12 @@ impl PolicyPublisher {
                 .await?;
             if existing.len() > 1 {
                 return Err(ProposerError::MultiplePullRequests);
+            }
+            if candidate.abort_requested && existing.is_empty() {
+                return Ok(ReconciledPublication::Aborted {
+                    run_id: candidate.run_id,
+                    observed_pull_request: None,
+                });
             }
             let published = if let Some(pull) = existing.first() {
                 let published = validate_policy_pull(
@@ -2168,7 +2468,17 @@ impl PolicyPublisher {
                     &published,
                 )
                 .await?;
-            Ok((candidate.run_id, published))
+            if candidate.abort_requested {
+                Ok(ReconciledPublication::Aborted {
+                    run_id: candidate.run_id,
+                    observed_pull_request: Some(published),
+                })
+            } else {
+                Ok(ReconciledPublication::Ready {
+                    run_id: candidate.run_id,
+                    pull_request: published,
+                })
+            }
         }
         .await;
         let release = self.store.release_publish_lease(&lease).await;
@@ -2384,7 +2694,7 @@ impl PolicyPublicationService for PolicyPublisher {
     fn reconcile_incomplete<'a>(
         &'a self,
         cancellation: &'a CancellationToken,
-    ) -> PolicyPublisherFuture<'a, Option<(Uuid, PublishedPullRequest)>> {
+    ) -> PolicyPublisherFuture<'a, Option<ReconciledPublication>> {
         Box::pin(async move { self.reconcile_incomplete_inner(cancellation).await })
     }
 
@@ -3256,6 +3566,24 @@ pub fn append_idea_once(
     append_idea_inner(path, append, Some(report_sha256))
 }
 
+fn idea_marker_present(path: &Path, report_sha256: &str) -> Result<bool, ProposerError> {
+    require_lower_hex(report_sha256, 64, "report SHA-256")?;
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err(ProposerError::UnsafeIdeasPath);
+    }
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
+        .open(path)?;
+    rustix::fs::flock(&file, rustix::fs::FlockOperation::LockExclusive).map_err(|error| {
+        ProposerError::Io(std::io::Error::from_raw_os_error(error.raw_os_error()))
+    })?;
+    let mut current = String::new();
+    file.read_to_string(&mut current)?;
+    Ok(current.contains(&format!("Deterministic report SHA-256: `{report_sha256}`")))
+}
+
 fn append_idea_inner(
     path: &Path,
     append: &str,
@@ -3490,12 +3818,16 @@ pub enum ProposerError {
     MissingPolicyChange,
     #[error("ideas path is not a regular non-symlink file")]
     UnsafeIdeasPath,
+    #[error("proposer scratch path is outside the deterministic directory boundary")]
+    UnsafeScratchPath,
     #[error("invalid {0}")]
     InvalidIdentifier(&'static str),
     #[error("Git object is unavailable or malformed: {0}")]
     GitObject(String),
     #[error("live proposer provider isolation is not A5-qualified")]
     LiveProviderNotQualified,
+    #[error("repository branch protection has not been attested to require two human approvals")]
+    DualHumanReviewNotEnforced,
     #[error("proposer isolation probe did not prove the no-authority boundary")]
     IsolationProbe,
     #[error("proposer child returned fail-closed state {0:?}")]
@@ -3576,8 +3908,8 @@ mod tests {
     use super::{
         BundleRole, EvidenceCitation, PolicyPublicationService, PolicyPublisher,
         PolicyPublisherConfig, PromptBundleManifest, ProposalIntent, ProposerError, ProposerPacket,
-        ProposerRunStore, ProposerState, RuntimeGraph, ValidatedPolicyPatch, append_idea,
-        append_idea_once, build_packet, build_policy_pr_body, inspect_policy_intent,
+        ProposerRunStore, ProposerState, ReconciledPublication, RuntimeGraph, ValidatedPolicyPatch,
+        append_idea, append_idea_once, build_packet, build_policy_pr_body, inspect_policy_intent,
         load_prompt_bundle, render_effective_prompt, validate_authority_surface, validate_intent,
     };
     use crate::{
@@ -4289,33 +4621,91 @@ mod tests {
             )
             .await
             .expect("publishing");
+        github
+            .pulls
+            .lock()
+            .expect("pulls")
+            .push(local_pull(99, &prepared.branch, &"f".repeat(40)));
+        assert!(matches!(
+            publisher
+                .publish(
+                    run_id,
+                    &packet,
+                    &intent,
+                    &validated,
+                    &prepared,
+                    &body,
+                    &CancellationToken::new(),
+                )
+                .await,
+            Err(ProposerError::PublishedHeadMismatch)
+        ));
+        let unrecorded_pr: Option<i32> =
+            sqlx::query_scalar("SELECT pr_number FROM factory.proposer_runs WHERE id=$1")
+                .bind(run_id)
+                .fetch_one(&pool)
+                .await
+                .expect("unrecorded mismatched PR");
+        assert_eq!(unrecorded_pr, None);
+        github.pulls.lock().expect("pulls").clear();
+        github.purposes.lock().expect("purposes").clear();
         assert!(github.pulls.lock().expect("pulls").is_empty());
         // Simulate process exit immediately after the durable publishing
         // transition, before any branch or PR write. Recovery must first
         // observe with read scope, then mint write scope for the missing-PR
         // repair and converge on the exact reviewed head.
-        let (recovered_id, recovered) = publisher
+        let recovered = publisher
             .reconcile_incomplete(&CancellationToken::new())
             .await
             .expect("recover missing PR")
             .expect("incomplete publication");
+        let ReconciledPublication::Ready {
+            run_id: recovered_id,
+            pull_request: recovered,
+        } = recovered
+        else {
+            panic!("publication was not aborted")
+        };
         assert_eq!(recovered_id, run_id);
         assert_eq!(recovered.head_sha, prepared.head_sha);
         assert_eq!(
             *github.purposes.lock().expect("purposes"),
-            vec![
-                TokenPurpose::Reconcile,
-                TokenPurpose::Reconcile,
-                TokenPurpose::Publish,
-            ]
+            vec![TokenPurpose::Reconcile, TokenPurpose::Publish]
         );
+        let existing = publisher
+            .publish(
+                run_id,
+                &packet,
+                &intent,
+                &validated,
+                &prepared,
+                &body,
+                &CancellationToken::new(),
+            )
+            .await
+            .expect("accept exact existing PR");
+        assert_eq!(existing.head_sha, prepared.head_sha);
+        let recorded_pr: Option<i32> =
+            sqlx::query_scalar("SELECT pr_number FROM factory.proposer_runs WHERE id=$1")
+                .bind(run_id)
+                .fetch_one(&pool)
+                .await
+                .expect("recorded exact PR");
+        assert_eq!(recorded_pr, Some(1));
         // Simulate process exit after PR/database recording but before the
         // lifecycle transition. Recovery must converge on that same PR/head.
-        let (recovered_again_id, recovered_again) = publisher
+        let recovered_again = publisher
             .reconcile_incomplete(&CancellationToken::new())
             .await
             .expect("reconcile")
             .expect("incomplete publication");
+        let ReconciledPublication::Ready {
+            run_id: recovered_again_id,
+            pull_request: recovered_again,
+        } = recovered_again
+        else {
+            panic!("publication was not aborted")
+        };
         assert_eq!(recovered_again_id, run_id);
         assert_eq!(recovered_again.head_sha, prepared.head_sha);
         assert_eq!(
@@ -4397,6 +4787,97 @@ mod tests {
             )
             .await
             .expect("ready");
+
+        // A durable abort written after reviewing but before any branch/PR
+        // effect must make restart reconciliation observation-only.
+        github.pulls.lock().expect("pulls").clear();
+        github.purposes.lock().expect("purposes").clear();
+        let abort_run = store.begin(&base_sha).await.expect("abort begin");
+        store
+            .transition(
+                abort_run,
+                ProposerState::Queued,
+                ProposerState::Reporting,
+                "fixture",
+                serde_json::json!({}),
+            )
+            .await
+            .expect("abort reporting");
+        store
+            .bind_packet(abort_run, &packet)
+            .await
+            .expect("abort bind");
+        store
+            .transition(
+                abort_run,
+                ProposerState::Reporting,
+                ProposerState::Proposing,
+                "fixture",
+                serde_json::json!({}),
+            )
+            .await
+            .expect("abort proposing");
+        store
+            .record_candidate(
+                abort_run,
+                &prepared,
+                &validated.inspected.patch_sha256,
+                "Policy: Aborted fixture",
+                &body,
+            )
+            .await
+            .expect("abort candidate");
+        store
+            .transition(
+                abort_run,
+                ProposerState::Proposing,
+                ProposerState::Reviewing,
+                "fixture",
+                serde_json::json!({}),
+            )
+            .await
+            .expect("abort reviewing");
+        store
+            .transition(
+                abort_run,
+                ProposerState::Reviewing,
+                ProposerState::Publishing,
+                "fixture",
+                serde_json::json!({}),
+            )
+            .await
+            .expect("abort publishing");
+        store
+            .request_publication_abort(abort_run, "fixture_full_stop")
+            .await
+            .expect("durable abort");
+        let aborted = publisher
+            .reconcile_incomplete(&CancellationToken::new())
+            .await
+            .expect("abort reconcile")
+            .expect("aborted publication");
+        assert_eq!(
+            aborted,
+            ReconciledPublication::Aborted {
+                run_id: abort_run,
+                observed_pull_request: None,
+            }
+        );
+        assert!(github.pulls.lock().expect("pulls").is_empty());
+        assert_eq!(
+            *github.purposes.lock().expect("purposes"),
+            vec![TokenPurpose::Reconcile]
+        );
+        store
+            .transition(
+                abort_run,
+                ProposerState::Publishing,
+                ProposerState::Killed,
+                "fixture_abort_complete",
+                serde_json::json!({}),
+            )
+            .await
+            .expect("abort killed");
         pool.close().await;
     }
 

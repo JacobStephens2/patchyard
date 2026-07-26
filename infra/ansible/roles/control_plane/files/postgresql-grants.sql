@@ -119,7 +119,8 @@ GRANT UPDATE (
 GRANT INSERT, UPDATE (
     state, report_sha256, report_max_event_id, prompt_bundle_sha256,
     branch, patch_sha256, reviewed_sha, pr_title, pr_body,
-    review_artifact, disposition_artifact, pr_number, pr_url, failure_code,
+    review_artifact, disposition_artifact, abort_requested,
+    pr_number, pr_url, failure_code,
     started_at, finished_at
 ) ON factory.proposer_runs TO patchyard_supervisor;
 GRANT INSERT ON factory.proposer_events TO patchyard_supervisor;

@@ -32,6 +32,7 @@ CREATE TABLE factory.proposer_runs (
     pr_body text,
     review_artifact jsonb,
     disposition_artifact jsonb,
+    abort_requested boolean NOT NULL DEFAULT false,
     pr_number integer,
     pr_url text,
     failure_code text,

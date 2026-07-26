@@ -98,6 +98,7 @@ impl SupervisorDaemon {
         // proposer invocation during every service restart.
         proposer_interval.tick().await;
         self.sweep().await?;
+        self.recover_proposer_state(shutdown).await?;
         loop {
             // Cancellation audit: CancellationToken::cancelled and Interval::tick
             // are cancellation-safe. PgListener::recv is cancel-safe: cancelling
@@ -119,6 +120,7 @@ impl SupervisorDaemon {
                     tracing::warn!(%error, "LISTEN connection lost; reconnecting before durable sweep");
                     listener = self.connect_listener().await?;
                     self.sweep().await?;
+                    self.recover_proposer_state(shutdown).await?;
                 }
                 Wake::Proposer => self.start_or_reap_proposer().await?,
             }
@@ -195,6 +197,27 @@ impl SupervisorDaemon {
             cancellation,
             handle,
         });
+        Ok(())
+    }
+
+    async fn recover_proposer_state(
+        &mut self,
+        cancellation: &CancellationToken,
+    ) -> Result<(), DaemonError> {
+        if let Some(active) = self.active_proposer.take() {
+            if active.handle.is_finished() {
+                match active.handle.await? {
+                    Ok(outcome) => tracing::info!(?outcome, "scheduled proposer completed"),
+                    Err(error) => tracing::error!(%error, "scheduled proposer failed closed"),
+                }
+            } else {
+                self.active_proposer = Some(active);
+                return Ok(());
+            }
+        }
+        if let Some(outcome) = self.proposer.recover_existing(cancellation).await? {
+            tracing::info!(?outcome, "recovered durable proposer state");
+        }
         Ok(())
     }
 
@@ -448,6 +471,8 @@ pub enum DaemonError {
     Database(#[from] sqlx::Error),
     #[error("durable supervisor state failed: {0}")]
     Store(#[from] StoreError),
+    #[error("durable proposer recovery failed: {0}")]
+    Proposer(#[from] ProposerError),
     #[error("pipeline task failed to join: {0}")]
     Join(#[from] tokio::task::JoinError),
     #[error("reconcile outcome serialization failed: {0}")]

@@ -23,7 +23,7 @@ use factory_supervisor::{
         PolicyPublisherFuture, PolicyReviewFuture, PreparedPolicyCandidate, ProposalIntent,
         ProposerAgentFuture, ProposerAgentService, ProposerDispositionExecution,
         ProposerDispositionFuture, ProposerError, ProposerExecution, ProposerOutcome,
-        ProposerPacket, ProposerRunStore, ValidatedPolicyPatch,
+        ProposerPacket, ProposerRunStore, ReconciledPublication, ValidatedPolicyPatch,
     },
     publisher::PublishedPullRequest,
     review::{PolicyReviewPacket, ReviewExecution},
@@ -200,7 +200,7 @@ impl PolicyPublicationService for FixturePublisher {
     fn reconcile_incomplete<'a>(
         &'a self,
         _cancellation: &'a CancellationToken,
-    ) -> PolicyPublisherFuture<'a, Option<(Uuid, PublishedPullRequest)>> {
+    ) -> PolicyPublisherFuture<'a, Option<ReconciledPublication>> {
         Box::pin(async { Ok(None) })
     }
 
@@ -254,6 +254,62 @@ impl PolicyPublicationService for FixturePublisher {
                 head_sha: prepared.head_sha.clone(),
                 author_login: "patchyard[bot]".to_owned(),
             })
+        })
+    }
+}
+
+#[derive(Default)]
+struct BlockingPublisher {
+    entered: AtomicBool,
+    published: AtomicUsize,
+}
+
+impl PolicyPublicationService for BlockingPublisher {
+    fn reconcile_incomplete<'a>(
+        &'a self,
+        _cancellation: &'a CancellationToken,
+    ) -> PolicyPublisherFuture<'a, Option<ReconciledPublication>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    fn has_open_proposer_pr<'a>(
+        &'a self,
+        _cancellation: &'a CancellationToken,
+    ) -> PolicyPublisherFuture<'a, bool> {
+        Box::pin(async { Ok(false) })
+    }
+
+    fn prepare_candidate<'a>(
+        &'a self,
+        _run_id: Uuid,
+        packet: &'a ProposerPacket,
+        _intent: &'a ProposalIntent,
+        _validated: &'a ValidatedPolicyPatch,
+        _cancellation: &'a CancellationToken,
+    ) -> PolicyPublisherFuture<'a, PreparedPolicyCandidate> {
+        Box::pin(async move {
+            Ok(PreparedPolicyCandidate {
+                repository: std::env::current_dir().expect("current directory"),
+                branch: format!("factory/proposer/{}", &packet.report_sha256[..16]),
+                head_sha: "b".repeat(40),
+            })
+        })
+    }
+
+    fn publish<'a>(
+        &'a self,
+        _run_id: Uuid,
+        _packet: &'a ProposerPacket,
+        _intent: &'a ProposalIntent,
+        _validated: &'a ValidatedPolicyPatch,
+        _prepared: &'a PreparedPolicyCandidate,
+        _body: &'a str,
+        cancellation: &'a CancellationToken,
+    ) -> PolicyPublisherFuture<'a, PublishedPullRequest> {
+        Box::pin(async move {
+            self.entered.store(true, Ordering::SeqCst);
+            cancellation.cancelled().await;
+            Err(ProposerError::Cancelled)
         })
     }
 }
@@ -370,7 +426,9 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
             repository: repository.path().to_path_buf(),
             ideas_path: ideas.clone(),
             scratch: repository.path().join("scratch"),
+            review_worktree_root: repository.path().join("review-worktrees"),
             base_sha,
+            publication_enabled: true,
         },
     )?);
 
@@ -396,6 +454,57 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
     let ideas_after = fs::read(&ideas)?;
     assert!(ideas_after.starts_with(&ideas_prefix));
     assert_eq!(publisher.published.load(Ordering::SeqCst), 0);
+
+    // Simulate a hard exit after the idempotent append fsync but before the
+    // proposing -> idea_appended ledger transition. Startup recovery must
+    // inspect the locked digest marker and report the observed effect.
+    let abandoned_idea = Uuid::new_v4();
+    let below_sha = below.sha256()?;
+    sqlx::query(
+        r#"
+        INSERT INTO factory.proposer_runs (
+            id,state,base_sha,report_sha256,report_max_event_id,
+            prompt_bundle_sha256,started_at
+        ) VALUES ($1,'proposing',$2,decode($3,'hex'),$4,
+                  decode(repeat('0',64),'hex'),clock_timestamp())
+        "#,
+    )
+    .bind(abandoned_idea)
+    .bind(git(repository.path(), &["rev-parse", "HEAD"]))
+    .bind(&below_sha)
+    .bind(below.snapshot_max_event_id)
+    .execute(&admin)
+    .await?;
+    let abandoned_scratch = repository
+        .path()
+        .join("scratch/inspect")
+        .join(abandoned_idea.to_string());
+    fs::create_dir_all(&abandoned_scratch)?;
+    fs::write(abandoned_scratch.join("stranded.patch"), "fixture")?;
+    let abandoned_review = repository.path().join("review-worktrees");
+    fs::create_dir_all(&abandoned_review)?;
+    fs::write(abandoned_review.join("stranded-review"), "fixture")?;
+    assert_eq!(
+        engine.recover_existing(&CancellationToken::new()).await?,
+        Some(ProposerOutcome::IdeaAppended {
+            run_id: abandoned_idea,
+        })
+    );
+    let recovered_idea: (String, serde_json::Value) = sqlx::query_as(
+        r#"
+        SELECT r.state::text,e.facts
+        FROM factory.proposer_runs r
+        JOIN factory.proposer_events e ON e.proposer_run_id=r.id
+        WHERE r.id=$1 ORDER BY e.id DESC LIMIT 1
+        "#,
+    )
+    .bind(abandoned_idea)
+    .fetch_one(&admin)
+    .await?;
+    assert_eq!(recovered_idea.0, "idea_appended");
+    assert_eq!(recovered_idea.1["external_effect_observed"], true);
+    assert!(!abandoned_scratch.exists());
+    assert!(!abandoned_review.exists());
 
     // Hold the file effect at its kernel lock, issue a durable full stop from
     // outside this manual attempt, then release it. The database monitor and
@@ -458,6 +567,140 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
     assert_eq!(production_cohort.production_run_count, 10);
     assert!(production_cohort.run_ids.contains(&tenth[0].1));
 
+    let gated_publisher = Arc::new(FixturePublisher::default());
+    let gated_engine = ImprovementProposer::new(
+        ProposerRunStore::new(runtime.clone()),
+        ArtifactStore::open(artifact_root.clone())?,
+        agent.clone(),
+        Arc::new(FixtureReviewer { finding: false }),
+        gated_publisher.clone(),
+        RoutingConfig::load(
+            &repository.path().join("policy/routing.json"),
+            &repository.path().join("docs/bench.json"),
+        )?,
+        ImprovementProposerConfig {
+            repository: repository.path().to_path_buf(),
+            ideas_path: ideas.clone(),
+            scratch: repository.path().join("gated-scratch"),
+            review_worktree_root: repository.path().join("gated-review-worktrees"),
+            base_sha: git(repository.path(), &["rev-parse", "HEAD"]),
+            publication_enabled: false,
+        },
+    )?;
+    let calls_before_gate = agent.calls.load(Ordering::SeqCst);
+    assert!(matches!(
+        gated_engine
+            .run(at_threshold.clone(), &CancellationToken::new())
+            .await,
+        Err(ProposerError::DualHumanReviewNotEnforced)
+    ));
+    assert_eq!(agent.calls.load(Ordering::SeqCst), calls_before_gate);
+    assert_eq!(gated_publisher.published.load(Ordering::SeqCst), 0);
+    let gated_recovery_run = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO factory.proposer_runs (
+            id,state,base_sha,report_sha256,report_max_event_id,
+            prompt_bundle_sha256,branch,patch_sha256,reviewed_sha,
+            pr_title,pr_body,started_at
+        ) VALUES (
+            $1,'publishing',$2,decode($3,'hex'),$4,decode(repeat('1',64),'hex'),
+            'factory/proposer/gated-recovery',decode(repeat('2',64),'hex'),
+            repeat('a',40),'Policy: gated recovery','fixture',clock_timestamp()
+        )
+        "#,
+    )
+    .bind(gated_recovery_run)
+    .bind(git(repository.path(), &["rev-parse", "HEAD"]))
+    .bind(at_threshold.sha256()?)
+    .bind(at_threshold.snapshot_max_event_id)
+    .execute(&admin)
+    .await?;
+    assert_eq!(
+        gated_engine
+            .recover_existing(&CancellationToken::new())
+            .await?,
+        None
+    );
+    let gated_abort: bool =
+        sqlx::query_scalar("SELECT abort_requested FROM factory.proposer_runs WHERE id=$1")
+            .bind(gated_recovery_run)
+            .fetch_one(&admin)
+            .await?;
+    assert!(gated_abort);
+    ProposerRunStore::new(runtime.clone())
+        .transition(
+            gated_recovery_run,
+            factory_supervisor::proposer::ProposerState::Publishing,
+            factory_supervisor::proposer::ProposerState::Killed,
+            "fixture_gated_recovery_cleanup",
+            serde_json::json!({}),
+        )
+        .await?;
+
+    let blocking_publisher = Arc::new(BlockingPublisher::default());
+    let blocking_engine = Arc::new(ImprovementProposer::new(
+        ProposerRunStore::new(runtime.clone()),
+        ArtifactStore::open(artifact_root.clone())?,
+        agent.clone(),
+        Arc::new(FixtureReviewer { finding: false }),
+        blocking_publisher.clone(),
+        RoutingConfig::load(
+            &repository.path().join("policy/routing.json"),
+            &repository.path().join("docs/bench.json"),
+        )?,
+        ImprovementProposerConfig {
+            repository: repository.path().to_path_buf(),
+            ideas_path: ideas.clone(),
+            scratch: repository.path().join("blocking-scratch"),
+            review_worktree_root: repository.path().join("blocking-review-worktrees"),
+            base_sha: git(repository.path(), &["rev-parse", "HEAD"]),
+            publication_enabled: true,
+        },
+    )?);
+    let blocked_attempt = tokio::spawn({
+        let engine = blocking_engine.clone();
+        let report = at_threshold.clone();
+        async move { engine.run(report, &CancellationToken::new()).await }
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !blocking_publisher.entered.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    sqlx::query(
+        "UPDATE factory.supervisor_state SET paused=true,full_stop=true,updated_at=clock_timestamp(),updated_by='publishing-stop-test' WHERE singleton",
+    )
+    .execute(&admin)
+    .await?;
+    assert!(matches!(
+        blocked_attempt.await?,
+        Err(ProposerError::Cancelled)
+    ));
+    let (aborted_run, aborted_state, abort_requested): (Uuid, String, bool) = sqlx::query_as(
+        "SELECT id,state::text,abort_requested FROM factory.proposer_runs ORDER BY queued_at DESC,id DESC LIMIT 1",
+    )
+    .fetch_one(&admin)
+    .await?;
+    assert_eq!(aborted_state, "publishing");
+    assert!(abort_requested);
+    assert_eq!(blocking_publisher.published.load(Ordering::SeqCst), 0);
+    sqlx::query(
+        "UPDATE factory.supervisor_state SET paused=false,full_stop=false,updated_at=clock_timestamp(),updated_by='publishing-stop-test' WHERE singleton",
+    )
+    .execute(&admin)
+    .await?;
+    ProposerRunStore::new(runtime.clone())
+        .transition(
+            aborted_run,
+            factory_supervisor::proposer::ProposerState::Publishing,
+            factory_supervisor::proposer::ProposerState::Killed,
+            "fixture_abort_cleanup",
+            serde_json::json!({}),
+        )
+        .await?;
+
     let adjudication_publisher = Arc::new(FixturePublisher::default());
     let adjudication_engine = ImprovementProposer::new(
         ProposerRunStore::new(runtime.clone()),
@@ -473,7 +716,9 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
             repository: repository.path().to_path_buf(),
             ideas_path: ideas.clone(),
             scratch: repository.path().join("adjudication-scratch"),
+            review_worktree_root: repository.path().join("adjudication-review-worktrees"),
             base_sha: git(repository.path(), &["rev-parse", "HEAD"]),
+            publication_enabled: true,
         },
     )?;
     assert!(matches!(
@@ -546,7 +791,7 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
     )
     .fetch_all(&admin)
     .await?;
-    assert_eq!(transcript_paths.len(), 7);
+    assert_eq!(transcript_paths.len(), 9);
     let transcripts = transcript_paths
         .iter()
         .map(|path| fs::read_to_string(artifact_root.join(path)))
@@ -556,7 +801,7 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
             .iter()
             .filter(|text| text.contains("RAW_TRANSCRIPT_MARKER"))
             .count(),
-        4
+        5
     );
     assert!(
         transcripts

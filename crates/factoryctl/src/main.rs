@@ -433,6 +433,12 @@ async fn proposer_run(database_url: String) -> Result<(), Box<dyn Error>> {
                 serde_json::json!({"state": "open_pr_cap_reached", "run_id": run_id})
             );
         }
+        factory_supervisor::proposer::ProposerOutcome::Killed { run_id } => {
+            println!(
+                "{}",
+                serde_json::json!({"state": "killed", "run_id": run_id})
+            );
+        }
     }
     Ok(())
 }

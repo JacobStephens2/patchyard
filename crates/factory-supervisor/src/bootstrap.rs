@@ -279,6 +279,13 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
             )
         }
     };
+    let proposer_enabled = bool_env("FACTORY_PROPOSER_ENABLED", false)?;
+    let proposer_dual_review_enforced = bool_env("FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED", false)?;
+    if proposer_enabled && !proposer_dual_review_enforced {
+        return Err(BootstrapError::InvalidEnvironment(
+            "FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED",
+        ));
+    }
     let proposer_routing = routing.clone();
     let proposer_github = github_from_environment(scratch.join("proposer-github-private"))?;
     let proposer_store = ProposerRunStore::new(store.pool().clone());
@@ -326,7 +333,9 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
                 "/var/lib/patchyard/proposer-inbox/docs/ideas.md",
             ),
             scratch: scratch.join("proposer"),
+            review_worktree_root: scratch.join("review-worktrees"),
             base_sha: required("FACTORY_PROPOSER_BASE_SHA")?,
+            publication_enabled: proposer_dual_review_enforced,
         },
     )?);
     let config = PipelineConfig {
@@ -357,13 +366,6 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         publisher,
         lifecycle,
     );
-    let proposer_enabled = bool_env("FACTORY_PROPOSER_ENABLED", false)?;
-    let proposer_dual_review_enforced = bool_env("FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED", false)?;
-    if proposer_enabled && !proposer_dual_review_enforced {
-        return Err(BootstrapError::InvalidEnvironment(
-            "FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED",
-        ));
-    }
     let daemon = DaemonConfig {
         database_url,
         holder,

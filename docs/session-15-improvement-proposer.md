@@ -92,15 +92,24 @@ The publisher uses the Patchyard Factory GitHub App identity, creates a draft PR
 and does not expose a merge operation. A serialized execution lease, database
 single-active invariant, publisher lease, and fresh remote PR listing enforce
 one active attempt and the one-open-proposer-PR cap. Publishing identity and PR
-title/body are durable before review. On restart, pre-effect attempts become
-`killed`; a `publishing` attempt reconciles the exact branch/PR/head before any
-new report or model call. Full stop is read durably by scheduler and CLI entry
-and is rechecked around the ideas effect.
+title/body are durable before review. Startup and LISTEN reconnect run an
+existing-work-only proposer sweep even when new scheduled attempts are
+disabled. That sweep checks an abandoned `proposing` row against the locked,
+fsynced ideas digest marker before deciding whether the effect exists. A
+`publishing` attempt reconciles the exact branch/PR/head before any new report
+or model call and retries deterministic per-run scratch cleanup plus Git
+worktree pruning before terminal success. Full stop is read durably by
+scheduler and CLI entry, is rechecked around the ideas effect, and writes a
+durable publication-abort intent: recovery may observe an already-created PR
+but cannot create a missing one after cancellation.
 
 Merge remains a human-only gate under A1. Because A99's App-authorship trigger
 applies, enabling the installed schedule is additionally blocked unless
 `FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED=true`; operators may set that attestation
-only after master branch protection mechanically requires two human approvals.
+only after applying and verifying the GitOps branch-protection rule, which now
+requires two approvals. The same at-threshold gate is enforced inside the
+proposer, so manual execution cannot bypass it; startup recovery treats a
+missing attestation as durable abort intent and cannot create a missing PR.
 The installed template leaves both flags false.
 
 ## Failure-path inventory
@@ -140,10 +149,15 @@ R19 base/candidate closure handling, cross-family routing and A77 disposition,
 durable full-stop checks, cancellation around a held ideas-file lock, lifecycle
 transitions, and the fixed child-launcher mount/network contract. The
 PostgreSQL acceptance test runs all migrations and grants against a disposable
-PostgreSQL 16 service. A second local-bare-remote fixture uses the concrete
-publisher to prove deterministic App identity, reviewed SHA equals published
-SHA, PR-record restart reconciliation, and persistent-mirror refresh across
-two installed base revisions.
+PostgreSQL 16 service and recovers an fsynced idea marker after a simulated
+process exit. A second local-bare-remote fixture uses the concrete publisher to
+prove deterministic App identity, rejection of a pre-existing wrong-head PR,
+acceptance and durable recording of an exact-head PR, reviewed SHA equals
+published SHA, read-only abort recovery before PR creation, PR-record restart
+reconciliation, and persistent-mirror refresh across two installed base
+revisions. Source-level wiring additionally starts the existing-work recovery
+sweep on daemon startup and every LISTEN reconnect; the installed service path
+remains part of the live verification matrix below.
 
 Those checks do not prove live provider execution, the installed App's real
 GitHub draft-PR behavior, systemd scheduling, the control-plane

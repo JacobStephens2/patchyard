@@ -27,7 +27,12 @@ Sol / xhigh / Codex / OpenAI (`anthropic-claude_fable_5-max-claude_code` ->
 14 qualification operator, manifest digest, two-request/two-run budget,
 two-hour wall budget, and close-unmerged disposition can claim
 `qualification`; the run insert trigger rejects a mismatch. Existing Session
-14 claims are backfilled from their durable bypass fact.
+14 claims are backfilled from their durable bypass fact. A108 records this
+honestly as trigger-plus-manifest enforcement, not principal separation: the
+attended operator unit shares the supervisor's Unix and database principal.
+A distinct principal is required before qualification is ever scheduled,
+automated, or otherwise runs without a human present; Session 15 does not
+change that operator-triggered boundary.
 
 The report selects finished production runs only. A relevant cohort is the
 exact tuple `(lane, skill, rubric_sha256, prompt_template_sha256,
@@ -176,6 +181,32 @@ reconciliation, and persistent-mirror refresh across two installed base
 revisions. Source-level wiring additionally starts the existing-work recovery
 sweep on daemon startup and every LISTEN reconnect; the installed service path
 remains part of the live verification matrix below.
+
+PLAN Session 15 exit-criterion accounting is explicit:
+
+1. CI runs `factoryctl lessons-report` as a standalone process against the
+   disposable PostgreSQL fixture, compares two nonempty outputs byte-for-byte,
+   and validates the output against `policy/lessons-report.schema.json`.
+2. Unit and PostgreSQL fixtures prove the proposer packet contains typed facts
+   and bounded quotes only and that planted raw transcript text is absent.
+3. A nine-production-run fixture appends to the ideas projection and records no
+   PR publication.
+4. Adding the tenth relevant production run makes the fixture publisher record
+   exactly one evidence-cited policy-only PR.
+5. A second fixture attempt while that PR is open terminates at the open-PR cap
+   without invoking the author or publisher again.
+6. Engine fixtures for an outside path, the proposer's own prompt, and an added
+   symlink fail at `authority_surface_failed` with no publication; unit cases
+   additionally cover traversal, rename, docs-only, `SPEC.md`, crates, and
+   migrations.
+7. Twelve qualification runs sharing the exact cohort dimensions with nine
+   production runs are absent from the report, so the fixture remains in
+   append-only mode.
+
+These are CI fixture demonstrations of every PLAN exit criterion. In
+particular, the PR observations use a fake GitHub transport and local bare
+remote, not the installed App or production repository. They do not turn the
+disabled seat into a live-qualified seat.
 
 Those checks do not prove live provider execution, the installed App's real
 GitHub draft-PR behavior, systemd scheduling, the control-plane

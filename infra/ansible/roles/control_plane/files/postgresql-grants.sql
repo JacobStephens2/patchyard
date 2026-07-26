@@ -32,7 +32,11 @@ GRANT SELECT ON
     factory.side_effects,
     factory.publisher_leases,
     factory.github_state,
-    factory.reconcile_requests
+    factory.reconcile_requests,
+    factory.proposer_runs,
+    factory.proposer_events,
+    factory.proposer_artifacts,
+    factory.proposer_publisher_lease
 TO patchyard_supervisor;
 GRANT INSERT (id, fingerprint, source, body, trace_id) ON factory.requests
 TO patchyard_supervisor;
@@ -112,6 +116,25 @@ GRANT INSERT, UPDATE (
 GRANT UPDATE (
     status, claim_token, claimed_at, executed_at, outcome
 ) ON factory.reconcile_requests TO patchyard_supervisor;
+GRANT INSERT (
+    id, base_sha, report_sha256, report_max_event_id, prompt_bundle_sha256
+) ON factory.proposer_runs TO patchyard_supervisor;
+GRANT UPDATE (
+    state, report_sha256, report_max_event_id, prompt_bundle_sha256,
+    branch, patch_sha256, reviewed_sha, pr_title, pr_body,
+    review_artifact, disposition_artifact, abort_requested,
+    pr_number, pr_url, failure_code,
+    started_at, finished_at
+) ON factory.proposer_runs TO patchyard_supervisor;
+GRANT INSERT ON factory.proposer_events TO patchyard_supervisor;
+GRANT USAGE, SELECT ON SEQUENCE factory.proposer_events_id_seq
+TO patchyard_supervisor;
+GRANT INSERT ON factory.proposer_artifacts TO patchyard_supervisor;
+GRANT UPDATE (expires_at, deleted_at)
+ON factory.proposer_artifacts TO patchyard_supervisor;
+GRANT UPDATE (
+    holder, fencing_token, acquired_at, expires_at, released_at
+) ON factory.proposer_publisher_lease TO patchyard_supervisor;
 
 GRANT SELECT ON
     factory.requests,
@@ -188,7 +211,8 @@ GRANT SELECT (
     input_tokens,
     output_tokens,
     turns,
-    eval_scores
+    eval_scores,
+    run_class
 ) ON factory.grafana_run_metrics TO grafana_ro;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE patchyard_owner IN SCHEMA factory

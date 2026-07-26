@@ -1,6 +1,6 @@
 //! LISTEN-driven supervisor with startup, reconnect, and timer recovery sweeps.
 
-use std::{collections::BTreeMap, time::Duration};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use sqlx::postgres::PgListener;
 use thiserror::Error;
@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     pipeline::{Pipeline, PipelineError, PipelineOutcome},
+    proposer::{ImprovementProposer, ProposerError, ProposerOutcome},
     reconcile::Reconciler,
     store::{ControlKind, DailyLimits, PgPipelineStore, PipelineStore, StoreError},
 };
@@ -24,6 +25,10 @@ pub struct DaemonConfig {
     pub max_active: usize,
     pub reconcile_abandoned_after: Duration,
     pub reconcile_sweep_limit: usize,
+    /// Enables new scheduled attempts only. Existing durable work is always
+    /// reconciled; full stop is the publication kill switch.
+    pub proposer_scheduling_enabled: bool,
+    pub proposer_interval: Duration,
 }
 
 struct ActiveRun {
@@ -36,13 +41,20 @@ struct ActiveReconcile {
     handle: JoinHandle<Result<(), DaemonError>>,
 }
 
+struct ActiveProposer {
+    cancellation: CancellationToken,
+    handle: JoinHandle<Result<ProposerOutcome, ProposerError>>,
+}
+
 pub struct SupervisorDaemon {
     store: PgPipelineStore,
     pipeline: Pipeline<PgPipelineStore>,
     reconciler: Reconciler<PgPipelineStore>,
+    proposer: Arc<ImprovementProposer>,
     config: DaemonConfig,
     active: BTreeMap<Uuid, ActiveRun>,
     active_reconciles: BTreeMap<Uuid, ActiveReconcile>,
+    active_proposer: Option<ActiveProposer>,
 }
 
 impl SupervisorDaemon {
@@ -51,15 +63,18 @@ impl SupervisorDaemon {
         store: PgPipelineStore,
         pipeline: Pipeline<PgPipelineStore>,
         reconciler: Reconciler<PgPipelineStore>,
+        proposer: Arc<ImprovementProposer>,
         config: DaemonConfig,
     ) -> Self {
         Self {
             store,
             pipeline,
             reconciler,
+            proposer,
             config,
             active: BTreeMap::new(),
             active_reconciles: BTreeMap::new(),
+            active_proposer: None,
         }
     }
 
@@ -71,13 +86,21 @@ impl SupervisorDaemon {
             || self.config.reconcile_abandoned_after.is_zero()
             || self.config.reconcile_sweep_limit == 0
             || self.config.reconcile_sweep_limit > 100
+            || self.config.proposer_interval.is_zero()
         {
             return Err(DaemonError::InvalidConfig);
         }
         let mut listener = self.connect_listener().await?;
         let mut interval = tokio::time::interval(self.config.sweep_interval);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut proposer_interval = tokio::time::interval(self.config.proposer_interval);
+        proposer_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // Scheduling begins after one full interval; startup already performs
+        // the normal durable-work sweep and should not unexpectedly spend a
+        // proposer invocation during every service restart.
+        proposer_interval.tick().await;
         self.sweep().await?;
+        self.recover_proposer_state(shutdown).await?;
         loop {
             // Cancellation audit: CancellationToken::cancelled and Interval::tick
             // are cancellation-safe. PgListener::recv is cancel-safe: cancelling
@@ -86,6 +109,7 @@ impl SupervisorDaemon {
             let wake = tokio::select! {
                 () = shutdown.cancelled() => Wake::Shutdown,
                 _ = interval.tick() => Wake::Sweep,
+                _ = proposer_interval.tick(), if self.config.proposer_scheduling_enabled => Wake::Proposer,
                 notification = listener.recv() => match notification {
                     Ok(_) => Wake::Sweep,
                     Err(error) => Wake::Reconnect(error),
@@ -93,16 +117,22 @@ impl SupervisorDaemon {
             };
             match wake {
                 Wake::Shutdown => break,
-                Wake::Sweep => self.sweep().await?,
+                Wake::Sweep => {
+                    self.sweep().await?;
+                    self.recover_proposer_state(shutdown).await?;
+                }
                 Wake::Reconnect(error) => {
                     tracing::warn!(%error, "LISTEN connection lost; reconnecting before durable sweep");
                     listener = self.connect_listener().await?;
                     self.sweep().await?;
+                    self.recover_proposer_state(shutdown).await?;
                 }
+                Wake::Proposer => self.start_or_reap_proposer().await?,
             }
         }
         self.shutdown_active().await?;
         self.shutdown_reconciles().await?;
+        self.shutdown_proposer().await?;
         Ok(())
     }
 
@@ -146,6 +176,57 @@ impl SupervisorDaemon {
                     handle,
                 },
             );
+        }
+        Ok(())
+    }
+
+    async fn start_or_reap_proposer(&mut self) -> Result<(), DaemonError> {
+        if let Some(active) = self.active_proposer.take() {
+            if active.handle.is_finished() {
+                match active.handle.await? {
+                    Ok(outcome) => tracing::info!(?outcome, "scheduled proposer completed"),
+                    Err(error) => tracing::error!(%error, "scheduled proposer failed closed"),
+                }
+            } else {
+                self.active_proposer = Some(active);
+                return Ok(());
+            }
+        }
+        let proposer = self.proposer.clone();
+        let pool = self.store.pool().clone();
+        let cancellation = CancellationToken::new();
+        let task_token = cancellation.clone();
+        let handle =
+            tokio::spawn(async move { proposer.run_from_ledger(&pool, &task_token).await });
+        self.active_proposer = Some(ActiveProposer {
+            cancellation,
+            handle,
+        });
+        Ok(())
+    }
+
+    async fn recover_proposer_state(
+        &mut self,
+        cancellation: &CancellationToken,
+    ) -> Result<(), DaemonError> {
+        if let Some(active) = self.active_proposer.take() {
+            if active.handle.is_finished() {
+                match active.handle.await? {
+                    Ok(outcome) => tracing::info!(?outcome, "scheduled proposer completed"),
+                    Err(error) => tracing::error!(%error, "scheduled proposer failed closed"),
+                }
+            } else {
+                self.active_proposer = Some(active);
+                return Ok(());
+            }
+        }
+        match self.proposer.recover_existing(cancellation).await {
+            Ok(Some(outcome)) => tracing::info!(?outcome, "recovered durable proposer state"),
+            Ok(None) => {}
+            Err(ProposerError::ProposerAttemptActive) => {
+                tracing::debug!("proposer execution lease is active; recovery will retry")
+            }
+            Err(error) => return Err(error.into()),
         }
         Ok(())
     }
@@ -218,23 +299,23 @@ impl SupervisorDaemon {
             if !self.store.claim_control(control.id).await? {
                 continue;
             }
-            let result = match control.command {
+            let result: Result<serde_json::Value, DaemonError> = match control.command {
                 ControlKind::Pause => self
                     .store
                     .set_claiming_state(true, false, &control.requested_by)
                     .await
-                    .map(|()| serde_json::json!({"paused": true})),
+                    .map(|()| serde_json::json!({"paused": true}))
+                    .map_err(DaemonError::from),
                 ControlKind::Resume => self
                     .store
                     .set_claiming_state(false, false, &control.requested_by)
                     .await
-                    .map(|()| serde_json::json!({"paused": false, "full_stop": false})),
-                ControlKind::Kill => {
-                    let run_id = control
-                        .target_run_id
-                        .ok_or(StoreError::InvalidControlTarget)?;
-                    self.execute_kill(run_id, control.id, &control.reason).await
-                }
+                    .map(|()| serde_json::json!({"paused": false, "full_stop": false}))
+                    .map_err(DaemonError::from),
+                ControlKind::Kill => match control.target_run_id {
+                    Some(run_id) => self.execute_kill(run_id, control.id, &control.reason).await,
+                    None => Err(StoreError::InvalidControlTarget.into()),
+                },
                 ControlKind::FullStop => self.execute_full_stop(control.id, &control).await,
             };
             match result {
@@ -262,7 +343,7 @@ impl SupervisorDaemon {
         run_id: Uuid,
         control_id: Uuid,
         reason: &str,
-    ) -> Result<serde_json::Value, StoreError> {
+    ) -> Result<serde_json::Value, DaemonError> {
         let request_id = self.store.request_for_run(run_id).await?;
         if let Some(request_id) = request_id
             && let Some(active) = self.active.remove(&request_id)
@@ -282,10 +363,14 @@ impl SupervisorDaemon {
         &mut self,
         control_id: Uuid,
         control: &crate::store::ControlRow,
-    ) -> Result<serde_json::Value, StoreError> {
+    ) -> Result<serde_json::Value, DaemonError> {
         self.store
             .set_claiming_state(true, true, &control.requested_by)
             .await?;
+        if let Some(active) = self.active_proposer.take() {
+            active.cancellation.cancel();
+            accept_stopped_proposer(active.handle.await?)?;
+        }
         let request_ids: Vec<Uuid> = self.active.keys().copied().collect();
         for request_id in request_ids {
             if let Some(active) = self.active.remove(&request_id) {
@@ -347,6 +432,23 @@ impl SupervisorDaemon {
         }
         Ok(())
     }
+
+    async fn shutdown_proposer(&mut self) -> Result<(), DaemonError> {
+        if let Some(active) = self.active_proposer.take() {
+            active.cancellation.cancel();
+            accept_stopped_proposer(active.handle.await?)?;
+        }
+        Ok(())
+    }
+}
+
+fn accept_stopped_proposer(
+    result: Result<ProposerOutcome, ProposerError>,
+) -> Result<(), ProposerError> {
+    match result {
+        Ok(_) | Err(ProposerError::Cancelled) => Ok(()),
+        Err(error) => Err(error),
+    }
 }
 
 fn kill_outcome(run_id: Uuid, request_id: Option<Uuid>) -> serde_json::Value {
@@ -362,7 +464,8 @@ fn kill_outcome(run_id: Uuid, request_id: Option<Uuid>) -> serde_json::Value {
 mod tests {
     use uuid::Uuid;
 
-    use super::kill_outcome;
+    use super::{accept_stopped_proposer, kill_outcome};
+    use crate::proposer::{ProposerError, ProposerOutcome};
 
     #[test]
     fn kill_outcome_claims_only_the_cleanup_it_performed() {
@@ -371,10 +474,21 @@ mod tests {
         assert_eq!(outcome["worker_teardown"], "complete");
         assert!(outcome.get("lease_release").is_none());
     }
+
+    #[test]
+    fn proposer_shutdown_propagates_non_cancellation_failures() {
+        assert!(accept_stopped_proposer(Ok(ProposerOutcome::FullStopActive)).is_ok());
+        assert!(accept_stopped_proposer(Err(ProposerError::Cancelled)).is_ok());
+        assert!(matches!(
+            accept_stopped_proposer(Err(ProposerError::InvalidRouting)),
+            Err(ProposerError::InvalidRouting)
+        ));
+    }
 }
 
 enum Wake {
     Sweep,
+    Proposer,
     Reconnect(sqlx::Error),
     Shutdown,
 }
@@ -387,6 +501,8 @@ pub enum DaemonError {
     Database(#[from] sqlx::Error),
     #[error("durable supervisor state failed: {0}")]
     Store(#[from] StoreError),
+    #[error("durable proposer recovery failed: {0}")]
+    Proposer(#[from] ProposerError),
     #[error("pipeline task failed to join: {0}")]
     Join(#[from] tokio::task::JoinError),
     #[error("reconcile outcome serialization failed: {0}")]

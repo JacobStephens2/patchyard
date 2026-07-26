@@ -493,11 +493,6 @@ fn parse_manifest(base_sha: &str, numstat: &str, raw: &str) -> Result<DiffManife
             Some(b'R') => ChangeKind::Renamed,
             _ => return Err(WorktreeError::MalformedGitOutput),
         };
-        let modes = if change == ChangeKind::Modified {
-            (Some(old_mode), Some(new_mode))
-        } else {
-            (None, None)
-        };
         files.push(DiffFile {
             path: path.to_owned(),
             old_path,
@@ -506,8 +501,8 @@ fn parse_manifest(base_sha: &str, numstat: &str, raw: &str) -> Result<DiffManife
             deletions,
             binary,
             generated: false,
-            old_mode: modes.0,
-            new_mode: modes.1,
+            old_mode: Some(old_mode),
+            new_mode: Some(new_mode),
         });
     }
     if !raw_by_path.is_empty() {
@@ -644,7 +639,9 @@ mod tests {
     use tempfile::tempdir;
     use tokio_util::sync::CancellationToken;
 
-    use super::DetachedWorktree;
+    use factory_verify::caps::ChangeKind;
+
+    use super::{DetachedWorktree, parse_manifest};
 
     fn git(repository: &std::path::Path, arguments: &[&str]) {
         let output = Command::new("git")
@@ -659,6 +656,20 @@ mod tests {
             arguments,
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    #[test]
+    fn added_symlink_mode_survives_manifest_parsing() {
+        let raw = format!(
+            ":000000 120000 {} {} A\tpolicy/escape.md\n",
+            "0".repeat(40),
+            "1".repeat(40)
+        );
+        let manifest =
+            parse_manifest(&"a".repeat(40), "1\t0\tpolicy/escape.md\n", &raw).expect("manifest");
+        assert_eq!(manifest.files[0].change, ChangeKind::Added);
+        assert_eq!(manifest.files[0].old_mode.as_deref(), Some("000000"));
+        assert_eq!(manifest.files[0].new_mode.as_deref(), Some("120000"));
     }
 
     #[tokio::test]

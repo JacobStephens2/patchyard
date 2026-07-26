@@ -260,6 +260,7 @@ fn run_record_json() -> Value {
     serde_json::json!({
         "id": Uuid::nil(),
         "request_id": Uuid::from_u128(1),
+        "run_class": "production",
         "base_sha": BASE_SHA,
         "branch": "factory/request-sort",
         "lane": "A",
@@ -379,6 +380,16 @@ async fn ledger_append_commits_run_and_event_together() -> Result<(), Box<dyn st
     )
     .bind(request_id)
     .bind(fingerprint.as_slice())
+    .bind(format!("{:032x}", request_id.as_u128()))
+    .execute(&pool)
+    .await?;
+    sqlx::query(
+        r#"
+        INSERT INTO factory.events (request_id,event_type,trace_id,payload)
+        VALUES ($1,'request.claimed',$2,'{"run_class":"production"}'::jsonb)
+        "#,
+    )
+    .bind(request_id)
     .bind(format!("{:032x}", request_id.as_u128()))
     .execute(&pool)
     .await?;

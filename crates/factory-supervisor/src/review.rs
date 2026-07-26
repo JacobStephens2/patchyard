@@ -17,6 +17,7 @@ use crate::{
     child::{ChildContract, ChildError, ChildTerminalState, IsolatedChildSpawner},
     config::Seat,
     contracts::{ResolvedInvocation, ReviewArtifact, ReviewPacket},
+    proposer::{EvidenceCitation, PromptBundleManifest},
     stages::StageError,
     worktree::{DetachedWorktree, WorktreeError},
 };
@@ -42,6 +43,35 @@ pub struct ReviewExecution {
 #[derive(Clone, Debug)]
 pub struct SandboxedReviewer {
     config: ReviewSandboxConfig,
+}
+
+struct IsolatedReviewInput {
+    worktree: PathBuf,
+    packet_bytes: Vec<u8>,
+    prompt_bytes: Vec<u8>,
+    review_id: Uuid,
+    reviewed_sha: String,
+    seat: Seat,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyReviewPacket {
+    pub schema_version: u16,
+    pub run_id: Uuid,
+    pub review_id: Uuid,
+    pub reviewed_sha: String,
+    pub report_sha256: String,
+    pub patch_sha256: String,
+    /// Supervisor-derived, bounded unified diff. This lets the isolated
+    /// reviewer inspect the exact change without exposing the shared Git ODB.
+    pub patch: String,
+    pub citations: Vec<EvidenceCitation>,
+    pub manifest: DiffManifest,
+    pub self_referential_paths: Vec<String>,
+    pub author_prompt_bundle: PromptBundleManifest,
+    pub reviewer_prompt_bundle: PromptBundleManifest,
+    pub report: crate::lessons::LessonsReport,
 }
 
 impl SandboxedReviewer {
@@ -153,6 +183,55 @@ impl SandboxedReviewer {
         Ok(completed)
     }
 
+    /// Review one proposer candidate through the same isolated, sibling-blind
+    /// A87 boundary used for code. The packet carries deterministic evidence,
+    /// never proposer rationale or a model transcript.
+    pub async fn review_policy(
+        &self,
+        repository: &Path,
+        packet: &PolicyReviewPacket,
+        prompt_bytes: Vec<u8>,
+        invocation: ResolvedInvocation,
+        cancellation: &CancellationToken,
+    ) -> Result<ReviewExecution, ReviewError> {
+        if packet.schema_version != 1 {
+            return Err(ReviewError::MalformedArtifact);
+        }
+        let workspace_name = format!("review-{}", packet.review_id.simple());
+        let worktree_root = self.config.worktree_root.join(packet.run_id.to_string());
+        let workspace = DetachedWorktree::create(
+            repository,
+            &packet.reviewed_sha,
+            &worktree_root,
+            &workspace_name,
+            cancellation,
+        )
+        .await?;
+        let packet_bytes = serde_json::to_vec(packet)?;
+        let result = self
+            .run_isolated(
+                IsolatedReviewInput {
+                    worktree: workspace.path().to_path_buf(),
+                    packet_bytes,
+                    prompt_bytes,
+                    review_id: packet.review_id,
+                    reviewed_sha: packet.reviewed_sha.clone(),
+                    seat: invocation.seat.clone(),
+                },
+                cancellation,
+            )
+            .await;
+        let cleanup = workspace.close(&CancellationToken::new()).await;
+        match (result, cleanup) {
+            (Ok(mut review), Ok(())) => {
+                review.invocation = invocation;
+                Ok(review)
+            }
+            (Err(error), Ok(())) => Err(error),
+            (_, Err(error)) => Err(error.into()),
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn review_prepared(
         &self,
@@ -179,11 +258,14 @@ impl SandboxedReviewer {
         let packet_bytes = serde_json::to_vec(&packet)?;
         let prompt_bytes = tokio::fs::read(&self.config.prompt).await?;
         self.run_isolated(
-            workspace,
-            packet_bytes,
-            prompt_bytes,
-            &packet,
-            &invocation.seat,
+            IsolatedReviewInput {
+                worktree: workspace.to_path_buf(),
+                packet_bytes,
+                prompt_bytes,
+                review_id: packet.review_id,
+                reviewed_sha: packet.reviewed_sha.clone(),
+                seat: invocation.seat.clone(),
+            },
             cancellation,
         )
         .await
@@ -195,36 +277,33 @@ impl SandboxedReviewer {
 
     async fn run_isolated(
         &self,
-        worktree: &Path,
-        packet_bytes: Vec<u8>,
-        prompt_bytes: Vec<u8>,
-        packet: &ReviewPacket,
-        seat: &Seat,
+        input: IsolatedReviewInput,
         cancellation: &CancellationToken,
     ) -> Result<ReviewExecution, ReviewError> {
-        let workspace = worktree
+        let workspace = input
+            .worktree
             .to_str()
             .ok_or(ReviewError::NonUtf8Workspace)?
             .to_owned();
-        let packet_sha256 = hex::encode(sha2::Sha256::digest(&packet_bytes));
-        let prompt_sha256 = hex::encode(sha2::Sha256::digest(&prompt_bytes));
+        let packet_sha256 = hex::encode(sha2::Sha256::digest(&input.packet_bytes));
+        let prompt_sha256 = hex::encode(sha2::Sha256::digest(&input.prompt_bytes));
         let child = self
             .config
             .spawner
             .spawn(
                 ChildContract::Review {
                     workspace,
-                    reviewed_sha: packet.reviewed_sha.clone(),
+                    reviewed_sha: input.reviewed_sha.clone(),
                     packet_sha256,
                     prompt_sha256,
-                    model: seat.model.clone(),
-                    effort: seat.effort.clone(),
-                    harness: seat.harness.clone(),
-                    provider: seat.provider.clone(),
+                    model: input.seat.model.clone(),
+                    effort: input.seat.effort.clone(),
+                    harness: input.seat.harness.clone(),
+                    provider: input.seat.provider.clone(),
                 },
                 vec![
-                    ("packet.json".to_owned(), packet_bytes),
-                    ("prompt.md".to_owned(), prompt_bytes),
+                    ("packet.json".to_owned(), input.packet_bytes),
+                    ("prompt.md".to_owned(), input.prompt_bytes),
                 ],
                 None,
                 cancellation,
@@ -245,12 +324,12 @@ impl SandboxedReviewer {
             return Err(ReviewError::IsolationProbe);
         }
         let artifact: ReviewArtifact = serde_json::from_slice(child.output("review.json")?)?;
-        validate_artifact(&artifact, packet)?;
+        validate_artifact(&artifact, input.review_id, &input.reviewed_sha)?;
         Ok(ReviewExecution {
             invocation: ResolvedInvocation {
                 task_class: String::new(),
                 routing_version: String::new(),
-                seat: seat.clone(),
+                seat: input.seat,
             },
             artifact,
             transcript: child.output("transcript.log")?.to_vec(),
@@ -260,11 +339,15 @@ impl SandboxedReviewer {
     }
 }
 
-fn validate_artifact(artifact: &ReviewArtifact, packet: &ReviewPacket) -> Result<(), ReviewError> {
+fn validate_artifact(
+    artifact: &ReviewArtifact,
+    review_id: Uuid,
+    reviewed_sha: &str,
+) -> Result<(), ReviewError> {
     if artifact.schema_version != 1 || artifact.findings.len() > 100 {
         return Err(ReviewError::MalformedArtifact);
     }
-    if artifact.review_id != packet.review_id || artifact.reviewed_sha != packet.reviewed_sha {
+    if artifact.review_id != review_id || artifact.reviewed_sha != reviewed_sha {
         return Err(ReviewError::MalformedArtifact);
     }
     let mut ids = BTreeSet::new();

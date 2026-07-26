@@ -1190,6 +1190,26 @@
     mode: "0750"
   tags: [session13]
 
+- name: Create the manager-owned proposer ideas projection
+  ansible.builtin.file:
+    path: /var/lib/patchyard/proposer-inbox/docs
+    state: directory
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
+    mode: "0700"
+  tags: [session15]
+
+- name: Seed the append-only proposer ideas projection without overwriting observations
+  ansible.builtin.copy:
+    src: /opt/patchyard/docs/ideas.md
+    remote_src: true
+    dest: /var/lib/patchyard/proposer-inbox/docs/ideas.md
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
+    mode: "0600"
+    force: false
+  tags: [session15]
+
 - name: Install the private-VPC management inventory
   ansible.builtin.template:
     src: factory-management-inventory.yml.j2

@@ -20,6 +20,10 @@ use crate::{
     lifecycle::{EvidenceLifecycle, LifecycleConfig, LifecycleService},
     pipeline::{Pipeline, PipelineConfig, RunMode},
     preview::{ProcessPreview, ProcessPreviewConfig},
+    proposer::{
+        ImprovementProposer, ImprovementProposerConfig, IsolatedProposer, PolicyPublisher,
+        PolicyPublisherConfig, ProposerRunStore,
+    },
     publisher::{
         GhGitHub, GhGitHubConfig, PublishService, Publisher, PublisherConfig, RepositoryScope,
     },
@@ -37,6 +41,7 @@ pub struct RuntimeComponents {
     pub store: PgPipelineStore,
     pub pipeline: Pipeline<PgPipelineStore>,
     pub reconciler: Reconciler<PgPipelineStore>,
+    pub proposer: Arc<ImprovementProposer>,
     pub daemon: DaemonConfig,
 }
 
@@ -254,7 +259,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
                 github,
                 preview,
                 secret_scan,
-                EvidenceCapture::new(child_spawner, artifacts.clone()),
+                EvidenceCapture::new(child_spawner.clone(), artifacts.clone()),
                 artifacts.clone(),
                 LifecycleConfig {
                     repository: repository_scope(),
@@ -274,6 +279,66 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
             )
         }
     };
+    let proposer_scheduling_enabled = bool_env("FACTORY_PROPOSER_SCHEDULING_ENABLED", false)?;
+    let proposer_dual_review_enforced = bool_env("FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED", false)?;
+    if proposer_scheduling_enabled && !proposer_dual_review_enforced {
+        return Err(BootstrapError::InvalidEnvironment(
+            "FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED",
+        ));
+    }
+    let proposer_routing = routing.clone();
+    let proposer_github = github_from_environment(scratch.join("proposer-github-private"))?;
+    let proposer_store = ProposerRunStore::new(store.pool().clone());
+    let policy_publisher = Arc::new(PolicyPublisher::new(
+        proposer_store.clone(),
+        proposer_github,
+        PolicyPublisherConfig {
+            installed_repository: root.clone(),
+            scratch: scratch.join("policy-publisher"),
+            git_program: path_env("FACTORY_GIT_PROGRAM", "/bin/git"),
+            git_askpass: path_env(
+                "FACTORY_GIT_ASKPASS",
+                "/usr/local/libexec/patchyard-git-askpass",
+            ),
+            repository: RepositoryScope {
+                owner: required_or(
+                    "FACTORY_PROPOSER_GITHUB_OWNER",
+                    "example-org",
+                ),
+                name: required_or("FACTORY_PROPOSER_GITHUB_REPOSITORY", "factory"),
+            },
+            base_branch: required_or("FACTORY_PROPOSER_BASE_BRANCH", "master"),
+            holder: format!("{holder}:policy"),
+            lease_ttl: duration_env("FACTORY_PROPOSER_PUBLISHER_LEASE_SECONDS", 3_600)?,
+            github_freshness: duration_env("FACTORY_GITHUB_FRESHNESS_SECONDS", 30)?,
+            test_remote: None,
+        },
+    )?);
+    let proposer = Arc::new(ImprovementProposer::new(
+        proposer_store,
+        artifacts.clone(),
+        Arc::new(IsolatedProposer::new(child_spawner.clone(), false)),
+        Arc::new(SandboxedReviewer::new(ReviewSandboxConfig {
+            spawner: child_spawner.clone(),
+            prompt: root.join("policy/proposer-review.md"),
+            worktree_root: scratch.join("proposer-review-worktrees"),
+            live_network: false,
+        })),
+        policy_publisher,
+        proposer_routing,
+        ImprovementProposerConfig {
+            repository: root.clone(),
+            ideas_path: path_env(
+                "FACTORY_PROPOSER_IDEAS_PATH",
+                "/var/lib/patchyard/proposer-inbox/docs/ideas.md",
+            ),
+            scratch: scratch.join("proposer"),
+            review_worktree_root: scratch.join("proposer-review-worktrees"),
+            review_repository: scratch.join("policy-publisher/factory-policy.git"),
+            base_sha: required("FACTORY_PROPOSER_BASE_SHA")?,
+            dual_human_review_enforced: proposer_dual_review_enforced,
+        },
+    )?);
     let config = PipelineConfig {
         repository,
         base_sha,
@@ -315,11 +380,14 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         max_active: usize_env("FACTORY_MAX_ACTIVE", 2)?,
         reconcile_abandoned_after: duration_env("FACTORY_RECONCILE_ABANDONED_SECONDS", 300)?,
         reconcile_sweep_limit: usize_env("FACTORY_RECONCILE_SWEEP_LIMIT", 10)?,
+        proposer_scheduling_enabled,
+        proposer_interval: duration_env("FACTORY_PROPOSER_INTERVAL_SECONDS", 86_400)?,
     };
     Ok(RuntimeComponents {
         store,
         pipeline,
         reconciler,
+        proposer,
         daemon,
     })
 }
@@ -445,6 +513,14 @@ fn u64_env(name: &'static str) -> Result<u64, BootstrapError> {
         .map_err(|_| BootstrapError::InvalidEnvironment(name))
 }
 
+fn bool_env(name: &'static str, default: bool) -> Result<bool, BootstrapError> {
+    match required_or(name, if default { "true" } else { "false" }).as_str() {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(BootstrapError::InvalidEnvironment(name)),
+    }
+}
+
 fn split_env(name: &'static str) -> Vec<String> {
     env::var(name)
         .ok()
@@ -503,4 +579,6 @@ pub enum BootstrapError {
     SecretScan(#[from] crate::secret_scan::SecretScanError),
     #[error("reconcile setup failed: {0}")]
     Reconcile(#[from] crate::reconcile::ReconcileError),
+    #[error("improvement proposer setup failed: {0}")]
+    Proposer(#[from] crate::proposer::ProposerError),
 }

@@ -16,7 +16,7 @@ use factory_core::{
     triage::{Lane, Rubric, TaskSpec, TriageOutput},
 };
 use factory_supervisor::{
-    bootstrap,
+    bootstrap, lessons,
     observability::TelemetryGuard,
     store::{ControlKind, PgPipelineStore, PipelineStore},
 };
@@ -60,6 +60,10 @@ enum Command {
     SchemaJson,
     /// Provider-free replay of recorded typed triage outputs.
     TriageReplay(TriageReplayArgs),
+    /// Emit deterministic production-only outcome facts as schema-valid JSON.
+    LessonsReport,
+    /// Run one scheduled improvement-proposer attempt in the foreground.
+    ProposerRun,
     /// Run one request in the foreground through the daemon's exact pipeline.
     Run(RunArgs),
     /// Queue a durable pause control row.
@@ -287,6 +291,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .as_deref()
         .ok_or("DATABASE_URL or --database-url is required for state commands")?;
     match &cli.command {
+        Command::LessonsReport => {
+            let store = PgPipelineStore::connect(database_url).await?;
+            let rendered = async {
+                let report = lessons::generate(store.pool()).await?;
+                report.to_pretty_json()
+            }
+            .await;
+            store.close().await;
+            print!("{}", rendered?);
+            return Ok(());
+        }
+        Command::ProposerRun => {
+            proposer_run(database_url.to_owned()).await?;
+            return Ok(());
+        }
         Command::Run(arguments) => {
             foreground_run(
                 database_url.to_owned(),
@@ -362,6 +381,68 @@ async fn main() -> Result<(), Box<dyn Error>> {
         | Command::Resume(_)
         | Command::Kill(_)
         | Command::FullStop(_) => unreachable!("handled before core repository connection"),
+        Command::LessonsReport => unreachable!("handled before core repository connection"),
+        Command::ProposerRun => unreachable!("handled before core repository connection"),
+    }
+    Ok(())
+}
+
+async fn proposer_run(database_url: String) -> Result<(), Box<dyn Error>> {
+    let runtime = bootstrap::from_environment(database_url).await?;
+    let cancellation = tokio_util::sync::CancellationToken::new();
+    let signal_token = cancellation.clone();
+    let signal = tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        signal_token.cancel();
+    });
+    let result = runtime
+        .proposer
+        .run_from_ledger(runtime.store.pool(), &cancellation)
+        .await;
+    signal.abort();
+    let _signal_result = signal.await;
+    runtime.close().await;
+    match result? {
+        factory_supervisor::proposer::ProposerOutcome::FullStopActive => {
+            println!("{}", serde_json::json!({"state": "full_stop_active"}));
+        }
+        factory_supervisor::proposer::ProposerOutcome::IdeaAppended { run_id } => {
+            println!(
+                "{}",
+                serde_json::json!({"state": "idea_appended", "run_id": run_id})
+            );
+        }
+        factory_supervisor::proposer::ProposerOutcome::ReadyForReview {
+            run_id,
+            pull_request,
+        } => {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "state": "ready_for_review",
+                    "run_id": run_id,
+                    "pull_request": {
+                        "number": pull_request.number,
+                        "url": pull_request.url,
+                        "branch": pull_request.branch,
+                        "head_sha": pull_request.head_sha,
+                        "author_login": pull_request.author_login,
+                    }
+                })
+            );
+        }
+        factory_supervisor::proposer::ProposerOutcome::OpenPrCapReached { run_id } => {
+            println!(
+                "{}",
+                serde_json::json!({"state": "open_pr_cap_reached", "run_id": run_id})
+            );
+        }
+        factory_supervisor::proposer::ProposerOutcome::Killed { run_id } => {
+            println!(
+                "{}",
+                serde_json::json!({"state": "killed", "run_id": run_id})
+            );
+        }
     }
     Ok(())
 }

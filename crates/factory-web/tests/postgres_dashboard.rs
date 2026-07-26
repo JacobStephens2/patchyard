@@ -55,6 +55,7 @@ async fn harness(hostile_body: &str) -> Result<Option<Harness>, Box<dyn Error>> 
     let admin = PgPool::connect(&admin_url).await?;
     let request_id = Uuid::new_v4();
     let run_id = Uuid::new_v4();
+    let trace_id = hex::encode(request_id.as_bytes());
     let fingerprint: [u8; 32] = Sha256::digest(request_id.as_bytes()).into();
     sqlx::query(
         "INSERT INTO factory.requests (id,fingerprint,source,body,trace_id) VALUES ($1,$2,'dashboard-route-fixture',$3,$4)",
@@ -62,11 +63,18 @@ async fn harness(hostile_body: &str) -> Result<Option<Harness>, Box<dyn Error>> 
     .bind(request_id)
     .bind(fingerprint.as_slice())
     .bind(hostile_body)
-    .bind(hex::encode(request_id.as_bytes()))
+    .bind(&trace_id)
     .execute(&admin)
     .await?;
     sqlx::query(
-        "INSERT INTO factory.runs (id,request_id,base_sha,branch,lane,skill) VALUES ($1,$2,$3,$4,'A','fixture')",
+        "INSERT INTO factory.events (request_id,event_type,trace_id,payload) VALUES ($1,'request.claimed',$2,'{\"run_class\":\"production\"}'::jsonb)",
+    )
+    .bind(request_id)
+    .bind(&trace_id)
+    .execute(&admin)
+    .await?;
+    sqlx::query(
+        "INSERT INTO factory.runs (id,request_id,run_class,base_sha,branch,lane,skill) VALUES ($1,$2,'production',$3,$4,'A','fixture')",
     )
     .bind(run_id)
     .bind(request_id)
@@ -732,10 +740,18 @@ async fn notified_event_reaches_sse_frame_within_one_second() -> Result<(), Box<
         return Ok(());
     };
     let admin = seed_identity(&harness.admin, AccountRole::Admin).await?;
+    let initial_event_id: i64 =
+        sqlx::query_scalar("SELECT max(id) FROM factory.events WHERE request_id=$1")
+            .bind(harness.request_id)
+            .fetch_one(&harness.admin)
+            .await?;
     let response = call(
         &harness.app,
         Method::GET,
-        &format!("/request/{}/events", harness.request_id),
+        &format!(
+            "/request/{}/events?after={initial_event_id}",
+            harness.request_id
+        ),
         Some(&admin),
         FormKind::None,
     )

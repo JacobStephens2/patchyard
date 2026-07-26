@@ -37,10 +37,10 @@ resource "github_branch_protection" "master" {
   required_pull_request_reviews {
     dismiss_stale_reviews      = true
     require_code_owner_reviews = false
-    # The conductor identity authors current build PRs, and GitHub forbids an
-    # author from self-approving. Raise this to 1 when build PRs are authored
-    # by the patchyard App and the human approver is a distinct identity.
-    required_approving_review_count = 0
+    # App-authored proposer PRs require two independent human approvals. This
+    # GitOps control is the mechanical A99/F5 gate; the runtime attestation
+    # remains false until operators have applied and verified this rule live.
+    required_approving_review_count = 2
     require_last_push_approval      = false
   }
 }

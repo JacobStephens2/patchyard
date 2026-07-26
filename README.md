@@ -31,7 +31,7 @@ Root stays thin: the Cargo workspace lives in `crates/`, runtime code grows ther
 - **Bedrock Haiku runbook:** [`docs/bedrock-haiku.md`](docs/bedrock-haiku.md) - provisioned identities, 1Password mapping, STS boundary, verified Claude Code launcher, manual smoke test, costs, and remaining isolation work.
 - **Dated records:** [`reviews/`](reviews/) holds critiques of our own artifacts plus their dispositions; [`research/`](research/) holds world-facing evidence - harness and provider measurements, external research briefs and their responses. See [`research/README.md`](research/README.md).
 - **Ideas inbox:** [`docs/ideas.md`](docs/ideas.md) - hand-written, pre-ruling scratch space. Carries no authority; ideas graduate into the decision log or die there.
-- **Design record:** [`docs/decision-log.md`](docs/decision-log.md) is the canonical ruling log (accepted / deferred / rejected, currently through A100). The independent proposals, comparison and historical synthesis remain as provenance in the orchestration repo at `projects/software-factory/`; the interactive review is at https://report.example.com/software-factory-review.html. Repository ownership is documented in [`docs/repository-boundary.md`](docs/repository-boundary.md).
+- **Design record:** [`docs/decision-log.md`](docs/decision-log.md) is the canonical ruling log (accepted / deferred / rejected, currently through A107). The independent proposals, comparison and historical synthesis remain as provenance in the orchestration repo at `projects/software-factory/`; the interactive review is at https://report.example.com/software-factory-review.html. Repository ownership is documented in [`docs/repository-boundary.md`](docs/repository-boundary.md).
 - **Constitution:** [`AGENTS.md`](AGENTS.md). Its hard rules ride every factory agent prompt and change only through a human-reviewed pull request.
 - **Acceptance fixtures:** sanitized replay inputs live under `fixtures/acceptance/alphabetize/`; raw requests and screenshots never enter Git. Bench-only prompts live under `fixtures/bench/`.
 - **Canonical model:** `model/factory-model.json`, governed by `model/factory-model.schema.json` and the boundary in [`docs/model-boundary.md`](docs/model-boundary.md). Its canonical JSON SHA-256 is committed in `model/factory-model.sha256`. The model contains stable, queryable architecture and limits; prose, people, status, evidence and runtime state live elsewhere.
@@ -61,10 +61,11 @@ Measurement scripts live under [`tools/`](tools/) (see [`tools/README.md`](tools
 
 ## Build and run
 
-Phase 1 is **under construction on live infrastructure**: sessions 0-10 are
+Phase 1 is **under construction on live infrastructure**: sessions 0-14 are
 merged, covering desired state, durable PostgreSQL state, worker isolation,
-the verifier, supervisor, and draft-only publisher. Session 11 adds the
-server-rendered dashboard and its factory-native auth boundary. The build runs
+the verifier, supervisor, draft-only publisher, dashboard, live control-plane
+qualification, bounded security evidence, and the evidence lifecycle. Session
+15 adds the deterministic learning report and bounded policy proposer. The build runs
 under the A97-A100 operating contract: continuous sessions with hard human
 checkpoints at 3/5/10/16, one adversarial review per PR, every merge human. On
 a Linux x86-64 development host, install a C linker (`gcc` on Rocky Linux),
@@ -87,6 +88,7 @@ The individual scaffold binaries can also be exercised directly:
 
 ```bash
 cargo run -p factoryctl -- triage-replay
+cargo run -p factoryctl -- lessons-report
 cargo run -p factoryctl -- --help
 cargo run -p factory-verify
 cargo run -p factory-web

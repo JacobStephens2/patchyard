@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "operator_unit": "factory-session14-qualification",
+  "request_budget": 2,
+  "run_budget": 2,
+  "wall_time_budget_seconds": 7200,
+  "intended_disposition": "pr_closed_unmerged"
+}

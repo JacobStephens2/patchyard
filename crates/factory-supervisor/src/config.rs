@@ -124,6 +124,9 @@ impl RoutingConfig {
             "author_disposition",
             "dispute_arbitration",
             "repair",
+            "improvement_proposer",
+            "improvement_proposer_review",
+            "improvement_proposer_disposition",
         ] {
             if !self.rules.contains_key(required) {
                 return Err(RoutingError::MissingRule(required.to_owned()));
@@ -146,13 +149,18 @@ impl RoutingConfig {
                 return Err(RoutingError::SeatIneligible(name.clone()));
             }
         }
-        let author = &self.resolve("implement")?.seat;
-        for reviewer_name in &self.resolve("implement")?.reviewers {
-            let reviewer = &self.resolve(reviewer_name)?.seat;
-            if author.family() == reviewer.family() || author.harness == reviewer.harness {
-                return Err(RoutingError::ReviewerNotDiverse(reviewer_name.clone()));
+        for (author_name, rule) in &self.rules {
+            for reviewer_name in &rule.reviewers {
+                let reviewer = &self.resolve(reviewer_name)?.seat;
+                if rule.seat.family() == reviewer.family() || rule.seat.harness == reviewer.harness
+                {
+                    return Err(RoutingError::ReviewerNotDiverse(format!(
+                        "{author_name}->{reviewer_name}"
+                    )));
+                }
             }
         }
+        let author = &self.resolve("implement")?.seat;
         let reviewer = &self.resolve("implementation_review")?.seat;
         let arbiter = &self.resolve("dispute_arbitration")?.seat;
         if arbiter.family() == author.family() || arbiter.family() == reviewer.family() {

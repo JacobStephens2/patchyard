@@ -6,8 +6,9 @@ use factory_core::{
     state::{FactoryRepository as _, PostgresRepository, TriageRecorded, TriageSubmission},
     triage::{Rubric, TaskSpec},
 };
-use factory_verify::ledger::{self, ValidatedRunRecord};
+use factory_verify::ledger::{self, RunClass, ValidatedRunRecord};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest as _, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -22,6 +23,34 @@ pub struct DailyLimits {
     pub global: u32,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct QualificationManifest {
+    schema_version: u16,
+    operator_unit: String,
+    request_budget: u32,
+    run_budget: u32,
+    wall_time_budget_seconds: u32,
+    intended_disposition: String,
+}
+
+impl QualificationManifest {
+    fn session14() -> Result<(Self, String), StoreError> {
+        let bytes = include_bytes!("../../../policy/qualification/session14.json");
+        let manifest: Self = serde_json::from_slice(bytes)?;
+        if manifest.schema_version != 1
+            || manifest.operator_unit != "factory-session14-qualification"
+            || manifest.request_budget == 0
+            || manifest.run_budget == 0
+            || manifest.wall_time_budget_seconds == 0
+            || manifest.intended_disposition != "pr_closed_unmerged"
+        {
+            return Err(StoreError::MalformedQualificationManifest);
+        }
+        Ok((manifest, hex::encode(Sha256::digest(bytes))))
+    }
+}
+
 impl DailyLimits {
     pub fn validate(self) -> Result<Self, StoreError> {
         if self.per_submitter == 0 || self.global == 0 || self.per_submitter > self.global {
@@ -34,6 +63,7 @@ impl DailyLimits {
 #[derive(Clone, Debug)]
 pub struct WorkClaim {
     pub request_id: Uuid,
+    pub run_class: RunClass,
     pub source: String,
     pub body: String,
     pub trace_id: String,
@@ -108,6 +138,7 @@ pub enum SideEffectDisposition {
 #[derive(Clone, Debug)]
 pub struct ExistingRun {
     pub id: Uuid,
+    pub run_class: RunClass,
     pub base_sha: String,
     pub branch: String,
     pub state: String,
@@ -650,7 +681,7 @@ impl PgPipelineStore {
         holder: &str,
         ttl: Duration,
         limits: DailyLimits,
-        allow_paused_qualification: bool,
+        qualification: Option<&QualificationManifest>,
     ) -> Result<Option<WorkClaim>, StoreError> {
         validate_label("holder", holder, 128)?;
         let limits = limits.validate()?;
@@ -666,12 +697,10 @@ impl PgPipelineStore {
         .await?;
         let paused = state.try_get::<bool, _>("paused")?;
         let full_stop = state.try_get::<bool, _>("full_stop")?;
-        let paused_qualification = paused
-            && !full_stop
+        let qualification_claim = !full_stop
             && requested.is_some()
-            && allow_paused_qualification
-            && holder == "factory-session14-qualification";
-        if (paused || full_stop) && !paused_qualification {
+            && qualification.is_some_and(|manifest| manifest.operator_unit == holder);
+        if (paused || full_stop) && !qualification_claim {
             transaction.commit().await?;
             return if requested.is_some() {
                 Err(StoreError::ClaimingPaused)
@@ -685,6 +714,8 @@ impl PgPipelineStore {
             FROM factory.events
             WHERE event_type = 'request.claimed'
               AND occurred_at >= date_trunc('day', clock_timestamp())
+              AND COALESCE(payload->>'run_class', 'production') = 'production'
+              AND NOT (payload @> '{"paused_qualification_bypass": true}'::jsonb)
             "#,
         )
         .fetch_one(&mut *transaction)
@@ -693,6 +724,20 @@ impl PgPipelineStore {
             sqlx::query(
                 r#"
                 SELECT id, source, body, trace_id, status::text AS status
+                     , (
+                         SELECT CASE
+                           WHEN payload->>'run_class' IN ('production', 'qualification')
+                             THEN payload->>'run_class'
+                           WHEN payload @> '{"paused_qualification_bypass": true}'::jsonb
+                             THEN 'qualification'
+                           ELSE NULL
+                         END
+                         FROM factory.events
+                         WHERE request_id = factory.requests.id
+                           AND event_type = 'request.claimed'
+                         ORDER BY id DESC
+                         LIMIT 1
+                       ) AS durable_run_class
                 FROM factory.requests
                 WHERE id = $1 AND status IN ('queued', 'claimed')
                 FOR UPDATE
@@ -710,9 +755,39 @@ impl PgPipelineStore {
             sqlx::query(
                 r#"
                 SELECT candidate.id, candidate.source, candidate.body,
-                       candidate.trace_id, candidate.status::text AS status
+                       candidate.trace_id, candidate.status::text AS status,
+                       (
+                         SELECT CASE
+                           WHEN payload->>'run_class' IN ('production', 'qualification')
+                             THEN payload->>'run_class'
+                           WHEN payload @> '{"paused_qualification_bypass": true}'::jsonb
+                             THEN 'qualification'
+                           ELSE NULL
+                         END
+                         FROM factory.events
+                         WHERE request_id = candidate.id
+                           AND event_type = 'request.claimed'
+                         ORDER BY id DESC
+                         LIMIT 1
+                       ) AS durable_run_class
                 FROM factory.requests AS candidate
                 WHERE candidate.status IN ('queued', 'claimed')
+                  AND NOT (
+                    candidate.status = 'claimed'
+                    AND COALESCE((
+                      SELECT CASE
+                        WHEN payload->>'run_class' = 'qualification'
+                          OR payload @> '{"paused_qualification_bypass": true}'::jsonb
+                          THEN 'qualification'
+                        ELSE 'production'
+                      END
+                      FROM factory.events
+                      WHERE request_id = candidate.id
+                        AND event_type = 'request.claimed'
+                      ORDER BY id DESC
+                      LIMIT 1
+                    ), 'production') = 'qualification'
+                  )
                   AND NOT EXISTS (
                     SELECT 1
                     FROM factory.runs AS terminal_run
@@ -760,6 +835,10 @@ impl PgPipelineStore {
                         ON claimed_request.id = events.request_id
                       WHERE events.event_type = 'request.claimed'
                         AND events.occurred_at >= date_trunc('day', clock_timestamp())
+                        AND COALESCE(events.payload->>'run_class', 'production') = 'production'
+                        AND NOT (
+                          events.payload @> '{"paused_qualification_bypass": true}'::jsonb
+                        )
                         AND claimed_request.source = candidate.source
                     ) < $2
                   )
@@ -793,6 +872,10 @@ impl PgPipelineStore {
                 chosen = Some((row, source));
                 break;
             }
+            if qualification_claim {
+                chosen = Some((row, source));
+                break;
+            }
             let submitter_count: i64 = sqlx::query_scalar(
                 r#"
                 SELECT count(DISTINCT events.request_id)
@@ -800,6 +883,10 @@ impl PgPipelineStore {
                 JOIN factory.requests ON requests.id = events.request_id
                 WHERE events.event_type = 'request.claimed'
                   AND events.occurred_at >= date_trunc('day', clock_timestamp())
+                  AND COALESCE(events.payload->>'run_class', 'production') = 'production'
+                  AND NOT (
+                    events.payload @> '{"paused_qualification_bypass": true}'::jsonb
+                  )
                   AND requests.source = $1
                 "#,
             )
@@ -822,7 +909,44 @@ impl PgPipelineStore {
         let request_id: Uuid = row.try_get("id")?;
         let status: String = row.try_get("status")?;
         let trace_id: String = row.try_get("trace_id")?;
-        if status != "claimed" && global_count >= i64::from(limits.global) {
+        let durable_class_value: Option<String> = row.try_get("durable_run_class")?;
+        let durable_run_class = if status == "claimed" {
+            RunClass::parse(
+                durable_class_value
+                    .as_deref()
+                    .ok_or(StoreError::MalformedRow)?,
+            )?
+        } else {
+            RunClass::Production
+        };
+        if status != "claimed" && qualification_claim {
+            let manifest = qualification.ok_or(StoreError::MalformedQualificationManifest)?;
+            let (_, manifest_sha256) = QualificationManifest::session14()?;
+            let used: i64 = sqlx::query_scalar(
+                r#"
+                SELECT count(DISTINCT request_id)
+                FROM factory.events
+                WHERE event_type = 'request.claimed'
+                  AND payload->>'run_class' = 'qualification'
+                  AND payload->>'qualification_manifest_sha256' = $1
+                "#,
+            )
+            .bind(manifest_sha256)
+            .fetch_one(&mut *transaction)
+            .await?;
+            if used >= i64::from(manifest.request_budget.min(manifest.run_budget)) {
+                transaction.commit().await?;
+                return Err(StoreError::QualificationBudgetExceeded);
+            }
+        }
+        if status == "claimed"
+            && durable_run_class == RunClass::Qualification
+            && !qualification_claim
+        {
+            transaction.commit().await?;
+            return Err(StoreError::QualificationOperatorRequired(request_id));
+        }
+        if status != "claimed" && !qualification_claim && global_count >= i64::from(limits.global) {
             transaction.commit().await?;
             return if requested.is_some() {
                 Err(StoreError::GlobalDailyLimit)
@@ -890,14 +1014,28 @@ impl PgPipelineStore {
                 .await?;
         }
         if append_claim {
-            let payload = if paused_qualification {
+            let payload = if qualification_claim {
+                let manifest = qualification.ok_or(StoreError::MalformedQualificationManifest)?;
+                let (_, manifest_sha256) = QualificationManifest::session14()?;
                 serde_json::json!({
                     "holder": holder,
                     "fencing_token": fencing_token,
-                    "paused_qualification_bypass": true,
+                    "run_class": "qualification",
+                    "operator_unit": holder,
+                    "qualification_operator_path": true,
+                    "paused_qualification_bypass": paused,
+                    "qualification_manifest_sha256": manifest_sha256,
+                    "request_budget": manifest.request_budget,
+                    "run_budget": manifest.run_budget,
+                    "wall_time_budget_seconds": manifest.wall_time_budget_seconds,
+                    "intended_disposition": manifest.intended_disposition,
                 })
             } else {
-                serde_json::json!({"holder": holder, "fencing_token": fencing_token})
+                serde_json::json!({
+                    "holder": holder,
+                    "fencing_token": fencing_token,
+                    "run_class": "production",
+                })
             };
             append_event(
                 &mut transaction,
@@ -913,6 +1051,13 @@ impl PgPipelineStore {
         }
         let claim = WorkClaim {
             request_id,
+            run_class: if status == "claimed" {
+                durable_run_class
+            } else if qualification_claim {
+                RunClass::Qualification
+            } else {
+                RunClass::Production
+            },
             source,
             body: row.try_get("body")?,
             trace_id,
@@ -936,7 +1081,8 @@ impl PgPipelineStore {
         if holder != "factory-session14-qualification" {
             return Err(StoreError::InvalidLabel("session 14 qualification holder"));
         }
-        self.claim(Some(request_id), holder, ttl, limits, true)
+        let (manifest, _manifest_sha256) = QualificationManifest::session14()?;
+        self.claim(Some(request_id), holder, ttl, limits, Some(&manifest))
             .await?
             .ok_or(StoreError::RequestNotClaimable(request_id))
     }
@@ -949,7 +1095,7 @@ impl PipelineStore for PgPipelineStore {
         ttl: Duration,
         limits: DailyLimits,
     ) -> Result<Option<WorkClaim>, StoreError> {
-        self.claim(None, holder, ttl, limits, false).await
+        self.claim(None, holder, ttl, limits, None).await
     }
 
     async fn claim_specific(
@@ -959,7 +1105,7 @@ impl PipelineStore for PgPipelineStore {
         ttl: Duration,
         limits: DailyLimits,
     ) -> Result<WorkClaim, StoreError> {
-        self.claim(Some(request_id), holder, ttl, limits, false)
+        self.claim(Some(request_id), holder, ttl, limits, None)
             .await?
             .ok_or(StoreError::RequestNotClaimable(request_id))
     }
@@ -1005,7 +1151,7 @@ impl PipelineStore for PgPipelineStore {
 
     async fn existing_run(&self, request_id: Uuid) -> Result<Option<ExistingRun>, StoreError> {
         let row = sqlx::query(
-            "SELECT id, base_sha, branch, state::text AS state, lane, skill FROM factory.runs WHERE request_id=$1 ORDER BY queued_at DESC LIMIT 1",
+            "SELECT id, run_class::text AS run_class, base_sha, branch, state::text AS state, lane, skill FROM factory.runs WHERE request_id=$1 ORDER BY queued_at DESC LIMIT 1",
         )
         .bind(request_id)
         .fetch_optional(&self.pool)
@@ -1013,6 +1159,7 @@ impl PipelineStore for PgPipelineStore {
         row.map(|row| {
             Ok(ExistingRun {
                 id: row.try_get("id")?,
+                run_class: RunClass::parse(&row.try_get::<String, _>("run_class")?)?,
                 base_sha: row.try_get("base_sha")?,
                 branch: row.try_get("branch")?,
                 state: row.try_get("state")?,
@@ -2109,6 +2256,14 @@ pub enum StoreError {
     SubmitterDailyLimit(String),
     #[error("request is not claimable: {0}")]
     RequestNotClaimable(Uuid),
+    #[error("qualification request requires its dedicated operator unit: {0}")]
+    QualificationOperatorRequired(Uuid),
+    #[error("qualification manifest is malformed")]
+    MalformedQualificationManifest,
+    #[error("qualification manifest request/run budget is exhausted")]
+    QualificationBudgetExceeded,
+    #[error("qualification manifest JSON is malformed: {0}")]
+    QualificationManifestJson(#[from] serde_json::Error),
     #[error("request does not exist: {0}")]
     RequestNotFound(Uuid),
     #[error("request lease is held by another supervisor: {0}")]

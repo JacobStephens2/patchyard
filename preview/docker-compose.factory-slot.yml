@@ -1,11 +1,6 @@
 services:
   fieldbook:
-    volumes:
-      # The preview image uses Apache's php-fpm proxy.  Preserve Traefik's
-      # translated application authority in the FastCGI environment so the
-      # legacy authenticate.php entry point can validate it.
-      - /etc/patchyard-preview/patchyard-authorization.conf:/etc/httpd/conf.d/99-patchyard-authorization.conf:ro,Z
     labels:
-      # ForwardAuth's response-header regex removes the private capability
-      # before it forwards the translator's application authorization.
+      # ForwardAuth removes the private capability and supplies ETA_API_KEY,
+      # which Apache carries through its ordinary request-header path.
       traefik.http.routers.preview-${PREVIEW_SLOT}.middlewares: "patchyard-capability@file"

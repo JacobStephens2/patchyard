@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
+from http.client import HTTPConnection
 import importlib.util
 import json
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -75,7 +77,7 @@ class CapabilityBoundaryTests(unittest.TestCase):
         token = f"efc1.{'a' * 32}.{'d' * 64}"
         self.activate(token)
         translated = capability.authorize(token, "1.preview.example.dev", "GET")
-        self.assertEqual(translated, "Bearer preview-static-authority")
+        self.assertEqual(translated, "preview-static-authority")
         self.assertIsNone(capability.authorize("", "1.preview.example.dev", "GET"))
         with self.assertRaises(ValueError):
             capability.authorize(token, "2.preview.example.dev", "GET")
@@ -84,6 +86,34 @@ class CapabilityBoundaryTests(unittest.TestCase):
         self.assertIsNone(
             capability.authorize(f"Bearer {token}", "1.preview.example.dev", "GET")
         )
+
+    def test_http_boundary_returns_only_the_application_header(self) -> None:
+        token = f"efc1.{'a' * 32}.{'d' * 64}"
+        self.activate(token)
+        server = capability.ThreadingHTTPServer(("127.0.0.1", 0), capability.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            connection = HTTPConnection(*server.server_address, timeout=2)
+            connection.request(
+                "GET",
+                "/auth",
+                headers={
+                    "X-Patchyard-Factory-Capability": token,
+                    "X-Forwarded-Host": "1.preview.example.dev",
+                    "X-Forwarded-Method": "GET",
+                },
+            )
+            response = connection.getresponse()
+            response.read()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.getheader("ETA_API_KEY"), "preview-static-authority")
+            self.assertIsNone(response.getheader("X-Patchyard-Factory-Capability"))
+            connection.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
 
     def test_revoked_expired_and_symlinked_capabilities_fail_closed(self) -> None:
         token = f"efc1.{'a' * 32}.{'d' * 64}"
@@ -116,7 +146,7 @@ class CapabilityBoundaryTests(unittest.TestCase):
             'authResponseHeadersRegex: "^X-Patchyard-Factory-Capability$"',
             TRAEFIK_DYNAMIC,
         )
-        self.assertIn("- X-Patchyard-Factory-Preview-Authorization", TRAEFIK_DYNAMIC)
+        self.assertIn("- ETA_API_KEY", TRAEFIK_DYNAMIC)
         self.assertIn(
             '"patchyard-capability@file"',
             SLOT_COMPOSE,

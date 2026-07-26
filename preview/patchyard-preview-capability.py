@@ -64,7 +64,7 @@ def authorize(capability: str, forwarded_host: str, forwarded_method: str) -> st
     key = KEY_FILE.read_text().strip()
     if not key or len(key) > MAX_HEADER or "\n" in key or "\r" in key:
         raise RuntimeError("preview authority is unavailable")
-    return f"Bearer {key}"
+    return key
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -75,7 +75,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         try:
-            translated = authorize(
+            application_key = authorize(
                 self.headers.get("X-Patchyard-Factory-Capability", ""),
                 self.headers.get("X-Forwarded-Host", ""),
                 self.headers.get("X-Forwarded-Method", ""),
@@ -87,11 +87,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send_response(200)
         self.send_header("Cache-Control", "no-store")
-        if translated is not None:
-            # The browser's original capability is replaced at Traefik's
-            # ForwardAuth boundary.  Use a private replacement header so
-            # Apache can promote it after Traefik has removed the capability.
-            self.send_header("X-Patchyard-Factory-Preview-Authorization", translated)
+        if application_key is not None:
+            # Legacy PHP accepts ETA_API_KEY directly. Traefik copies this
+            # response header after removing the browser's private capability.
+            self.send_header("ETA_API_KEY", application_key)
         self.end_headers()
 
     def log_message(self, format: str, *args: object) -> None:

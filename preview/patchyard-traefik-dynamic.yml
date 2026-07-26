@@ -4,8 +4,8 @@ http:
       forwardAuth:
         address: "http://factory-capability:8080/auth"
         # Strip the browser's private capability before proxying, then copy
-        # only the translator's private-to-Apache replacement header.
+        # only the translator's ordinary application authority header.
         authResponseHeaders:
-          - X-Patchyard-Factory-Preview-Authorization
+          - ETA_API_KEY
         authResponseHeadersRegex: "^X-Patchyard-Factory-Capability$"
         trustForwardHeader: false

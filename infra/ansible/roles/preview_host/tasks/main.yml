@@ -63,12 +63,14 @@
     - source: patchyard-traefik-dynamic.yml
       dest: /etc/patchyard-preview/patchyard-traefik-dynamic.yml
       mode: "0644"
-    - source: patchyard-authorization.conf
-      dest: /etc/patchyard-preview/patchyard-authorization.conf
-      mode: "0644"
   notify:
     - Reload preview systemd
     - Restart preview access
+
+- name: Remove the superseded Apache authorization projection
+  ansible.builtin.file:
+    path: /etc/patchyard-preview/patchyard-authorization.conf
+    state: absent
 
 - name: Install the factory control private address
   ansible.builtin.copy:
@@ -182,22 +184,15 @@
       test "$(stat -c '%U:%G:%a' /etc/patchyard-preview/patchyard-traefik-dynamic.yml)" = root:root:644
       grep -Fqx '        address: "http://factory-capability:8080/auth"' \
         /etc/patchyard-preview/patchyard-traefik-dynamic.yml
-      grep -Fqx '        authResponseHeadersRegex: "^X-Patchyard-Factory-Capability$"' \
+      grep -Fqx '          - ETA_API_KEY' \
         /etc/patchyard-preview/patchyard-traefik-dynamic.yml
-      grep -Fqx '          - X-Patchyard-Factory-Preview-Authorization' \
+      grep -Fqx '        authResponseHeadersRegex: "^X-Patchyard-Factory-Capability$"' \
         /etc/patchyard-preview/patchyard-traefik-dynamic.yml
       docker inspect preview-fieldbooks-traefik-1 --format '{{ "{{" }}json .Args{{ "}}" }}' |
         jq -e 'index("--providers.file.filename=/etc/traefik/patchyard-dynamic.yml") != null' >/dev/null
       docker inspect preview-fieldbooks-traefik-1 --format '{{ "{{" }}json .Mounts{{ "}}" }}' |
         jq -e 'any(.[]; .Destination == "/etc/traefik/patchyard-dynamic.yml" and .RW == false)' >/dev/null
-      test "$(stat -c '%U:%G:%a' /etc/patchyard-preview/patchyard-authorization.conf)" = root:root:644
-      grep -Fqx '    CGIPassAuth On' \
-        /etc/patchyard-preview/patchyard-authorization.conf
-      grep -Fqx '    RequestHeader set Authorization "expr=%{HTTP:X-Patchyard-Factory-Preview-Authorization}"' \
-        /etc/patchyard-preview/patchyard-authorization.conf
-      grep -Fqx \
-        '      - /etc/patchyard-preview/patchyard-authorization.conf:/etc/httpd/conf.d/99-patchyard-authorization.conf:ro,Z' \
-        /etc/patchyard-preview/docker-compose.factory-slot.yml
+      test ! -e /etc/patchyard-preview/patchyard-authorization.conf
       docker inspect preview-fieldbooks-traefik-1 --format '{{ "{{" }}json .NetworkSettings.Networks{{ "}}" }}' |
         jq -e 'has("patchyard-preview-capability") and has("preview-net")' >/dev/null
       test "$(docker inspect preview-fieldbooks-factory-capability-1 --format '{{ "{{" }}len .NetworkSettings.Networks{{ "}}" }}')" = 1

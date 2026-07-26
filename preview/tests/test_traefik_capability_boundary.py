@@ -33,10 +33,7 @@ class AuthHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         self.server.records.put(dict(self.headers.items()))  # type: ignore[attr-defined]
         self.send_response(200)
-        self.send_header(
-            "X-Patchyard-Factory-Preview-Authorization",
-            "Bearer translated-preview-authority",
-        )
+        self.send_header("ETA_API_KEY", "translated-preview-authority")
         self.end_headers()
 
     def log_message(self, format: str, *args: object) -> None:
@@ -150,7 +147,7 @@ class TraefikCapabilityBoundary(unittest.TestCase):
                     "      forwardAuth:",
                     f'        address: "http://127.0.0.1:{auth_port}/auth"',
                     "        authResponseHeaders:",
-                    "          - X-Patchyard-Factory-Preview-Authorization",
+                    "          - ETA_API_KEY",
                     '        authResponseHeadersRegex: "^X-Patchyard-Factory-Capability$"',
                     "        trustForwardHeader: false",
                     "  services:",
@@ -211,8 +208,8 @@ class TraefikCapabilityBoundary(unittest.TestCase):
         )
         self.assertNotIn("x-patchyard-capability", backend_lower)
         self.assertEqual(
-            backend_lower.get("x-patchyard-preview-authorization"),
-            "Bearer translated-preview-authority",
+            backend_lower.get("eta_api_key"),
+            "translated-preview-authority",
         )
 
 

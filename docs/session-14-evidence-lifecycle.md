@@ -17,9 +17,9 @@ draft pull request:
    one short-lived evidence capability, runs Session 13's isolated browser,
    re-verifies the SHA, scans control-plane and preview logs for the bearer and
    capability ID, and explicitly releases the lease. The browser supplies the
-   capability only to Traefik's forward-auth boundary; an ordered Traefik
-   middleware removes the private header before legacy PHP receives the
-   translated application authorization.
+   capability only to Traefik's forward-auth boundary, which removes the
+   private header before legacy PHP receives the translated application
+   authority.
 4. It repeats that sequence for the exact candidate SHA.
 5. Only after each isolated child has ended, the SHA proof and both log scans
    have passed, and the lease has been released does it import the bounded
@@ -35,6 +35,20 @@ draft pull request:
 The dashboard remains a read-only scribe (A53/A66). The supervisor performs
 every transition and side effect (A65). The orchestration host is absent from
 the runtime path (A68). No process self-merges or deploys (A1).
+
+## Preview authorization boundary
+
+The isolated evidence browser sends its short-lived authority only as
+`X-Patchyard-Factory-Capability` to the numbered preview origin. Traefik passes that
+header to its file-provider `forwardAuth`, whose translator validates the
+capability's host, method, expiry, lease, and digest before returning the
+preview authority as `ETA_API_KEY`. Traefik's `authResponseHeadersRegex`
+removes the capability from the forwarded request, while
+`authResponseHeaders` copies the returned application header into it. Apache
+needs no special `Authorization` projection: its ordinary FastCGI request
+header path exposes `ETA_API_KEY` to legacy `authenticate.php`, which already
+accepts that header. The capability therefore terminates at Traefik and never
+reaches Apache, PHP-FPM, or the Fieldbook application.
 
 ## A26 explain-diff scope
 
@@ -130,7 +144,7 @@ GitHub-hosted CI can prove source-level and provider-free behavior:
   non-secret sentinel plus positive bytes from both scan implementations;
 - a real Traefik integration test proves the forward-auth service receives the
   private capability, while the downstream backend receives the translated
-  application `Authorization` and no `X-Patchyard-Factory-Capability` header;
+  application `ETA_API_KEY` and no `X-Patchyard-Factory-Capability` header;
 - only the exact numbered leased preview origin is accepted;
 - final bodies contain the A11/A26 contract, authenticated `/evidence` links,
   artifact SHA-256 values, and no sent reply;
@@ -145,8 +159,8 @@ test cannot:
   ready-for-review only after both evidence packs are durable;
 - the baseline and candidate slots run the exact requested SHAs and all
   browser navigation remains on the leased numbered host;
-- the deployed Traefik middleware order authenticates the private capability
-  and removes it before the legacy PHP backend;
+- the deployed Traefik forward-auth boundary authenticates the private
+  capability and removes it before the legacy PHP backend;
 - the installed journal and preview-container scan reads its real bounded log
   sources and reports zero bearer/capability matches;
 - success and an injected post-authorization failure both leave no lease,

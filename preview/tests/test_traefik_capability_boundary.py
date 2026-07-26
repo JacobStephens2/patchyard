@@ -33,7 +33,10 @@ class AuthHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         self.server.records.put(dict(self.headers.items()))  # type: ignore[attr-defined]
         self.send_response(200)
-        self.send_header("Authorization", "Bearer translated-preview-authority")
+        self.send_header(
+            "X-Patchyard-Factory-Preview-Authorization",
+            "Bearer translated-preview-authority",
+        )
         self.end_headers()
 
     def log_message(self, format: str, *args: object) -> None:
@@ -146,7 +149,7 @@ class TraefikCapabilityBoundary(unittest.TestCase):
                     "    patchyard-capability:",
                     "      forwardAuth:",
                     f'        address: "http://127.0.0.1:{auth_port}/auth"',
-                    '        authResponseHeadersRegex: "^(Authorization|X-Patchyard-Factory-Capability)$"',
+                    '        authResponseHeadersRegex: "^(X-Patchyard-Factory-Capability|X-Patchyard-Factory-Preview-Authorization)$"',
                     "        trustForwardHeader: false",
                     "  services:",
                     "    fieldbook:",
@@ -187,7 +190,7 @@ class TraefikCapabilityBoundary(unittest.TestCase):
             CAPABILITY_COMPOSE,
         )
         self.assertIn(
-            'authResponseHeadersRegex: "^(Authorization|X-Patchyard-Factory-Capability)$"',
+            'authResponseHeadersRegex: "^(X-Patchyard-Factory-Capability|X-Patchyard-Factory-Preview-Authorization)$"',
             TRAEFIK_DYNAMIC,
         )
         self.assertIn(
@@ -206,7 +209,8 @@ class TraefikCapabilityBoundary(unittest.TestCase):
         )
         self.assertNotIn("x-patchyard-capability", backend_lower)
         self.assertEqual(
-            backend_lower.get("authorization"), "Bearer translated-preview-authority"
+            backend_lower.get("x-patchyard-preview-authorization"),
+            "Bearer translated-preview-authority",
         )
 
 

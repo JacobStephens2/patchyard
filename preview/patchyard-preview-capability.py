@@ -88,13 +88,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Cache-Control", "no-store")
         if translated is not None:
-            # The browser's original Authorization header contains the
-            # short-lived factory capability.  Traefik must not ask legacy
-            # PHP to overwrite a same-named request header: it can leave that
-            # capability visible to the app.  The private auth-boundary header
-            # has no name collision, so this is the sole Authorization value
-            # forwarded to Fieldbook.
-            self.send_header("Authorization", translated)
+            # The browser's original capability is replaced at Traefik's
+            # ForwardAuth boundary.  Use a private replacement header so
+            # Apache can promote it after Traefik has removed the capability.
+            self.send_header("X-Patchyard-Factory-Preview-Authorization", translated)
         self.end_headers()
 
     def log_message(self, format: str, *args: object) -> None:

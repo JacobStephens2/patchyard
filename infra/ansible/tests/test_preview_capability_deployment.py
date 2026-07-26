@@ -38,7 +38,7 @@ class PreviewCapabilityDeploymentContract(unittest.TestCase):
         slot = SLOT_COMPOSE.read_text()
         dynamic = TRAEFIK_DYNAMIC.read_text()
         self.assertIn(
-            'authResponseHeadersRegex: "^(Authorization|X-Patchyard-Factory-Capability)$"',
+            'authResponseHeadersRegex: "^(X-Patchyard-Factory-Capability|X-Patchyard-Factory-Preview-Authorization)$"',
             dynamic,
         )
         self.assertIn(
@@ -58,6 +58,10 @@ class PreviewCapabilityDeploymentContract(unittest.TestCase):
         tasks = TASKS.read_text()
         self.assertIn(
             'CGIPassAuth On',
+            authorization,
+        )
+        self.assertIn(
+            'RequestHeader set Authorization "expr=%{HTTP:X-Patchyard-Factory-Preview-Authorization}"',
             authorization,
         )
         self.assertIn(

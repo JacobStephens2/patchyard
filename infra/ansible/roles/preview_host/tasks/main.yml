@@ -182,7 +182,7 @@
       test "$(stat -c '%U:%G:%a' /etc/patchyard-preview/patchyard-traefik-dynamic.yml)" = root:root:644
       grep -Fqx '        address: "http://factory-capability:8080/auth"' \
         /etc/patchyard-preview/patchyard-traefik-dynamic.yml
-      grep -Fqx '        authResponseHeadersRegex: "^(Authorization|X-Patchyard-Factory-Capability)$"' \
+      grep -Fqx '        authResponseHeadersRegex: "^(X-Patchyard-Factory-Capability|X-Patchyard-Factory-Preview-Authorization)$"' \
         /etc/patchyard-preview/patchyard-traefik-dynamic.yml
       docker inspect preview-fieldbooks-traefik-1 --format '{{ "{{" }}json .Args{{ "}}" }}' |
         jq -e 'index("--providers.file.filename=/etc/traefik/patchyard-dynamic.yml") != null' >/dev/null
@@ -190,6 +190,8 @@
         jq -e 'any(.[]; .Destination == "/etc/traefik/patchyard-dynamic.yml" and .RW == false)' >/dev/null
       test "$(stat -c '%U:%G:%a' /etc/patchyard-preview/patchyard-authorization.conf)" = root:root:644
       grep -Fqx '    CGIPassAuth On' \
+        /etc/patchyard-preview/patchyard-authorization.conf
+      grep -Fqx '    RequestHeader set Authorization "expr=%{HTTP:X-Patchyard-Factory-Preview-Authorization}"' \
         /etc/patchyard-preview/patchyard-authorization.conf
       grep -Fqx \
         '      - /etc/patchyard-preview/patchyard-authorization.conf:/etc/httpd/conf.d/99-patchyard-authorization.conf:ro,Z' \

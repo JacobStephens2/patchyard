@@ -72,8 +72,8 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 12057,
-      "comments": 439,
+      "code": 12067,
+      "comments": 436,
       "blanks": 1224,
       "files": 130,
       "languages": [
@@ -128,8 +128,8 @@
         },
         {
           "language": "Python",
-          "code": 3224,
-          "comments": 35,
+          "code": 3232,
+          "comments": 32,
           "blanks": 363,
           "files": 17
         },
@@ -156,7 +156,7 @@
         },
         {
           "language": "YAML",
-          "code": 2748,
+          "code": 2750,
           "comments": 13,
           "blanks": 290,
           "files": 20

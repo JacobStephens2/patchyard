@@ -113,7 +113,7 @@ class CapabilityBoundaryTests(unittest.TestCase):
 
     def test_traefik_replaces_the_private_capability_header(self) -> None:
         self.assertIn(
-            'authResponseHeadersRegex: "^(Authorization|X-Patchyard-Factory-Capability)$"',
+            'authResponseHeadersRegex: "^(X-Patchyard-Factory-Capability|X-Patchyard-Factory-Preview-Authorization)$"',
             TRAEFIK_DYNAMIC,
         )
         self.assertIn(

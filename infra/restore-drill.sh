@@ -65,6 +65,7 @@ case "$MODE" in
 
     restore_ip=$("$REPO_ROOT/infra/tofu.sh" digitalocean output -raw restore_drill_ipv4)
     restore_private_ip=$("$REPO_ROOT/infra/tofu.sh" digitalocean output -raw restore_drill_private_ipv4)
+    restore_droplet_id=$("$REPO_ROOT/infra/tofu.sh" digitalocean output -raw restore_drill_id)
     live_inventory=$("$ANSIBLE_ROOT/inventory/tofu.sh")
     worker_host=$(jq -r '.worker.hosts[0]' <<<"$live_inventory")
     worker_ip=$(jq -r --arg host "$worker_host" '._meta.hostvars[$host].ansible_host' <<<"$live_inventory")
@@ -118,7 +119,9 @@ case "$MODE" in
       --arg factory_web "$REPO_ROOT/target/release/factory-web" \
       --arg app_id "$GH_PATCHYARD_APP_ID" \
       --arg installation_id "$GH_PATCHYARD_APP_INSTALLATION_ID" \
-      '{factory_restore_drill:true,factory_restore_generation:$generation,factory_backup_age_identity_file:env.ETA_RESTORE_IDENTITY_FILE,factory_backup_runtime_access_key:env.ETA_RESTORE_BACKUP_ACCESS,factory_backup_runtime_secret_key:env.ETA_RESTORE_BACKUP_SECRET,factory_backup_bucket:env.ETA_RESTORE_BACKUP_BUCKET,factory_backup_endpoint:env.ETA_RESTORE_BACKUP_ENDPOINT,factory_backup_age_recipient:env.ETA_RESTORE_BACKUP_RECIPIENT,factory_restore_probe_password:env.ETA_RESTORE_PROBE_PASSWORD,factory_repo_bundle:$bundle,factory_repo_revision:$revision,factoryctl_binary:$factoryctl,factory_verify_binary:$factory_verify,factory_supervisor_binary:$factory_supervisor,factory_evidence_qualify_binary:$evidence_qualify,factory_web_binary:$factory_web,factory_dashboard_accounts_file:"/dev/null",factory_github_app_private_key_file:"/dev/null",factory_github_app_id:$app_id,factory_github_app_installation_id:$installation_id}' \
+      --arg restore_expected_host "$restore_ip" \
+      --arg restore_droplet_id "$restore_droplet_id" \
+      '{factory_restore_drill:true,factory_restore_expected_host:$restore_expected_host,factory_restore_expected_droplet_id:$restore_droplet_id,factory_restore_generation:$generation,factory_backup_age_identity_file:env.ETA_RESTORE_IDENTITY_FILE,factory_backup_runtime_access_key:env.ETA_RESTORE_BACKUP_ACCESS,factory_backup_runtime_secret_key:env.ETA_RESTORE_BACKUP_SECRET,factory_backup_bucket:env.ETA_RESTORE_BACKUP_BUCKET,factory_backup_endpoint:env.ETA_RESTORE_BACKUP_ENDPOINT,factory_backup_age_recipient:env.ETA_RESTORE_BACKUP_RECIPIENT,factory_restore_probe_password:env.ETA_RESTORE_PROBE_PASSWORD,factory_repo_bundle:$bundle,factory_repo_revision:$revision,factoryctl_binary:$factoryctl,factory_verify_binary:$factory_verify,factory_supervisor_binary:$factory_supervisor,factory_evidence_qualify_binary:$evidence_qualify,factory_web_binary:$factory_web,factory_dashboard_accounts_file:"/dev/null",factory_github_app_private_key_file:"/dev/null",factory_github_app_id:$app_id,factory_github_app_installation_id:$installation_id}' \
       >"$extra_vars"
     for binary in factoryctl factory-verify factory-supervisor factory-evidence-qualify factory-web; do
       key=$(tr '-' '_' <<<"$binary")_sha256

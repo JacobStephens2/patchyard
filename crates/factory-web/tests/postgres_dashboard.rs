@@ -323,7 +323,6 @@ async fn ideas_is_runtime_backed_and_uses_the_governance_content_filter()
     let html = String::from_utf8(response.into_body().collect().await?.to_bytes().to_vec())?;
     assert!(html.contains("Runtime ideas"));
     assert!(html.contains("href=\"https://example.test\""));
-    assert!(html.contains("bad()"));
     assert!(html.contains("pixel"));
     assert!(!html.contains("<script>"));
     assert!(!html.contains("data:image"));
@@ -1197,7 +1196,7 @@ fn fixture_checkout() -> Result<TempDir, Box<dyn Error>> {
     )?;
     fs::write(
         root.path().join("runtime-ideas.md"),
-        "# Runtime ideas\n\n<script>bad()</script> [safe](https://example.test) ![pixel](data:image/png;base64,AA==)\n",
+        "# Runtime ideas\n\n[safe](https://example.test)\n\n<script>bad()</script>\n\n![pixel](data:image/png;base64,AA==)\n",
     )?;
     fs::write(
         root.path().join("docs/codebase-metrics.json"),

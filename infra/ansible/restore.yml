@@ -4,6 +4,34 @@
   become: true
   gather_facts: false
   tasks:
+    - name: Refuse restore outside the generated drill inventory
+      ansible.builtin.assert:
+        that:
+          - factory_restore_drill | default(false) | bool
+          - factory_restore_expected_host is defined
+          - factory_restore_expected_droplet_id is defined
+          - ansible_host == factory_restore_expected_host
+        fail_msg: >-
+          restore.yml is drill-only and requires its generated inventory and
+          explicit target binding before any service or data change
+
+    - name: Read the target DigitalOcean droplet identity
+      ansible.builtin.uri:
+        url: http://169.254.169.254/metadata/v1/id
+        return_content: true
+      register: restore_droplet_metadata
+      changed_when: false
+
+    - name: Bind restore to the planned ephemeral droplet
+      ansible.builtin.assert:
+        that:
+          - >-
+            restore_droplet_metadata.content | trim ==
+            (factory_restore_expected_droplet_id | string)
+        fail_msg: >-
+          restore.yml target is not the reviewed ephemeral DigitalOcean
+          droplet; no provisioning or data mutation began
+
     - name: Wait for SSH after drill-host creation
       ansible.builtin.wait_for_connection:
         delay: 5
@@ -23,6 +51,28 @@
     - role: exporters
     - role: control_plane
   tasks:
+    - name: Inventory the declarative clean-host restore targets
+      ansible.builtin.find:
+        paths: "{{ item }}"
+        file_type: file
+        recurse: true
+      loop:
+        - /var/lib/patchyard/artifacts
+        - /var/lib/patchyard/proposer-inbox
+      register: clean_restore_targets
+
+    - name: Refuse restore over data outside the clean-host baseline
+      ansible.builtin.assert:
+        that:
+          - clean_restore_targets.results[0].matched == 0
+          - clean_restore_targets.results[1].matched == 1
+          - >-
+            clean_restore_targets.results[1].files[0].path ==
+            '/var/lib/patchyard/proposer-inbox/docs/ideas.md'
+        fail_msg: >-
+          restore_target_refused: artifact/runtime targets differ from the
+          declarative clean-host baseline; preserve them and investigate
+
     - name: Stop every writer before replacing clean migrated state
       ansible.builtin.systemd:
         name: "{{ item }}"
@@ -103,6 +153,40 @@
       become: true
       become_user: postgres
       changed_when: false
+
+    - name: Exercise the restored Grafana canary-content boundary
+      ansible.builtin.command:
+        argv:
+          - psql
+          - "--host={{ postgresql_socket_directory }}"
+          - --dbname=patchyard
+          - --tuples-only
+          - --no-align
+          - --set=ON_ERROR_STOP=1
+          - >-
+            --command=BEGIN; INSERT INTO factory.requests
+            (id,fingerprint,source,body,trace_id) VALUES
+            ('61000000-0000-4000-8000-000000000001',
+            decode(repeat('61',32),'hex'),'restore-canary',
+            'RESTORE_GRAFANA_REQUEST_CANARY',
+            '61000000000000000000000000000001'); INSERT INTO factory.artifacts
+            (id,request_id,path,sha256,kind) VALUES
+            ('61000000-0000-4000-8000-000000000002',
+            '61000000-0000-4000-8000-000000000001',
+            'RESTORE_GRAFANA_ARTIFACT_CANARY',decode(repeat('62',32),'hex'),
+            'restore-canary'); SET LOCAL ROLE grafana_ro;
+            SELECT jsonb_build_object('requests',COALESCE((SELECT
+            jsonb_agg(to_jsonb(summary)) FROM factory.grafana_request_summary
+            summary),'[]'::jsonb),'runs',COALESCE((SELECT
+            jsonb_agg(to_jsonb(metrics)) FROM factory.grafana_run_metrics
+            metrics),'[]'::jsonb))::text; ROLLBACK;
+      become_user: postgres
+      become: true
+      register: restored_grafana_canary
+      changed_when: false
+      failed_when: >-
+        'RESTORE_GRAFANA_REQUEST_CANARY' in restored_grafana_canary.stdout or
+        'RESTORE_GRAFANA_ARTIFACT_CANARY' in restored_grafana_canary.stdout
 
     - name: Start only the recovered read application
       ansible.builtin.systemd:

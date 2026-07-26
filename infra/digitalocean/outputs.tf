@@ -26,6 +26,11 @@ output "restore_drill_private_ipv4" {
   value       = var.restore_drill_enabled ? digitalocean_droplet.restore_drill[0].ipv4_address_private : null
 }
 
+output "restore_drill_id" {
+  description = "DigitalOcean droplet ID for the ephemeral restore drill"
+  value       = var.restore_drill_enabled ? digitalocean_droplet.restore_drill[0].id : null
+}
+
 output "ansible_inventory" {
   description = "Dynamic inventory consumed verbatim by infra/ansible/inventory/tofu.sh."
   value = {

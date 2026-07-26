@@ -1,6 +1,11 @@
 //! Fail-closed GitHub/deployment reconciliation for one durable factory run.
 
-use std::{ffi::OsString, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    ffi::{OsStr, OsString},
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -20,6 +25,7 @@ use crate::{
 pub struct DeployedVersionConfig {
     pub program: PathBuf,
     pub arguments: Vec<OsString>,
+    pub environment: Vec<(OsString, OsString)>,
     pub timeout: Duration,
     pub output_limit: usize,
 }
@@ -42,6 +48,24 @@ impl DeployedVersionConfig {
                 "deployed-version argument count",
             ));
         }
+        const DEPLOYED_ENVIRONMENT: [&str; 3] = [
+            "GH_PATCHYARD_APP_ID",
+            "GH_PATCHYARD_APP_INSTALLATION_ID",
+            "GH_PATCHYARD_APP_PRIVATE_KEY_FILE",
+        ];
+        if self.environment.len() != DEPLOYED_ENVIRONMENT.len()
+            || self
+                .environment
+                .iter()
+                .zip(DEPLOYED_ENVIRONMENT)
+                .any(|((name, value), expected)| {
+                    name.as_os_str() != OsStr::new(expected) || value.is_empty()
+                })
+        {
+            return Err(ReconcileError::InvalidConfig(
+                "deployed-version environment",
+            ));
+        }
         Ok(())
     }
 
@@ -52,6 +76,7 @@ impl DeployedVersionConfig {
         self.validate()?;
         let mut spec = ProcessSpec::new(&self.program);
         spec.args = self.arguments.clone();
+        spec.environment = self.environment.clone();
         spec.timeout = self.timeout;
         spec.output_limit = self.output_limit;
         let output = run_bounded(&spec, cancellation).await?;
@@ -349,6 +374,7 @@ pub enum ReconcileError {
 #[cfg(test)]
 mod tests {
     use std::{
+        ffi::OsString,
         fs,
         os::unix::fs::PermissionsExt as _,
         path::PathBuf,
@@ -370,6 +396,20 @@ mod tests {
     };
 
     use super::{DeployedVersion, DeployedVersionConfig, ReconcileError, Reconciler};
+
+    fn deployed_environment() -> Vec<(OsString, OsString)> {
+        [
+            ("GH_PATCHYARD_APP_ID", "123"),
+            ("GH_PATCHYARD_APP_INSTALLATION_ID", "456"),
+            (
+                "GH_PATCHYARD_APP_PRIVATE_KEY_FILE",
+                "/run/factory-app.pem",
+            ),
+        ]
+        .into_iter()
+        .map(|(name, value)| (OsString::from(name), OsString::from(value)))
+        .collect()
+    }
 
     #[test]
     fn deployed_version_is_strict_and_sha_bounded() {
@@ -533,6 +573,7 @@ mod tests {
             DeployedVersionConfig {
                 program,
                 arguments: Vec::new(),
+                environment: deployed_environment(),
                 timeout: Duration::from_secs(2),
                 output_limit: 4096,
             },
@@ -589,6 +630,7 @@ mod tests {
             DeployedVersionConfig {
                 program: deployed_program(temp.path(), &merge),
                 arguments: Vec::new(),
+                environment: deployed_environment(),
                 timeout: Duration::from_secs(2),
                 output_limit: 4096,
             },
@@ -650,6 +692,7 @@ mod tests {
             DeployedVersionConfig {
                 program: source,
                 arguments: Vec::new(),
+                environment: deployed_environment(),
                 timeout: Duration::from_secs(2),
                 output_limit: 4096,
             },
@@ -726,7 +769,12 @@ mod tests {
         fs::write(
             &program,
             format!(
-                "#!/bin/sh\nprintf '%s\\n' '{}'\n",
+                "#!/bin/sh\n\
+                 test \"${{GH_PATCHYARD_APP_ID:-}}\" = 123\n\
+                 test \"${{GH_PATCHYARD_APP_INSTALLATION_ID:-}}\" = 456\n\
+                 test \"${{GH_PATCHYARD_APP_PRIVATE_KEY_FILE:-}}\" = /run/factory-app.pem\n\
+                 test -z \"${{HOME+x}}\"\n\
+                 printf '%s\\n' '{}'\n",
                 serde_json::json!({
                     "schema_version": 1,
                     "repository": "example-org/fieldbook",

@@ -26,6 +26,13 @@ The cutover owns these production changes:
 6. execute the installed intake, replacement, backup/restore, rollback, kill,
    and post-cutover smoke paths rather than accepting source descriptions.
 
+The Fieldbook deployment marker is not complete until the companion
+orchestration change in
+[orchestration PR #5](https://github.com/example-org/orchestration/pull/5)
+is human-reviewed, merged, and installed. That pointer-only repository change
+advances the marker only after a successful production deploy and verifies the
+read-back SHA. Session 16 does not merge or install it for the human operator.
+
 ## Before-state inventory
 
 The read-only preflight on 2026-07-26 observed:
@@ -82,14 +89,17 @@ recorded.
 | `reconcile_failed_closed` | GitHub or the deploy-marker source was unavailable/invalid; the run remained pending with the bounded failure recorded. |
 | `reconcile_projection_failed` | A real marker SHA was observed but reconcile persisted a different repository, SHA, source, or state. |
 | `replacement_failed` | Worker replacement, second converge, isolation probe, or no-residue check failed; no old worker data is restored. |
-| `backup_failed` | Quiescence, `pg_dump`, artifact manifest, row-count manifest, encryption, or off-host upload failed. |
-| `backup_verification_failed` | The uploaded generation could not be independently listed, downloaded, authenticated, or hash-verified. |
+| `backup_busy` | The attended or scheduled backup found an active production/proposer run and refused to interrupt it. |
+| `backup_failed` | Bucket versioning, quiescence, `pg_dump`, artifact manifest, row-count manifest, encryption, or off-host upload failed. |
+| `backup_verification_failed` | `LATEST`, its receipt, ciphertext metadata, age, download, decryption, or payload hashes did not agree. |
+| `restore_target_refused` | The drill flag and generated-inventory target binding were absent or the artifact/runtime targets were populated. No restore mutation began. |
 | `restore_provision_failed` | Declarative PostgreSQL/role or clean restore-root provisioning failed. |
 | `restore_migration_failed` | Migrations did not reapply from the reviewed checkout before data restore. |
 | `restore_data_failed` | The dump did not restore cleanly into the drill database. |
 | `restore_artifact_failed` | The artifact archive did not restore into the clean drill root. |
 | `restore_verification_failed` | Restored row counts, artifact membership/hashes, grants, or a historical evidence fetch differed from the backup manifest. |
 | `rollback_failed` | The reviewed previous revision could not be reinstalled, qualified, and served without schema or artifact loss. |
+| `rollback_busy` | Dashboard Full stop was not durably active or a production/proposer run was still active before the public-write boundary. |
 | `rollback_recovery_failed` | Reapplying the cutover revision after rollback did not converge and requalify cleanly. |
 | `kill_failed` | A dashboard-issued control did not terminate the target work, release its lease, append `killed`, appear over SSE, or leave zero worker/child residue. |
 | `proposer_live_check_failed` | Installed reporting, runtime ideas projection, bounded child, publication cap, cancellation/restart, or residue checks differed from the Session 15 contract. |
@@ -115,7 +125,8 @@ GitHub-hosted CI and local source checks can prove:
   image-free, and restricted to safe link schemes through the same filter as
   `/decisions`;
 - A109 keeps the required-approval count unchanged and the factory has no
-  merge API; and
+  merge API, while protected `master` allows only Jacob or Engineer Two to push;
+  and
 - the complete application gate still passes formatting, clippy, tests,
   deterministic replay, release reproducibility, audit, deny, vet, model, and
   projection checks.
@@ -149,11 +160,13 @@ each destructive or externally visible step:
 
 1. capture exact Git, cloud, service, database, artifact, GitHub, and
    orchestration-remnant before-state; verify disk headroom and no active work;
-2. run all source checks, review all three OpenTofu plans, and apply no plan
-   whose target set differs from its declaration;
+2. run all source checks with the PostgreSQL-backed suite explicitly active,
+   review all three OpenTofu plans, and apply no plan whose target set differs
+   from its declaration;
 3. create `refs/heads/deploy/production` at the independently observed clean
-   production SHA, apply its GitOps protection, and exercise both valid and
-   fail-closed deployed-version observations;
+   production SHA, apply its GitOps protection, exercise both valid and
+   fail-closed observations, and require the companion orchestration deploy
+   flow before declaring ongoing marker advancement installed;
 4. converge the cutover commit, apply migrations, qualify both hosts, repeat
    converge for `changed=0`, and verify installed binary and checkout hashes;
 5. use a real authenticated dashboard session to submit the committed
@@ -166,21 +179,29 @@ each destructive or externally visible step:
 7. run the worker replacement from a reviewed `-replace` plan, restore no
    worker data, converge twice, run the production isolation probe, and prove
    zero residue;
-8. quiesce writers through the runbook, create `pg_dump` plus row-count and
-   artifact manifests, upload the encrypted generation off-host, redownload it,
-   and verify its authenticated hashes;
-9. provision a clean drill PostgreSQL/role boundary and clean artifact root
+8. prove `backup_busy` without interrupting a bounded active qualification,
+   then quiesce writers, create `pg_dump` plus row-count and artifact manifests,
+   upload the encrypted generation off-host, redownload it, verify its hashes,
+   require live bucket versioning, and exercise the remote `LATEST`
+   age/receipt check;
+9. bind a generated inventory to the planned droplet's provider metadata ID,
+   provision a clean drill PostgreSQL/role boundary and clean artifact root
    from desired state, reapply migrations, restore the dump and archive,
-   compare every row count and artifact hash, start the drill application, and
-   fetch one historical evidence object through its authenticated route;
-10. install the previous reviewed application/config revision, qualify and
-    smoke it without reversing append-only migrations, then reinstall the
-    cutover revision and repeat qualification;
+   compare every row count and artifact hash, rerun the Grafana content canary,
+   start the drill application, fetch one historical evidence object through
+   its authenticated route, and prove a populated/wrong-inventory restore is
+   refused before mutation;
+10. use dashboard Full stop and wait for zero active work; enter the versioned
+    public-write rollback boundary, install the previous reviewed
+    application/config revision, qualify and smoke it without reversing
+    append-only migrations, then reinstall the cutover revision, repeat
+    qualification, remove the boundary, and use dashboard Resume;
 11. start a bounded attended qualification run through the form and issue its
     admin kill through the dashboard; observe SSE `killed`, process teardown,
     lease release, and zero residue; and
 12. run final public/authenticated health, projections, intake readiness,
-    services, revision, drift, backup-age, deploy-marker, metrics, and A68
+    services, revision, drift, remote `LATEST`, backup-age, deploy-marker equal
+    to the independently observed live Fieldbook SHA, metrics, and A68
     independence smoke before recording `cutover_complete`.
 
 Qualification PRs, if any, are closed unmerged with an explicit disposition.
@@ -191,9 +212,27 @@ production form submission and requires no console fallback.
 
 Phase-1 runbook v0 declares an RPO of 24 hours and an RTO of 4 hours. A backup
 is accepted only after off-host verification. Expired artifacts disappear from
-new generations after the normal retention sweep; older immutable/versioned
-generations age out under the separately declared backup lifecycle, so an
-artifact is never deleted from the only remaining restorable generation.
+new generations after the normal retention sweep; older versioned generations
+age out under the separately declared backup lifecycle, so an artifact is
+never deleted from the only remaining restorable generation.
+
+### Accepted backup-storage trust limit
+
+The bucket-scoped runtime key necessarily has DigitalOcean's combined
+Read/Write/Delete object permission: Spaces does not expose a write-without-
+delete access level, and its documented S3 compatibility surface does not
+offer bucket Object Lock/retention configuration. Versioning therefore gives a
+seven-day recovery window for overwritten/deleted current objects, not WORM
+immutability. `age` authenticates ciphertext integrity to the recovery key,
+but the receipt and ciphertext are written by the same runtime authority; a
+control-plane compromise can replace both by encrypting a new payload to the
+public recipient. The management key and private recovery identity remain off
+host, each accepted generation's receipt/hash is copied into the human cutover
+record, and restore operators inspect object versions with management custody
+when compromise is suspected. This is a named Phase-1 residual risk, not an
+immutability claim. DigitalOcean's current capability references are the
+[Spaces permission matrix](https://docs.digitalocean.com/reference/api/spaces/)
+and [S3 compatibility table](https://docs.digitalocean.com/products/spaces/reference/s3-compatibility/).
 
 Worker recovery has no RPO because the worker contains no durable data. Its
 recovery source is the reviewed OpenTofu + Ansible revision, the parity image,

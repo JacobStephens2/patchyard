@@ -22,11 +22,94 @@ readonly services=(factory-dashboard.service factory-supervisor.service)
   echo 'backup recipient must be an SSH Ed25519 public key' >&2
   exit 20
 }
+s3api=(aws --endpoint-url "$FACTORY_BACKUP_ENDPOINT" s3api)
+
+require_bucket_versioning() {
+  local status
+  status=$("${s3api[@]}" get-bucket-versioning \
+    --bucket "$FACTORY_BACKUP_BUCKET" --query Status --output text)
+  [[ "$status" == Enabled ]] || {
+    echo "backup_bucket_versioning_failed status=$status" >&2
+    exit 29
+  }
+}
+
+require_bucket_versioning
+
+if [[ "${1:-}" == --verify-latest ]]; then
+  [[ $# == 1 ]] || exit 2
+  verify_root=$(mktemp -d /var/tmp/patchyard-backup-verify.XXXXXX)
+  trap 'rm -r -- "$verify_root"' EXIT
+  "${s3api[@]}" get-object --bucket "$FACTORY_BACKUP_BUCKET" --key LATEST \
+    "$verify_root/LATEST" >/dev/null
+  verify_generation=$(tr -d '\r\n' <"$verify_root/LATEST")
+  [[ "$verify_generation" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || {
+    echo 'LATEST contains an invalid generation' >&2
+    exit 27
+  }
+  verify_prefix="generations/$verify_generation"
+  "${s3api[@]}" get-object --bucket "$FACTORY_BACKUP_BUCKET" \
+    --key "$verify_prefix/receipt.json" "$verify_root/receipt.json" >/dev/null
+  jq -e --arg generation "$verify_generation" '
+    .schema_version == 1 and .generation == $generation
+    and (.created_at | fromdateiso8601) > 0
+    and (.ciphertext_sha256 | test("^[0-9a-f]{64}$"))
+    and (.ciphertext_bytes | type == "number" and . > 0 and . <= 4294967296)
+  ' "$verify_root/receipt.json" >/dev/null
+  verify_head=$("${s3api[@]}" head-object --bucket "$FACTORY_BACKUP_BUCKET" \
+    --key "$verify_prefix/backup.tar.age")
+  [[ "$(jq -r '.Metadata.sha256' <<<"$verify_head")" == \
+      "$(jq -r '.ciphertext_sha256' "$verify_root/receipt.json")" \
+    && "$(jq -r '.ContentLength' <<<"$verify_head")" == \
+      "$(jq -r '.ciphertext_bytes' "$verify_root/receipt.json")" ]] || {
+    echo 'LATEST generation receipt differs from remote ciphertext metadata' >&2
+    exit 27
+  }
+  verify_created=$(jq -r '.created_at | fromdateiso8601' "$verify_root/receipt.json")
+  verify_age=$(( $(date -u +%s) - verify_created ))
+  (( verify_age >= 0 && verify_age <= 93600 )) || {
+    echo "LATEST generation is outside the 26-hour acceptance window: ${verify_age}s" >&2
+    exit 27
+  }
+  printf 'backup_verified generation=%s age_seconds=%s\n' \
+    "$verify_generation" "$verify_age"
+  exit 0
+fi
+[[ $# == 0 ]] || exit 2
 
 exec 9>"$backup_root/backup.lock"
 flock --exclusive --nonblock 9 || {
   echo 'another backup is already active' >&2
   exit 21
+}
+
+active_work_count() {
+  runuser -u postgres -- psql \
+    --host="$socket_root" --dbname="$database" --tuples-only --no-align \
+    --command="
+    SELECT
+      (SELECT count(*) FROM factory.runs WHERE state NOT IN (
+        'ready_for_review', 'dry_run_complete', 'failed', 'killed',
+        'closed', 'escalated', 'ci_failed', 'ci_cancelled',
+        'ci_job_timed_out', 'ci_action_required', 'ci_neutral',
+        'ci_skipped', 'ci_stale', 'ci_startup_failed',
+        'ci_wait_timed_out', 'ci_observation_failed', 'preview_failed',
+        'preview_timed_out', 'preview_sha_changed', 'evidence_failed',
+        'secret_scan_failed', 'lease_cleanup_failed', 'pr_contract_failed'
+      ))
+      +
+      (SELECT count(*) FROM factory.proposer_runs
+       WHERE state IN ('queued','reporting','proposing','reviewing','publishing'));"
+}
+
+active_work=$(active_work_count)
+[[ "$active_work" =~ ^[0-9]+$ ]] || {
+  echo 'active-work preflight returned an invalid count' >&2
+  exit 26
+}
+(( active_work == 0 )) || {
+  echo "backup_busy active_work=$active_work" >&2
+  exit 26
 }
 
 generation=$(date -u +'%Y%m%dT%H%M%SZ')
@@ -41,13 +124,24 @@ recipient_file="$generation_root/recipient.txt"
 printf '%s\n' "$FACTORY_BACKUP_AGE_RECIPIENT" >"$recipient_file"
 
 active_services=()
-restart_services() {
-  local service
+cleanup_and_restart() {
+  local strict=${1:-false} service restart_failed=0
+  if [[ -d "$payload_root" && ! -L "$payload_root" ]]; then
+    rm -r -- "$payload_root"
+  fi
+  rm -f -- "$generation_root/backup.tar"
   for service in "${active_services[@]}"; do
-    systemctl start "$service" || true
+    if ! systemctl start "$service"; then
+      restart_failed=1
+    fi
   done
+  if (( restart_failed != 0 )) && [[ "$strict" == true ]]; then
+    echo 'service_resume_failed: one or more writers did not restart' >&2
+    return 28
+  fi
+  return 0
 }
-trap restart_services EXIT
+trap 'cleanup_and_restart false' EXIT
 
 for service in "${services[@]}"; do
   if systemctl is-active --quiet "$service"; then
@@ -55,6 +149,16 @@ for service in "${services[@]}"; do
     systemctl stop "$service"
   fi
 done
+
+active_work=$(active_work_count)
+[[ "$active_work" =~ ^[0-9]+$ ]] || {
+  echo 'post-quiescence active-work check returned an invalid count' >&2
+  exit 26
+}
+(( active_work == 0 )) || {
+  echo "backup_busy active_work=$active_work entered_during_quiescence=true" >&2
+  exit 26
+}
 
 if find "$artifact_root" ! -type d ! -type f -print -quit | grep -q .; then
   echo 'artifact tree contains a non-regular entry' >&2
@@ -99,7 +203,7 @@ runuser -u postgres -- pg_dump \
   --host="$socket_root" --dbname="$database" \
   --format=custom --compress=9 --data-only --no-owner --no-acl \
   --exclude-table-data=public._sqlx_migrations \
-  --file="$payload_root/database.dump"
+  >"$payload_root/database.dump"
 
 tables_file="$generation_root/tables.tsv"
 runuser -u postgres -- psql \
@@ -129,7 +233,7 @@ artifacts_archive_sha256=$(sha256sum "$payload_root/artifacts.tar" | cut -d' ' -
 artifacts_manifest_sha256=$(sha256sum "$payload_root/artifacts.sha256" | cut -d' ' -f1)
 runtime_archive_sha256=$(sha256sum "$payload_root/runtime.tar" | cut -d' ' -f1)
 runtime_manifest_sha256=$(sha256sum "$payload_root/runtime.sha256" | cut -d' ' -f1)
-source_revision=$(git -C /opt/patchyard rev-parse HEAD)
+source_revision=$(runuser -u factory-manager -- git -C /opt/patchyard rev-parse HEAD)
 
 jq -n \
   --arg generation "$generation" \
@@ -170,7 +274,6 @@ jq -n \
   '{schema_version:1,generation:$generation,created_at:$created_at,ciphertext_sha256:$ciphertext_sha256,ciphertext_bytes:$ciphertext_bytes}' \
   >"$generation_root/receipt.json"
 
-s3api=(aws --endpoint-url "$FACTORY_BACKUP_ENDPOINT" s3api)
 object_prefix="generations/$generation"
 "${s3api[@]}" put-object --bucket "$FACTORY_BACKUP_BUCKET" \
   --key "$object_prefix/backup.tar.age" --body "$generation_root/backup.tar.age" \
@@ -191,6 +294,6 @@ printf '%s\n' "$generation" >"$generation_root/LATEST"
 rm -r -- "$payload_root"
 find "$backup_root/generations" -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -r -- {} +
 trap - EXIT
-restart_services
+cleanup_and_restart true
 printf 'backup_complete generation=%s files=%s bytes=%s\n' \
   "$generation" "$artifact_file_count" "$artifact_bytes"

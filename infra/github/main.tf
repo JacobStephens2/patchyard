@@ -42,6 +42,14 @@ resource "github_branch_protection" "master" {
     required_approving_review_count = 0
     require_last_push_approval      = false
   }
+
+  # A109 keeps approvals optional. A1 is enforced independently: only the two
+  # authorized human mergers may update protected master; the Factory App may
+  # create proposal branches and PRs but cannot merge or push its own output.
+  restrict_pushes {
+    blocks_creations = false
+    push_allowances  = ["/JacobStephens2", "/example-teammate"]
+  }
 }
 
 data "github_repository" "fieldbook" {

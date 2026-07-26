@@ -645,16 +645,25 @@ async fn account(pool: &sqlx::PgPool, command: AccountCommand) -> Result<(), Box
                 tokio::task::spawn_blocking(move || hash_password(&password)).await??;
             let id = Uuid::new_v4();
             let mut transaction = pool.begin().await?;
-            let account_id: Uuid = sqlx::query_scalar(
+            let (account_id, changed): (Uuid, bool) = sqlx::query_as(
                 r#"
-                INSERT INTO factory.users (
-                    id, username, display_name, password_hash, role
-                ) VALUES ($1, $2, $3, $4, $5::factory.account_role)
-                ON CONFLICT (username) DO UPDATE SET
-                    display_name = EXCLUDED.display_name,
-                    role = EXCLUDED.role,
-                    updated_at = clock_timestamp()
-                RETURNING id
+                WITH changed AS (
+                    INSERT INTO factory.users (
+                        id, username, display_name, password_hash, role
+                    ) VALUES ($1, $2, $3, $4, $5::factory.account_role)
+                    ON CONFLICT (username) DO UPDATE SET
+                        display_name = EXCLUDED.display_name,
+                        role = EXCLUDED.role,
+                        updated_at = clock_timestamp()
+                    WHERE factory.users.display_name IS DISTINCT FROM EXCLUDED.display_name
+                       OR factory.users.role IS DISTINCT FROM EXCLUDED.role
+                    RETURNING id
+                )
+                SELECT id, true AS changed FROM changed
+                UNION ALL
+                SELECT id, false AS changed FROM factory.users
+                WHERE username=$2 AND NOT EXISTS (SELECT 1 FROM changed)
+                LIMIT 1
                 "#,
             )
             .bind(id)
@@ -664,15 +673,20 @@ async fn account(pool: &sqlx::PgPool, command: AccountCommand) -> Result<(), Box
             .bind(AccountRole::from(arguments.role).as_str())
             .fetch_one(&mut *transaction)
             .await?;
-            sqlx::query(
-                "INSERT INTO factory.audit_events (user_id,action,subject,client_key) VALUES ($1,'account.provisioned',$2,'factoryctl')",
-            )
-            .bind(account_id)
-            .bind(&username)
-            .execute(&mut *transaction)
-            .await?;
+            if changed {
+                sqlx::query(
+                    "INSERT INTO factory.audit_events (user_id,action,subject,client_key) VALUES ($1,'account.provisioned',$2,'factoryctl')",
+                )
+                .bind(account_id)
+                .bind(&username)
+                .execute(&mut *transaction)
+                .await?;
+            }
             transaction.commit().await?;
-            println!("account {username} provisioned as {account_id}");
+            println!(
+                "account {username} {} as {account_id}",
+                if changed { "provisioned" } else { "unchanged" }
+            );
         }
         AccountCommand::Disable(arguments) => {
             set_account_enabled(pool, &arguments.username, false).await?;

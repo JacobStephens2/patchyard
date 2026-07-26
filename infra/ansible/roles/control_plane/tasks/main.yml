@@ -571,7 +571,9 @@
     enabled: true
     state: started
     daemon_reload: true
-  when: not (factory_restore_drill | default(false) | bool)
+  when:
+    - not (factory_restore_drill | default(false) | bool)
+    - not (factory_rollback_boundary | default(false) | bool)
 
 - name: Publish the non-secret PostgreSQL TLS trust root
   ansible.builtin.copy:
@@ -1262,6 +1264,15 @@
     mode: "0750"
   tags: [session13]
 
+- name: Create the traversable manager-owned proposer runtime root
+  ansible.builtin.file:
+    path: /var/lib/patchyard/proposer-inbox
+    state: directory
+    owner: "{{ factory_manager_user }}"
+    group: factory
+    mode: "0750"
+  tags: [session15]
+
 - name: Create the manager-owned proposer ideas projection
   ansible.builtin.file:
     path: /var/lib/patchyard/proposer-inbox/docs
@@ -1534,6 +1545,15 @@
     mode: "0640"
   notify: Restart factory supervisor
   tags: [session13]
+
+- name: Install the deployed-version operator environment allowlist
+  ansible.builtin.template:
+    src: patchyard-deployed-version.env.j2
+    dest: /etc/patchyard/deployed-version.env
+    owner: root
+    group: "{{ factory_manager_user }}"
+    mode: "0640"
+  tags: [session16]
 
 - name: Install the fixed A104 isolated-child operations
   ansible.builtin.copy:

@@ -16,6 +16,18 @@ class Session16CutoverContract(unittest.TestCase):
         cls.restore_play = (ROOT / "infra" / "ansible" / "restore.yml").read_text()
         cls.restore_operator = (ROOT / "infra" / "restore-drill.sh").read_text()
         cls.rollback_operator = (ROOT / "infra" / "rollback-control.sh").read_text()
+        cls.rollback_boundary = (
+            ROOT / "infra" / "ansible" / "rollback-boundary.yml"
+        ).read_text()
+        cls.tasks = (
+            ROOT
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "control_plane"
+            / "tasks"
+            / "main.yml"
+        ).read_text()
         cls.github = (ROOT / "infra" / "github" / "main.tf").read_text()
         cls.spaces = (ROOT / "infra" / "digitalocean" / "backup.tf").read_text()
 
@@ -28,15 +40,23 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("runtime.sha256", self.backup)
         self.assertIn("table_counts", self.backup)
         self.assertIn("contains a non-regular entry", self.backup)
+        self.assertIn("backup_busy active_work=", self.backup)
+        self.assertIn("service_resume_failed", self.backup)
+        self.assertIn('>"$payload_root/database.dump"', self.backup)
+        self.assertNotIn('--file="$payload_root/database.dump"', self.backup)
 
     def test_backup_is_client_encrypted_before_atomic_off_host_publication(self) -> None:
         encrypt = self.backup.index("age --encrypt")
         upload = self.backup.index("put-object")
-        latest = self.backup.index("--key LATEST")
+        latest = self.backup.rindex("--key LATEST")
         self.assertLess(encrypt, upload)
         self.assertLess(upload, latest)
         self.assertIn("head-object", self.backup)
         self.assertIn("ciphertext_sha256", self.backup)
+        self.assertIn("--verify-latest", self.backup)
+        self.assertIn("LATEST generation receipt differs", self.backup)
+        self.assertIn("get-bucket-versioning", self.backup)
+        self.assertIn("backup_bucket_versioning_failed", self.backup)
 
     def test_live_host_receives_no_recovery_private_key(self) -> None:
         backup_env = (
@@ -67,6 +87,9 @@ class Session16CutoverContract(unittest.TestCase):
             self.assertIn(required, self.restore)
         self.assertIn("factoryctl", self.restore_play)
         self.assertIn("historical evidence", self.restore_play)
+        self.assertIn("--disable-triggers", self.restore)
+        self.assertIn('<"$restore_root/payload/database.dump"', self.restore)
+        self.assertIn("RESTORE_GRAFANA_REQUEST_CANARY", self.restore_play)
 
     def test_clean_host_drill_has_reviewed_create_and_destroy_plans(self) -> None:
         self.assertIn("digitalocean_droplet.restore_drill[0]", self.restore_operator)
@@ -75,13 +98,52 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("factory_restore_drill:true", self.restore_operator)
         self.assertIn('factory_dashboard_accounts_file:"/dev/null"', self.restore_operator)
         self.assertIn('factory_github_app_private_key_file:"/dev/null"', self.restore_operator)
+        guard = self.restore_play.index("Refuse restore outside the generated drill inventory")
+        roles = self.restore_play.index("roles:")
+        destructive = self.restore_play.index("Remove only the clean recovery artifact targets")
+        self.assertLess(guard, roles)
+        self.assertLess(guard, destructive)
+        self.assertIn("factory_restore_expected_host", self.restore_operator)
+        self.assertIn("factory_restore_expected_droplet_id", self.restore_operator)
+        self.assertIn("restore_drill_id", self.restore_operator)
+        self.assertIn("metadata/v1/id", self.restore_play)
+        self.assertIn("restore_target_refused", self.restore_play)
+        self.assertIn("clean_restore_targets.results[0].matched == 0", self.restore_play)
 
     def test_rollback_binds_live_revision_and_verifies_durable_state(self) -> None:
         self.assertIn('current=$(resolve_reviewed_revision "$(installed_revision', self.rollback_operator)
         self.assertIn("installed revision changed after rollback plan review", self.rollback_operator)
         self.assertIn("capture_durable_state", self.rollback_operator)
-        self.assertIn('cmp --silent "$before_state" "$after_state"', self.rollback_operator)
-        self.assertIn('durable_state:"verified_equal"', self.rollback_operator)
+        self.assertIn(
+            'cmp --silent "$before_stable" "$target_stable"',
+            self.rollback_operator,
+        )
+        self.assertIn(
+            'cmp --silent "$before_stable" "$recovered_stable"',
+            self.rollback_operator,
+        )
+        self.assertIn(
+            'durable_state:"verified_rollback_and_recovery_equal_except_declared_account_audits"',
+            self.rollback_operator,
+        )
+        self.assertIn("unexpected_rollback_audits", self.rollback_operator)
+        self.assertIn("sudo -n runuser -u factory-manager -- git", self.rollback_operator)
+        self.assertIn("set_rollback_boundary enter", self.rollback_operator)
+        self.assertIn("set_rollback_boundary exit", self.rollback_operator)
+        self.assertIn("dashboard Full stop", self.rollback_boundary)
+        self.assertIn("factory.proposer_runs", self.rollback_boundary)
+        self.assertIn('port="{{ item }}" protocol="tcp" reject', self.rollback_boundary)
+        self.assertIn("patchyard-backup.service", self.rollback_boundary)
+        self.assertIn('deploy_and_qualify_revision "$target"', self.rollback_operator)
+        self.assertIn(
+            'deploy_and_qualify_revision "$return_revision"',
+            self.rollback_operator,
+        )
+        self.assertIn("rollback-emergency-recovery", self.rollback_operator)
+        self.assertIn(
+            "public boundary and backup-timer stop remain in force",
+            self.rollback_operator,
+        )
 
     def test_spaces_authorities_are_split(self) -> None:
         self.assertIn('name = "patchyard-backup-management"', self.spaces)
@@ -99,8 +161,14 @@ class Session16CutoverContract(unittest.TestCase):
 
     def test_a109_keeps_factory_approvals_optional_and_marker_human_only(self) -> None:
         self.assertIn("required_approving_review_count = 0", self.github)
+        master = self.github.split('data "github_repository" "fieldbook"', maxsplit=1)[0]
+        self.assertIn('push_allowances  = ["/JacobStephens2", "/example-teammate"]', master)
         self.assertIn('pattern             = "deploy/production"', self.github)
         self.assertIn('push_allowances  = ["/JacobStephens2", "/example-teammate"]', self.github)
+
+    def test_installed_parent_and_deployed_version_operator_env_are_repaired(self) -> None:
+        self.assertIn("path: /var/lib/patchyard/proposer-inbox", self.tasks)
+        self.assertIn("src: patchyard-deployed-version.env.j2", self.tasks)
 
 
 if __name__ == "__main__":

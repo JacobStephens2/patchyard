@@ -34,7 +34,8 @@ control_ip() {
 
 installed_revision() {
   local address=$1
-  ssh "${SSH_ARGS[@]}" "conductor@$address" 'git -C /opt/patchyard rev-parse HEAD'
+  ssh "${SSH_ARGS[@]}" "conductor@$address" \
+    'sudo -n runuser -u factory-manager -- git -C /opt/patchyard rev-parse HEAD'
 }
 
 capture_durable_state() {
@@ -50,6 +51,9 @@ while IFS=$'\t' read -r schema table; do
 done < <(runuser -u postgres -- psql --host="$socket" --dbname="$database" \
   --tuples-only --no-align --field-separator=$'\t' \
   --command="SELECT schemaname, tablename FROM pg_tables WHERE schemaname IN ('factory', 'public') ORDER BY schemaname, tablename")
+runuser -u postgres -- psql --host="$socket" --dbname="$database" \
+  --tuples-only --no-align \
+  --command="SELECT 'audit' || E'\\t' || COALESCE(max(id),0) || E'\\t' || count(*) FROM factory.audit_events"
 for root in artifacts proposer-inbox; do
   while IFS= read -r -d '' path; do
     relative=${path#"/var/lib/patchyard/$root/"}
@@ -57,6 +61,50 @@ for root in artifacts proposer-inbox; do
   done < <(find "/var/lib/patchyard/$root" -type f -print0 | sort -z)
 done
 REMOTE
+}
+
+unexpected_rollback_audits() {
+  local address=$1 minimum_id=$2
+  [[ "$minimum_id" =~ ^[0-9]+$ ]] || return 2
+  # The only client-expanded value is validated as decimal digits above.
+  # shellcheck disable=SC2029
+  ssh "${SSH_ARGS[@]}" "conductor@$address" \
+    "sudo -n runuser -u postgres -- psql --host=/run/patchyard-postgres --dbname=patchyard --tuples-only --no-align --command=\"SELECT count(*) FROM factory.audit_events WHERE id > $minimum_id AND (action <> 'account.provisioned' OR client_key <> 'factoryctl')\""
+}
+
+set_rollback_boundary() {
+  local state=$1
+  local ansible_playbook="$REPO_ROOT/infra/ansible/.venv/bin/ansible-playbook"
+  [[ -x "$ansible_playbook" ]] || ansible_playbook=ansible-playbook
+  (
+    cd "$REPO_ROOT/infra/ansible"
+    "$ansible_playbook" -i inventory/tofu.sh rollback-boundary.yml \
+      -e "factory_rollback_boundary=$state"
+  )
+}
+
+deploy_and_qualify_revision() {
+  local revision=$1 label=$2
+  rollback_root=$(mktemp -d "/tmp/patchyard-${label}.XXXXXX")
+  git -C "$REPO_ROOT" worktree add --detach "$rollback_root" "$revision"
+  "$rollback_root/infra/tofu.sh" digitalocean init -reconfigure
+  "$rollback_root/infra/ansible/converge.sh" \
+    -e factory_rollback_boundary=true
+  [[ "$(installed_revision "$address")" == "$revision" ]] || {
+    echo "$label installed an unexpected revision" >&2
+    return 3
+  }
+  "$rollback_root/infra/ansible/qualify.sh"
+  ssh "${SSH_ARGS[@]}" "conductor@$address" \
+    'sudo systemctl stop patchyard-backup.timer && sudo systemctl is-active --quiet postgresql factory-dashboard factory-supervisor caddy && ! sudo systemctl is-active --quiet patchyard-backup.timer && sudo curl --fail --silent --unix-socket /run/patchyard-dashboard/dashboard.sock http://localhost/healthz'
+  git -C "$REPO_ROOT" worktree remove "$rollback_root"
+  rollback_root=''
+}
+
+stable_durable_state() {
+  local source=$1 destination=$2
+  awk -F '\t' '$1 != "audit" && !($1 == "row" && $2 == "factory.audit_events")' \
+    "$source" >"$destination"
 }
 
 case "$MODE" in
@@ -83,7 +131,7 @@ case "$MODE" in
       --arg return_tree "$(git -C "$REPO_ROOT" rev-parse "$current^{tree}")" \
       --argjson migration_count "$current_migrations" \
       --arg created_at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-      '{schema_version:1,target_revision:$target_revision,target_tree:$target_tree,return_revision:$return_revision,return_tree:$return_tree,migration_count:$migration_count,created_at:$created_at,scope:"application-binaries-config-and-checkout",durable_state:"must-match-before-and-after"}' \
+      '{schema_version:1,target_revision:$target_revision,target_tree:$target_tree,return_revision:$return_revision,return_tree:$return_tree,migration_count:$migration_count,created_at:$created_at,scope:"application-binaries-config-and-checkout",durable_state:"must-preserve-with-declared-account-audits"}' \
       >"$manifest"
     sha256sum "$manifest" >"$manifest.sha256"
     echo "review $manifest and $manifest.sha256, then run apply"
@@ -95,7 +143,7 @@ case "$MODE" in
     : "${PATCHYARD_ROLLBACK_APPROVED:?set PATCHYARD_ROLLBACK_APPROVED=yes after manifest review}"
     [[ "$PATCHYARD_ROLLBACK_APPROVED" == yes ]] || exit 2
     (cd "$(dirname "$manifest")" && sha256sum --check "$(basename "$manifest").sha256")
-    jq -e '.schema_version == 1 and .scope == "application-binaries-config-and-checkout" and .durable_state == "must-match-before-and-after" and (.target_revision | test("^[0-9a-f]{40}$")) and (.return_revision | test("^[0-9a-f]{40}$"))' \
+    jq -e '.schema_version == 1 and .scope == "application-binaries-config-and-checkout" and .durable_state == "must-preserve-with-declared-account-audits" and (.target_revision | test("^[0-9a-f]{40}$")) and (.return_revision | test("^[0-9a-f]{40}$"))' \
       "$manifest" >/dev/null
     target=$(jq -r .target_revision "$manifest")
     target=$(resolve_reviewed_revision "$target")
@@ -111,53 +159,105 @@ case "$MODE" in
     }
     result_root=${manifest%.json}
     before_state="$result_root.durable-before.tsv"
-    after_state="$result_root.durable-after.tsv"
+    target_state="$result_root.durable-target.tsv"
+    recovered_state="$result_root.durable-recovered.tsv"
+    before_stable="$result_root.durable-before-stable.tsv"
+    target_stable="$result_root.durable-target-stable.tsv"
+    recovered_stable="$result_root.durable-recovered-stable.tsv"
     result_file="$result_root.result.json"
-    [[ ! -e "$before_state" && ! -e "$after_state" && ! -e "$result_file" ]] || {
+    [[ ! -e "$before_state" && ! -e "$target_state" \
+      && ! -e "$recovered_state" && ! -e "$before_stable" \
+      && ! -e "$target_stable" && ! -e "$recovered_stable" \
+      && ! -e "$result_file" ]] || {
       echo 'rollback evidence files already exist' >&2
       exit 2
     }
-    capture_durable_state "$address" "$before_state"
-
-    rollback_root=$(mktemp -d /tmp/patchyard-rollback.XXXXXX)
-    trap 'git -C "$REPO_ROOT" worktree remove --force "$rollback_root" >/dev/null 2>&1 || true' EXIT
-    git -C "$REPO_ROOT" worktree add --detach "$rollback_root" "$target"
-    "$rollback_root/infra/tofu.sh" digitalocean init -reconfigure
-    "$rollback_root/infra/ansible/converge.sh"
-    installed=$(installed_revision "$address")
-    [[ "$installed" == "$target" ]] || exit 3
-    ssh "${SSH_ARGS[@]}" "conductor@$address" \
-      'sudo systemctl is-active --quiet postgresql factory-dashboard factory-supervisor caddy && sudo curl --fail --silent --unix-socket /run/patchyard-dashboard/dashboard.sock http://localhost/healthz'
-    ssh "${SSH_ARGS[@]}" "conductor@$address" \
-      'sudo systemctl stop factory-dashboard.service factory-supervisor.service'
-    resume_services=true
-    resume_after_capture() {
-      if [[ "$resume_services" == true ]]; then
-        ssh "${SSH_ARGS[@]}" "conductor@$address" \
-          'sudo systemctl start factory-dashboard.service factory-supervisor.service' || true
+    set_rollback_boundary enter
+    boundary_entered=true
+    return_qualified=false
+    rollback_root=''
+    release_boundary_and_cleanup() {
+      if [[ -n "$rollback_root" ]]; then
+        git -C "$REPO_ROOT" worktree remove --force "$rollback_root" >/dev/null 2>&1 || true
+        rollback_root=''
+      fi
+      if [[ "$boundary_entered" == true && "$return_qualified" != true ]]; then
+        echo 'rollback failed before verified recovery; retrying the reviewed return revision' >&2
+        if deploy_and_qualify_revision "$return_revision" rollback-emergency-recovery; then
+          return_qualified=true
+        elif [[ -n "$rollback_root" ]]; then
+          git -C "$REPO_ROOT" worktree remove --force "$rollback_root" >/dev/null 2>&1 || true
+          rollback_root=''
+        fi
+      fi
+      if [[ "$boundary_entered" == true && "$return_qualified" == true ]]; then
+        if set_rollback_boundary exit; then
+          boundary_entered=false
+        fi
+      fi
+      if [[ "$boundary_entered" == true ]]; then
+        echo 'rollback recovery did not qualify; public boundary and backup-timer stop remain in force' >&2
       fi
     }
-    trap 'resume_after_capture; git -C "$REPO_ROOT" worktree remove --force "$rollback_root" >/dev/null 2>&1 || true' EXIT
-    capture_durable_state "$address" "$after_state"
-    cmp --silent "$before_state" "$after_state" || {
-      diff --unified "$before_state" "$after_state" >&2 || true
-      echo 'rollback changed durable row counts or file hashes' >&2
+    trap release_boundary_and_cleanup EXIT
+    capture_durable_state "$address" "$before_state"
+
+    deploy_and_qualify_revision "$target" rollback-target
+    capture_durable_state "$address" "$target_state"
+    deploy_and_qualify_revision "$return_revision" rollback-recovery
+    return_qualified=true
+    capture_durable_state "$address" "$recovered_state"
+
+    before_audit_max=$(awk -F '\t' '$1 == "audit" {print $2}' "$before_state")
+    before_audit_count=$(awk -F '\t' '$1 == "audit" {print $3}' "$before_state")
+    target_audit_count=$(awk -F '\t' '$1 == "audit" {print $3}' "$target_state")
+    recovered_audit_count=$(awk -F '\t' '$1 == "audit" {print $3}' "$recovered_state")
+    [[ "$before_audit_max" =~ ^[0-9]+$ && "$before_audit_count" =~ ^[0-9]+$ \
+      && "$target_audit_count" =~ ^[0-9]+$ \
+      && "$recovered_audit_count" =~ ^[0-9]+$ \
+      && "$target_audit_count" -ge "$before_audit_count" \
+      && "$recovered_audit_count" -ge "$target_audit_count" ]] || exit 3
+    target_audit_delta=$(( target_audit_count - before_audit_count ))
+    total_audit_delta=$(( recovered_audit_count - before_audit_count ))
+    (( target_audit_delta <= 32 && total_audit_delta <= 64 )) || {
+      echo "rollback/recovery emitted an unbounded audit delta: $total_audit_delta" >&2
+      exit 3
+    }
+    [[ "$(unexpected_rollback_audits "$address" "$before_audit_max")" == 0 ]] || {
+      echo 'rollback emitted an audit action outside declarative account provisioning' >&2
+      exit 3
+    }
+    stable_durable_state "$before_state" "$before_stable"
+    stable_durable_state "$target_state" "$target_stable"
+    stable_durable_state "$recovered_state" "$recovered_stable"
+    cmp --silent "$before_stable" "$target_stable" || {
+      diff --unified "$before_stable" "$target_stable" >&2 || true
+      echo 'rollback target changed durable state outside declared audit events' >&2
+      exit 3
+    }
+    cmp --silent "$before_stable" "$recovered_stable" || {
+      diff --unified "$before_stable" "$recovered_stable" >&2 || true
+      echo 'rollback recovery changed durable state outside declared audit events' >&2
       exit 3
     }
     before_sha256=$(sha256sum "$before_state" | cut -d' ' -f1)
-    after_sha256=$(sha256sum "$after_state" | cut -d' ' -f1)
+    target_sha256=$(sha256sum "$target_state" | cut -d' ' -f1)
+    recovered_sha256=$(sha256sum "$recovered_state" | cut -d' ' -f1)
     jq -n --arg target_revision "$target" --arg return_revision "$return_revision" \
-      --arg before_sha256 "$before_sha256" --arg after_sha256 "$after_sha256" \
+      --arg before_sha256 "$before_sha256" --arg target_sha256 "$target_sha256" \
+      --arg recovered_sha256 "$recovered_sha256" \
+      --argjson target_audit_delta "$target_audit_delta" \
+      --argjson total_audit_delta "$total_audit_delta" \
       --arg completed_at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-      '{schema_version:1,target_revision:$target_revision,return_revision:$return_revision,before_sha256:$before_sha256,after_sha256:$after_sha256,durable_state:"verified_equal",completed_at:$completed_at}' \
+      '{schema_version:1,target_revision:$target_revision,return_revision:$return_revision,before_sha256:$before_sha256,target_sha256:$target_sha256,recovered_sha256:$recovered_sha256,target_audit_delta:$target_audit_delta,total_audit_delta:$total_audit_delta,durable_state:"verified_rollback_and_recovery_equal_except_declared_account_audits",completed_at:$completed_at}' \
       >"$result_file"
-    resume_after_capture
-    resume_services=false
+    set_rollback_boundary exit
+    boundary_entered=false
     ssh "${SSH_ARGS[@]}" "conductor@$address" \
-      'sudo systemctl is-active --quiet postgresql factory-dashboard factory-supervisor caddy && sudo curl --fail --silent --unix-socket /run/patchyard-dashboard/dashboard.sock http://localhost/healthz'
-    git -C "$REPO_ROOT" worktree remove "$rollback_root"
+      'sudo systemctl is-active --quiet postgresql factory-dashboard factory-supervisor caddy patchyard-backup.timer'
     trap - EXIT
-    printf 'rollback_complete revision=%s durable_state_sha256=%s\n' "$target" "$after_sha256"
+    printf 'rollback_complete target=%s recovered=%s durable_state_sha256=%s\n' \
+      "$target" "$return_revision" "$recovered_sha256"
     ;;
   *)
     echo 'usage: infra/rollback-control.sh <plan|apply> ...' >&2

@@ -18,9 +18,9 @@ unexplained difference.
 | operate | all expected units, sockets, health endpoints, marker read, and private management probes pass | `operate_health_failed` |
 | converge | reviewed cloud plans apply, first Ansible converge succeeds, second reports `changed=0`, qualification passes | `converge_failed` or `converge_not_idempotent` |
 | replace worker | exact replacement plan applies; two converges, host qualification, isolation probe, and no-residue probe pass with no restored worker state | `worker_replacement_failed` |
-| back up | writers quiesce, dump/manifests complete, age ciphertext uploads, remote metadata hash round-trips, `LATEST` advances, prior service state resumes | `backup_failed` or `service_resume_failed` |
+| back up | active work refuses as `backup_busy`; otherwise writers quiesce, dump/manifests complete, age ciphertext uploads, remote metadata hash round-trips, `LATEST` advances, prior service state resumes | `backup_busy`, `backup_failed`, or `service_resume_failed` |
 | restore | clean host is provisioned, migrations precede data restore, every row/file/hash matches, dashboard starts, historical evidence opens | `restore_failed` or `restore_verification_failed` |
-| roll back | merged target with equal migration count converges; installed SHA, services, and health match; durable state is unchanged | `rollback_failed` |
+| roll back | merged target with equal migration count converges and qualifies, then the reviewed cutover revision reconverges and requalifies; both preserve declared durable state | `rollback_busy`, `rollback_failed`, or `rollback_recovery_failed` |
 | kill | control row reaches `completed`, child/worker residue is zero, lease is released, run and request terminate as `killed` with an event | `kill_failed` |
 
 Never label a partial operation as success. Preserve its command output and the
@@ -48,12 +48,16 @@ sudo curl --fail --silent \
   --unix-socket /run/patchyard-dashboard/dashboard.sock \
   http://localhost/healthz
 sudo -u factory-manager /usr/local/sbin/patchyard-converge-hosts --check
-sudo /usr/local/libexec/patchyard-deployed-version | jq .
+sudo bash -c 'set -a; source /etc/patchyard/deployed-version.env; set +a; exec /usr/local/libexec/patchyard-deployed-version' | jq .
 ```
 
 `patchyard-deployed-version` must report the protected Fieldbook
 `refs/heads/deploy/production` commit. A missing, unreadable, malformed, or
 non-commit marker remains fail closed; it is never replaced with a guessed SHA.
+Compare that SHA to an independent `factory-manager` read of the clean Fieldbook
+production checkout. The ongoing marker-advance contract is installed by the
+human-merged orchestration PR #5; a deploy is not complete if its read-back
+marker update fails.
 
 ## Converge
 
@@ -125,19 +129,36 @@ control-plane repair:
 sudo systemctl start patchyard-backup.service
 sudo systemctl status --no-pager patchyard-backup.service
 sudo journalctl -u patchyard-backup.service -n 100 --no-pager
+sudo bash -c 'set -a; source /etc/patchyard/backup.env; set +a; exec /usr/local/sbin/patchyard-backup --verify-latest'
 ```
 
-The executable contract takes an advisory lock; remembers which writers were
-active; stops dashboard and supervisor; rejects non-regular artifact/runtime
+The executable contract first requires live bucket versioning, takes an
+advisory lock, and refuses with `backup_busy` rather than interrupting an
+active production or proposer run. It remembers which writers were active;
+stops dashboard and supervisor; rejects non-regular artifact/runtime
 entries and unsupported path characters; records exact table counts; creates
 a custom data-only `pg_dump` excluding `_sqlx_migrations`; manifests artifacts and the
 runtime ideas projection; creates deterministic tar inputs; encrypts the whole
 payload to the recovery public key; uploads the ciphertext and receipt over
-HTTPS; round-trips its SHA-256 metadata; then advances `LATEST`. A trap resumes
+HTTPS; round-trips its SHA-256 metadata; then advances `LATEST`. It rechecks
+active work after stopping writers to close the intake/claim race. A trap resumes
 only the writers that were active before the attempt.
 
 The database remains unavailable to writers during the dump. A failed backup
-does not advance `LATEST`. Check service state even when the unit fails.
+does not advance `LATEST`, and its EXIT path removes plaintext dump/tar staging.
+Check service state even when the unit fails. The `--verify-latest` path proves
+that the remote pointer resolves to a receipt and ciphertext metadata within
+the 26-hour operational window; it does not turn the shared bucket writer into
+an independent provenance authority.
+
+The control-plane key has DigitalOcean's bucket-scoped Read/Write/Delete
+permission because Spaces offers no put-without-delete key. Versioning retains
+non-current objects for seven days, but this is recovery from ordinary or
+detected destructive writes, not WORM storage. `age` authenticates ciphertext
+integrity; it does not prove that a compromised runtime writer did not replace
+both ciphertext and receipt. Preserve the accepted receipt/hash in the Session
+16 record and inspect versions with the off-host management key after any
+suspected compromise.
 
 ## Restore
 
@@ -169,6 +190,12 @@ every manifest count and digest. It then starts the dashboard only, creates a
 drill-only admin after count verification, authenticates through the real
 login route, opens one historical run evidence route, and verifies the response
 hash. The recovery key and probe password are removed from `/run` afterward.
+Its first tasks bind the generated drill flag and public IP to the planned
+DigitalOcean droplet ID read from the provider metadata endpoint; running the
+play against normal production or a caller-spoofed inventory refuses before
+roles, services, or data are touched. After restoration it also reruns the A94
+Grafana canary-content probe. Re-running the data restore against populated
+targets must refuse rather than delete them.
 
 For actual control-plane loss, first preserve the failed host and its volume.
 Create a reviewed replacement resource rather than repointing the production
@@ -195,12 +222,33 @@ PATCHYARD_ROLLBACK_APPROVED=yes \
 The apply refuses a stale plan if the installed revision moved, captures every
 database table count plus every artifact/runtime file hash, creates an isolated
 worktree at the target commit, converges its binaries, versioned configuration,
-and credential-free checkout, then verifies the installed SHA, core health,
-and byte-identical durable-state record. It preserves the before/after records
-and result JSON next to the reviewed manifest. To roll forward, create and
-approve a second manifest targeting the current merged cutover SHA. Schema
+and credential-free checkout, and runs that revision's host qualification. It
+then repeats convergence and qualification at the reviewed return revision
+before removing the public boundary. Both installed stages must prove the SHA,
+core health, and byte-identical non-audit durable-state record. An older target
+revision may
+append its bounded `account.provisioned` audit events during declarative
+account convergence; the script permits only that exact action/client class,
+records each delta, and rejects every other audit mutation. It preserves the
+before/target/recovered stable records and result JSON next to the reviewed
+manifest. Schema
 rollback is not this operation; it needs a separately ruled migration and
 recovery plan.
+
+Before creating or applying the rollback manifest, use the dashboard `Full
+stop` and wait until the dashboard shows no active production or proposer run.
+The apply verifies those durable facts, then installs a versioned firewalld
+boundary that rejects public HTTP/HTTPS while the target and return revisions
+run their own Ansible convergence and qualifications. Scheduled backup is
+stopped before the boundary preflight and cannot restart inside convergence.
+This keeps the dashboard and
+supervisor processes available for real target-revision qualification without
+giving either a writer input. If a target-stage failure occurs, the EXIT trap
+retries the reviewed return revision and removes the boundary only after that
+revision qualifies; otherwise the public reject and timer stop remain in force
+for explicit recovery. After a successful rollback/recovery drill, use
+dashboard `Resume`; the operator script never writes the full-stop state
+directly.
 
 ## Kill and full stop
 

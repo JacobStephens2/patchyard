@@ -169,7 +169,8 @@ current_migration_count=$(runuser -u postgres -- psql --host="$socket_root" --db
 runuser -u postgres -- psql --host="$socket_root" --dbname="$database" \
   --set=ON_ERROR_STOP=1 --command="DO \$\$ DECLARE item record; BEGIN FOR item IN SELECT schemaname, tablename FROM pg_tables WHERE schemaname IN ('factory', 'public') AND NOT (schemaname = 'public' AND tablename = '_sqlx_migrations') LOOP EXECUTE format('TRUNCATE TABLE %I.%I CASCADE', item.schemaname, item.tablename); END LOOP; END \$\$;"
 runuser -u postgres -- pg_restore --host="$socket_root" --dbname="$database" \
-  --data-only --no-owner --no-acl --exit-on-error "$restore_root/payload/database.dump"
+  --data-only --disable-triggers --no-owner --no-acl --exit-on-error \
+  <"$restore_root/payload/database.dump"
 
 install -d -m 0750 "$artifact_root"
 validate_archive "$restore_root/payload/artifacts.tar" artifact

@@ -3,6 +3,7 @@
 use std::{
     collections::BTreeMap,
     env,
+    ffi::OsString,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -403,6 +404,14 @@ fn deployed_version_config() -> Result<DeployedVersionConfig, BootstrapError> {
     Ok(DeployedVersionConfig {
         program: required_path("FACTORY_DEPLOYED_VERSION_PROGRAM")?,
         arguments: os_args_json("FACTORY_DEPLOYED_VERSION_ARGUMENTS_JSON")?,
+        environment: [
+            "GH_PATCHYARD_APP_ID",
+            "GH_PATCHYARD_APP_INSTALLATION_ID",
+            "GH_PATCHYARD_APP_PRIVATE_KEY_FILE",
+        ]
+        .into_iter()
+        .map(|name| Ok((OsString::from(name), OsString::from(required(name)?))))
+        .collect::<Result<Vec<_>, BootstrapError>>()?,
         timeout: duration_env("FACTORY_DEPLOYED_VERSION_TIMEOUT_SECONDS", 30)?,
         output_limit: usize_env("FACTORY_DEPLOYED_VERSION_OUTPUT_BYTES", 64 * 1024)?,
     })

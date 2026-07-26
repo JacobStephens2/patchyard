@@ -561,6 +561,14 @@ remained on the requested URL and all 482,613 served bytes matched the twelve
 SHA-256 values above. Passwords, bearer material, capability values, and
 sentinel values were not printed or recorded.
 
+The first exact-head repeat then reported two changes despite no source drift:
+the recursive checkout ownership task set `/opt/patchyard` to group
+`factory-manager`, while the later dashboard-traversal task restored group
+`factory`. Commit `3202bec` removes that conflicting recursive group mutation
+and adds a desired-state regression. The management identity still owns the
+checkout, and the dashboard retains only its intended read-only traversal
+through the credential-free root.
+
 ### Disposition
 
 Fieldbook PR #273 is deliberately left open, ready for review, non-draft, and

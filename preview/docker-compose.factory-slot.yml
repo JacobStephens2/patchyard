@@ -1,4 +1,10 @@
 services:
   fieldbook:
+    volumes:
+      # Project Traefik's private replacement into Authorization at Apache's
+      # late request-header boundary, then remove the intermediate.
+      - /etc/patchyard-preview/patchyard-authorization.conf:/etc/httpd/conf.d/99-patchyard-authorization.conf:ro,Z
     labels:
-      traefik.http.routers.preview-${PREVIEW_SLOT}.middlewares: "patchyard-capability@docker"
+      # ForwardAuth removes the private capability before forwarding the
+      # translator's private Authorization replacement to Apache.
+      - "traefik.http.routers.preview-${PREVIEW_SLOT}.middlewares=patchyard-capability@file"

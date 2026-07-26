@@ -95,6 +95,7 @@ test -x /usr/local/libexec/patchyard-cancel-child
 test -x /usr/local/libexec/patchyard-evidence-child
 test -x /usr/local/libexec/patchyard-child-probe
 test -x /usr/local/libexec/patchyard-preview-resolver
+test -x /usr/local/libexec/patchyard-log-secret-scan
 test -x /usr/local/bin/factory-evidence-qualify
 test -x /usr/local/sbin/patchyard-stage-evidence-qualification
 test -x /usr/local/libexec/patchyard-deployed-version-unconfigured
@@ -143,7 +144,11 @@ test "$(systemctl show factory-dashboard.service --property=RestrictAddressFamil
 systemctl show factory-dashboard.service --property=ReadWritePaths --value \
   | grep -Fq /var/lib/patchyard/artifacts
 test "$(systemctl show factory-supervisor.service --property=User --value)" = factory-manager
-test "$(systemctl show factory-supervisor.service --property=SupplementaryGroups --value)" = factory-manager
+SUPERVISOR_GROUPS=$(
+  systemctl show factory-supervisor.service \
+    --property=SupplementaryGroups --value | tr ' ' '\n' | sort
+)
+test "$SUPERVISOR_GROUPS" = $'factory-manager\nsystemd-journal'
 test "$(systemctl show factory-supervisor.service --property=NoNewPrivileges --value)" = yes
 test "$(systemctl show factory-supervisor.service --property=ProtectSystem --value)" = strict
 systemctl show factory-supervisor.service --property=ReadWritePaths --value \
@@ -176,7 +181,7 @@ test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \
   --dbname=patchyard --tuples-only --no-align --command='SHOW ssl')" = on
 test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \
   --dbname=patchyard --tuples-only --no-align \
-  --command='SELECT count(*) FROM public._sqlx_migrations WHERE success')" = 6
+  --command='SELECT count(*) FROM public._sqlx_migrations WHERE success')" = 7
 
 for ROLE in patchyard_migrator patchyard_supervisor patchyard_dashboard grafana_ro patchyard_exporter; do
   test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \

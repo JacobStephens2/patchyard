@@ -24,19 +24,19 @@ def stamp(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def authorize(authorization: str, forwarded_host: str, forwarded_method: str) -> str | None:
-    if len(authorization) > MAX_HEADER or len(forwarded_host) > 253:
+def authorize(capability: str, forwarded_host: str, forwarded_method: str) -> str | None:
+    if len(capability) > MAX_HEADER or len(forwarded_host) > 253:
         raise ValueError("header exceeds boundary")
     if forwarded_method not in {"GET", "HEAD"}:
         raise ValueError("capture method is not allowed")
     host = forwarded_host.lower().split(":", 1)[0]
     if not PREVIEW_HOST.fullmatch(host):
         raise ValueError("preview host is not allowed")
-    if not authorization:
+    if not capability:
         return None
-    if not authorization.startswith("Bearer efc1."):
+    if not capability.startswith("efc1."):
         return None
-    match = CAPABILITY.fullmatch(authorization.removeprefix("Bearer "))
+    match = CAPABILITY.fullmatch(capability)
     if match is None:
         raise ValueError("malformed factory capability")
     capability_id = match.group(1)
@@ -56,7 +56,7 @@ def authorize(authorization: str, forwarded_host: str, forwarded_method: str) ->
         or value.get("allowed_host") != host
         or not secrets.compare_digest(
             str(value.get("token_sha256", "")),
-            sha256(authorization.removeprefix("Bearer ").encode()).hexdigest(),
+            sha256(capability.encode()).hexdigest(),
         )
         or stamp(str(value.get("expires_at", ""))) <= datetime.now(timezone.utc)
     ):
@@ -75,8 +75,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         try:
-            translated = authorize(
-                self.headers.get("Authorization", ""),
+            application_key = authorize(
+                self.headers.get("X-Patchyard-Factory-Capability", ""),
                 self.headers.get("X-Forwarded-Host", ""),
                 self.headers.get("X-Forwarded-Method", ""),
             )
@@ -87,8 +87,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send_response(200)
         self.send_header("Cache-Control", "no-store")
-        if translated is not None:
-            self.send_header("Authorization", translated)
+        if application_key is not None:
+            # Traefik removes the browser's private capability and copies this
+            # replacement for Apache to project into ordinary Authorization.
+            self.send_header("X-Patchyard-Factory-Preview-Authorization", application_key)
         self.end_headers()
 
     def log_message(self, format: str, *args: object) -> None:
@@ -100,6 +102,15 @@ def main() -> None:
     os.umask(0o077)
     if not STATE.is_dir() or not KEY_FILE.is_file():
         raise SystemExit("capability state or preview authority is unavailable")
+    try:
+        # Qualify bind-mount access at startup rather than returning an EOF on
+        # the first live authorization request. Neither value leaves memory.
+        with os.scandir(STATE):
+            pass
+        with KEY_FILE.open("rb") as handle:
+            handle.read(1)
+    except OSError as error:
+        raise SystemExit("capability state or preview authority is unreadable") from error
     server = ThreadingHTTPServer(("0.0.0.0", 8080), Handler)
     server.daemon_threads = True
     server.serve_forever()

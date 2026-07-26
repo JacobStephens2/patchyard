@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+EXPECTED_REVISION=${1:?expected repository revision required}
+
+/usr/local/sbin/qualify-factory-session13 "$EXPECTED_REVISION"
+test -x /usr/local/libexec/patchyard-run-session14-qualification
+test -x /usr/local/sbin/patchyard-stage-session14-qualification
+test "$(stat -c '%U:%G:%a' /run/patchyard-session14-qualification)" = \
+  root:factory-manager:770
+test ! -e /run/patchyard-session14-qualification/input
+
+systemd-analyze verify \
+  /etc/systemd/system/factory-session14-qualification.service
+test "$(systemctl show factory-session14-qualification.service \
+  --property=User --value)" = factory-manager
+test "$(systemctl show factory-session14-qualification.service \
+  --property=Group --value)" = factory
+QUALIFICATION_GROUPS=$(
+  systemctl show factory-session14-qualification.service \
+    --property=SupplementaryGroups --value | tr ' ' '\n' | sort
+)
+test "$QUALIFICATION_GROUPS" = $'factory-manager\nsystemd-journal'
+test "$(systemctl show factory-session14-qualification.service \
+  --property=NoNewPrivileges --value)" = yes
+test "$(systemctl show factory-session14-qualification.service \
+  --property=ProtectSystem --value)" = strict
+test "$(systemctl show factory-session14-qualification.service \
+  --property=KillSignal --value)" = 2
+test "$(systemctl show factory-session14-qualification.service \
+  --property=TimeoutStartUSec --value)" = 2h
+systemctl is-active --quiet factory-supervisor.service
+! systemctl is-active --quiet factory-session14-qualification.service

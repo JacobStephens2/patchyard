@@ -174,6 +174,7 @@
     excludes:
       - uploads
   register: factory_artifact_directories
+  tags: [session14]
 
 - name: Enforce setgid dashboard-readable artifact directories
   ansible.builtin.file:
@@ -184,6 +185,7 @@
   loop: "{{ factory_artifact_directories.files }}"
   loop_control:
     label: "{{ item.path }}"
+  tags: [session14]
 
 - name: Find existing artifact files
   ansible.builtin.find:
@@ -193,6 +195,7 @@
     excludes:
       - uploads
   register: factory_artifact_files
+  tags: [session14]
 
 - name: Enforce dashboard-readable, non-executable artifact files
   ansible.builtin.file:
@@ -203,6 +206,7 @@
   loop: "{{ factory_artifact_files.files }}"
   loop_control:
     label: "{{ item.path }}"
+  tags: [session14]
 
 - name: Create supervisor-owned private factory state directories
   ansible.builtin.file:
@@ -722,6 +726,7 @@
       - factory_web_binary | length > 0
       - factory_web_sha256 is defined
       - factory_web_sha256 is match('^[0-9a-f]{64}$')
+  tags: [session13]
 
 - name: Hash the local factory-web build artifact
   ansible.builtin.stat:
@@ -730,12 +735,14 @@
   delegate_to: localhost
   become: false
   register: local_factory_web
+  tags: [session13]
 
 - name: Require the exact factory-web build artifact
   ansible.builtin.assert:
     that:
       - local_factory_web.stat.exists
       - local_factory_web.stat.checksum == factory_web_sha256
+  tags: [session13]
 
 - name: Install the reviewed factory-web binary
   ansible.builtin.copy:
@@ -745,6 +752,7 @@
     group: root
     mode: "0755"
   notify: Restart factory dashboard
+  tags: [session13]
 
 - name: Require the reviewed factory-verify build artifact
   ansible.builtin.assert:
@@ -1072,7 +1080,6 @@
   ansible.builtin.file:
     path: /opt/patchyard
     owner: "{{ factory_manager_user }}"
-    group: "{{ factory_manager_user }}"
     recurse: true
   when: factory_checkout.stat.exists
   tags: [session13]
@@ -1172,6 +1179,15 @@
   become: true
   become_user: "{{ factory_manager_user }}"
   changed_when: false
+  tags: [session13]
+
+- name: Grant the dashboard read-only checkout traversal
+  ansible.builtin.file:
+    path: /opt/patchyard
+    state: directory
+    owner: "{{ factory_manager_user }}"
+    group: factory
+    mode: "0750"
   tags: [session13]
 
 - name: Install the private-VPC management inventory
@@ -1364,6 +1380,16 @@
     mode: "0640"
   notify: Reload Caddy
 
+- name: Precreate the Caddy access log for the service identity
+  ansible.builtin.file:
+    path: /var/log/caddy/factory-access.json
+    state: touch
+    owner: caddy
+    group: caddy
+    mode: "0640"
+    access_time: preserve
+    modification_time: preserve
+
 - name: Validate the factory Caddy vhost
   ansible.builtin.command:
     argv:
@@ -1421,6 +1447,10 @@
       mode: "0750"
     - source: patchyard-cancel-child
       destination: /usr/local/libexec/patchyard-cancel-child
+      group: "{{ factory_manager_user }}"
+      mode: "0750"
+    - source: patchyard-log-secret-scan
+      destination: /usr/local/libexec/patchyard-log-secret-scan
       group: "{{ factory_manager_user }}"
       mode: "0750"
     - source: qualify-factory-session13
@@ -1575,6 +1605,53 @@
       - "{{ factory_repo_revision }}"
   changed_when: false
   tags: [session13]
+
+- name: Install the fixed Session 14 lifecycle qualification operations
+  ansible.builtin.copy:
+    src: "{{ item.source }}"
+    dest: "{{ item.destination }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - source: patchyard-run-session14-qualification
+      destination: /usr/local/libexec/patchyard-run-session14-qualification
+      mode: "0755"
+    - source: patchyard-stage-session14-qualification
+      destination: /usr/local/sbin/patchyard-stage-session14-qualification
+      mode: "0750"
+    - source: qualify-factory-session14
+      destination: /usr/local/sbin/qualify-factory-session14
+      mode: "0755"
+    - source: factory-session14-qualification.service
+      destination: /etc/systemd/system/factory-session14-qualification.service
+      mode: "0644"
+    - source: patchyard-session14-qualification.tmpfiles
+      destination: /etc/tmpfiles.d/patchyard-session14-qualification.conf
+      mode: "0644"
+  tags: [session14]
+
+- name: Create the Session 14 lifecycle qualification staging directory
+  ansible.builtin.command:
+    argv:
+      - systemd-tmpfiles
+      - --create
+      - /etc/tmpfiles.d/patchyard-session14-qualification.conf
+  changed_when: false
+  tags: [session14]
+
+- name: Reload systemd for the Session 14 lifecycle qualification unit
+  ansible.builtin.systemd:
+    daemon_reload: true
+  tags: [session14]
+
+- name: Qualify the converged Session 14 control-plane boundary
+  ansible.builtin.command:
+    argv:
+      - /usr/local/sbin/qualify-factory-session14
+      - "{{ factory_repo_revision }}"
+  changed_when: false
+  tags: [session14]
 
 - name: Publish the expected PHPUnit checksum to the verifier coordinator
   ansible.builtin.copy:

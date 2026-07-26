@@ -6,13 +6,13 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 use uuid::Uuid;
 
 /// One artifact ready to register in the ledger.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct StoredArtifact {
     pub id: Uuid,
     pub relative_path: String,
@@ -95,7 +95,11 @@ fn write_atomic(
     relative.push(stage);
     let directory = root.join(&relative);
     fs::create_dir_all(&directory)?;
-    fs::set_permissions(&directory, fs::Permissions::from_mode(0o2750))?;
+    let mut readable_directory = root.clone();
+    for component in relative.components() {
+        readable_directory.push(component);
+        fs::set_permissions(&readable_directory, fs::Permissions::from_mode(0o2750))?;
+    }
     let final_name = format!("{id}-{name}");
     let final_path = directory.join(&final_name);
     let temporary = directory.join(format!(".{id}.tmp"));
@@ -104,6 +108,7 @@ fn write_atomic(
     let mut file = options.open(&temporary)?;
     use std::io::Write as _;
     file.write_all(&bytes)?;
+    fs::set_permissions(&temporary, fs::Permissions::from_mode(0o640))?;
     file.sync_all()?;
     fs::rename(&temporary, &final_path)?;
     let directory_file = fs::File::open(&directory)?;
@@ -155,7 +160,7 @@ pub enum ArtifactError {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, os::unix::fs::PermissionsExt as _};
+    use std::{fs, os::unix::fs::PermissionsExt as _, path::PathBuf};
 
     use uuid::Uuid;
 
@@ -192,6 +197,37 @@ mod tests {
                 & 0o777,
             0o640
         );
+        let request_directory = root.join(
+            artifact
+                .relative_path
+                .split('/')
+                .next()
+                .expect("request directory"),
+        );
+        let run_directory = artifact
+            .relative_path
+            .split('/')
+            .take(2)
+            .collect::<PathBuf>();
+        let stage_directory = artifact
+            .relative_path
+            .split('/')
+            .take(3)
+            .collect::<PathBuf>();
+        for directory in [
+            request_directory,
+            root.join(run_directory),
+            root.join(stage_directory),
+        ] {
+            assert_eq!(
+                fs::metadata(directory)
+                    .expect("directory metadata")
+                    .permissions()
+                    .mode()
+                    & 0o7777,
+                0o2750
+            );
+        }
         fs::remove_dir_all(root).expect("cleanup");
     }
 }

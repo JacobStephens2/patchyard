@@ -143,7 +143,7 @@ impl NewRequest {
 /// Result of an idempotent intake transaction.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RequestCreated {
-    /// Canonical ID; on a duplicate fingerprint this is the original ID.
+    /// Canonical ID; on a duplicate live fingerprint this is the original ID.
     pub id: Uuid,
     /// Whether this call inserted the row.
     pub inserted: bool,
@@ -316,7 +316,7 @@ impl PostgresRepository {
             r#"
             INSERT INTO factory.requests (id, fingerprint, source, body, trace_id)
             VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (fingerprint) DO NOTHING
+            ON CONFLICT DO NOTHING
             RETURNING id
             "#,
         )
@@ -333,8 +333,14 @@ impl PostgresRepository {
             Some(id) => id,
             None => {
                 sqlx::query_scalar::<_, Uuid>(
-                    "SELECT id FROM factory.requests WHERE fingerprint = $1",
+                    "SELECT id FROM factory.requests \
+                     WHERE id = $1 \
+                        OR (fingerprint = $2 \
+                            AND status IN ('queued', 'claimed', 'plan_bin')) \
+                     ORDER BY (id = $1) DESC \
+                     LIMIT 1",
                 )
+                .bind(request.id)
                 .bind(request.fingerprint.as_bytes().as_slice())
                 .fetch_one(&mut *transaction)
                 .await?

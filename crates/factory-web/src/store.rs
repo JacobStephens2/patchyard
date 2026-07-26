@@ -462,7 +462,7 @@ impl DashboardStore {
             r#"
             INSERT INTO factory.requests (id, fingerprint, source, body, trace_id)
             VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (fingerprint) DO NOTHING
+            ON CONFLICT DO NOTHING
             RETURNING id
             "#,
         )
@@ -477,10 +477,18 @@ impl DashboardStore {
         let id = match inserted_id {
             Some(id) => id,
             None => {
-                sqlx::query_scalar("SELECT id FROM factory.requests WHERE fingerprint=$1")
-                    .bind(request.fingerprint.as_bytes().as_slice())
-                    .fetch_one(&mut *transaction)
-                    .await?
+                sqlx::query_scalar(
+                    "SELECT id FROM factory.requests \
+                     WHERE id=$1 \
+                        OR (fingerprint=$2 \
+                            AND status IN ('queued', 'claimed', 'plan_bin')) \
+                     ORDER BY (id=$1) DESC \
+                     LIMIT 1",
+                )
+                .bind(request.id)
+                .bind(request.fingerprint.as_bytes().as_slice())
+                .fetch_one(&mut *transaction)
+                .await?
             }
         };
         append_audit(
@@ -710,7 +718,7 @@ impl DashboardStore {
             r#"
             INSERT INTO factory.requests (id, fingerprint, source, body, trace_id)
             VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (fingerprint) DO NOTHING
+            ON CONFLICT DO NOTHING
             RETURNING id
             "#,
         )
@@ -722,11 +730,18 @@ impl DashboardStore {
         .fetch_optional(&mut *transaction)
         .await?;
         let Some(id) = inserted_id else {
-            let id: Uuid =
-                sqlx::query_scalar("SELECT id FROM factory.requests WHERE fingerprint=$1")
-                    .bind(request.fingerprint.as_bytes().as_slice())
-                    .fetch_one(&mut *transaction)
-                    .await?;
+            let id: Uuid = sqlx::query_scalar(
+                "SELECT id FROM factory.requests \
+                     WHERE id=$1 \
+                        OR (fingerprint=$2 \
+                            AND status IN ('queued', 'claimed', 'plan_bin')) \
+                     ORDER BY (id=$1) DESC \
+                     LIMIT 1",
+            )
+            .bind(request.id)
+            .bind(request.fingerprint.as_bytes().as_slice())
+            .fetch_one(&mut *transaction)
+            .await?;
             sqlx::query(
                 r#"
                 UPDATE factory.upload_admissions
@@ -1061,7 +1076,14 @@ impl DashboardStore {
             FROM factory.runs
             WHERE state NOT IN (
                 'ready_for_review', 'dry_run_complete', 'failed', 'killed',
-                'closed', 'escalated'
+                'closed', 'escalated',
+                'ci_failed', 'ci_cancelled', 'ci_job_timed_out',
+                'ci_action_required', 'ci_neutral', 'ci_skipped', 'ci_stale',
+                'ci_startup_failed', 'ci_wait_timed_out',
+                'ci_observation_failed', 'preview_failed',
+                'preview_timed_out', 'preview_sha_changed',
+                'evidence_failed', 'secret_scan_failed',
+                'lease_cleanup_failed', 'pr_contract_failed'
             )
             ORDER BY queued_at,id
             "#,

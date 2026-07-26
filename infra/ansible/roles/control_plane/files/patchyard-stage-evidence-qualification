@@ -5,10 +5,12 @@ umask 077
 SLOT=${1:-}
 LEASE_ID=${2:-}
 EXPECTED_SHA=${3:-}
+MODE=${4:-smoke}
 [[ "$SLOT" =~ ^([1-9]|[12][0-9]|30)$ ]] \
   && [[ "$LEASE_ID" =~ ^[0-9a-f]{32}$ ]] \
-  && [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || {
-  echo "usage: $0 SLOT LEASE-ID EXPECTED-SHA" >&2
+  && [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] \
+  && [[ "$MODE" =~ ^(smoke|session14)$ ]] || {
+  echo "usage: $0 SLOT LEASE-ID EXPECTED-SHA [smoke|session14]" >&2
   exit 2
 }
 
@@ -56,6 +58,9 @@ jq -n \
   --arg request_id "$REQUEST_ID" \
   --arg run_id "$RUN_ID" \
   --arg url "https://$SLOT.preview.example.dev/" \
+  --arg session14_url \
+    "https://$SLOT.preview.example.dev/mfieldbook/leads/assign.php?rqst_id=96429" \
+  --arg mode "$MODE" \
   --arg expected_sha "$EXPECTED_SHA" \
   --argjson bearer "$(jq -c .bearer <<<"$AUTHORIZATION")" \
   '{
@@ -63,9 +68,13 @@ jq -n \
     request_id: $request_id,
     run_id: $run_id,
     contract: {
-      allowed_url: $url,
+      allowed_url: (if $mode == "session14" then $session14_url else $url end),
       expected_sha: $expected_sha,
-      actions: ["screenshot"],
+      actions: (if $mode == "session14" then [
+        {wait_for: {selector: "#sales_person_id"}},
+        {extract_select: {selector: "#sales_person_id"}},
+        "screenshot"
+      ] else ["screenshot"] end),
       navigation_timeout_ms: 30000,
       action_timeout_ms: 10000,
       total_timeout_ms: 60000,

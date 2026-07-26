@@ -66,6 +66,38 @@ class ChildLauncherContract(unittest.TestCase):
         self.assertIn("all(.addresses[]; test(", self.launcher)
         self.assertNotIn("all(.[]; test(", self.launcher)
 
+    def test_evidence_failure_diagnostic_is_allowlisted_before_journaling(self) -> None:
+        self.assertIn("patchyard_child_failure_diagnostic", self.launcher)
+        self.assertIn("patchyard_child_failure_document_status", self.launcher)
+        self.assertIn("patchyard_child_failure_browser_diagnostic", self.launcher)
+        self.assertIn(".document_status >= 100", self.launcher)
+        self.assertIn(".document_status <= 599", self.launcher)
+        for value in (
+            "document_2xx",
+            "document_3xx",
+            "document_4xx",
+            "document_5xx",
+            "document_other",
+            "document_login_form_2xx",
+            "document_php_error_2xx",
+            "document_database_error_2xx",
+            "document_api_denied_2xx",
+        ):
+            self.assertIn(value, self.launcher)
+        for value in (
+            "browser_pipe_closed_sigtrap",
+            "browser_pipe_closed_sigsegv",
+            "browser_pipe_closed_sigabrt",
+            "browser_pipe_closed_sigkill",
+            "browser_command_rejected",
+            "browser_command_rejected_screenshot",
+            "browser_exception_os",
+            "browser_exception_other",
+            "browser_action_result_invalid",
+            "browser_dom_result_invalid",
+        ):
+            self.assertIn(value, self.launcher)
+
     def test_non_router_baseline_is_desired_qualified_and_required(self) -> None:
         self.assertIn(
             "name: Keep the factory control plane in its non-router baseline",

@@ -5,9 +5,33 @@ networks:
 
 services:
   traefik:
+    image: traefik@sha256:66b901df20c5b92a43ac79d92d14bd0a1fda50fdb3cae8f77d562aa8f279f748
+    command:
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      - "--providers.docker=true"
+      - "--providers.docker.endpoint=tcp://socket-proxy:2375"
+      - "--providers.docker.exposedByDefault=false"
+      - "--providers.docker.network=preview-net"
+      - "--providers.file.filename=/etc/traefik/patchyard-dynamic.yml"
+      - "--providers.file.watch=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.websecure.http.tls.certresolver=letsencrypt"
+      - "--entrypoints.websecure.http.tls.domains[0].main=preview.example.dev"
+      - "--entrypoints.websecure.http.tls.domains[0].sans=*.preview.example.dev"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/certs/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge.provider=digitalocean"
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge.delaybeforecheck=10"
     networks:
       - preview-net
       - factory-capability
+    volumes:
+      - /etc/patchyard-preview/patchyard-traefik-dynamic.yml:/etc/traefik/patchyard-dynamic.yml:ro,Z
 
   factory-capability:
     image: python:3.13.5-alpine3.22@sha256:f1a962d8ffa50b2006b72b4713a09a89e57def2d28ac28a36900bc070a00db61
@@ -15,6 +39,11 @@ services:
     read_only: true
     cap_drop:
       - ALL
+    # The host capability state remains conductor:conductor 0700/0600 and the
+    # authority remains root:root 0400. This read-only container receives only
+    # the narrow DAC bypass needed to inspect those two bind mounts.
+    cap_add:
+      - DAC_READ_SEARCH
     security_opt:
       - no-new-privileges:true
     pids_limit: 32
@@ -30,9 +59,3 @@ services:
       - /etc/patchyard-preview/patchyard-api-key:/secret/patchyard-api-key:ro,Z
     networks:
       - factory-capability
-    labels:
-      traefik.enable: "true"
-      traefik.docker.network: patchyard-preview-capability
-      traefik.http.middlewares.patchyard-capability.forwardauth.address: "http://factory-capability:8080/auth"
-      traefik.http.middlewares.patchyard-capability.forwardauth.authResponseHeaders: "Authorization"
-      traefik.http.middlewares.patchyard-capability.forwardauth.trustForwardHeader: "false"

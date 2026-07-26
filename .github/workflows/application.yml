@@ -82,6 +82,7 @@ jobs:
       - name: Run application and model checks
         env:
           POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          FACTORY_TRAEFIK_INTEGRATION: "1"
         run: tools/check-application.sh
 
       - name: Report Rust cache result

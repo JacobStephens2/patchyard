@@ -15,8 +15,8 @@ import secrets
 import shlex
 import subprocess
 import sys
-import uuid
 import hashlib
+import time
 
 
 ROOT = Path("/opt/preview-fieldbooks")
@@ -30,6 +30,8 @@ LEASE = re.compile(r"^[0-9a-f]{32}$")
 CAPABILITY = re.compile(r"^[0-9a-f]{32}$")
 CAPABILITIES = Path("/var/lib/patchyard-preview/capabilities")
 FACTORY_SLOT_COMPOSE = Path("/etc/patchyard-preview/docker-compose.factory-slot.yml")
+MAX_LOG_SCAN_BYTES = 16 * 1024 * 1024
+ROUTE_READY_STATUSES = {200, 301, 302, 303, 307, 308}
 
 
 def now() -> datetime:
@@ -140,10 +142,18 @@ def lease_entry(slot: int, lease_id: str) -> tuple[dict[str, dict], dict]:
     return slots, entry
 
 
-def destroy(slot: int, lease_id: str) -> dict:
-    with slot_lock():
-        lease_entry(slot, lease_id)
+def find_lease(slots: dict[str, dict], lease_id: str) -> tuple[int, dict] | None:
+    found: list[tuple[int, dict]] = []
+    for slot, entry in slots.items():
+        lease = entry.get("factory_lease") if isinstance(entry, dict) else None
+        if isinstance(lease, dict) and lease.get("lease_id") == lease_id:
+            found.append((int(slot), entry))
+    if len(found) > 1:
+        raise RuntimeError("lease id is duplicated")
+    return found[0] if found else None
 
+
+def remove_runtime(slot: int) -> list[str]:
     errors: list[str] = []
     try:
         compose(slot, "down", "-v", check=False)
@@ -165,22 +175,85 @@ def destroy(slot: int, lease_id: str) -> dict:
         )
     except (OSError, subprocess.SubprocessError):
         errors.append("checkout-remove")
+    try:
+        containers = subprocess.run(
+            [
+                "/usr/bin/docker",
+                "ps",
+                "-aq",
+                "--filter",
+                f"label=com.docker.compose.project=preview-{slot}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        ).stdout.strip()
+        if containers:
+            errors.append("compose-residue")
+    except (OSError, subprocess.SubprocessError):
+        errors.append("compose-inspect")
+    if checkout.exists():
+        errors.append("checkout-residue")
+    return errors
+
+
+def destroy(slot: int, lease_id: str) -> dict:
     with slot_lock():
-        slots, _ = lease_entry(slot, lease_id)
-        del slots[str(slot)]
+        slots = load_slots()
+        located = find_lease(slots, lease_id)
+        if located is None:
+            entry = slots.get(str(slot))
+            if isinstance(entry, dict) and entry.get("factory_lease") is not None:
+                raise RuntimeError("slot belongs to another lease")
+            was_absent = True
+        else:
+            actual_slot, _ = located
+            if actual_slot != slot:
+                raise RuntimeError("lease moved to another slot")
+            was_absent = False
+
+    errors = remove_runtime(slot)
+    with slot_lock():
+        slots = load_slots()
+        if was_absent:
+            entry = slots.get(str(slot))
+            if isinstance(entry, dict) and entry.get("factory_lease") is not None:
+                raise RuntimeError("slot was acquired while cleanup ran")
+            slots.pop(str(slot), None)
+        else:
+            slots, _ = lease_entry(slot, lease_id)
+            del slots[str(slot)]
         write_slots(slots)
         absent = str(slot) not in load_slots()
         capability_errors = remove_lease_capabilities(lease_id)
-    complete = absent and not checkout.exists()
-    if not complete:
-        errors.append("residue")
     errors.extend(f"capability:{name}" for name in capability_errors)
+    complete = absent and not errors
     return {
         "slot": slot,
         "lease_id": lease_id,
         "cleanup_complete": complete,
         "cleanup_errors": errors,
+        "already_absent": was_absent,
     }
+
+
+def destroy_by_id(lease_id: str) -> dict:
+    with slot_lock():
+        located = find_lease(load_slots(), lease_id)
+        if located is None:
+            capability_errors = remove_lease_capabilities(lease_id)
+            return {
+                "slot": None,
+                "lease_id": lease_id,
+                "cleanup_complete": not capability_errors,
+                "cleanup_errors": [
+                    f"capability:{name}" for name in capability_errors
+                ],
+                "already_absent": True,
+            }
+        slot, _ = located
+    return destroy(slot, lease_id)
 
 
 def rev_parse(slot: int) -> tuple[str, str]:
@@ -210,9 +283,143 @@ def rev_parse(slot: int) -> tuple[str, str]:
     return host, guest
 
 
+def checkout_exact(slot: int, expected_sha: str, environment: dict[str, str]) -> None:
+    """Make the recorded commit locally reachable before exact detachment.
+
+    The editable builder may use a shallow branch checkout.  Fetching the
+    already validated, bounded SHA prevents a shallow clone from silently
+    turning a lifecycle evidence run into a branch-relative preview.
+    """
+    checkout = ROOT / "checkouts" / str(slot)
+    subprocess.run(
+        [
+            "/usr/bin/git", "-C", str(checkout), "fetch", "--no-tags",
+            "--depth=1", "origin", expected_sha,
+        ],
+        env=environment,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=60,
+        check=True,
+    )
+    subprocess.run(
+        ["/usr/bin/git", "-C", str(checkout), "checkout", "--detach", expected_sha],
+        env=environment,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=60,
+        check=True,
+    )
+
+
+def require_route_ready(slot: int) -> None:
+    """Wait only for Traefik's unauthenticated router to become visible.
+
+    The capability bearer is intentionally not used here.  A normal redirect
+    or success response proves that the dynamically registered route and its
+    middleware are available before the control plane can mint a capability.
+    """
+    host = f"{slot}.preview.example.dev"
+    for _ in range(15):
+        try:
+            response = subprocess.run(
+                [
+                    "/usr/bin/curl",
+                    "--silent",
+                    "--show-error",
+                    "--output",
+                    "/dev/null",
+                    "--write-out",
+                    "%{http_code}",
+                    "--resolve",
+                    f"{host}:443:127.0.0.1",
+                    "--connect-timeout",
+                    "3",
+                    "--max-time",
+                    "5",
+                    f"https://{host}/",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True,
+            )
+            if int(response.stdout.strip()) in ROUTE_READY_STATUSES:
+                return
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+        time.sleep(1)
+    raise RuntimeError("preview route did not become ready before lease return")
+
+
+def require_capability_middleware(slot: int) -> None:
+    """Prove the started slot carries the concrete, interpolated middleware label."""
+    containers = subprocess.run(
+        [
+            "/usr/bin/docker", "ps",
+            "--filter", f"label=com.docker.compose.project=preview-{slot}",
+            "--filter", "label=com.docker.compose.service=fieldbook",
+            "--format", "{{.ID}}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    ).stdout.splitlines()
+    if len(containers) != 1:
+        raise RuntimeError("preview fieldbook container is not unique")
+    key = f"traefik.http.routers.preview-{slot}.middlewares"
+    label = subprocess.run(
+        [
+            "/usr/bin/docker", "inspect", containers[0],
+            "--format", f'{{{{ index .Config.Labels "{key}" }}}}',
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    ).stdout.strip()
+    if label != "patchyard-capability@file":
+        raise RuntimeError("preview capability middleware label is absent")
+
+
 def acquire(args: argparse.Namespace) -> dict:
-    lease_id = uuid.uuid4().hex
+    lease_id = args.lease_id
     created = now()
+    with slot_lock():
+        located = find_lease(load_slots(), lease_id)
+    if located is not None:
+        existing_slot, existing = located
+        lease = existing["factory_lease"]
+        if (
+            existing.get("branch") != args.branch
+            or lease.get("owner") != args.owner
+            or lease.get("request_id") != args.request_id
+            or lease.get("expected_sha") != args.expected_sha
+        ):
+            raise RuntimeError("existing lease id belongs to another contract")
+        if existing.get("status") == "running":
+            host_sha, guest_sha = rev_parse(existing_slot)
+            if host_sha != args.expected_sha or guest_sha != args.expected_sha:
+                raise RuntimeError("recovered preview HEAD does not match expected SHA")
+            return {
+                "ok": True,
+                "slot": existing_slot,
+                "url": f"https://{existing_slot}.preview.example.dev",
+                "lease_id": lease_id,
+                "owner": args.owner,
+                "request_id": args.request_id,
+                "expected_sha": args.expected_sha,
+                "host_head": host_sha,
+                "preview_head": guest_sha,
+                "expires_at": lease["expires_at"],
+            }
+        cleanup = destroy(existing_slot, lease_id)
+        if not cleanup["cleanup_complete"]:
+            raise RuntimeError("incomplete recovered lease could not be cleaned")
+
     with slot_lock():
         slots = load_slots()
         slot = next((number for number in range(1, MAX_SLOTS + 1) if str(number) not in slots), None)
@@ -252,7 +459,10 @@ def acquire(args: argparse.Namespace) -> dict:
             timeout=min(args.ttl_seconds, 1200),
             check=True,
         )
+        checkout_exact(slot, args.expected_sha, environment)
         compose(slot, "up", "-d")
+        require_capability_middleware(slot)
+        require_route_ready(slot)
         host_sha, guest_sha = rev_parse(slot)
         if host_sha != args.expected_sha or guest_sha != args.expected_sha:
             raise RuntimeError("preview HEAD does not match expected SHA")
@@ -371,6 +581,115 @@ def revoke(args: argparse.Namespace) -> dict:
     }
 
 
+def scan_stream(
+    command: list[str],
+    environment: dict[str, str],
+    needles: list[bytes],
+    sentinel: bytes,
+) -> tuple[int, int, int]:
+    process = subprocess.Popen(
+        command,
+        cwd=ROOT,
+        env=environment,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    assert process.stdout is not None
+    maximum_needle = max([len(sentinel), *map(len, needles)])
+    tail = b""
+    scanned = 0
+    matches = 0
+    sentinel_matches = 0
+    while True:
+        chunk = process.stdout.read(64 * 1024)
+        if not chunk:
+            break
+        scanned += len(chunk)
+        if scanned > MAX_LOG_SCAN_BYTES:
+            process.kill()
+            process.wait(timeout=10)
+            raise RuntimeError("preview log scan exceeded its byte ceiling")
+        window = tail + chunk
+        matches += sum(needle in window for needle in needles)
+        sentinel_matches += window.count(sentinel)
+        tail = window[-maximum_needle:]
+    process.stdout.close()
+    if process.wait(timeout=30) != 0:
+        raise RuntimeError("preview log source could not be read")
+    return scanned, matches, sentinel_matches
+
+
+def scan_logs(args: argparse.Namespace) -> dict:
+    with slot_lock():
+        _, entry = lease_entry(args.slot, args.lease_id)
+        lease = entry["factory_lease"]
+        capability_ids: list[str] = []
+        for path in CAPABILITIES.glob("*.json"):
+            try:
+                value = json.loads(path.read_text())
+            except (OSError, json.JSONDecodeError) as error:
+                raise RuntimeError("capability state is unreadable") from error
+            if value.get("lease_id") == args.lease_id:
+                capability_ids.append(str(value.get("capability_id", "")))
+    if not capability_ids or any(not CAPABILITY.fullmatch(item) for item in capability_ids):
+        raise RuntimeError("lease capability set is unavailable")
+    needles = [
+        needle
+        for capability_id in capability_ids
+        for needle in (
+            capability_id.encode(),
+            f"efc1.{capability_id}.".encode(),
+        )
+    ]
+    sentinel = f"patchyard-preview-scan-{secrets.token_hex(16)}"
+    subprocess.run(
+        ["/usr/bin/logger", "--tag", "patchyard-preview-lease", "--", sentinel],
+        check=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    environment = {
+        "HOME": "/home/conductor",
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "PREVIEW_BRANCH": entry["branch"],
+        "PREVIEW_SLOT": str(args.slot),
+    }
+    # Rocky's journalctl accepts an epoch boundary reliably but rejects the
+    # RFC-3339 `Z` form persisted in the lease.  Keep the scan bounded to the
+    # same recorded instant while using the executable's portable grammar.
+    since = f"@{int(parse_stamp(lease['created_at']).timestamp())}"
+    commands = [
+        ["/usr/bin/journalctl", "--since", since, "--no-pager", "--output=cat"],
+        [
+            "/usr/bin/docker", "compose", "-p", f"preview-{args.slot}",
+            "-f", "docker-compose.editable.yml",
+            "-f", str(FACTORY_SLOT_COMPOSE),
+            "--env-file", ".env", "logs", "--no-color",
+        ],
+    ]
+    scanned = 0
+    matches = 0
+    sentinel_matches = 0
+    for command in commands:
+        source_bytes, source_matches, source_sentinel_matches = scan_stream(
+            command, environment, needles, sentinel.encode()
+        )
+        scanned += source_bytes
+        matches += source_matches
+        sentinel_matches += source_sentinel_matches
+    return {
+        "ok": True,
+        "slot": args.slot,
+        "lease_id": args.lease_id,
+        "sources": len(commands),
+        "bytes_scanned": scanned,
+        "matches": matches,
+        "sentinel_matches": sentinel_matches,
+    }
+
+
 def sweep() -> dict:
     expired: list[tuple[int, str]] = []
     with slot_lock():
@@ -403,10 +722,17 @@ def parser() -> argparse.ArgumentParser:
     take.add_argument("--request-id", required=True)
     take.add_argument("--branch", required=True)
     take.add_argument("--expected-sha", required=True)
+    take.add_argument("--lease-id", required=True)
     take.add_argument("--ttl-seconds", type=int, default=1200)
-    for command in (commands.add_parser("verify"), commands.add_parser("release")):
+    for command in (
+        commands.add_parser("verify"),
+        commands.add_parser("release"),
+        commands.add_parser("scan-logs"),
+    ):
         command.add_argument("--slot", type=int, required=True)
         command.add_argument("--lease-id", required=True)
+    release_id = commands.add_parser("release-id")
+    release_id.add_argument("--lease-id", required=True)
     grant = commands.add_parser("authorize")
     grant.add_argument("--slot", type=int, required=True)
     grant.add_argument("--lease-id", required=True)
@@ -452,10 +778,15 @@ def main() -> int:
     elif args.command == "release":
         result = destroy(args.slot, args.lease_id)
         result["ok"] = result["cleanup_complete"]
+    elif args.command == "release-id":
+        result = destroy_by_id(args.lease_id)
+        result["ok"] = result["cleanup_complete"]
     elif args.command == "authorize":
         result = authorize(args)
     elif args.command == "revoke":
         result = revoke(args)
+    elif args.command == "scan-logs":
+        result = scan_logs(args)
     else:
         result = sweep()
     print(json.dumps(result, sort_keys=True))

@@ -111,12 +111,7 @@ Committed tests cover:
    failure and never classifies a merged run as passing. Production marker
    publication remains a separate human-ruling and Fieldbook-deployment change.
 
-2. The repository does not name the initial bare `factory_submit` identity.
-   A33 names Jacob, Engineer Two, and the Owner as approvers, which implies evidence
-   access but does not decide which additional staff member receives submit-
-   only access. A69 requires bootstrap identities and roles in Git, while
-   credentials stay secret. The implementation therefore accepts an
-   owner-only bootstrap file and proves the required two-admin/one-submitter
-   shape, but production convergence must not proceed until Jacob rules the
-   submit-only identity and the resulting identity/role list is committed;
-   that thread is intentionally not resolved by the builder.
+2. Resolved with the Session 14 adversarial review: Jacob Stephens and
+   Engineer Two are the two `factory_admin` identities, and the Owner is the bare `factory_submit` identity. The exact identity/role
+   roster is committed in `infra/ansible/group_vars/all.yml`; passwords
+   remain controller-local secret input per A69.

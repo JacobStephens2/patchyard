@@ -11,10 +11,17 @@ import tempfile
 import threading
 import time
 import unittest
+import runpy
 
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "patchyard-evidence-child.py"
+EXCEPTION_BROWSER_DIAGNOSTIC = runpy.run_path(str(HELPER))[
+    "exception_browser_diagnostic"
+]
+COMMAND_REJECTION_DIAGNOSTICS = runpy.run_path(str(HELPER))[
+    "COMMAND_REJECTION_DIAGNOSTICS"
+]
 HOST = "1.preview.example.dev"
 CAPABILITY_ID = "a" * 32
 LEASE_ID = "b" * 32
@@ -25,7 +32,11 @@ class FixtureHandler(BaseHTTPRequestHandler):
     server_version = "patchyard-evidence-fixture/1"
 
     def do_GET(self) -> None:
-        if self.headers.get("Authorization") != f"Bearer {TOKEN}":
+        if self.headers.get("X-Patchyard-Factory-Capability") != TOKEN:
+            self.send_response(401)
+            self.end_headers()
+            return
+        if self.headers.get("Authorization"):
             self.send_response(401)
             self.end_headers()
             return
@@ -35,6 +46,26 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self.send_header("Location", "/completed")
             self.end_headers()
             return
+        if self.path == "/missing":
+            select = ""
+        if self.path == "/missing-login":
+            select = '<form action="/mfieldbook/login.php"><input type="password"></form>'
+        if self.path == "/missing-php-error":
+            select = "<p>Fatal error</p>"
+        if self.path == "/missing-database-error":
+            select = "<head><title>Error!: SQLSTATE</title></head>"
+        if self.path == "/missing-api-denied":
+            select = "<p>API Access Denied: Invalid authentication credentials.</p>"
+        if self.path == "/empty-select":
+            select = '<select id="sales_person_id"></select>'
+        presentation = ""
+        if self.path == "/blocked-presentation-dependency":
+            presentation = (
+                '<link rel="preconnect" href="https://fonts.googleapis.com">'
+                '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+                '<link rel="stylesheet" '
+                'href="https://fonts.googleapis.com/css2?family=Work+Sans">'
+            )
         if self.path == "/oversized":
             body = f"<!doctype html>{select}<p>{'x' * 200_000}</p>"
         elif self.path == "/cross-origin":
@@ -46,7 +77,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
         elif self.path == "/bearer":
             body = f"<!doctype html>{select}<p>{TOKEN}</p>"
         else:
-            body = f"<!doctype html>{select}"
+            body = f"<!doctype html>{presentation}{select}"
         encoded = body.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -166,11 +197,26 @@ class EvidenceBrowserControls(unittest.TestCase):
         )
         return result, output
 
-    def assert_state(self, fixture: str, expected: str, **kwargs: object) -> None:
+    def assert_state(
+        self,
+        fixture: str,
+        expected: str,
+        diagnostic: str | None = None,
+        document_status: int | None = None,
+        browser_diagnostic: str | None = None,
+        **kwargs: object,
+    ) -> None:
         result, output = self.capture(fixture, **kwargs)
         self.assertNotEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
         failure = json.loads((output / "failure.json").read_text())
-        self.assertEqual(failure, {"schema_version": 1, "state": expected})
+        expected_failure = {"schema_version": 1, "state": expected}
+        if diagnostic is not None:
+            expected_failure["diagnostic"] = diagnostic
+        if document_status is not None:
+            expected_failure["document_status"] = document_status
+        if browser_diagnostic is not None:
+            expected_failure["browser_diagnostic"] = browser_diagnostic
+        self.assertEqual(failure, expected_failure)
         self.assertEqual([path.name for path in output.iterdir()], ["failure.json"])
 
     def test_fixed_browser_completes_and_emits_only_bounded_contract_outputs(self) -> None:
@@ -190,6 +236,11 @@ class EvidenceBrowserControls(unittest.TestCase):
     def test_cross_origin_subresource_is_named(self) -> None:
         self.assert_state("cross-origin", "cross_origin_blocked")
 
+    def test_fixed_presentation_dependency_is_blocked_without_failing_capture(self) -> None:
+        result, output = self.capture("blocked-presentation-dependency")
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+        self.assertTrue((output / "page.png").is_file())
+
     def test_popup_is_named(self) -> None:
         self.assert_state("popup", "popup_blocked")
 
@@ -206,7 +257,12 @@ class EvidenceBrowserControls(unittest.TestCase):
         browser = self.root / "crash-browser"
         browser.write_text("#!/bin/sh\nexit 42\n")
         browser.chmod(0o700)
-        self.assert_state("completed", "browser_crashed", chromium=browser)
+        self.assert_state(
+            "completed",
+            "browser_crashed",
+            browser_diagnostic="browser_pipe_closed_nonzero",
+            chromium=browser,
+        )
 
     def test_browser_timeout_is_named(self) -> None:
         browser = self.root / "hung-browser"
@@ -214,6 +270,42 @@ class EvidenceBrowserControls(unittest.TestCase):
         browser.chmod(0o700)
         self.assert_state(
             "completed", "child_timed_out", chromium=browser, total_timeout_ms=250
+        )
+
+    def test_absent_selector_is_a_contract_rejection_not_a_timeout(self) -> None:
+        self.assert_state("missing", "contract_rejected", "document_2xx", 200)
+
+    def test_absent_selector_on_login_form_is_classified_without_retaining_dom(self) -> None:
+        self.assert_state("missing-login", "contract_rejected", "document_login_form_2xx", 200)
+
+    def test_absent_selector_on_php_error_is_classified_without_retaining_dom(self) -> None:
+        self.assert_state("missing-php-error", "contract_rejected", "document_php_error_2xx", 200)
+
+    def test_absent_selector_on_database_error_is_classified_without_retaining_dom(self) -> None:
+        self.assert_state(
+            "missing-database-error", "contract_rejected", "document_database_error_2xx", 200
+        )
+
+    def test_absent_selector_on_api_denial_is_classified_without_retaining_dom(self) -> None:
+        self.assert_state("missing-api-denied", "contract_rejected", "document_api_denied_2xx", 200)
+
+    def test_select_without_options_is_a_contract_rejection(self) -> None:
+        self.assert_state("empty-select", "contract_rejected")
+
+    def test_unexpected_exception_is_reduced_to_a_non_secret_class(self) -> None:
+        self.assertEqual(
+            EXCEPTION_BROWSER_DIAGNOSTIC(ValueError("private")),
+            "browser_exception_value",
+        )
+        self.assertEqual(
+            EXCEPTION_BROWSER_DIAGNOSTIC(RuntimeError("private")),
+            "browser_exception_other",
+        )
+
+    def test_command_rejection_diagnostics_are_fixed_and_method_specific(self) -> None:
+        self.assertEqual(
+            COMMAND_REJECTION_DIAGNOSTICS["Page.captureScreenshot"],
+            "browser_command_rejected_screenshot",
         )
 
 

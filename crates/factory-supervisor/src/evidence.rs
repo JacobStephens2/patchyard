@@ -36,6 +36,18 @@ pub struct EvidenceCaptureResult {
     pub terminal: ChildTerminal,
 }
 
+/// Validated child output retained outside the artifact tree until the
+/// lifecycle has independently re-verified the preview and closed its lease.
+#[derive(Clone, Debug)]
+pub struct ValidatedEvidence {
+    pub terminal: ChildTerminal,
+    page: Vec<u8>,
+    screenshot: Vec<u8>,
+    extract: Vec<u8>,
+    hashes: Vec<u8>,
+    execution: Vec<u8>,
+}
+
 impl EvidenceCapture {
     #[must_use]
     pub fn new(spawner: IsolatedChildSpawner, artifacts: ArtifactStore) -> Self {
@@ -69,6 +81,20 @@ impl EvidenceCapture {
         bearer: PreviewBearer,
         cancellation: &CancellationToken,
     ) -> Result<EvidenceCaptureResult, EvidenceError> {
+        let validated = self.execute(contract, bearer, cancellation).await?;
+        self.import(request_id, run_id, "evidence-capture", None, validated)
+            .await
+    }
+
+    /// Run and completely tear down the isolated child, validate every
+    /// returned byte, and retain the bounded result in memory. Nothing has
+    /// reached the durable artifact tree when this method returns.
+    pub async fn execute(
+        &self,
+        contract: EvidenceContract,
+        bearer: PreviewBearer,
+        cancellation: &CancellationToken,
+    ) -> Result<ValidatedEvidence, EvidenceError> {
         validate_contract(&contract)?;
         validate_bearer(&bearer)?;
         let capture_bytes = serde_json::to_vec(&contract)?;
@@ -117,6 +143,7 @@ impl EvidenceCapture {
             ("extract.json", extract),
             ("hashes.json", hashes),
             ("execution.json", execution),
+            ("child-transcript.log", child.transcript.as_slice()),
         ] {
             if contains(bytes, bearer.secret.as_bytes())
                 || contains(bytes, bearer.capability_id.as_bytes())
@@ -136,52 +163,76 @@ impl EvidenceCapture {
             ],
         )?;
 
+        Ok(ValidatedEvidence {
+            terminal: child.terminal.clone(),
+            page: page.to_vec(),
+            screenshot: screenshot.to_vec(),
+            extract: extract.to_vec(),
+            hashes: hashes.to_vec(),
+            execution: execution.to_vec(),
+        })
+    }
+
+    /// Copy a previously validated and fully torn-down child result into the
+    /// private artifact store. The caller chooses a fixed lifecycle stage so
+    /// baseline and candidate packs remain independently recoverable.
+    pub async fn import(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+        stage: &str,
+        name_prefix: Option<&str>,
+        validated: ValidatedEvidence,
+    ) -> Result<EvidenceCaptureResult, EvidenceError> {
+        if name_prefix.is_some_and(|prefix| {
+            prefix.is_empty()
+                || prefix.len() > 32
+                || !prefix
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte == b'-')
+        }) {
+            return Err(EvidenceError::InvalidContract);
+        }
         let mut stored = Vec::with_capacity(5);
-        let maximum_dom_bytes =
-            usize::try_from(contract.maximum_dom_bytes).map_err(|_| EvidenceError::Length)?;
-        let maximum_screenshot_bytes = usize::try_from(contract.maximum_screenshot_bytes)
-            .map_err(|_| EvidenceError::Length)?;
-        let maximum_extract_bytes =
-            usize::try_from(contract.maximum_extract_bytes).map_err(|_| EvidenceError::Length)?;
+        let terminal = validated.terminal;
         for (name, kind, bytes, maximum) in [
-            ("page.html", "evidence-dom", page, maximum_dom_bytes),
+            ("page.html", "evidence-dom", validated.page, MAX_DOM_BYTES),
             (
                 "page.png",
                 "evidence-screenshot",
-                screenshot,
-                maximum_screenshot_bytes,
+                validated.screenshot,
+                MAX_SCREENSHOT_BYTES,
             ),
             (
                 "extract.json",
                 "evidence-extract",
-                extract,
-                maximum_extract_bytes,
+                validated.extract,
+                MAX_EXTRACT_BYTES,
             ),
-            ("hashes.json", "evidence-hashes", hashes, MAX_MANIFEST_BYTES),
+            (
+                "hashes.json",
+                "evidence-hashes",
+                validated.hashes,
+                MAX_MANIFEST_BYTES,
+            ),
             (
                 "execution.json",
                 "evidence-execution",
-                execution,
+                validated.execution,
                 MAX_MANIFEST_BYTES,
             ),
         ] {
+            let name =
+                name_prefix.map_or_else(|| name.to_owned(), |prefix| format!("{prefix}-{name}"));
             stored.push(
                 self.artifacts
-                    .put(
-                        request_id,
-                        Some(run_id),
-                        "evidence-capture",
-                        name,
-                        kind,
-                        bytes.to_vec(),
-                        maximum,
-                    )
+                    .put(request_id, Some(run_id), stage, &name, kind, bytes, maximum)
                     .await?,
             );
         }
         Ok(EvidenceCaptureResult {
             artifacts: stored,
-            terminal: child.terminal,
+            terminal,
         })
     }
 }

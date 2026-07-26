@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+INPUT=/run/patchyard-session14-qualification/input
+test -f "$INPUT"
+test ! -L "$INPUT"
+test "$(stat -c '%U:%G:%a' "$INPUT")" = root:factory-manager:640
+
+IFS=' ' read -r REQUEST_ID BASE_SHA EXPECTED_OUTCOME EXTRA <"$INPUT"
+test -z "${EXTRA:-}"
+[[ "$REQUEST_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]
+[[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+[[ "$EXPECTED_OUTCOME" =~ ^(success|failure)$ ]]
+
+PUBLISHER_FIXTURE=/opt/patchyard/fixtures/publisher-demo/bin
+test -x "$PUBLISHER_FIXTURE/worker-stub"
+test -x "$PUBLISHER_FIXTURE/verifier-stub"
+test -x /opt/patchyard/fixtures/pipeline/bin/worker-cleanup-stub
+
+export FACTORY_RUN_MODE=pre_publish
+export FACTORY_HOLDER=factory-session14-qualification
+export FACTORY_BASE_SHA="$BASE_SHA"
+export FACTORY_PUBLISH_BRANCH_SUFFIX=session14-evidence-lifecycle
+export FACTORY_WORKER_PROGRAM="$PUBLISHER_FIXTURE/worker-stub"
+export FACTORY_WORKER_CLEANUP=/opt/patchyard/fixtures/pipeline/bin/worker-cleanup-stub
+export FACTORY_VERIFIER_PROGRAM="$PUBLISHER_FIXTURE/verifier-stub"
+export FACTORY_BUILDER_CLI_VERSION=publisher-demo-fixture/1
+if [[ "$EXPECTED_OUTCOME" == failure ]]; then
+  # This selector is deliberately absent. The browser reports the typed
+  # contract rejection after authorization, while the real failure path still
+  # scans both log sources and releases the preview lease before returning.
+  export FACTORY_EVIDENCE_SELECTORS="#session14_qualification_absent"
+fi
+
+exec /usr/local/bin/factoryctl run "$REQUEST_ID" --session14-qualification

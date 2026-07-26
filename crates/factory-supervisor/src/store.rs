@@ -335,6 +335,88 @@ pub trait PublisherStore: Clone + Send + Sync + 'static {
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
 }
 
+/// Narrow durable surface for the post-draft evidence lifecycle.
+pub trait LifecycleStore: Clone + Send + Sync + 'static {
+    fn begin_lifecycle_attempt(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+    ) -> impl Future<Output = Result<Option<u8>, StoreError>> + Send;
+
+    fn pull_request_for_run(
+        &self,
+        run_id: Uuid,
+    ) -> impl Future<Output = Result<Option<PullRequestRecord>, StoreError>> + Send;
+
+    #[allow(clippy::too_many_arguments)]
+    fn update_pull_lifecycle(
+        &self,
+        run_id: Uuid,
+        number: i32,
+        head_sha: &str,
+        ci_state: &str,
+        review_state: &str,
+        is_draft: bool,
+        github_updated_at: OffsetDateTime,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    #[allow(clippy::too_many_arguments)]
+    fn transition_lifecycle(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+        event_type: &str,
+        to_state: &str,
+        idempotency_key: &str,
+        payload: serde_json::Value,
+    ) -> impl Future<Output = Result<bool, StoreError>> + Send;
+
+    fn register_lifecycle_artifact(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+        stage: &str,
+        artifact: &StoredArtifact,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    fn lifecycle_artifacts(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+        stage: &str,
+    ) -> impl Future<Output = Result<Vec<StoredArtifact>, StoreError>> + Send;
+
+    fn begin_lifecycle_effect(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+        key: &str,
+        effect_type: &str,
+    ) -> impl Future<Output = Result<SideEffectDisposition, StoreError>> + Send;
+
+    fn lifecycle_effect_started_at(
+        &self,
+        key: &str,
+    ) -> impl Future<Output = Result<Option<OffsetDateTime>, StoreError>> + Send;
+
+    fn finish_lifecycle_effect(
+        &self,
+        key: &str,
+        status: &str,
+        external_ref: Option<&str>,
+        facts: serde_json::Value,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    fn finish_lifecycle_run(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+        state: &str,
+        event_type: &str,
+        outcome: serde_json::Value,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+}
+
 /// Minimal durable run/effect surface needed by the credentialed publisher.
 /// Keeping this narrower than the worker pipeline makes the state machine
 /// independently testable without granting it intake or control-row powers.
@@ -568,6 +650,7 @@ impl PgPipelineStore {
         holder: &str,
         ttl: Duration,
         limits: DailyLimits,
+        allow_paused_qualification: bool,
     ) -> Result<Option<WorkClaim>, StoreError> {
         validate_label("holder", holder, 128)?;
         let limits = limits.validate()?;
@@ -581,7 +664,14 @@ impl PgPipelineStore {
         )
         .fetch_one(&mut *transaction)
         .await?;
-        if state.try_get::<bool, _>("paused")? || state.try_get::<bool, _>("full_stop")? {
+        let paused = state.try_get::<bool, _>("paused")?;
+        let full_stop = state.try_get::<bool, _>("full_stop")?;
+        let paused_qualification = paused
+            && !full_stop
+            && requested.is_some()
+            && allow_paused_qualification
+            && holder == "factory-session14-qualification";
+        if (paused || full_stop) && !paused_qualification {
             transaction.commit().await?;
             return if requested.is_some() {
                 Err(StoreError::ClaimingPaused)
@@ -633,7 +723,24 @@ impl PgPipelineStore {
                         'ready_for_review',
                         'killed',
                         'failed',
-                        'escalated'
+                        'escalated',
+                        'ci_failed',
+                        'ci_cancelled',
+                        'ci_job_timed_out',
+                        'ci_action_required',
+                        'ci_neutral',
+                        'ci_skipped',
+                        'ci_stale',
+                        'ci_startup_failed',
+                        'ci_wait_timed_out',
+                        'ci_observation_failed',
+                        'preview_failed',
+                        'preview_timed_out',
+                        'preview_sha_changed',
+                        'evidence_failed',
+                        'secret_scan_failed',
+                        'lease_cleanup_failed',
+                        'pr_contract_failed'
                       )
                   )
                   AND NOT EXISTS (
@@ -783,6 +890,15 @@ impl PgPipelineStore {
                 .await?;
         }
         if append_claim {
+            let payload = if paused_qualification {
+                serde_json::json!({
+                    "holder": holder,
+                    "fencing_token": fencing_token,
+                    "paused_qualification_bypass": true,
+                })
+            } else {
+                serde_json::json!({"holder": holder, "fencing_token": fencing_token})
+            };
             append_event(
                 &mut transaction,
                 request_id,
@@ -791,7 +907,7 @@ impl PgPipelineStore {
                 Some(&status),
                 Some("claimed"),
                 &trace_id,
-                serde_json::json!({"holder": holder, "fencing_token": fencing_token}),
+                payload,
             )
             .await?;
         }
@@ -806,6 +922,24 @@ impl PgPipelineStore {
         transaction.commit().await?;
         Ok(Some(claim))
     }
+
+    /// Claim exactly one request for the root-owned Session 14 operator unit.
+    /// This bypasses a normal pause only after the caller proves its dedicated
+    /// holder label; full-stop remains absolute and the ledger records it.
+    pub async fn claim_session14_qualification(
+        &self,
+        request_id: Uuid,
+        holder: &str,
+        ttl: Duration,
+        limits: DailyLimits,
+    ) -> Result<WorkClaim, StoreError> {
+        if holder != "factory-session14-qualification" {
+            return Err(StoreError::InvalidLabel("session 14 qualification holder"));
+        }
+        self.claim(Some(request_id), holder, ttl, limits, true)
+            .await?
+            .ok_or(StoreError::RequestNotClaimable(request_id))
+    }
 }
 
 impl PipelineStore for PgPipelineStore {
@@ -815,7 +949,7 @@ impl PipelineStore for PgPipelineStore {
         ttl: Duration,
         limits: DailyLimits,
     ) -> Result<Option<WorkClaim>, StoreError> {
-        self.claim(None, holder, ttl, limits).await
+        self.claim(None, holder, ttl, limits, false).await
     }
 
     async fn claim_specific(
@@ -825,7 +959,7 @@ impl PipelineStore for PgPipelineStore {
         ttl: Duration,
         limits: DailyLimits,
     ) -> Result<WorkClaim, StoreError> {
-        self.claim(Some(request_id), holder, ttl, limits)
+        self.claim(Some(request_id), holder, ttl, limits, false)
             .await?
             .ok_or(StoreError::RequestNotClaimable(request_id))
     }
@@ -1243,10 +1377,7 @@ impl PipelineStore for PgPipelineStore {
             transaction.commit().await?;
             return Ok(());
         }
-        if matches!(
-            from_state.as_str(),
-            "dry_run_complete" | "closed" | "failed" | "killed" | "escalated"
-        ) {
+        if terminal_run_state(&from_state) {
             return Err(StoreError::TerminalRunTransition {
                 run_id,
                 from: from_state,
@@ -1273,6 +1404,7 @@ impl PipelineStore for PgPipelineStore {
             "dry_run_complete" => "closed",
             "killed" => "killed",
             "escalated" | "failed" => "failed",
+            state if crate::lifecycle::FAIL_CLOSED_STATES.contains(&state) => "failed",
             _ => "claimed",
         };
         if request_state == "closed" {
@@ -1453,6 +1585,13 @@ impl PipelineStore for PgPipelineStore {
                 .await?,
         )
     }
+}
+
+fn terminal_run_state(state: &str) -> bool {
+    matches!(
+        state,
+        "dry_run_complete" | "closed" | "ready_for_review" | "failed" | "killed" | "escalated"
+    ) || crate::lifecycle::FAIL_CLOSED_STATES.contains(&state)
 }
 
 impl PublisherStore for PgPipelineStore {
@@ -1703,6 +1842,203 @@ impl PublisherStore for PgPipelineStore {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+}
+
+impl LifecycleStore for PgPipelineStore {
+    async fn begin_lifecycle_attempt(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+    ) -> Result<Option<u8>, StoreError> {
+        let attempt: Option<i16> = sqlx::query_scalar(
+            r#"
+            UPDATE factory.runs
+            SET lifecycle_attempts=lifecycle_attempts + 1
+            WHERE id=$1 AND request_id=$2 AND lifecycle_attempts < 3
+            RETURNING lifecycle_attempts
+            "#,
+        )
+        .bind(run_id)
+        .bind(request_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        attempt
+            .map(|value| u8::try_from(value).map_err(|_| StoreError::MalformedRow))
+            .transpose()
+    }
+
+    async fn pull_request_for_run(
+        &self,
+        run_id: Uuid,
+    ) -> Result<Option<PullRequestRecord>, StoreError> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                number,request_id,run_id,branch,head_sha,ci_state,review_state,
+                state,is_draft,author_login,html_url,github_updated_at,
+                merged_at,merge_commit_sha,merged_by,deployed_sha,
+                admin_bypassed,passing_run,reconcile_error
+            FROM factory.pr_state
+            WHERE run_id=$1
+            "#,
+        )
+        .bind(run_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|row| {
+            Ok(PullRequestRecord {
+                number: row.try_get("number")?,
+                request_id: row.try_get("request_id")?,
+                run_id: row.try_get("run_id")?,
+                branch: row.try_get("branch")?,
+                head_sha: row.try_get("head_sha")?,
+                ci_state: row.try_get("ci_state")?,
+                review_state: row.try_get("review_state")?,
+                state: row.try_get("state")?,
+                is_draft: row.try_get("is_draft")?,
+                author_login: row.try_get("author_login")?,
+                html_url: row.try_get("html_url")?,
+                github_updated_at: row.try_get("github_updated_at")?,
+                merged_at: row.try_get("merged_at")?,
+                merge_commit_sha: row.try_get("merge_commit_sha")?,
+                merged_by: row.try_get("merged_by")?,
+                deployed_sha: row.try_get("deployed_sha")?,
+                admin_bypassed: row.try_get("admin_bypassed")?,
+                passing_run: row.try_get("passing_run")?,
+                reconcile_error: row.try_get("reconcile_error")?,
+            })
+        })
+        .transpose()
+    }
+
+    async fn update_pull_lifecycle(
+        &self,
+        run_id: Uuid,
+        number: i32,
+        head_sha: &str,
+        ci_state: &str,
+        review_state: &str,
+        is_draft: bool,
+        github_updated_at: OffsetDateTime,
+    ) -> Result<(), StoreError> {
+        validate_git_sha("lifecycle pull request head", head_sha)?;
+        validate_label("lifecycle CI state", ci_state, 64)?;
+        validate_label("lifecycle review state", review_state, 64)?;
+        let affected = sqlx::query(
+            r#"
+            UPDATE factory.pr_state
+            SET ci_state=$4,
+                review_state=$5,
+                is_draft=$6,
+                github_updated_at=$7,
+                reconciled_at=clock_timestamp()
+            WHERE run_id=$1 AND number=$2 AND head_sha=$3
+            "#,
+        )
+        .bind(run_id)
+        .bind(number)
+        .bind(head_sha)
+        .bind(ci_state)
+        .bind(review_state)
+        .bind(is_draft)
+        .bind(github_updated_at)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        if affected == 1 {
+            Ok(())
+        } else {
+            Err(StoreError::MalformedPullRequest)
+        }
+    }
+
+    async fn transition_lifecycle(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+        event_type: &str,
+        to_state: &str,
+        idempotency_key: &str,
+        payload: serde_json::Value,
+    ) -> Result<bool, StoreError> {
+        self.transition_run(
+            request_id,
+            run_id,
+            event_type,
+            to_state,
+            idempotency_key,
+            payload,
+        )
+        .await
+    }
+
+    async fn register_lifecycle_artifact(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+        stage: &str,
+        artifact: &StoredArtifact,
+    ) -> Result<(), StoreError> {
+        self.register_artifact(request_id, Some(run_id), stage, artifact)
+            .await
+    }
+
+    async fn lifecycle_artifacts(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+        stage: &str,
+    ) -> Result<Vec<StoredArtifact>, StoreError> {
+        self.stage_artifacts(request_id, run_id, stage).await
+    }
+
+    async fn begin_lifecycle_effect(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+        key: &str,
+        effect_type: &str,
+    ) -> Result<SideEffectDisposition, StoreError> {
+        self.begin_side_effect(request_id, Some(run_id), key, effect_type, 0)
+            .await
+    }
+
+    async fn lifecycle_effect_started_at(
+        &self,
+        key: &str,
+    ) -> Result<Option<OffsetDateTime>, StoreError> {
+        validate_label("side-effect key", key, 256)?;
+        let started_at = sqlx::query_scalar(
+            "SELECT started_at FROM factory.side_effects WHERE idempotency_key=$1",
+        )
+        .bind(key)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(started_at.flatten())
+    }
+
+    async fn finish_lifecycle_effect(
+        &self,
+        key: &str,
+        status: &str,
+        external_ref: Option<&str>,
+        facts: serde_json::Value,
+    ) -> Result<(), StoreError> {
+        self.finish_side_effect(key, status, external_ref, facts)
+            .await
+    }
+
+    async fn finish_lifecycle_run(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+        state: &str,
+        event_type: &str,
+        outcome: serde_json::Value,
+    ) -> Result<(), StoreError> {
+        self.finish_run(request_id, run_id, state, event_type, outcome)
+            .await
     }
 }
 

@@ -27,6 +27,11 @@ MAX_EXTRACT_BYTES = 1_048_576
 MAX_STDERR_BYTES = 1_048_576
 PREVIEW_HOST = re.compile(r"^(?:[1-9]|[12][0-9]|30)\.preview\.example\.dev$")
 SELECTOR = re.compile(r"^#[A-Za-z][A-Za-z0-9_-]{0,63}$")
+BLOCKED_PRESENTATION_DEPENDENCIES = {
+    (("https", "fonts.googleapis.com", None), "Other"),
+    (("https", "fonts.googleapis.com", None), "Stylesheet"),
+    (("https", "fonts.gstatic.com", None), "Other"),
+}
 FAILURE_STATES = {
     "redirect_blocked",
     "cross_origin_blocked",
@@ -38,14 +43,95 @@ FAILURE_STATES = {
     "child_timed_out",
     "contract_rejected",
 }
+FAILURE_DIAGNOSTICS = {
+    "document_2xx",
+    "document_3xx",
+    "document_4xx",
+    "document_5xx",
+    "document_other",
+    "document_login_form_2xx",
+    "document_php_error_2xx",
+    "document_database_error_2xx",
+    "document_api_denied_2xx",
+}
+BROWSER_DIAGNOSTICS = {
+    "browser_pipe_write_failed",
+    "browser_pipe_closed_running",
+    "browser_pipe_closed_clean",
+    "browser_pipe_closed_nonzero",
+    "browser_pipe_closed_sigtrap",
+    "browser_pipe_closed_sigsegv",
+    "browser_pipe_closed_sigabrt",
+    "browser_pipe_closed_sigkill",
+    "browser_pipe_closed_signal",
+    "browser_message_invalid",
+    "browser_command_rejected",
+    "browser_command_rejected_browser_version",
+    "browser_command_rejected_target_create",
+    "browser_command_rejected_target_attach",
+    "browser_command_rejected_page_enable",
+    "browser_command_rejected_runtime_enable",
+    "browser_command_rejected_network_enable",
+    "browser_command_rejected_cache_disable",
+    "browser_command_rejected_service_worker_bypass",
+    "browser_command_rejected_fetch_enable",
+    "browser_command_rejected_download_deny",
+    "browser_command_rejected_navigate",
+    "browser_command_rejected_runtime_evaluate",
+    "browser_command_rejected_screenshot",
+    "browser_event_invalid",
+    "browser_exception_os",
+    "browser_exception_subprocess",
+    "browser_exception_value",
+    "browser_exception_key",
+    "browser_exception_type",
+    "browser_exception_other",
+    "browser_target_id_invalid",
+    "browser_session_id_invalid",
+    "browser_action_result_invalid",
+    "browser_dom_result_invalid",
+    "browser_screenshot_result_invalid",
+    "browser_screenshot_base64_invalid",
+}
 TEST_MODE = os.environ.get("PATCHYARD_EVIDENCE_TEST") == "1"
+
+COMMAND_REJECTION_DIAGNOSTICS = {
+    "Browser.getVersion": "browser_command_rejected_browser_version",
+    "Target.createTarget": "browser_command_rejected_target_create",
+    "Target.attachToTarget": "browser_command_rejected_target_attach",
+    "Page.enable": "browser_command_rejected_page_enable",
+    "Runtime.enable": "browser_command_rejected_runtime_enable",
+    "Network.enable": "browser_command_rejected_network_enable",
+    "Network.setCacheDisabled": "browser_command_rejected_cache_disable",
+    "Network.setBypassServiceWorker": "browser_command_rejected_service_worker_bypass",
+    "Fetch.enable": "browser_command_rejected_fetch_enable",
+    "Browser.setDownloadBehavior": "browser_command_rejected_download_deny",
+    "Page.navigate": "browser_command_rejected_navigate",
+    "Runtime.evaluate": "browser_command_rejected_runtime_evaluate",
+    "Page.captureScreenshot": "browser_command_rejected_screenshot",
+}
 
 
 class CaptureFailure(Exception):
-    def __init__(self, state: str) -> None:
+    def __init__(
+        self,
+        state: str,
+        diagnostic: str | None = None,
+        document_status: int | None = None,
+        browser_diagnostic: str | None = None,
+    ) -> None:
         if state not in FAILURE_STATES:
             raise ValueError("unknown fixed failure state")
+        if diagnostic is not None and diagnostic not in FAILURE_DIAGNOSTICS:
+            raise ValueError("unknown fixed failure diagnostic")
+        if document_status is not None and not 100 <= document_status <= 599:
+            raise ValueError("invalid document response status")
+        if browser_diagnostic is not None and browser_diagnostic not in BROWSER_DIAGNOSTICS:
+            raise ValueError("unknown fixed browser diagnostic")
         self.state = state
+        self.diagnostic = diagnostic
+        self.document_status = document_status
+        self.browser_diagnostic = browser_diagnostic
         super().__init__(state)
 
 
@@ -101,7 +187,13 @@ class SelectParser(HTMLParser):
             self.current_select = None
 
 
-def fail(output: Path, state: str) -> NoReturn:
+def fail(
+    output: Path,
+    state: str,
+    diagnostic: str | None = None,
+    document_status: int | None = None,
+    browser_diagnostic: str | None = None,
+) -> NoReturn:
     output.mkdir(mode=0o700, exist_ok=True)
     for path in output.iterdir():
         if path.is_dir() and not path.is_symlink():
@@ -109,7 +201,14 @@ def fail(output: Path, state: str) -> NoReturn:
         else:
             path.unlink()
     failure = output / "failure.json"
-    failure.write_text(json.dumps({"schema_version": 1, "state": state}) + "\n")
+    value: dict[str, object] = {"schema_version": 1, "state": state}
+    if diagnostic is not None:
+        value["diagnostic"] = diagnostic
+    if document_status is not None:
+        value["document_status"] = document_status
+    if browser_diagnostic is not None:
+        value["browser_diagnostic"] = browser_diagnostic
+    failure.write_text(json.dumps(value) + "\n")
     failure.chmod(0o600)
     raise SystemExit(1)
 
@@ -243,6 +342,48 @@ def origin(value: str) -> tuple[str, str, int | None] | None:
     return parsed.scheme, parsed.hostname, parsed.port
 
 
+def document_diagnostic(status: int | None) -> str:
+    if status is None:
+        return "document_other"
+    return f"document_{status // 100}xx" if 2 <= status // 100 <= 5 else "document_other"
+
+
+def missing_selector_diagnostic(status: int | None, page_kind: object) -> str:
+    """Return one fixed, response-content-free clue for an absent selector.
+
+    The child may inspect the DOM while deciding whether it is safe to retain.
+    On failure it must retain neither that DOM nor a substring from it.  These
+    two fixed classifications make a live preview's auth or PHP failure
+    distinguishable from an ordinary stale selector without widening the
+    bounded child output contract.
+    """
+    if status is not None and 200 <= status < 300:
+        if page_kind == "login_form":
+            return "document_login_form_2xx"
+        if page_kind == "php_error":
+            return "document_php_error_2xx"
+        if page_kind == "database_error":
+            return "document_database_error_2xx"
+        if page_kind == "api_denied":
+            return "document_api_denied_2xx"
+    return document_diagnostic(status)
+
+
+def exception_browser_diagnostic(error: Exception) -> str:
+    """Reduce an unexpected child exception to a fixed, non-secret class."""
+    if isinstance(error, OSError):
+        return "browser_exception_os"
+    if isinstance(error, subprocess.SubprocessError):
+        return "browser_exception_subprocess"
+    if isinstance(error, ValueError):
+        return "browser_exception_value"
+    if isinstance(error, KeyError):
+        return "browser_exception_key"
+    if isinstance(error, TypeError):
+        return "browser_exception_type"
+    return "browser_exception_other"
+
+
 class Cdp:
     """Minimal bounded Chrome DevTools Protocol client over anonymous pipes."""
 
@@ -268,8 +409,25 @@ class Cdp:
         try:
             os.write(self.write_fd, encoded)
         except OSError as error:
-            raise CaptureFailure("browser_crashed") from error
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_pipe_write_failed"
+            ) from error
         return self.sequence
+
+    def closed_diagnostic(self) -> str:
+        returncode = self.process.poll()
+        if returncode is None:
+            return "browser_pipe_closed_running"
+        if returncode == 0:
+            return "browser_pipe_closed_clean"
+        if returncode > 0:
+            return "browser_pipe_closed_nonzero"
+        return {
+            -signal.SIGTRAP: "browser_pipe_closed_sigtrap",
+            -signal.SIGSEGV: "browser_pipe_closed_sigsegv",
+            -signal.SIGABRT: "browser_pipe_closed_sigabrt",
+            -signal.SIGKILL: "browser_pipe_closed_sigkill",
+        }.get(returncode, "browser_pipe_closed_signal")
 
     def receive(self, deadline: float) -> dict:
         while b"\0" not in self.buffer:
@@ -281,7 +439,9 @@ class Cdp:
                 raise CaptureFailure("child_timed_out")
             chunk = os.read(self.read_fd, 128 * 1024)
             if not chunk:
-                raise CaptureFailure("browser_crashed")
+                raise CaptureFailure(
+                    "browser_crashed", browser_diagnostic=self.closed_diagnostic()
+                )
             self.buffer += chunk
             if len(self.buffer) > 2 * 1024 * 1024:
                 raise CaptureFailure("output_limit_exceeded")
@@ -289,9 +449,13 @@ class Cdp:
         try:
             value = json.loads(encoded)
         except json.JSONDecodeError as error:
-            raise CaptureFailure("browser_crashed") from error
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_message_invalid"
+            ) from error
         if not isinstance(value, dict):
-            raise CaptureFailure("browser_crashed")
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_message_invalid"
+            )
         return value
 
     def call(
@@ -307,7 +471,12 @@ class Cdp:
             message = self.receive(deadline)
             if message.get("id") == request_id:
                 if "error" in message or not isinstance(message.get("result"), dict):
-                    raise CaptureFailure("browser_crashed")
+                    raise CaptureFailure(
+                        "browser_crashed",
+                        browser_diagnostic=COMMAND_REJECTION_DIAGNOSTICS.get(
+                            method, "browser_command_rejected"
+                        ),
+                    )
                 return message["result"]
             if "method" in message:
                 handler(message)
@@ -405,36 +574,52 @@ def run_controlled_browser(
     if allowed_origin is None:
         raise CaptureFailure("contract_rejected")
     loaded = False
+    document_status: int | None = None
 
     def handle(message: dict) -> None:
-        nonlocal loaded
+        nonlocal loaded, document_status
         method = message.get("method")
         params = message.get("params", {})
         session_id = message.get("sessionId")
         if not isinstance(params, dict):
-            raise CaptureFailure("browser_crashed")
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_event_invalid"
+            )
         if method == "Fetch.requestPaused":
             request = params.get("request", {})
             request_id = params.get("requestId")
             url = request.get("url") if isinstance(request, dict) else None
+            resource_type = params.get("resourceType")
             if not isinstance(request_id, str) or not isinstance(url, str):
-                raise CaptureFailure("browser_crashed")
+                raise CaptureFailure(
+                    "browser_crashed", browser_diagnostic="browser_event_invalid"
+                )
             if origin(url) != allowed_origin:
                 cdp.send(
                     "Fetch.failRequest",
                     {"requestId": request_id, "errorReason": "BlockedByClient"},
                     session_id if isinstance(session_id, str) else None,
                 )
+                # The live Session 14 page declares this fixed web-font CSS.
+                # Abort it before any network transmission and retain the
+                # evidence capture; the screenshot may use a fallback font.
+                # Every other cross-origin subresource remains a named,
+                # fail-closed exfiltration attempt.
+                if (origin(url), resource_type) in BLOCKED_PRESENTATION_DEPENDENCIES:
+                    return
                 raise CaptureFailure("cross_origin_blocked")
             headers = request.get("headers", {})
             if not isinstance(headers, dict):
-                raise CaptureFailure("browser_crashed")
+                raise CaptureFailure(
+                    "browser_crashed", browser_diagnostic="browser_event_invalid"
+                )
             forwarded = [
                 {"name": str(name), "value": str(value)}
                 for name, value in headers.items()
-                if str(name).lower() != "authorization"
+                if str(name).lower()
+                not in {"authorization", "x-patchyard-capability"}
             ]
-            forwarded.append({"name": "Authorization", "value": f"Bearer {bearer}"})
+            forwarded.append({"name": "X-Patchyard-Factory-Capability", "value": bearer})
             cdp.send(
                 "Fetch.continueRequest",
                 {"requestId": request_id, "headers": forwarded},
@@ -449,6 +634,15 @@ def run_controlled_browser(
         elif method == "Network.responseReceived":
             response = params.get("response", {})
             headers = response.get("headers", {}) if isinstance(response, dict) else {}
+            response_url = response.get("url") if isinstance(response, dict) else None
+            status = response.get("status") if isinstance(response, dict) else None
+            if (
+                params.get("type") == "Document"
+                and isinstance(response_url, str)
+                and origin(response_url) == allowed_origin
+                and isinstance(status, (int, float))
+            ):
+                document_status = int(status)
             if isinstance(headers, dict) and any(
                 str(name).lower() == "content-disposition"
                 and "attachment" in str(value).lower()
@@ -469,7 +663,9 @@ def run_controlled_browser(
         )
         target_id = created.get("targetId")
         if not isinstance(target_id, str):
-            raise CaptureFailure("browser_crashed")
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_target_id_invalid"
+            )
         attached = cdp.call(
             "Target.attachToTarget",
             {"targetId": target_id, "flatten": True},
@@ -479,7 +675,9 @@ def run_controlled_browser(
         )
         session_id = attached.get("sessionId")
         if not isinstance(session_id, str):
-            raise CaptureFailure("browser_crashed")
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_session_id_invalid"
+            )
         for method, params in [
             ("Page.enable", None),
             ("Runtime.enable", None),
@@ -513,10 +711,15 @@ def run_controlled_browser(
         action_deadline = min(
             total_deadline, time.monotonic() + action_timeout_ms / 1000
         )
+        # The browser-side poll must leave bounded time for CDP to deliver its
+        # settled promise.  Otherwise a genuinely absent selector consumes the
+        # full action budget and is misclassified as a transport timeout rather
+        # than the typed contract rejection it is.
+        selector_poll_timeout_ms = max(action_timeout_ms - 250, 0)
         expression = f"""
 (async () => {{
   const selectors = {selector_json};
-  const deadline = Date.now() + {action_timeout_ms};
+  const deadline = Date.now() + {selector_poll_timeout_ms};
   while (Date.now() < deadline &&
          selectors.some(selector => !document.querySelector(selector))) {{
     await new Promise(resolve => setTimeout(resolve, 25));
@@ -524,7 +727,26 @@ def run_controlled_browser(
   return {{
     missing: selectors.filter(selector => !document.querySelector(selector)),
     popup: !!document.querySelector('a[target="_blank" i]'),
-    download: !!document.querySelector('a[download]')
+    download: !!document.querySelector('a[download]'),
+    pageKind: (() => {{
+      // A legacy PHP include can emit its bounded error before <body> exists,
+      // so inspect the document root rather than body-only text.  This text
+      // never leaves the child; only an allowlisted classification can.
+      const text = (document.documentElement?.textContent || '').slice(0, 8192);
+      if (document.querySelector('input[type="password"], form[action*="login" i]')) {{
+        return 'login_form';
+      }}
+      if (/Error!:\s*(?:SQLSTATE|could not find driver|connection (?:refused|failed))/i.test(text)) {{
+        return 'database_error';
+      }}
+      if (/API Access Denied: Invalid authentication credentials\./i.test(text)) {{
+        return 'api_denied';
+      }}
+      if (/(?:Fatal error|Parse error|Uncaught (?:Error|Exception)|PDOException)/i.test(text)) {{
+        return 'php_error';
+      }}
+      return 'unknown';
+    }})()
   }};
 }})()
 """
@@ -538,13 +760,19 @@ def run_controlled_browser(
         result = action.get("result", {})
         value = result.get("value", {}) if isinstance(result, dict) else {}
         if not isinstance(value, dict):
-            raise CaptureFailure("browser_crashed")
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_action_result_invalid"
+            )
         if value.get("popup"):
             raise CaptureFailure("popup_blocked")
         if value.get("download"):
             raise CaptureFailure("download_blocked")
         if value.get("missing"):
-            raise CaptureFailure("contract_rejected")
+            raise CaptureFailure(
+                "contract_rejected",
+                missing_selector_diagnostic(document_status, value.get("pageKind")),
+                document_status,
+            )
         dom_result = cdp.call(
             "Runtime.evaluate",
             {
@@ -558,7 +786,9 @@ def run_controlled_browser(
         remote = dom_result.get("result", {})
         dom_value = remote.get("value") if isinstance(remote, dict) else None
         if not isinstance(dom_value, str):
-            raise CaptureFailure("browser_crashed")
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_dom_result_invalid"
+            )
         screenshot_result = cdp.call(
             "Page.captureScreenshot",
             {"format": "png", "captureBeyondViewport": False},
@@ -568,12 +798,22 @@ def run_controlled_browser(
         )
         encoded = screenshot_result.get("data")
         if not isinstance(encoded, str):
-            raise CaptureFailure("browser_crashed")
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_screenshot_result_invalid"
+            )
         try:
             screenshot = base64.b64decode(encoded, validate=True)
         except ValueError as error:
-            raise CaptureFailure("browser_crashed") from error
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_screenshot_base64_invalid"
+            ) from error
         return dom_value.encode(), screenshot
+    except CaptureFailure:
+        raise
+    except Exception as error:
+        raise CaptureFailure(
+            "browser_crashed", browser_diagnostic=exception_browser_diagnostic(error)
+        ) from error
     finally:
         try:
             cdp.send("Browser.close")
@@ -674,6 +914,11 @@ def main() -> None:
                 )
             )
             if missing:
+                # This is an extraction-contract failure after a successful
+                # retained DOM parse (for example, a select with no options).
+                # Network status and page classification are intentionally
+                # confined to the browser helper, so do not fabricate either
+                # from this later parsing phase.
                 raise CaptureFailure("contract_rejected")
             extract = output / "extract.json"
             extract.write_text(
@@ -734,9 +979,19 @@ def main() -> None:
         )
         hashes.chmod(0o600)
     except CaptureFailure as error:
-        fail(output, error.state)
-    except Exception:
-        fail(output, "browser_crashed")
+        fail(
+            output,
+            error.state,
+            error.diagnostic,
+            error.document_status,
+            error.browser_diagnostic,
+        )
+    except Exception as error:
+        fail(
+            output,
+            "browser_crashed",
+            browser_diagnostic=exception_browser_diagnostic(error),
+        )
 
 
 if __name__ == "__main__":

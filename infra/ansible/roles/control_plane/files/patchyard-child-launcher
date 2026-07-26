@@ -648,6 +648,66 @@ if ! wait "$CHILD_PID"; then
         ))
       then .state else "contract_rejected" end
     ' "$OUTPUT/capture/failure.json")
+    DIAGNOSTIC=$(jq -r '
+      if .diagnostic == "document_2xx" or .diagnostic == "document_3xx"
+        or .diagnostic == "document_4xx" or .diagnostic == "document_5xx"
+        or .diagnostic == "document_other"
+        or .diagnostic == "document_login_form_2xx"
+        or .diagnostic == "document_php_error_2xx"
+        or .diagnostic == "document_database_error_2xx"
+        or .diagnostic == "document_api_denied_2xx"
+      then .diagnostic else "document_other" end
+    ' "$OUTPUT/capture/failure.json")
+    DOCUMENT_STATUS=$(jq -r '
+      if (.document_status | type) == "number"
+        and .document_status >= 100 and .document_status <= 599
+        and (.document_status | floor) == .document_status
+      then .document_status else 0 end
+    ' "$OUTPUT/capture/failure.json")
+    BROWSER_DIAGNOSTIC=$(jq -r '
+      if .browser_diagnostic == "browser_pipe_write_failed"
+        or .browser_diagnostic == "browser_pipe_closed_running"
+        or .browser_diagnostic == "browser_pipe_closed_clean"
+        or .browser_diagnostic == "browser_pipe_closed_nonzero"
+        or .browser_diagnostic == "browser_pipe_closed_sigtrap"
+        or .browser_diagnostic == "browser_pipe_closed_sigsegv"
+        or .browser_diagnostic == "browser_pipe_closed_sigabrt"
+        or .browser_diagnostic == "browser_pipe_closed_sigkill"
+        or .browser_diagnostic == "browser_pipe_closed_signal"
+        or .browser_diagnostic == "browser_message_invalid"
+        or .browser_diagnostic == "browser_command_rejected"
+        or .browser_diagnostic == "browser_command_rejected_browser_version"
+        or .browser_diagnostic == "browser_command_rejected_target_create"
+        or .browser_diagnostic == "browser_command_rejected_target_attach"
+        or .browser_diagnostic == "browser_command_rejected_page_enable"
+        or .browser_diagnostic == "browser_command_rejected_runtime_enable"
+        or .browser_diagnostic == "browser_command_rejected_network_enable"
+        or .browser_diagnostic == "browser_command_rejected_cache_disable"
+        or .browser_diagnostic == "browser_command_rejected_service_worker_bypass"
+        or .browser_diagnostic == "browser_command_rejected_fetch_enable"
+        or .browser_diagnostic == "browser_command_rejected_download_deny"
+        or .browser_diagnostic == "browser_command_rejected_navigate"
+        or .browser_diagnostic == "browser_command_rejected_runtime_evaluate"
+        or .browser_diagnostic == "browser_command_rejected_screenshot"
+        or .browser_diagnostic == "browser_event_invalid"
+        or .browser_diagnostic == "browser_exception_os"
+        or .browser_diagnostic == "browser_exception_subprocess"
+        or .browser_diagnostic == "browser_exception_value"
+        or .browser_diagnostic == "browser_exception_key"
+        or .browser_diagnostic == "browser_exception_type"
+        or .browser_diagnostic == "browser_exception_other"
+        or .browser_diagnostic == "browser_target_id_invalid"
+        or .browser_diagnostic == "browser_session_id_invalid"
+        or .browser_diagnostic == "browser_action_result_invalid"
+        or .browser_diagnostic == "browser_dom_result_invalid"
+        or .browser_diagnostic == "browser_screenshot_result_invalid"
+        or .browser_diagnostic == "browser_screenshot_base64_invalid"
+      then .browser_diagnostic else "browser_diagnostic_unavailable" end
+    ' "$OUTPUT/capture/failure.json")
+    printf 'patchyard_child_failure_diagnostic=%s\n' "$DIAGNOSTIC" >&2
+    printf 'patchyard_child_failure_document_status=%s\n' "$DOCUMENT_STATUS" >&2
+    printf 'patchyard_child_failure_browser_diagnostic=%s\n' \
+      "$BROWSER_DIAGNOSTIC" >&2
   else
     STATE=browser_crashed
   fi

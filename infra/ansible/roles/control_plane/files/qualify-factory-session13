@@ -12,8 +12,11 @@ test "$(systemctl show factory-supervisor.service --property=User --value)" = \
   factory-manager
 test "$(systemctl show factory-supervisor.service --property=Group --value)" = \
   factory
-test "$(systemctl show factory-supervisor.service \
-  --property=SupplementaryGroups --value)" = factory-manager
+SUPERVISOR_GROUPS=$(
+  systemctl show factory-supervisor.service \
+    --property=SupplementaryGroups --value | tr ' ' '\n' | sort
+)
+test "$SUPERVISOR_GROUPS" = $'factory-manager\nsystemd-journal'
 test "$(systemctl show factory-supervisor.service \
   --property=NoNewPrivileges --value)" = yes
 test "$(systemctl show factory-supervisor.service \
@@ -32,6 +35,7 @@ test -x /usr/local/libexec/patchyard-cancel-child
 test -x /usr/local/libexec/patchyard-evidence-child
 test -x /usr/local/libexec/patchyard-child-probe
 test -x /usr/local/libexec/patchyard-preview-resolver
+test -x /usr/local/libexec/patchyard-log-secret-scan
 test -x /usr/local/bin/factory-evidence-qualify
 test -x /usr/local/sbin/patchyard-stage-evidence-qualification
 test ! -e /usr/local/libexec/patchyard-headless

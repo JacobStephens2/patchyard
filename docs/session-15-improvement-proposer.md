@@ -8,8 +8,9 @@ lessons-report` takes a repeatable-read ledger snapshot, emits only typed
 production-run outcome facts plus an exact allowlist of bounded operator
 quotes, and validates without invoking any model.
 
-The seat remains disabled in installed configuration while A5 live-provider
-isolation is unqualified. Its complete fixture path is present: daily
+The seat remains disabled in installed configuration while stack-council
+disposition A-5 live-provider isolation is unqualified. Its complete fixture
+path is present: daily
 supervisor scheduling, base-pinned prompt bundles, offline proposer and
 disposition children, evidence re-derivation, policy-only detached-worktree
 validation, cross-family adversarial review with A77 author adjudication, a
@@ -211,8 +212,9 @@ disabled seat into a live-qualified seat.
 Those checks do not prove live provider execution, the installed App's real
 GitHub draft-PR behavior, systemd scheduling, the control-plane
 bubblewrap/kernel boundary, or persistent ideas projection ownership. After
-A5 qualification, the live/operator path must deliberately cover: a read-only
-standalone report against the installed ledger; one below-threshold append;
+stack-council disposition A-5 qualification, the live/operator path must
+deliberately cover: a read-only standalone report against the installed ledger;
+one below-threshold append;
 one disposable policy branch opened by the bot and closed unmerged; refusal
 while that PR remains open; cancellation during proposer, reviewer, and
 publisher phases; service restart at each durable boundary; hostile prompt

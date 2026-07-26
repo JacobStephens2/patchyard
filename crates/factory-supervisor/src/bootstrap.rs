@@ -279,9 +279,9 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
             )
         }
     };
-    let proposer_enabled = bool_env("FACTORY_PROPOSER_ENABLED", false)?;
+    let proposer_scheduling_enabled = bool_env("FACTORY_PROPOSER_SCHEDULING_ENABLED", false)?;
     let proposer_dual_review_enforced = bool_env("FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED", false)?;
-    if proposer_enabled && !proposer_dual_review_enforced {
+    if proposer_scheduling_enabled && !proposer_dual_review_enforced {
         return Err(BootstrapError::InvalidEnvironment(
             "FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED",
         ));
@@ -336,7 +336,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
             review_worktree_root: scratch.join("proposer-review-worktrees"),
             review_repository: scratch.join("policy-publisher/factory-policy.git"),
             base_sha: required("FACTORY_PROPOSER_BASE_SHA")?,
-            publication_enabled: proposer_dual_review_enforced,
+            dual_human_review_enforced: proposer_dual_review_enforced,
         },
     )?);
     let config = PipelineConfig {
@@ -380,7 +380,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         max_active: usize_env("FACTORY_MAX_ACTIVE", 2)?,
         reconcile_abandoned_after: duration_env("FACTORY_RECONCILE_ABANDONED_SECONDS", 300)?,
         reconcile_sweep_limit: usize_env("FACTORY_RECONCILE_SWEEP_LIMIT", 10)?,
-        proposer_enabled,
+        proposer_scheduling_enabled,
         proposer_interval: duration_env("FACTORY_PROPOSER_INTERVAL_SECONDS", 86_400)?,
     };
     Ok(RuntimeComponents {

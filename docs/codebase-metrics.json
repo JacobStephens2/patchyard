@@ -6,9 +6,9 @@
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 39543,
-      "comments": 588,
-      "blanks": 2340,
+      "code": 39929,
+      "comments": 593,
+      "blanks": 2356,
       "files": 87,
       "languages": [
         {
@@ -42,15 +42,15 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 409,
+          "comments": 411,
           "blanks": 21,
           "files": 47
         },
         {
           "language": "Rust",
-          "code": 37118,
-          "comments": 154,
-          "blanks": 2065,
+          "code": 37504,
+          "comments": 157,
+          "blanks": 2081,
           "files": 55
         },
         {
@@ -72,9 +72,9 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 12722,
+      "code": 12739,
       "comments": 444,
-      "blanks": 1255,
+      "blanks": 1256,
       "files": 131,
       "languages": [
         {
@@ -100,7 +100,7 @@
         },
         {
           "language": "Jinja2",
-          "code": 463,
+          "code": 465,
           "comments": 0,
           "blanks": 27,
           "files": 14
@@ -128,9 +128,9 @@
         },
         {
           "language": "Python",
-          "code": 3656,
+          "code": 3668,
           "comments": 38,
-          "blanks": 390,
+          "blanks": 391,
           "files": 18
         },
         {
@@ -149,7 +149,7 @@
         },
         {
           "language": "SQL",
-          "code": 258,
+          "code": 261,
           "comments": 0,
           "blanks": 10,
           "files": 3
@@ -247,7 +247,7 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8220,
-      "comments": 9166,
+      "comments": 9183,
       "blanks": 2755,
       "files": 107,
       "languages": [
@@ -268,7 +268,7 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 9152,
+          "comments": 9169,
           "blanks": 2704,
           "files": 83
         },

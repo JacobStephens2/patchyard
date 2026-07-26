@@ -12,6 +12,7 @@ TASKS = CONTROL / "tasks/main.yml"
 ENVIRONMENT = CONTROL / "templates/patchyard-supervisor.env.j2"
 RUNTIME = ROOT / "policy/proposer-runtime.json"
 ROUTING = ROOT / "policy/routing.json"
+GRANTS = CONTROL / "files/postgresql-grants.sql"
 
 
 class Session15ProposerContract(unittest.TestCase):
@@ -24,6 +25,7 @@ class Session15ProposerContract(unittest.TestCase):
         cls.environment = ENVIRONMENT.read_text()
         cls.runtime = json.loads(RUNTIME.read_text())
         cls.routing = json.loads(ROUTING.read_text())
+        cls.grants = GRANTS.read_text()
 
     def test_proposer_child_is_offline_and_receives_only_typed_inputs(self) -> None:
         section = self.launcher.split('if [[ "$KIND" == proposer || "$KIND" == proposer_disposition ]]; then', 1)[1]
@@ -41,7 +43,9 @@ class Session15ProposerContract(unittest.TestCase):
         self.assertNotIn('/var/lib/patchyard', section)
 
     def test_schedule_is_installed_dormant_until_live_provider_qualification(self) -> None:
-        self.assertIn('FACTORY_PROPOSER_ENABLED=false', self.environment)
+        self.assertIn(
+            'FACTORY_PROPOSER_SCHEDULING_ENABLED=false', self.environment
+        )
         self.assertIn('FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED=false', self.environment)
         self.assertIn('FACTORY_PROPOSER_INTERVAL_SECONDS=86400', self.environment)
         self.assertIn(
@@ -76,6 +80,15 @@ class Session15ProposerContract(unittest.TestCase):
         self.assertIn('policy/proposer.md', self.runtime['author_roots'])
         self.assertIn('policy/proposer-runtime.json', self.runtime['author_roots'])
         self.assertIn('policy/proposer-runtime.json', self.runtime['reviewer_roots'])
+
+    def test_proposer_run_insert_grant_cannot_forge_terminal_state(self) -> None:
+        self.assertIn(
+            'GRANT INSERT (\n    id, base_sha, report_sha256, report_max_event_id, prompt_bundle_sha256\n) ON factory.proposer_runs TO patchyard_supervisor;',
+            self.grants,
+        )
+        self.assertNotIn(
+            'GRANT INSERT, UPDATE (\n    state, report_sha256', self.grants
+        )
 
     def test_author_and_policy_reviewer_are_cross_family(self) -> None:
         proposer = self.routing['rules']['improvement_proposer']

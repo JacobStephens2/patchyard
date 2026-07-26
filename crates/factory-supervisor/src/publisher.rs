@@ -296,6 +296,10 @@ pub trait GitHubApi: Send + Sync {
     ) -> GitHubFuture<'a, ()>;
 }
 
+fn is_factory_open_pull(pull: &PullRequest) -> bool {
+    pull.state == "open" && pull.head.branch.starts_with("factory/")
+}
+
 /// Object-safe publication boundary used by the pipeline. The concrete
 /// publisher retains its typed store while fixture pipelines can explicitly
 /// run without any credentialed publication capability.
@@ -603,9 +607,7 @@ impl GitHubApi for GhGitHub {
             }
             let pull_requests = pulls
                 .into_iter()
-                .filter(|pull| {
-                    pull.user.login == token.bot.login && pull.head.branch.starts_with("factory/")
-                })
+                .filter(is_factory_open_pull)
                 .take(limit)
                 .collect();
             Ok(OpenPullRequestSnapshot {
@@ -2638,9 +2640,17 @@ mod tests {
         GitHubPermissions, GitHubUser, InstallationToken, MintRepository, MintResponse,
         OpenPullRequestSnapshot, PermissionLevel, PublishInput, Publisher, PublisherConfig,
         PublisherError, PullRequest, PullRequestRef, RepositoryScope, Review, ReviewContract,
-        RootCause, TokenPurpose, build_initial_pr_body, has_head_approval, validate_mint_response,
-        validate_pr_body,
+        RootCause, TokenPurpose, build_initial_pr_body, has_head_approval, is_factory_open_pull,
+        validate_mint_response, validate_pr_body,
     };
+
+    #[test]
+    fn factory_open_pr_observation_does_not_trust_author_identity() {
+        let external = pull(86, "factory/proposer/external", &"a".repeat(40), "human");
+        assert!(is_factory_open_pull(&external));
+        let unrelated = pull(87, "human/topic", &"b".repeat(40), "human");
+        assert!(!is_factory_open_pull(&unrelated));
+    }
 
     #[test]
     fn pr_body_fences_untrusted_phishing_text() {

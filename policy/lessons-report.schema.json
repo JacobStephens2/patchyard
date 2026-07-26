@@ -34,7 +34,7 @@
         "properties": {
           "cohort_key": {"type": "string", "pattern": "^cohort:[0-9a-f]{64}$"},
           "lane": {"type": "string", "minLength": 1},
-          "skill": {"type": "string", "minLength": 1},
+          "skill": {"type": "string", "minLength": 1, "maxLength": 128},
           "rubric_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
           "prompt_template_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
           "routing_config_version": {"type": "string", "minLength": 1, "maxLength": 256},
@@ -74,7 +74,7 @@
           "request_id": {"type": "string", "format": "uuid"},
           "run_class": {"const": "production"},
           "lane": {"type": "string", "minLength": 1},
-          "skill": {"type": "string", "minLength": 1},
+          "skill": {"type": "string", "minLength": 1, "maxLength": 128},
           "rubric_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
           "prompt_template_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
           "routing_config_version": {"type": "string", "minLength": 1, "maxLength": 256},

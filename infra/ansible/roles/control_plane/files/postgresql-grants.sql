@@ -116,7 +116,10 @@ GRANT INSERT, UPDATE (
 GRANT UPDATE (
     status, claim_token, claimed_at, executed_at, outcome
 ) ON factory.reconcile_requests TO patchyard_supervisor;
-GRANT INSERT, UPDATE (
+GRANT INSERT (
+    id, base_sha, report_sha256, report_max_event_id, prompt_bundle_sha256
+) ON factory.proposer_runs TO patchyard_supervisor;
+GRANT UPDATE (
     state, report_sha256, report_max_event_id, prompt_bundle_sha256,
     branch, patch_sha256, reviewed_sha, pr_title, pr_body,
     review_artifact, disposition_artifact, abort_requested,

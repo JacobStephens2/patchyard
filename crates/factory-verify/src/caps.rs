@@ -123,7 +123,7 @@ pub fn verify(
                 new: file.path.clone(),
             });
         }
-        if file.old_mode != file.new_mode {
+        if file.change == ChangeKind::Modified && file.old_mode != file.new_mode {
             return Err(CapsError::ModeChange {
                 path: file.path.clone(),
                 old: file.old_mode.clone(),

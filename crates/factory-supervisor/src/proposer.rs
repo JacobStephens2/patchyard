@@ -16,7 +16,7 @@ use std::{
     time::Duration,
 };
 
-use factory_verify::caps::{self, DiffManifest};
+use factory_verify::caps::{self, ChangeKind, DiffManifest};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use sqlx::{PgPool, Postgres, Row, pool::PoolConnection};
@@ -166,6 +166,9 @@ impl ProposerRunStore {
 
     pub async fn acquire_execution_lock(&self) -> Result<PoolConnection<Postgres>, ProposerError> {
         let mut connection = self.pool.acquire().await?;
+        // A dropped attempt must close the session instead of returning an
+        // advisory-lock-bearing connection to the pool.
+        connection.close_on_drop();
         let acquired = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
             .bind(PROPOSER_EXECUTION_LOCK)
             .fetch_one(&mut *connection)
@@ -917,7 +920,7 @@ pub struct ImprovementProposerConfig {
     pub review_worktree_root: PathBuf,
     pub review_repository: PathBuf,
     pub base_sha: String,
-    pub publication_enabled: bool,
+    pub dual_human_review_enforced: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1144,7 +1147,7 @@ impl ImprovementProposer {
         cancellation: &CancellationToken,
     ) -> Result<Option<ProposerOutcome>, ProposerError> {
         let full_stop = self.store.full_stop_active().await?;
-        if full_stop || !self.config.publication_enabled {
+        if full_stop || !self.config.dual_human_review_enforced {
             let reason = if full_stop {
                 "full_stop_during_recovery"
             } else {
@@ -1373,7 +1376,7 @@ impl ImprovementProposer {
             .cohorts
             .iter()
             .any(|cohort| cohort.eligible_for_policy_pr);
-        if threshold_reached && !self.config.publication_enabled {
+        if threshold_reached && !self.config.dual_human_review_enforced {
             let error = ProposerError::DualHumanReviewNotEnforced;
             self.store
                 .transition(
@@ -1945,6 +1948,45 @@ impl ImprovementProposer {
                 }),
             )
             .await?;
+        let full_stop_before_publication = self.store.full_stop_active().await?;
+        if cancellation.is_cancelled() || full_stop_before_publication {
+            let reason = if full_stop_before_publication {
+                "full_stop_before_publication_effect"
+            } else {
+                "cancelled_before_publication_effect"
+            };
+            self.store.request_publication_abort(run_id, reason).await?;
+            match self.cleanup_proposer_scratch(run_id).await {
+                Ok(()) => {
+                    self.store
+                        .transition(
+                            run_id,
+                            ProposerState::Publishing,
+                            ProposerState::Killed,
+                            reason,
+                            serde_json::json!({"publication_effect_applied": false}),
+                        )
+                        .await?;
+                }
+                Err(error) => {
+                    self.store
+                        .transition(
+                            run_id,
+                            ProposerState::Publishing,
+                            ProposerState::CleanupFailed,
+                            "stopped_publication_cleanup_failed",
+                            serde_json::json!({"error": error.to_string()}),
+                        )
+                        .await?;
+                    return Err(error);
+                }
+            }
+            return if cancellation.is_cancelled() {
+                Err(ProposerError::Cancelled)
+            } else {
+                Ok(ProposerOutcome::FullStopActive)
+            };
+        }
         let published = self
             .publisher
             .publish(
@@ -1973,7 +2015,7 @@ impl ImprovementProposer {
                 return Ok(ProposerOutcome::OpenPrCapReached { run_id });
             }
             (Err(error), Ok(())) => {
-                if cancellation.is_cancelled() {
+                if cancellation.is_cancelled() || matches!(error, ProposerError::Cancelled) {
                     self.store
                         .request_publication_abort(run_id, "cancelled_during_publication")
                         .await?;
@@ -2247,6 +2289,24 @@ impl PolicyPublisher {
             .count())
     }
 
+    async fn require_publication_allowed(
+        &self,
+        run_id: Uuid,
+        cancellation: &CancellationToken,
+    ) -> Result<(), ProposerError> {
+        let full_stop = self.store.full_stop_active().await?;
+        if cancellation.is_cancelled() || full_stop {
+            let reason = if full_stop {
+                "full_stop_before_remote_publication_effect"
+            } else {
+                "cancelled_before_remote_publication_effect"
+            };
+            self.store.request_publication_abort(run_id, reason).await?;
+            return Err(ProposerError::Cancelled);
+        }
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn publish_inner(
         &self,
@@ -2259,7 +2319,7 @@ impl PolicyPublisher {
         cancellation: &CancellationToken,
     ) -> Result<PublishedPullRequest, ProposerError> {
         validate_intent(&packet.report, intent)?;
-        let branch = format!("{PROPOSER_BRANCH_PREFIX}{}", &packet.report_sha256[..16]);
+        let branch = proposer_branch(&packet.report_sha256)?;
         let mirror = self.config.scratch.join("factory-policy.git");
         if prepared.branch != branch || prepared.repository != mirror {
             return Err(ProposerError::PreparedCandidateMismatch);
@@ -2304,6 +2364,8 @@ impl PolicyPublisher {
                     )
                     .await?;
                 require_process_success("verify prepared policy commit", object.code)?;
+                self.require_publication_allowed(run_id, cancellation)
+                    .await?;
                 let pushed = self
                     .git(
                         &token,
@@ -2320,10 +2382,12 @@ impl PolicyPublisher {
                 require_process_success("push exact reviewed policy commit", pushed.code)?;
                 // Re-observe immediately before PR creation. The singleton lease
                 // serializes this publisher; fresh GitHub truth catches external
-                // bot-authored proposer branches/PRs.
+                // proposer branches/PRs regardless of author identity.
                 if self.fresh_open_count(&token, cancellation).await? >= 1 {
                     return Err(ProposerError::OpenProposerPrCap);
                 }
+                self.require_publication_allowed(run_id, cancellation)
+                    .await?;
                 let pull = self
                     .github
                     .create_draft_pull_request(
@@ -2445,6 +2509,8 @@ impl PolicyPublisher {
                     )
                     .await?;
                 require_process_success("recover reviewed policy commit", object.code)?;
+                self.require_publication_allowed(candidate.run_id, cancellation)
+                    .await?;
                 // Observation and local object verification use the read-only
                 // reconcile token. Mint write authority only after proving the
                 // PR is absent and immediately before the repair effects.
@@ -2455,6 +2521,8 @@ impl PolicyPublisher {
                 if self.fresh_open_count(&publish_token, cancellation).await? >= 1 {
                     return Err(ProposerError::OpenProposerPrCap);
                 }
+                self.require_publication_allowed(candidate.run_id, cancellation)
+                    .await?;
                 let pushed = self
                     .git(
                         &publish_token,
@@ -2473,6 +2541,8 @@ impl PolicyPublisher {
                 if self.fresh_open_count(&publish_token, cancellation).await? >= 1 {
                     return Err(ProposerError::OpenProposerPrCap);
                 }
+                self.require_publication_allowed(candidate.run_id, cancellation)
+                    .await?;
                 let pull = self
                     .github
                     .create_draft_pull_request(
@@ -2507,7 +2577,16 @@ impl PolicyPublisher {
                     &published,
                 )
                 .await?;
-            if candidate.abort_requested {
+            let full_stop = self.store.full_stop_active().await?;
+            if full_stop && !candidate.abort_requested {
+                self.store
+                    .request_publication_abort(
+                        candidate.run_id,
+                        "full_stop_during_publication_reconciliation",
+                    )
+                    .await?;
+            }
+            if candidate.abort_requested || full_stop {
                 Ok(ReconciledPublication::Aborted {
                     run_id: candidate.run_id,
                     observed_pull_request: Some(published),
@@ -2533,7 +2612,7 @@ impl PolicyPublisher {
         cancellation: &CancellationToken,
     ) -> Result<PreparedPolicyCandidate, ProposerError> {
         validate_intent(&packet.report, intent)?;
-        let branch = format!("{PROPOSER_BRANCH_PREFIX}{}", &packet.report_sha256[..16]);
+        let branch = proposer_branch(&packet.report_sha256)?;
         let token = self
             .github
             .mint_token(
@@ -3457,17 +3536,30 @@ pub async fn inspect_policy_intent(
             .chain(&reviewer_bundle.files)
             .map(|file| file.path.clone())
             .collect();
-        protected.extend(
+        let candidate_protected =
             candidate_runtime_closure(repository, base_sha, &patch_path, scratch, cancellation)
-                .await?,
-        );
-        let self_referential_paths = inspected
+                .await?;
+        if candidate_protected
+            .iter()
+            .any(|path| !protected.contains(path) && !path.starts_with("policy/"))
+        {
+            return Err(ProposerError::RuntimeGraph(
+                "candidate-added prompt dependency is outside policy",
+            ));
+        }
+        protected.extend(candidate_protected);
+        let self_referential_paths: Vec<String> = inspected
             .manifest
             .files
             .iter()
             .filter(|file| protected.contains(&file.path))
             .map(|file| file.path.clone())
             .collect();
+        if !self_referential_paths.is_empty() {
+            return Err(ProposerError::SelfReferentialPolicyChange(
+                self_referential_paths.join(", "),
+            ));
+        }
         Ok(ValidatedPolicyPatch {
             patch_path: patch_path.clone(),
             inspected,
@@ -3476,7 +3568,7 @@ pub async fn inspect_policy_intent(
     }
     .await;
     if result.is_err() {
-        let _ = tokio::fs::remove_file(&patch_path).await;
+        tokio::fs::remove_file(&patch_path).await?;
     }
     result
 }
@@ -3537,6 +3629,14 @@ async fn candidate_runtime_closure(
 pub fn validate_authority_surface(manifest: &DiffManifest) -> Result<(), ProposerError> {
     let mut policy_change = false;
     for file in &manifest.files {
+        let regular_file = match file.change {
+            ChangeKind::Added | ChangeKind::Modified => file.new_mode.as_deref() == Some("100644"),
+            ChangeKind::Deleted => file.old_mode.as_deref() == Some("100644"),
+            ChangeKind::Renamed => false,
+        };
+        if !regular_file {
+            return Err(ProposerError::UnsafePolicyFileType(file.path.clone()));
+        }
         if file.path.starts_with("policy/") {
             policy_change = true;
         } else if file.path != "docs/ideas.md" {
@@ -3665,6 +3765,11 @@ pub fn build_policy_pr_body(
 ) -> Result<String, ProposerError> {
     validate_intent(&packet.report, intent)?;
     require_lower_hex(reviewed_sha, 40, "reviewed candidate SHA")?;
+    if !validated.self_referential_paths.is_empty() {
+        return Err(ProposerError::SelfReferentialPolicyChange(
+            validated.self_referential_paths.join(", "),
+        ));
+    }
     let ProposalIntent::PolicyPatch { citations, .. } = intent else {
         return Err(ProposerError::WrongThresholdAction);
     };
@@ -3688,13 +3793,8 @@ pub fn build_policy_pr_body(
         )
         .expect("write to String");
     }
-    let self_reference = if validated.self_referential_paths.is_empty() {
-        "None".to_owned()
-    } else {
-        validated.self_referential_paths.join(", ")
-    };
     Ok(format!(
-        "## Improvement proposer evidence\n\nThis draft is bot-authored. It cannot merge itself; human merge is the sole authority gate.\n\n- Base SHA: `{}`\n- Lessons report SHA-256: `{}`\n- Snapshot maximum event ID: `{}`\n- Patch SHA-256: `{}`\n- Exact reviewed and published SHA: `{reviewed_sha}`\n- Current-execution prompt bundle SHA-256: `{}`\n- R19 closure paths touched (base plus candidate runtime closure; candidate instructions were never loaded this execution): `{self_reference}`\n\n### Ledger evidence\n\n{evidence}\n### Independent review\n\nThe exact candidate commit is routed to the configured cross-family, cross-harness proposer reviewer before publication. Raw transcripts and proposer rationale are absent from its packet.\n",
+        "## Improvement proposer evidence\n\nThis draft is bot-authored. It cannot merge itself; human merge is the sole authority gate.\n\n- Base SHA: `{}`\n- Lessons report SHA-256: `{}`\n- Snapshot maximum event ID: `{}`\n- Patch SHA-256: `{}`\n- Exact reviewed and published SHA: `{reviewed_sha}`\n- Current-execution prompt bundle SHA-256: `{}`\n- R19 prompt-closure gate: passed; no base or candidate prompt dependency changed.\n\n### Ledger evidence\n\n{evidence}\n### Independent review\n\nThe exact candidate commit is routed to the configured cross-family, cross-harness proposer reviewer before publication. Raw transcripts and proposer rationale are absent from its packet.\n",
         packet.base_sha,
         packet.report_sha256,
         packet.report.snapshot_max_event_id,
@@ -3762,6 +3862,11 @@ fn require_lower_hex(value: &str, length: usize, field: &'static str) -> Result<
     } else {
         Err(ProposerError::InvalidIdentifier(field))
     }
+}
+
+fn proposer_branch(report_sha256: &str) -> Result<String, ProposerError> {
+    require_lower_hex(report_sha256, 64, "report SHA-256")?;
+    Ok(format!("{PROPOSER_BRANCH_PREFIX}{}", &report_sha256[..16]))
 }
 
 fn require_repo_path(path: &str) -> Result<(), ProposerError> {
@@ -3853,6 +3958,10 @@ pub enum ProposerError {
     EvidenceCitation,
     #[error("proposer patch is outside the authority surface: {0}")]
     AuthoritySurface(String),
+    #[error("proposer patch changes its own prompt closure: {0}")]
+    SelfReferentialPolicyChange(String),
+    #[error("proposer patch path is not a regular non-symlink file: {0}")]
+    UnsafePolicyFileType(String),
     #[error("at-threshold proposer patch must change at least one policy file")]
     MissingPolicyChange,
     #[error("ideas path is not a regular non-symlink file")]
@@ -3949,7 +4058,8 @@ mod tests {
         PolicyPublisherConfig, PromptBundleManifest, ProposalIntent, ProposerError, ProposerPacket,
         ProposerRunStore, ProposerState, ReconciledPublication, RuntimeGraph, ValidatedPolicyPatch,
         append_idea, append_idea_once, build_packet, build_policy_pr_body, inspect_policy_intent,
-        load_prompt_bundle, render_effective_prompt, validate_authority_surface, validate_intent,
+        load_prompt_bundle, proposer_branch, render_effective_prompt, validate_authority_surface,
+        validate_intent,
     };
     use crate::{
         contracts::{InvocationUsage, ReviewArtifact},
@@ -4066,6 +4176,10 @@ mod tests {
             citations: vec![citation(&below)],
         };
         validate_intent(&below, &idea).expect("below threshold idea");
+        let mut oversized_skill = below.clone();
+        oversized_skill.runs[0].skill = "s".repeat(129);
+        oversized_skill.cohorts[0].skill = "s".repeat(129);
+        assert!(oversized_skill.validate().is_err());
 
         let at = report(10);
         at.validate().expect("threshold report");
@@ -4097,11 +4211,21 @@ mod tests {
     }
 
     #[test]
+    fn proposer_branch_rejects_untrusted_report_digests_without_panicking() {
+        for value in ["short", "🚀🚀🚀🚀🚀🚀🚀🚀", &"g".repeat(64)] {
+            assert!(matches!(
+                proposer_branch(value),
+                Err(ProposerError::InvalidIdentifier("report SHA-256"))
+            ));
+        }
+    }
+
+    #[test]
     fn authority_surface_rejects_every_outside_path() {
-        let manifest = DiffManifest {
+        let manifest = |path: &str| DiffManifest {
             base_sha: "a".repeat(40),
             files: vec![DiffFile {
-                path: "crates/factory-supervisor/src/lib.rs".to_owned(),
+                path: path.to_owned(),
                 old_path: None,
                 change: ChangeKind::Modified,
                 additions: 1,
@@ -4112,9 +4236,31 @@ mod tests {
                 new_mode: Some("100644".to_owned()),
             }],
         };
+        for path in ["SPEC.md", "AGENTS.md", "crates/lib.rs", "migrations/x.sql"] {
+            assert!(matches!(
+                validate_authority_surface(&manifest(path)),
+                Err(ProposerError::AuthoritySurface(_))
+            ));
+        }
         assert!(matches!(
-            validate_authority_surface(&manifest),
-            Err(ProposerError::AuthoritySurface(_))
+            validate_authority_surface(&manifest("docs/ideas.md")),
+            Err(ProposerError::MissingPolicyChange)
+        ));
+
+        let mut traversal = manifest("../policy/escape.md");
+        assert!(factory_verify::caps::verify(&traversal, &"a".repeat(40), 8, 1_000).is_err());
+        traversal.files[0].path = "policy/renamed.md".to_owned();
+        traversal.files[0].old_path = Some("policy/old.md".to_owned());
+        traversal.files[0].change = ChangeKind::Renamed;
+        assert!(factory_verify::caps::verify(&traversal, &"a".repeat(40), 8, 1_000).is_err());
+
+        let mut symlink = manifest("policy/linked.md");
+        symlink.files[0].change = ChangeKind::Added;
+        symlink.files[0].old_mode = Some("000000".to_owned());
+        symlink.files[0].new_mode = Some("120000".to_owned());
+        assert!(matches!(
+            validate_authority_surface(&symlink),
+            Err(ProposerError::UnsafePolicyFileType(_))
         ));
     }
 
@@ -4166,6 +4312,11 @@ mod tests {
             fs::create_dir_all(destination.parent().expect("parent")).expect("mkdir");
             fs::copy(source_root.join(path), destination).expect("copy bundle file");
         }
+        fs::write(
+            repository.join("docs/candidate-prompt.md"),
+            "base file outside the prompt closure\n",
+        )
+        .expect("write outside base file");
         git(repository, &["add", "."]);
         git(
             repository,
@@ -4255,7 +4406,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn r19_reports_candidate_added_prompt_dependencies_without_loading_them() {
+    async fn r19_refuses_candidate_added_prompt_dependencies_without_loading_them() {
         let temporary = tempfile::tempdir().expect("tempdir");
         let repository = temporary.path();
         git(repository, &["init", "--quiet"]);
@@ -4276,6 +4427,11 @@ mod tests {
             fs::create_dir_all(destination.parent().expect("parent")).expect("mkdir");
             fs::copy(source_root.join(path), destination).expect("copy bundle file");
         }
+        fs::write(
+            repository.join("docs/candidate-prompt.md"),
+            "base file outside the prompt closure\n",
+        )
+        .expect("write outside base file");
         git(repository, &["add", "."]);
         git(
             repository,
@@ -4327,7 +4483,7 @@ mod tests {
             patch,
             citations: vec![citation(&evidence)],
         };
-        let validated = inspect_policy_intent(
+        let error = inspect_policy_intent(
             repository,
             &base,
             &repository.join("scratch"),
@@ -4337,18 +4493,52 @@ mod tests {
             &CancellationToken::new(),
         )
         .await
-        .expect("inspect candidate closure");
-        assert!(
-            validated
-                .self_referential_paths
-                .contains(&"policy/proposer-runtime.json".to_owned())
-        );
-        assert!(
-            validated
-                .self_referential_paths
-                .contains(&"policy/new-fragment.md".to_owned())
-        );
-        fs::remove_file(validated.patch_path).expect("remove patch");
+        .expect_err("self-referential candidate must be refused");
+        let ProposerError::SelfReferentialPolicyChange(paths) = error else {
+            panic!("unexpected R19 error: {error}");
+        };
+        assert!(paths.contains("policy/proposer-runtime.json"));
+        assert!(paths.contains("policy/new-fragment.md"));
+
+        git(repository, &["reset", "--hard", &base]);
+        git(repository, &["clean", "-fd"]);
+        let mut graph: RuntimeGraph = serde_json::from_slice(
+            &fs::read(repository.join("policy/proposer-runtime.json")).expect("runtime graph"),
+        )
+        .expect("runtime graph JSON");
+        graph
+            .author_roots
+            .push("docs/candidate-prompt.md".to_owned());
+        graph
+            .includes
+            .insert("docs/candidate-prompt.md".to_owned(), Vec::new());
+        fs::write(
+            repository.join("policy/proposer-runtime.json"),
+            serde_json::to_vec_pretty(&graph).expect("runtime JSON"),
+        )
+        .expect("write runtime");
+        let outside_intent = ProposalIntent::PolicyPatch {
+            schema_version: 1,
+            title: "Outside candidate closure".to_owned(),
+            summary: "Exercise transitive R19".to_owned(),
+            patch: git(repository, &["diff", "--binary", &base]),
+            citations: vec![citation(&evidence)],
+        };
+        assert!(matches!(
+            inspect_policy_intent(
+                repository,
+                &base,
+                &repository.join("outside-scratch"),
+                &author.manifest,
+                &reviewer.manifest,
+                &outside_intent,
+                &CancellationToken::new(),
+            )
+            .await,
+            Err(ProposerError::RuntimeGraph(
+                "candidate-added prompt dependency is outside policy"
+            ))
+        ));
     }
 
     #[derive(Clone)]
@@ -4557,6 +4747,13 @@ mod tests {
             },
             report: lessons,
         };
+        let mut self_referential = validated.clone();
+        self_referential.self_referential_paths = vec!["policy/proposer.md".to_owned()];
+        assert!(matches!(
+            build_policy_pr_body(&packet, &intent, &self_referential, &"a".repeat(40)),
+            Err(ProposerError::SelfReferentialPolicyChange(paths))
+                if paths == "policy/proposer.md"
+        ));
         let github = Arc::new(LocalGitHub {
             remote: remote.clone(),
             pulls: Arc::new(Mutex::new(Vec::new())),
@@ -4583,6 +4780,17 @@ mod tests {
             },
         )
         .expect("publisher");
+        let mut external_proposer = local_pull(85, "factory/proposer/external", &base_sha);
+        external_proposer.user.login = "external-human".to_owned();
+        github.pulls.lock().expect("pulls").push(external_proposer);
+        assert!(
+            publisher
+                .has_open_proposer_pr(&CancellationToken::new())
+                .await
+                .expect("fresh external proposer cap")
+        );
+        github.pulls.lock().expect("pulls").clear();
+        github.purposes.lock().expect("purposes").clear();
         let run_id = store.begin(&base_sha).await.expect("begin");
         store
             .transition(
@@ -4827,8 +5035,9 @@ mod tests {
             .await
             .expect("ready");
 
-        // A durable abort written after reviewing but before any branch/PR
-        // effect must make restart reconciliation observation-only.
+        // A full stop raised after the publishing transition but before any
+        // branch/PR effect must be re-read synchronously by the concrete
+        // publisher, persist abort intent, and mint no write authority.
         github.pulls.lock().expect("pulls").clear();
         github.purposes.lock().expect("purposes").clear();
         let abort_run = store.begin(&base_sha).await.expect("abort begin");
@@ -4886,10 +5095,30 @@ mod tests {
             )
             .await
             .expect("abort publishing");
-        store
-            .request_publication_abort(abort_run, "fixture_full_stop")
-            .await
-            .expect("durable abort");
+        sqlx::query(
+            "UPDATE factory.supervisor_state SET paused=true,full_stop=true,updated_at=clock_timestamp(),updated_by='publisher-full-stop-fixture' WHERE singleton",
+        )
+        .execute(&pool)
+        .await
+        .expect("set full stop");
+        assert!(matches!(
+            publisher
+                .reconcile_incomplete(&CancellationToken::new())
+                .await,
+            Err(ProposerError::Cancelled)
+        ));
+        let abort_requested: bool =
+            sqlx::query_scalar("SELECT abort_requested FROM factory.proposer_runs WHERE id=$1")
+                .bind(abort_run)
+                .fetch_one(&pool)
+                .await
+                .expect("durable abort intent");
+        assert!(abort_requested);
+        assert!(github.pulls.lock().expect("pulls").is_empty());
+        assert_eq!(
+            *github.purposes.lock().expect("purposes"),
+            vec![TokenPurpose::Reconcile]
+        );
         let aborted = publisher
             .reconcile_incomplete(&CancellationToken::new())
             .await
@@ -4905,8 +5134,14 @@ mod tests {
         assert!(github.pulls.lock().expect("pulls").is_empty());
         assert_eq!(
             *github.purposes.lock().expect("purposes"),
-            vec![TokenPurpose::Reconcile]
+            vec![TokenPurpose::Reconcile, TokenPurpose::Reconcile]
         );
+        sqlx::query(
+            "UPDATE factory.supervisor_state SET paused=false,full_stop=false,updated_at=clock_timestamp(),updated_by='publisher-full-stop-fixture' WHERE singleton",
+        )
+        .execute(&pool)
+        .await
+        .expect("clear full stop");
         store
             .transition(
                 abort_run,

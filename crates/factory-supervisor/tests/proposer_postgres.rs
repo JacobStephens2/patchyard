@@ -331,15 +331,50 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
         .max_connections(4)
         .connect(&runtime_url)
         .await?;
-    let qualification_skill = format!("qualification-fixture-{}", Uuid::new_v4());
-    let qualification_runs = seed_runs(&admin, &qualification_skill, "qualification", 12).await?;
+    let lock_store = ProposerRunStore::new(runtime.clone());
+    let dropped_lock = lock_store.acquire_execution_lock().await?;
+    drop(dropped_lock);
+    let reacquired_lock = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            match lock_store.acquire_execution_lock().await {
+                Ok(connection) => return Ok::<_, ProposerError>(connection),
+                Err(ProposerError::ProposerAttemptActive) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    })
+    .await??;
+    lock_store.release_execution_lock(reacquired_lock).await?;
+    assert!(
+        sqlx::query(
+            r#"
+            INSERT INTO factory.proposer_runs (
+                id,state,base_sha,report_sha256,report_max_event_id,
+                prompt_bundle_sha256,pr_number,pr_url,finished_at
+            ) VALUES ($1,'ready_for_review',$2,decode(repeat('0',64),'hex'),0,
+                      decode(repeat('0',64),'hex'),48,'https://github.invalid/48',
+                      clock_timestamp())
+            "#,
+        )
+        .bind(Uuid::new_v4())
+        .bind("a".repeat(40))
+        .execute(&runtime)
+        .await
+        .is_err(),
+        "runtime role must not insert terminal proposer state or PR fields"
+    );
+
+    let production_skill = format!("production-fixture-{}", Uuid::new_v4());
+    let qualification_runs = seed_runs(&admin, &production_skill, "qualification", 12).await?;
     let qualification_only = lessons::generate(&runtime).await?;
     assert!(
         qualification_only
             .cohorts
             .iter()
-            .all(|cohort| cohort.skill != qualification_skill),
-        "qualification cohort reached the report"
+            .all(|cohort| cohort.skill != production_skill),
+        "same-dimension qualification cohort reached the report"
     );
     let qualification_request_in_metrics: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM factory.grafana_request_summary WHERE request_id=$1",
@@ -362,8 +397,6 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
             .is_err(),
         "durable run classification must be immutable"
     );
-
-    let production_skill = format!("production-fixture-{}", Uuid::new_v4());
     let first_nine = seed_runs(&admin, &production_skill, "production", 9).await?;
     // Plant raw content in an excluded request/event surface and one exact
     // allowlisted operator quote in the typed event surface.
@@ -401,6 +434,7 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
     let repository = fixture_repository()?;
     let base_sha = git(repository.path(), &["rev-parse", "HEAD"]);
     let patch = fixture_policy_patch(repository.path())?;
+    let valid_policy_patch = patch.clone();
     let ideas = repository.path().join("docs/ideas.md");
     let ideas_prefix = fs::read(&ideas)?;
     let routing = RoutingConfig::load(
@@ -431,11 +465,14 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
             review_worktree_root: repository.path().join("proposer-review-worktrees"),
             review_repository: repository.path().to_path_buf(),
             base_sha,
-            publication_enabled: true,
+            dual_human_review_enforced: true,
         },
     )?);
 
     let below = lessons::generate(&runtime).await?;
+    let below_repeat = lessons::generate(&runtime).await?;
+    assert!(below.production_run_count > 0);
+    assert_eq!(below.to_pretty_json()?, below_repeat.to_pretty_json()?);
     let production_cohort = below
         .cohorts
         .iter()
@@ -591,7 +628,7 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
             review_worktree_root: repository.path().join("gated-review-worktrees"),
             review_repository: repository.path().to_path_buf(),
             base_sha: git(repository.path(), &["rev-parse", "HEAD"]),
-            publication_enabled: false,
+            dual_human_review_enforced: false,
         },
     )?;
     let calls_before_gate = agent.calls.load(Ordering::SeqCst);
@@ -667,7 +704,7 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
             review_worktree_root: repository.path().join("blocking-review-worktrees"),
             review_repository: repository.path().to_path_buf(),
             base_sha: git(repository.path(), &["rev-parse", "HEAD"]),
-            publication_enabled: true,
+            dual_human_review_enforced: true,
         },
     )?);
     let blocked_attempt = tokio::spawn({
@@ -739,6 +776,51 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
     .execute(&admin)
     .await?;
 
+    *agent.patch.lock().expect("patch mutex") = fixture_outside_patch(repository.path())?;
+    assert!(matches!(
+        engine
+            .run(at_threshold.clone(), &CancellationToken::new())
+            .await,
+        Err(ProposerError::AuthoritySurface(path)) if path == "AGENTS.md"
+    ));
+    let authority_state: String = sqlx::query_scalar(
+        "SELECT state::text FROM factory.proposer_runs ORDER BY queued_at DESC,id DESC LIMIT 1",
+    )
+    .fetch_one(&admin)
+    .await?;
+    assert_eq!(authority_state, "authority_surface_failed");
+    assert_eq!(publisher.published.load(Ordering::SeqCst), 0);
+    *agent.patch.lock().expect("patch mutex") = fixture_self_reference_patch(repository.path())?;
+    assert!(matches!(
+        engine
+            .run(at_threshold.clone(), &CancellationToken::new())
+            .await,
+        Err(ProposerError::SelfReferentialPolicyChange(paths))
+            if paths.contains("policy/proposer.md")
+    ));
+    let r19_state: String = sqlx::query_scalar(
+        "SELECT state::text FROM factory.proposer_runs ORDER BY queued_at DESC,id DESC LIMIT 1",
+    )
+    .fetch_one(&admin)
+    .await?;
+    assert_eq!(r19_state, "authority_surface_failed");
+    assert_eq!(publisher.published.load(Ordering::SeqCst), 0);
+    *agent.patch.lock().expect("patch mutex") = fixture_symlink_patch(repository.path())?;
+    assert!(matches!(
+        engine
+            .run(at_threshold.clone(), &CancellationToken::new())
+            .await,
+        Err(ProposerError::UnsafePolicyFileType(path)) if path == "policy/escape.md"
+    ));
+    let symlink_state: String = sqlx::query_scalar(
+        "SELECT state::text FROM factory.proposer_runs ORDER BY queued_at DESC,id DESC LIMIT 1",
+    )
+    .fetch_one(&admin)
+    .await?;
+    assert_eq!(symlink_state, "authority_surface_failed");
+    assert_eq!(publisher.published.load(Ordering::SeqCst), 0);
+    *agent.patch.lock().expect("patch mutex") = valid_policy_patch;
+
     let adjudication_publisher = Arc::new(FixturePublisher::default());
     let adjudication_engine = ImprovementProposer::new(
         ProposerRunStore::new(runtime.clone()),
@@ -757,7 +839,7 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
             review_worktree_root: repository.path().join("adjudication-review-worktrees"),
             review_repository: repository.path().to_path_buf(),
             base_sha: git(repository.path(), &["rev-parse", "HEAD"]),
-            publication_enabled: true,
+            dual_human_review_enforced: true,
         },
     )?;
     assert!(matches!(
@@ -830,7 +912,7 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
     )
     .fetch_all(&admin)
     .await?;
-    assert_eq!(transcript_paths.len(), 9);
+    assert_eq!(transcript_paths.len(), 12);
     let transcripts = transcript_paths
         .iter()
         .map(|path| fs::read_to_string(artifact_root.join(path)))
@@ -840,7 +922,7 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
             .iter()
             .filter(|text| text.contains("RAW_TRANSCRIPT_MARKER"))
             .count(),
-        5
+        8
     );
     assert!(
         transcripts
@@ -992,6 +1074,41 @@ fn fixture_policy_patch(repository: &Path) -> Result<String, Box<dyn std::error:
     fs::write(&path, candidate)?;
     let patch = git(repository, &["diff", "--", "policy/rubric.md"]);
     fs::write(path, original)?;
+    assert!(!patch.is_empty());
+    Ok(format!("{patch}\n"))
+}
+
+fn fixture_outside_patch(repository: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let path = repository.join("AGENTS.md");
+    let original = fs::read(&path)?;
+    let mut candidate = original.clone();
+    candidate.extend_from_slice(b"\n<!-- outside authority fixture -->\n");
+    fs::write(&path, candidate)?;
+    let patch = git(repository, &["diff", "--", "AGENTS.md"]);
+    fs::write(path, original)?;
+    assert!(!patch.is_empty());
+    Ok(format!("{patch}\n"))
+}
+
+fn fixture_self_reference_patch(repository: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let path = repository.join("policy/proposer.md");
+    let original = fs::read(&path)?;
+    let mut candidate = original.clone();
+    candidate.extend_from_slice(b"\n<!-- self-reference fixture -->\n");
+    fs::write(&path, candidate)?;
+    let patch = git(repository, &["diff", "--", "policy/proposer.md"]);
+    fs::write(path, original)?;
+    assert!(!patch.is_empty());
+    Ok(format!("{patch}\n"))
+}
+
+fn fixture_symlink_patch(repository: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let path = repository.join("policy/escape.md");
+    std::os::unix::fs::symlink("../../AGENTS.md", &path)?;
+    git(repository, &["add", "--intent-to-add", "policy/escape.md"]);
+    let patch = git(repository, &["diff", "--binary", "--", "policy/escape.md"]);
+    fs::remove_file(path)?;
+    git(repository, &["reset", "--", "policy/escape.md"]);
     assert!(!patch.is_empty());
     Ok(format!("{patch}\n"))
 }

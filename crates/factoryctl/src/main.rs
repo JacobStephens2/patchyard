@@ -293,9 +293,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     match &cli.command {
         Command::LessonsReport => {
             let store = PgPipelineStore::connect(database_url).await?;
-            let report = lessons::generate(store.pool()).await?;
-            print!("{}", report.to_pretty_json()?);
+            let rendered = async {
+                let report = lessons::generate(store.pool()).await?;
+                report.to_pretty_json()
+            }
+            .await;
             store.close().await;
+            print!("{}", rendered?);
             return Ok(());
         }
         Command::ProposerRun => {

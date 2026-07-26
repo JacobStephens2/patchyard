@@ -45,7 +45,13 @@ artifacts, model transcripts, and other event payloads are never queried.
 Below threshold the validated model result can only produce an idempotent,
 locked, fsynced literal append to the private `docs/ideas.md` projection. The
 report digest is the effect identity, so a crash after fsync cannot duplicate
-the entry. Rule 1 in that file makes the append authority-free. At threshold
+the entry. Installed observations live at
+`/var/lib/patchyard/proposer-inbox/docs/ideas.md`; Ansible seeds that file
+once and never overwrites it. This is deliberately operator-inspected runtime
+state under A69, not an automatic commit or reviewer artifact. An operator
+graduates a worthwhile observation into the repository's `docs/ideas.md`
+through an ordinary reviewed Git change. Rule 1 in that file makes both the
+runtime observation and any later inbox entry authority-free. At threshold
 the supervisor re-derives every cited run ID,
 count, outcome, and basis-point rate from the report before inspecting the
 patch. A PR body records those facts and the report, prompt-bundle, and patch
@@ -74,12 +80,14 @@ commit with `git show`, not the candidate filesystem. Both actual prompts begin
 with the base-pinned `AGENTS.md` constitution. `policy/proposer-runtime.json`
 is a typed, closed include graph and includes the proposer, reviewer, and
 disposition prompts plus its own definition. Candidate graph closure is parsed
-as data after patch application; the reported R19 surface is the union of base
-and candidate closures, including newly added dependencies and cycle/path
-rejection. Candidate instructions are never loaded into the current execution.
-Tests change `AGENTS.md`, both proposer prompts, and add a new runtime fragment,
-then prove current prompt bytes remain base-pinned while every candidate-added
-dependency is still reported for review.
+as data after patch application; the R19 refusal surface is the union of base
+and candidate closures. Any patch that changes a path in that union fails the
+authority gate, and a candidate-added dependency must remain under `policy/`
+before that refusal is evaluated. Candidate instructions are never loaded into
+the current execution or merely delegated to reviewer attention. Tests change
+both proposer prompts, add a new runtime fragment, and add an outside-policy
+runtime dependency, then prove each candidate is refused while current prompt
+bytes remain base-pinned.
 
 Successful author, reviewer, and disposition invocations retain their full
 transcripts only as private artifact-store objects referenced by
@@ -94,7 +102,8 @@ The publisher uses the Patchyard Factory GitHub App identity, creates a draft PR
 and does not expose a merge operation. A serialized execution lease, database
 single-active invariant, publisher lease, and fresh remote PR listing enforce
 one active attempt and the one-open-proposer-PR cap. Publishing identity and PR
-title/body are durable before review. Startup, LISTEN reconnect, and the
+title/body are durable before review. The cap counts every open
+`factory/proposer/` PR regardless of author identity. Startup, LISTEN reconnect, and the
 ordinary bounded supervisor sweep run existing-work-only proposer recovery
 even when new scheduled attempts are disabled; an active advisory lease means
 "retry later," not daemon failure. Recovery checks an abandoned `proposing`
@@ -105,7 +114,9 @@ or model call and retries deterministic per-run scratch cleanup plus Git
 worktree pruning before terminal success. Full stop is read durably by
 scheduler and CLI entry, is rechecked around the ideas effect, and writes a
 durable publication-abort intent: recovery may observe an already-created PR
-but cannot create a missing one after cancellation.
+but cannot create a missing one after cancellation. The supervisor re-reads
+full stop after `reviewing -> publishing`, and the concrete publisher re-reads
+it immediately before each branch push and draft-PR creation effect.
 
 Merge remains a human-only gate under A1. Because A99's App-authorship trigger
 applies, enabling the installed schedule is additionally blocked unless
@@ -114,7 +125,10 @@ only after applying and verifying the GitOps branch-protection rule, which now
 requires two approvals. The same at-threshold gate is enforced inside the
 proposer, so manual execution cannot bypass it; startup recovery treats a
 missing attestation as durable abort intent and cannot create a missing PR.
-The installed template leaves both flags false.
+`FACTORY_PROPOSER_SCHEDULING_ENABLED` starts new scheduled attempts only;
+existing durable work is always reconciled, and full stop is the publication
+kill switch. The installed template leaves scheduling and dual-review
+attestation false.
 
 ## Failure-path inventory
 
@@ -130,7 +144,7 @@ production run metrics. The named terminal states are:
 | `report_too_large` | The report or prompt packet exceeded its byte bound. |
 | `proposer_contract_failed` | The child failed, was cancelled, timed out, or returned malformed output. |
 | `evidence_citation_failed` | A citation did not exactly match the report cohort, run IDs, count, state, or rate. |
-| `authority_surface_failed` | Patch application, limits, file types, or the `policy/` plus optional ideas allowlist failed. |
+| `authority_surface_failed` | Patch application, limits, regular-file checks, R19 prompt-closure refusal, or the `policy/` plus optional ideas allowlist failed. |
 | `adversarial_review_failed` | Review/disposition failed, findings were conceded, or a typed dispute/experiment requires a new attempt. |
 | `publication_failed` | Candidate preparation failed before the durable publishing boundary. Once `publishing`, retryable external uncertainty stays nonterminal for reconciliation. |
 | `cleanup_failed` | Scratch or child cleanup could not prove completion. |
@@ -147,10 +161,10 @@ merged automatically.
 CI and local fixture verification prove schema validation, deterministic
 byte-identical reporting, repeatable-read snapshot bounds, production-only
 selection, quote allowlisting and truncation, report-only prompt construction,
-below- and at-threshold behavior, qualification exclusion above threshold,
+below- and at-threshold behavior, same-cohort qualification exclusion above threshold,
 exact evidence citations, the one-open-PR refusal, path and symlink rejection,
-R19 base/candidate closure handling, cross-family routing and A77 disposition,
-durable full-stop checks, cancellation around a held ideas-file lock, lifecycle
+R19 base/candidate closure refusal, cross-family routing and A77 disposition,
+durable full-stop re-reads, cancellation around a held ideas-file lock, lifecycle
 transitions, and the fixed child-launcher mount/network contract. The
 PostgreSQL acceptance test runs all migrations and grants against a disposable
 PostgreSQL 16 service and recovers an fsynced idea marker after a simulated

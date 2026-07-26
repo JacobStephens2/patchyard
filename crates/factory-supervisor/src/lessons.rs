@@ -18,6 +18,8 @@ pub const POLICY_PR_THRESHOLD: usize = 10;
 pub const MAX_QUOTES_PER_RUN: usize = 1;
 pub const MAX_QUOTES_PER_REPORT: usize = 32;
 pub const MAX_QUOTE_CHARS: usize = 240;
+pub const MAX_SKILL_CHARS: usize = 128;
+pub const MAX_ROUTING_VERSION_CHARS: usize = 256;
 
 type CohortDimensions = (String, String, String, String, String);
 type CohortAggregate = (Vec<Uuid>, BTreeMap<String, usize>);
@@ -148,6 +150,7 @@ impl LessonsReport {
                 || !run_ids.insert(run.run_id)
                 || run.lane.trim().is_empty()
                 || run.skill.trim().is_empty()
+                || run.skill.chars().count() > MAX_SKILL_CHARS
                 || run.rubric_sha256.len() != 64
                 || !run
                     .rubric_sha256
@@ -159,6 +162,7 @@ impl LessonsReport {
                     .bytes()
                     .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
                 || run.routing_config_version.trim().is_empty()
+                || run.routing_config_version.chars().count() > MAX_ROUTING_VERSION_CHARS
                 || run.terminal_state.trim().is_empty()
                 || run.duration_ms.is_some_and(|duration| duration < 0)
                 || run.quotes.len() > MAX_QUOTES_PER_RUN
@@ -245,6 +249,10 @@ impl LessonsReport {
                 || cohort.run_ids.windows(2).any(|pair| pair[0] >= pair[1])
                 || cohort.eligible_for_policy_pr
                     != (cohort.production_run_count >= POLICY_PR_THRESHOLD)
+                || cohort.skill.trim().is_empty()
+                || cohort.skill.chars().count() > MAX_SKILL_CHARS
+                || cohort.routing_config_version.trim().is_empty()
+                || cohort.routing_config_version.chars().count() > MAX_ROUTING_VERSION_CHARS
                 || expected.get(&dimensions)
                     != Some(&(
                         cohort.run_ids.clone(),

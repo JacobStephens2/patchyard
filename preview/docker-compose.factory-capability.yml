@@ -5,6 +5,7 @@ networks:
 
 services:
   traefik:
+    image: traefik@sha256:66b901df20c5b92a43ac79d92d14bd0a1fda50fdb3cae8f77d562aa8f279f748
     command:
       - "--log.level=INFO"
       - "--accesslog=true"

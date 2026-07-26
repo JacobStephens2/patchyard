@@ -8,12 +8,16 @@ SLOT_COMPOSE = ROOT / "preview/docker-compose.factory-slot.yml"
 AUTHORIZATION_CONF = ROOT / "preview/patchyard-authorization.conf"
 TRAEFIK_DYNAMIC = ROOT / "preview/patchyard-traefik-dynamic.yml"
 TASKS = ROOT / "infra/ansible/roles/preview_host/tasks/main.yml"
+TRAEFIK_IMAGE = (
+    "traefik@sha256:66b901df20c5b92a43ac79d92d14bd0a1fda50fdb3cae8f77d562aa8f279f748"
+)
 
 
 class PreviewCapabilityDeploymentContract(unittest.TestCase):
     def test_traefik_loads_the_file_provider_capability_chain(self) -> None:
         compose = COMPOSE.read_text()
         dynamic = TRAEFIK_DYNAMIC.read_text()
+        self.assertIn(f"image: {TRAEFIK_IMAGE}", compose)
         self.assertIn(
             '"--providers.file.filename=/etc/traefik/patchyard-dynamic.yml"',
             compose,
@@ -25,6 +29,7 @@ class PreviewCapabilityDeploymentContract(unittest.TestCase):
         )
         self.assertIn('address: "http://factory-capability:8080/auth"', dynamic)
         self.assertIn("patchyard-traefik-dynamic.yml", TASKS.read_text())
+        self.assertIn(TRAEFIK_IMAGE, TASKS.read_text())
         for inherited_static_flag in (
             '"--providers.docker.endpoint=tcp://socket-proxy:2375"',
             '"--providers.docker.network=preview-net"',

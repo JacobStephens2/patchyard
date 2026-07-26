@@ -188,6 +188,8 @@
         /etc/patchyard-preview/patchyard-traefik-dynamic.yml
       docker inspect preview-fieldbooks-traefik-1 --format '{{ "{{" }}json .Args{{ "}}" }}' |
         jq -e 'index("--providers.file.filename=/etc/traefik/patchyard-dynamic.yml") != null' >/dev/null
+      test "$(docker inspect preview-fieldbooks-traefik-1 --format '{{ "{{" }}.Config.Image{{ "}}" }}')" = \
+        'traefik@sha256:66b901df20c5b92a43ac79d92d14bd0a1fda50fdb3cae8f77d562aa8f279f748'
       docker inspect preview-fieldbooks-traefik-1 --format '{{ "{{" }}json .Mounts{{ "}}" }}' |
         jq -e 'any(.[]; .Destination == "/etc/traefik/patchyard-dynamic.yml" and .RW == false)' >/dev/null
       test "$(stat -c '%U:%G:%a' /etc/patchyard-preview/patchyard-authorization.conf)" = root:root:644

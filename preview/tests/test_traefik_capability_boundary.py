@@ -195,6 +195,7 @@ class TraefikCapabilityBoundary(unittest.TestCase):
             'authResponseHeadersRegex: "^X-Patchyard-Factory-Capability$"',
             TRAEFIK_DYNAMIC,
         )
+        self.assertIn(f"image: {TRAEFIK_IMAGE}", CAPABILITY_COMPOSE)
         self.assertIn(
             '"patchyard-capability@file"',
             SLOT_COMPOSE,

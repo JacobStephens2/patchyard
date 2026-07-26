@@ -162,6 +162,8 @@ test cannot:
   ready-for-review only after both evidence packs are durable;
 - the baseline and candidate slots run the exact requested SHAs and all
   browser navigation remains on the leased numbered host;
+- the installed Traefik image is the exact digest exercised by the behavioral
+  capability-boundary integration test;
 - the deployed Traefik forward-auth boundary authenticates the private
   capability and removes it before the legacy PHP backend;
 - the installed journal and preview-container scan reads its real bounded log

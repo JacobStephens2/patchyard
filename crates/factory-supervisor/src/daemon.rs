@@ -115,7 +115,10 @@ impl SupervisorDaemon {
             };
             match wake {
                 Wake::Shutdown => break,
-                Wake::Sweep => self.sweep().await?,
+                Wake::Sweep => {
+                    self.sweep().await?;
+                    self.recover_proposer_state(shutdown).await?;
+                }
                 Wake::Reconnect(error) => {
                     tracing::warn!(%error, "LISTEN connection lost; reconnecting before durable sweep");
                     listener = self.connect_listener().await?;
@@ -215,8 +218,13 @@ impl SupervisorDaemon {
                 return Ok(());
             }
         }
-        if let Some(outcome) = self.proposer.recover_existing(cancellation).await? {
-            tracing::info!(?outcome, "recovered durable proposer state");
+        match self.proposer.recover_existing(cancellation).await {
+            Ok(Some(outcome)) => tracing::info!(?outcome, "recovered durable proposer state"),
+            Ok(None) => {}
+            Err(ProposerError::ProposerAttemptActive) => {
+                tracing::debug!("proposer execution lease is active; recovery will retry")
+            }
+            Err(error) => return Err(error.into()),
         }
         Ok(())
     }

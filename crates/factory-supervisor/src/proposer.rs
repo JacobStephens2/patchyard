@@ -904,6 +904,7 @@ pub struct ImprovementProposerConfig {
     pub ideas_path: PathBuf,
     pub scratch: PathBuf,
     pub review_worktree_root: PathBuf,
+    pub review_repository: PathBuf,
     pub base_sha: String,
     pub publication_enabled: bool,
 }
@@ -1011,11 +1012,11 @@ impl ImprovementProposer {
         report: LessonsReport,
         cancellation: &CancellationToken,
     ) -> Result<ProposerOutcome, ProposerError> {
-        if self.store.full_stop_active().await? {
-            return Ok(ProposerOutcome::FullStopActive);
-        }
         if let Some(outcome) = self.reconcile_incomplete(cancellation).await? {
             return Ok(outcome);
+        }
+        if self.store.full_stop_active().await? {
+            return Ok(ProposerOutcome::FullStopActive);
         }
         if let Some(outcome) = self.reconcile_abandoned_before_publication().await? {
             return Ok(outcome);
@@ -1084,11 +1085,11 @@ impl ImprovementProposer {
         pool: &PgPool,
         cancellation: &CancellationToken,
     ) -> Result<ProposerOutcome, ProposerError> {
-        if self.store.full_stop_active().await? {
-            return Ok(ProposerOutcome::FullStopActive);
-        }
         if let Some(outcome) = self.reconcile_incomplete(cancellation).await? {
             return Ok(outcome);
+        }
+        if self.store.full_stop_active().await? {
+            return Ok(ProposerOutcome::FullStopActive);
         }
         if let Some(outcome) = self.reconcile_abandoned_before_publication().await? {
             return Ok(outcome);
@@ -1131,6 +1132,20 @@ impl ImprovementProposer {
         &self,
         cancellation: &CancellationToken,
     ) -> Result<Option<ProposerOutcome>, ProposerError> {
+        let full_stop = self.store.full_stop_active().await?;
+        if full_stop || !self.config.publication_enabled {
+            let reason = if full_stop {
+                "full_stop_during_recovery"
+            } else {
+                "dual_human_review_not_enforced_during_recovery"
+            };
+            self.store
+                .request_incomplete_publication_abort(reason)
+                .await?;
+            if full_stop {
+                return Ok(None);
+            }
+        }
         let Some(reconciled) = self.publisher.reconcile_incomplete(cancellation).await? else {
             return Ok(None);
         };
@@ -1220,17 +1235,6 @@ impl ImprovementProposer {
     ) -> Result<Option<ProposerOutcome>, ProposerError> {
         let execution = self.store.acquire_execution_lock().await?;
         let result = async {
-            let full_stop = self.store.full_stop_active().await?;
-            if full_stop || !self.config.publication_enabled {
-                let reason = if full_stop {
-                    "full_stop_during_recovery"
-                } else {
-                    "dual_human_review_not_enforced_during_recovery"
-                };
-                self.store
-                    .request_incomplete_publication_abort(reason)
-                    .await?;
-            }
             if let Some(outcome) = self.reconcile_incomplete(cancellation).await? {
                 return Ok(Some(outcome));
             }
@@ -1689,6 +1693,7 @@ impl ImprovementProposer {
         };
         let review_packet = PolicyReviewPacket {
             schema_version: 1,
+            run_id,
             review_id: Uuid::new_v4(),
             reviewed_sha: prepared.head_sha.clone(),
             report_sha256: packet.report_sha256.clone(),
@@ -2058,20 +2063,12 @@ impl ImprovementProposer {
     async fn cleanup_proposer_scratch(&self, run_id: Uuid) -> Result<(), ProposerError> {
         let inspection = self.config.scratch.join("inspect").join(run_id.to_string());
         remove_scratch_tree(&inspection).await?;
-        remove_scratch_tree(&self.config.review_worktree_root).await?;
-        let mut spec = ProcessSpec::new("/usr/bin/git");
-        spec.args = vec![
-            "-C".into(),
-            self.config.repository.as_os_str().to_owned(),
-            "worktree".into(),
-            "prune".into(),
-            "--expire".into(),
-            "now".into(),
-        ];
-        spec.timeout = Duration::from_secs(30);
-        spec.output_limit = 1024 * 1024;
-        let output = run_bounded(&spec, &CancellationToken::new()).await?;
-        require_process_success("prune proposer worktree registrations", output.code)
+        remove_scratch_tree(&self.config.review_worktree_root.join(run_id.to_string())).await?;
+        prune_worktree_registrations(&self.config.repository).await?;
+        if self.config.review_repository != self.config.repository {
+            prune_worktree_registrations(&self.config.review_repository).await?;
+        }
+        Ok(())
     }
 
     async fn terminate_after_patch_cleanup(
@@ -2134,6 +2131,30 @@ async fn remove_scratch_tree(path: &Path) -> Result<(), ProposerError> {
     }
     tokio::fs::remove_dir_all(path).await?;
     Ok(())
+}
+
+async fn prune_worktree_registrations(repository: &Path) -> Result<(), ProposerError> {
+    let metadata = match tokio::fs::symlink_metadata(repository).await {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err(ProposerError::UnsafeScratchPath);
+    }
+    let mut spec = ProcessSpec::new("/usr/bin/git");
+    spec.args = vec![
+        "-C".into(),
+        repository.as_os_str().to_owned(),
+        "worktree".into(),
+        "prune".into(),
+        "--expire".into(),
+        "now".into(),
+    ];
+    spec.timeout = Duration::from_secs(30);
+    spec.output_limit = 1024 * 1024;
+    let output = run_bounded(&spec, &CancellationToken::new()).await?;
+    require_process_success("prune proposer worktree registrations", output.code)
 }
 
 #[derive(Clone, Debug)]

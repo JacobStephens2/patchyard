@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[3]
 CONTROL = ROOT / "infra/ansible/roles/control_plane"
 LAUNCHER = CONTROL / "files/patchyard-child-launcher"
 SUPERVISOR_UNIT = CONTROL / "files/factory-supervisor.service"
+CHILD_UNIT = CONTROL / "files/patchyard-child@.service"
 TASKS = CONTROL / "tasks/main.yml"
 ENVIRONMENT = CONTROL / "templates/patchyard-supervisor.env.j2"
 RUNTIME = ROOT / "policy/proposer-runtime.json"
@@ -18,6 +19,7 @@ class Session15ProposerContract(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.launcher = LAUNCHER.read_text()
         cls.unit = SUPERVISOR_UNIT.read_text()
+        cls.child_unit = CHILD_UNIT.read_text()
         cls.tasks = TASKS.read_text()
         cls.environment = ENVIRONMENT.read_text()
         cls.runtime = json.loads(RUNTIME.read_text())
@@ -86,6 +88,11 @@ class Session15ProposerContract(unittest.TestCase):
         self.assertNotEqual(
             proposer['seat']['harness'], reviewer['seat']['harness']
         )
+
+    def test_policy_reviewer_has_a_private_worktree_capability_root(self) -> None:
+        private_root = '/var/lib/patchyard/supervisor/proposer-review-worktrees'
+        self.assertIn(private_root, self.child_unit)
+        self.assertIn('proposer-review-worktrees/[0-9a-f]{8}', self.launcher)
 
 
 if __name__ == '__main__':

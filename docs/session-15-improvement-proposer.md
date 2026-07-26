@@ -64,8 +64,10 @@ The publisher then creates one deterministic App-authored commit locally. The
 reviewer receives that exact SHA plus the supervisor-derived bounded unified
 diff in its typed packet, without access to the shared Git object database.
 Only that same commit object may be pushed, and the GitHub PR head must equal
-the reviewed SHA. The persistent publisher mirror imports and verifies the
-configured installed base before every preparation, including after deploys.
+the reviewed SHA. Policy review worktrees use a proposer-private capability
+root, separate from concurrent pipeline reviewers. The persistent publisher
+mirror imports and verifies the configured installed base before every
+preparation, including after deploys.
 
 The author and reviewer prompt bundles are resolved from the configured base
 commit with `git show`, not the candidate filesystem. Both actual prompts begin
@@ -92,10 +94,12 @@ The publisher uses the Patchyard Factory GitHub App identity, creates a draft PR
 and does not expose a merge operation. A serialized execution lease, database
 single-active invariant, publisher lease, and fresh remote PR listing enforce
 one active attempt and the one-open-proposer-PR cap. Publishing identity and PR
-title/body are durable before review. Startup and LISTEN reconnect run an
-existing-work-only proposer sweep even when new scheduled attempts are
-disabled. That sweep checks an abandoned `proposing` row against the locked,
-fsynced ideas digest marker before deciding whether the effect exists. A
+title/body are durable before review. Startup, LISTEN reconnect, and the
+ordinary bounded supervisor sweep run existing-work-only proposer recovery
+even when new scheduled attempts are disabled; an active advisory lease means
+"retry later," not daemon failure. Recovery checks an abandoned `proposing`
+row against the locked, fsynced ideas digest marker before deciding whether
+the effect exists. A
 `publishing` attempt reconciles the exact branch/PR/head before any new report
 or model call and retries deterministic per-run scratch cleanup plus Git
 worktree pruning before terminal success. Full stop is read durably by

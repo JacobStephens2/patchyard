@@ -474,7 +474,7 @@ fi
 if [[ "$KIND" == review ]]; then
   jq -e '
     .contract.kind == "review"
-    and (.contract.workspace | test("^/var/lib/patchyard/supervisor/review-worktrees/review-[0-9a-f]{32}$"))
+    and (.contract.workspace | test("^/var/lib/patchyard/supervisor/(review-worktrees/review-[0-9a-f]{32}|proposer-review-worktrees/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/review-[0-9a-f]{32})$"))
     and (.contract.reviewed_sha | test("^[0-9a-f]{40}$"))
     and (.contract.packet_sha256 | test("^[0-9a-f]{64}$"))
     and (.contract.prompt_sha256 | test("^[0-9a-f]{64}$"))

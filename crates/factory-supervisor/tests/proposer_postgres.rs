@@ -194,6 +194,7 @@ struct FixturePublisher {
     open: AtomicBool,
     published: AtomicUsize,
     bodies: Mutex<Vec<String>>,
+    reconciled: Mutex<Option<ReconciledPublication>>,
 }
 
 impl PolicyPublicationService for FixturePublisher {
@@ -201,7 +202,7 @@ impl PolicyPublicationService for FixturePublisher {
         &'a self,
         _cancellation: &'a CancellationToken,
     ) -> PolicyPublisherFuture<'a, Option<ReconciledPublication>> {
-        Box::pin(async { Ok(None) })
+        Box::pin(async move { Ok(self.reconciled.lock().expect("reconciled").take()) })
     }
 
     fn has_open_proposer_pr<'a>(
@@ -426,7 +427,8 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
             repository: repository.path().to_path_buf(),
             ideas_path: ideas.clone(),
             scratch: repository.path().join("scratch"),
-            review_worktree_root: repository.path().join("review-worktrees"),
+            review_worktree_root: repository.path().join("proposer-review-worktrees"),
+            review_repository: repository.path().to_path_buf(),
             base_sha,
             publication_enabled: true,
         },
@@ -481,7 +483,10 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
         .join(abandoned_idea.to_string());
     fs::create_dir_all(&abandoned_scratch)?;
     fs::write(abandoned_scratch.join("stranded.patch"), "fixture")?;
-    let abandoned_review = repository.path().join("review-worktrees");
+    let abandoned_review = repository
+        .path()
+        .join("proposer-review-worktrees")
+        .join(abandoned_idea.to_string());
     fs::create_dir_all(&abandoned_review)?;
     fs::write(abandoned_review.join("stranded-review"), "fixture")?;
     assert_eq!(
@@ -583,6 +588,7 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
             ideas_path: ideas.clone(),
             scratch: repository.path().join("gated-scratch"),
             review_worktree_root: repository.path().join("gated-review-worktrees"),
+            review_repository: repository.path().to_path_buf(),
             base_sha: git(repository.path(), &["rev-parse", "HEAD"]),
             publication_enabled: false,
         },
@@ -616,11 +622,18 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
     .bind(at_threshold.snapshot_max_event_id)
     .execute(&admin)
     .await?;
+    *gated_publisher.reconciled.lock().expect("reconciled") =
+        Some(ReconciledPublication::Aborted {
+            run_id: gated_recovery_run,
+            observed_pull_request: None,
+        });
     assert_eq!(
         gated_engine
-            .recover_existing(&CancellationToken::new())
+            .run_from_ledger(&runtime, &CancellationToken::new())
             .await?,
-        None
+        ProposerOutcome::Killed {
+            run_id: gated_recovery_run,
+        }
     );
     let gated_abort: bool =
         sqlx::query_scalar("SELECT abort_requested FROM factory.proposer_runs WHERE id=$1")
@@ -628,15 +641,12 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
             .fetch_one(&admin)
             .await?;
     assert!(gated_abort);
-    ProposerRunStore::new(runtime.clone())
-        .transition(
-            gated_recovery_run,
-            factory_supervisor::proposer::ProposerState::Publishing,
-            factory_supervisor::proposer::ProposerState::Killed,
-            "fixture_gated_recovery_cleanup",
-            serde_json::json!({}),
-        )
-        .await?;
+    let gated_state: String =
+        sqlx::query_scalar("SELECT state::text FROM factory.proposer_runs WHERE id=$1")
+            .bind(gated_recovery_run)
+            .fetch_one(&admin)
+            .await?;
+    assert_eq!(gated_state, "killed");
 
     let blocking_publisher = Arc::new(BlockingPublisher::default());
     let blocking_engine = Arc::new(ImprovementProposer::new(
@@ -654,6 +664,7 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
             ideas_path: ideas.clone(),
             scratch: repository.path().join("blocking-scratch"),
             review_worktree_root: repository.path().join("blocking-review-worktrees"),
+            review_repository: repository.path().to_path_buf(),
             base_sha: git(repository.path(), &["rev-parse", "HEAD"]),
             publication_enabled: true,
         },
@@ -717,6 +728,7 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
             ideas_path: ideas.clone(),
             scratch: repository.path().join("adjudication-scratch"),
             review_worktree_root: repository.path().join("adjudication-review-worktrees"),
+            review_repository: repository.path().to_path_buf(),
             base_sha: git(repository.path(), &["rev-parse", "HEAD"]),
             publication_enabled: true,
         },

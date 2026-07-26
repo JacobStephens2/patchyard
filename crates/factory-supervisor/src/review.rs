@@ -58,6 +58,7 @@ struct IsolatedReviewInput {
 #[serde(deny_unknown_fields)]
 pub struct PolicyReviewPacket {
     pub schema_version: u16,
+    pub run_id: Uuid,
     pub review_id: Uuid,
     pub reviewed_sha: String,
     pub report_sha256: String,
@@ -197,10 +198,11 @@ impl SandboxedReviewer {
             return Err(ReviewError::MalformedArtifact);
         }
         let workspace_name = format!("review-{}", packet.review_id.simple());
+        let worktree_root = self.config.worktree_root.join(packet.run_id.to_string());
         let workspace = DetachedWorktree::create(
             repository,
             &packet.reviewed_sha,
-            &self.config.worktree_root,
+            &worktree_root,
             &workspace_name,
             cancellation,
         )

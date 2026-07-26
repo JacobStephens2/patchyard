@@ -178,7 +178,7 @@
         grep -Fx 'true true patchyard-preview-capability'
       docker inspect preview-fieldbooks-factory-capability-1 |
         jq -e '.[0].HostConfig.CapDrop == ["ALL"] and
-          .[0].HostConfig.CapAdd == ["DAC_READ_SEARCH"]' >/dev/null
+          .[0].HostConfig.CapAdd == ["CAP_DAC_READ_SEARCH"]' >/dev/null
       docker exec preview-fieldbooks-factory-capability-1 \
         sh -c 'test -x /capabilities && test -r /secret/patchyard-api-key'
       grep -Fqx \

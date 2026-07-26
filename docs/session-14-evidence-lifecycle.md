@@ -309,3 +309,13 @@ submission. Core, property, and dashboard PostgreSQL regressions cover both
 sides of that boundary. After the reviewed migration and control-plane
 converge, the clean retry will again use the production dashboard form and the
 real `#sales_person_id` selector.
+
+The first migration-9 form retry then returned a dashboard `500` without
+creating a request. The durable receipt path was intact; the Session 14
+converger had installed the new schema but, because it did not carry the
+`factory-web` binary, had left the dashboard on the prior partial-conflict SQL.
+That old binary correctly failed closed against the replaced global unique
+constraint. The converger now builds, hashes, installs, and restarts the
+reviewed dashboard binary alongside the qualification binaries, with a static
+regression assertion. The failed HTTP attempts created no intake row, did not
+consume a claim, and did not alter the request body or terminal records.

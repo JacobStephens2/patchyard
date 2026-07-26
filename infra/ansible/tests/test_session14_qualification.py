@@ -7,6 +7,7 @@ FILES = ROOT / "infra/ansible/roles/control_plane/files"
 ENVIRONMENT = ROOT / "infra/ansible/roles/control_plane/templates/patchyard-supervisor.env.j2"
 GROUP_VARS = ROOT / "infra/ansible/group_vars/all.yml"
 GRANTS = ROOT / "infra/ansible/roles/control_plane/files/postgresql-grants.sql"
+CONVERGE = ROOT / "infra/ansible/converge-session14.sh"
 
 
 class Session14QualificationContract(unittest.TestCase):
@@ -18,6 +19,7 @@ class Session14QualificationContract(unittest.TestCase):
         cls.environment = ENVIRONMENT.read_text()
         cls.group_vars = GROUP_VARS.read_text()
         cls.grants = GRANTS.read_text()
+        cls.converge = CONVERGE.read_text()
 
     def test_form_intake_is_required_before_the_supervisor_stops(self) -> None:
         intake = self.stage.index("JOIN factory.users")
@@ -85,6 +87,12 @@ class Session14QualificationContract(unittest.TestCase):
             self.grants,
             r"(?s)GRANT UPDATE \(.*?lifecycle_attempts.*?\) ON factory\.runs TO patchyard_supervisor;",
         )
+
+    def test_session14_converge_carries_the_dashboard_binary_with_schema_changes(self) -> None:
+        self.assertIn("--package factory-web", self.converge)
+        self.assertIn('FACTORY_WEB_BINARY="$REPO_ROOT/target/release/factory-web"', self.converge)
+        self.assertIn('factory_web_binary=$FACTORY_WEB_BINARY', self.converge)
+        self.assertIn('factory_web_sha256=$FACTORY_WEB_SHA256', self.converge)
 
 
 if __name__ == "__main__":

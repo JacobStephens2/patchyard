@@ -142,6 +142,7 @@ class CapabilityBoundaryTests(unittest.TestCase):
 
     def test_traefik_loads_the_file_provider_capability_chain(self) -> None:
         self.assertIn(f"image: {TRAEFIK_IMAGE}", CAPABILITY_COMPOSE)
+        self.assertIn("- DAC_READ_SEARCH", CAPABILITY_COMPOSE)
         self.assertIn(
             '"--providers.file.filename=/etc/traefik/patchyard-dynamic.yml"',
             CAPABILITY_COMPOSE,

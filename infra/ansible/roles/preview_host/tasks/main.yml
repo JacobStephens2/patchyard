@@ -176,6 +176,11 @@
       CAPABILITY_FORMAT+=' {{ "{{" }}.HostConfig.NetworkMode{{ "}}" }}'
       docker inspect preview-fieldbooks-factory-capability-1 --format "$CAPABILITY_FORMAT" |
         grep -Fx 'true true patchyard-preview-capability'
+      docker inspect preview-fieldbooks-factory-capability-1 |
+        jq -e '.[0].HostConfig.CapDrop == ["ALL"] and
+          .[0].HostConfig.CapAdd == ["DAC_READ_SEARCH"]' >/dev/null
+      docker exec preview-fieldbooks-factory-capability-1 \
+        sh -c 'test -x /capabilities && test -r /secret/patchyard-api-key'
       grep -Fqx \
         '      - "traefik.http.routers.preview-${PREVIEW_SLOT}.middlewares=patchyard-capability@file"' \
         /etc/patchyard-preview/docker-compose.factory-slot.yml

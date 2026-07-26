@@ -39,6 +39,11 @@ services:
     read_only: true
     cap_drop:
       - ALL
+    # The host capability state remains conductor:conductor 0700/0600 and the
+    # authority remains root:root 0400. This read-only container receives only
+    # the narrow DAC bypass needed to inspect those two bind mounts.
+    cap_add:
+      - DAC_READ_SEARCH
     security_opt:
       - no-new-privileges:true
     pids_limit: 32

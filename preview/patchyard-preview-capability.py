@@ -102,6 +102,15 @@ def main() -> None:
     os.umask(0o077)
     if not STATE.is_dir() or not KEY_FILE.is_file():
         raise SystemExit("capability state or preview authority is unavailable")
+    try:
+        # Qualify bind-mount access at startup rather than returning an EOF on
+        # the first live authorization request. Neither value leaves memory.
+        with os.scandir(STATE):
+            pass
+        with KEY_FILE.open("rb") as handle:
+            handle.read(1)
+    except OSError as error:
+        raise SystemExit("capability state or preview authority is unreadable") from error
     server = ThreadingHTTPServer(("0.0.0.0", 8080), Handler)
     server.daemon_threads = True
     server.serve_forever()

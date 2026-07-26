@@ -18,6 +18,7 @@ class PreviewCapabilityDeploymentContract(unittest.TestCase):
         compose = COMPOSE.read_text()
         dynamic = TRAEFIK_DYNAMIC.read_text()
         self.assertIn(f"image: {TRAEFIK_IMAGE}", compose)
+        self.assertIn("- DAC_READ_SEARCH", compose)
         self.assertIn(
             '"--providers.file.filename=/etc/traefik/patchyard-dynamic.yml"',
             compose,
@@ -30,6 +31,7 @@ class PreviewCapabilityDeploymentContract(unittest.TestCase):
         self.assertIn('address: "http://factory-capability:8080/auth"', dynamic)
         self.assertIn("patchyard-traefik-dynamic.yml", TASKS.read_text())
         self.assertIn(TRAEFIK_IMAGE, TASKS.read_text())
+        self.assertIn('CapAdd == ["DAC_READ_SEARCH"]', TASKS.read_text())
         for inherited_static_flag in (
             '"--providers.docker.endpoint=tcp://socket-proxy:2375"',
             '"--providers.docker.network=preview-net"',

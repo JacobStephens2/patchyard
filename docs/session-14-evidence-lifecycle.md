@@ -1,7 +1,8 @@
 # Session 14 evidence lifecycle
 
 Status: failure inventory and verification limits declared before the first
-Session 14 implementation PR and before live qualification.
+Session 14 implementation PR and before live qualification; clean production
+qualification completed on 2026-07-26.
 
 ## Decision
 
@@ -364,3 +365,207 @@ PHP-FPM boundary: `SetEnvIf` set an Apache request environment variable, but
 `ProxyFCGISetEnvIf` to project only Traefik's translated `Authorization` into
 `HTTP_AUTHORIZATION` at that exact FastCGI boundary. It still never exposes the
 factory capability to PHP.
+
+The next dashboard submission was request
+`4fed5d04-3350-400c-935e-21e14cd91cab`, run
+`e75e2674-3055-4a2e-8904-bad20ef50173`, and Fieldbook PR #267. Its durable base
+was `4ef35181f7a700b02e63808e483d7c23f33b91d8` and its exact published head
+was `ecca3da7ed0c6f5d8af7176bcfe618d76567fa42`. The one `PHPUnit Tests`
+Actions run, ID `30184495693`, observed that exact head and completed
+`success` from 02:24:09Z through 02:25:05Z. Baseline capture failed closed as
+`RedirectBlocked`, with no imported evidence pack. Its control scan reported
+`sources=1`, `bytes_scanned=1617`, `matches=0`, and `sentinel_matches=1`; its
+preview scan reported `sources=2`, `bytes_scanned=38516`, `matches=0`, and
+`sentinel_matches=1`. Both pre- and post-capture host/preview heads remained
+the exact base. The explicit slot-15 release reported `ok=true`,
+`already_absent=false`, `cleanup_complete=true`, and no cleanup errors. PR
+#267 was closed at 03:27:23Z, still draft and unmerged.
+
+The subsequent live boundary repairs converged the complete Traefik file
+provider, middleware order, translated application authority, Apache request
+function, and PHP-FPM projection. They also pinned the preview Traefik image to
+the exact integration-tested digest, required the concrete composed capability
+label, matched Docker's normalization, and gave the translator only the
+directory-search capability required to traverse its private state mount. The
+deployed qualifiers check those concrete properties rather than their template
+source.
+
+The next production-form request was
+`ccc89229-a15a-4f3c-bee9-f840c7721fd4`, run
+`11ed3eb4-009b-48db-a1bb-fa65ed06db8e`, and Fieldbook PR #268. It used the same
+exact base and published head
+`ef4d5fad068c99641db7e23d6615223ba92e429a`. Actions run `30186374646`
+observed that head and completed `success` from 03:34:11Z through 03:34:53Z.
+Baseline capture then rejected the live page as `ContractRejected`
+(`document_api_denied_2xx`), so no evidence pack was imported. The control
+scan was `sources=1`, `bytes_scanned=1715`, `matches=0`,
+`sentinel_matches=1`; the preview scan was `sources=2`,
+`bytes_scanned=33659`, `matches=0`, `sentinel_matches=1`. Before and after
+host/preview heads all remained the exact base, and the explicit slot-15
+release was `ok=true`, `already_absent=false`, `cleanup_complete=true`, with
+no cleanup errors. PR #268 was closed at 07:18:34Z, draft and unmerged.
+
+Request `b65a6ab4-67b3-4db7-8890-5c73c35b04ed`, run
+`a42094a7-544a-4007-b04a-ddea50516530`, published Fieldbook PR #269 from the
+same base at head `1b237e37b733ce65979d1e694c3616d76698bb82`. Actions run
+`30190874000` observed that exact head and completed `success` from 06:20:09Z
+through 06:20:53Z. The baseline browser returned `BrowserCrashed`; the
+lifecycle retained `evidence_failed` and no evidence pack. The control scan
+was `sources=1`, `bytes_scanned=1617`, `matches=0`,
+`sentinel_matches=1`; the preview scan was `sources=2`,
+`bytes_scanned=28785`, `matches=0`, `sentinel_matches=1`. All four before/after
+head observations remained the exact base, and the explicit slot-15 release
+was `ok=true`, `already_absent=false`, `cleanup_complete=true`, with no cleanup
+errors. PR #269 was closed at 07:18:35Z, draft and unmerged.
+
+Those failures exposed several diagnostic ambiguities rather than permission
+to relax isolation. The browser and outer helper now preserve safe, named
+failure categories; invalid result stages and rejected commands are explicit.
+The fixed live mode also made the browser's real, immutable Google Fonts
+preconnect and stylesheet dependencies visible. It aborts only those exact
+cross-origin presentation requests before transmission and continues the
+same-origin evidence operation; every other cross-origin resource still fails
+closed. Regressions exercise both sides of that narrow exception. A final
+isolated real-page probe then completed with five bound hashes, full isolation,
+zero teardown residue, and a clean release before another claim was made.
+
+At 07:15:25Z Jacob's dashboard form created request
+`44294b6f-cd40-4d22-bd73-b8d770d66f1e`, but the normal claim path correctly
+refused it because five distinct Jacob claim events already fell in the UTC
+window. The receipt count had understated that history because one prior form
+submission was claimed after midnight. The request created no run or PR and
+was explicitly closed through the normal control operation at 07:16:54Z. The
+daily cap was not raised; no SQL or console intake was used.
+
+Engineer Two's production form then created request
+`58808bf1-cbec-4a1e-a60f-22cf48430acc`, run
+`c24adfc9-4b35-45ed-bdd1-75b358f6387d`, and Fieldbook PR #272. The run's exact
+base was `4ef35181f7a700b02e63808e483d7c23f33b91d8` and its published head was
+`d8b3168b7dc820f8cfb9f4be83c6b31449227f21`. Actions run `30192588149`
+observed that head and completed `success` from 07:19:14Z through 07:20:07Z.
+An initial open-PR-cap refusal was recovered through that same claimed run
+after #268 and #269 were explicitly closed; it did not create replacement
+intake or consume another daily claim.
+
+Both #272 evidence captures validated and imported their complete packs. The
+baseline hashes were:
+
+- execution `3a03bf358808ee002a9068b37013fb05679cc131410bbacc901b7119d4b08f42`;
+- lifecycle `4c92414832a71bede4e244099b7a0f28414271fdadb269decd6674f0b60a7115`;
+- hashes `0acf3db9d768ddee4148e910e3fd54012fdebc94a57b50addc642c0ab7a6108c`;
+- DOM `93b83873726ad98044c5b5b57aad38d1a660dbfb4980733f53c6c41784847954`;
+- screenshot `9e81b0de6b92c71129a907d66186a17cc56a92124f27e0835285082c10e5821d`;
+- extract `def4b3bfd30d80056e95b87754b65d16704e8d6df836ef239950287a5b99c801`.
+
+The candidate hashes were:
+
+- execution `7f5035520afd67ee58d8e50d811194ccf147e72fe275875fd36f818efd541075`;
+- lifecycle `f8ce8d03df9df1d4206997f88c1f7c8935b98d4c22dac446ef7364e800ce9aa3`;
+- hashes `6352bdd0b3f543204d5e6bf9258be1c7b080a2ec51e18ada0424812739d2d3c0`;
+- DOM `f151bb2ce32eddb37c05e7dfa1c1f2f7cd07b65df7bb1c491fb2d66d8c7bad52`;
+- screenshot `6749ef2b541fe03a7f71598d5a5bd97265516f07fbb646c236c1dceb6b53f902`;
+- extract `cfd1a8d4f2af7a753a11dd4221d01e3a865a68dd81228ef5534af839178a1626`.
+
+The baseline control/preview scans were respectively
+`sources=1,bytes_scanned=1348,matches=0,sentinel_matches=1` and
+`sources=2,bytes_scanned=51118,matches=0,sentinel_matches=1`; the candidate
+pair was `sources=1,bytes_scanned=1380,matches=0,sentinel_matches=1` and
+`sources=2,bytes_scanned=31600,matches=0,sentinel_matches=1`. Each capture
+observed the exact expected host and preview head both before and after. Both
+slot-15 releases reported `ok=true`, `already_absent=false`,
+`cleanup_complete=true`, and no cleanup errors.
+
+#272's real 7,221-byte body passed the new live A11/A26 contract gate with all
+twelve hashes and ten authenticated evidence links. GitHub's GraphQL
+ready-for-review mutation then returned status 1 because the lifecycle token's
+`contents:read` scope was insufficient for that mutation. The run correctly
+ended `pr_contract_failed` with reason `ready_for_review_update`; it did not
+mark the PR ready. The repair preserves the original least-privilege lifecycle
+token and mints a second repository-only token with exactly `contents:write`
+and `pull_requests:write` only after evidence, CI re-observation, and the live
+body gate pass. PR #272 was explicitly closed at 07:35:23Z, draft and unmerged,
+with its disposition recorded in GitHub comments.
+
+### Clean success
+
+The final, unchanged ALPHABETIZE request was submitted through Engineer Two's
+authenticated production dashboard form with the real `#sales_person_id`
+selector. Request `6b7c19d7-d272-459c-82d0-fed98df3ff04` was received at
+07:38:14.600893Z; run `60a28544-5102-4109-8933-e12b1f03c9bf` queued at
+07:38:31.636594Z, started at 07:38:41.366576Z, and finished
+`ready_for_review` at 07:43:46.997283Z. It published Fieldbook PR #273 from the
+durable exact base `4ef35181f7a700b02e63808e483d7c23f33b91d8` at exact head
+`729dad6d3f69d4a482341a5f7edf26fb7ebb7e66`. The target branch advanced after
+publication, but the durable run and evidence remain bound to those original
+base/head values.
+
+The one real `PHPUnit Tests` Actions run, ID `30193194057`, was created on the
+exact head at 07:39:32Z and completed `success` at 07:40:21Z. The supervisor's
+fresh GitHub observation persisted `ci.passed` with one exact-head check at
+07:40:24.808140Z before acquiring any preview.
+
+The final baseline artifact hashes are:
+
+- execution `3a03bf358808ee002a9068b37013fb05679cc131410bbacc901b7119d4b08f42`;
+- lifecycle `06a34d4e2562a17aa28018de23586957631427d2ad7272191619c78a336317fb`;
+- hashes `e7946ea608e4da3544a312d18a55e366ee1a65b661e4d2b205fd05b935bde6a6`;
+- DOM `93b83873726ad98044c5b5b57aad38d1a660dbfb4980733f53c6c41784847954`;
+- screenshot `6749ef2b541fe03a7f71598d5a5bd97265516f07fbb646c236c1dceb6b53f902`;
+- extract `def4b3bfd30d80056e95b87754b65d16704e8d6df836ef239950287a5b99c801`.
+
+The final candidate artifact hashes are:
+
+- execution `9f639c3f040eb899ee566a35132df8e4847fad58ddf983de0509a958220f389c`;
+- lifecycle `793a7b77391d59ca6a69a0e1cbbed20984588fc176c08a9f1fe67d449695e59e`;
+- hashes `ada5a480bf03bd2d3f16db025951c083ac53170471fc20964ad0a77ec1b0ad67`;
+- DOM `f151bb2ce32eddb37c05e7dfa1c1f2f7cd07b65df7bb1c491fb2d66d8c7bad52`;
+- screenshot `6749ef2b541fe03a7f71598d5a5bd97265516f07fbb646c236c1dceb6b53f902`;
+- extract `cfd1a8d4f2af7a753a11dd4221d01e3a865a68dd81228ef5534af839178a1626`.
+
+At 07:42:06.835982Z the baseline security proof reported
+`sources=1,bytes_scanned=1348,matches=0,sentinel_matches=1` on the control
+plane and `sources=2,bytes_scanned=35050,matches=0,sentinel_matches=1` on the
+preview. All before/after host and preview observations were the exact base.
+At 07:43:43.616902Z the candidate proof reported
+`sources=1,bytes_scanned=1348,matches=0,sentinel_matches=1` and
+`sources=2,bytes_scanned=30680,matches=0,sentinel_matches=1`; all four head
+observations were the exact candidate. Each slot-15 release reported
+`ok=true`, `already_absent=false`, `cleanup_complete=true`, and an empty cleanup
+error set. These are two durable pairs of zero-match scans with positive
+sentinel and positive-byte proofs, and two explicit clean preview releases.
+No lease, capability, checkout, container, network, mount, child unit, or
+staging residue remained.
+
+The real PR body passed the production A11/A26 gate, including the lane and
+rubric, verbatim untrusted request, root cause, named assumptions,
+deterministic facts, ten authenticated evidence links, all twelve hashes,
+shared-function explain-diff, risk and rollback, a requester reply explicitly
+kept as an unsent draft, and the reviewer quiz. The narrow ready token then
+performed only the ready mutation. PR #273 is open, non-draft, and unmerged.
+Nothing self-merged or deployed, and no requester reply was sent.
+
+The first authenticated post-run artifact fetch exposed one final live-only
+defect: the supervisor service's `UMask=0077` reduced newly created run
+directories to `2700` and files to `0600`, so the dashboard returned 500 even
+though every artifact remained present with its correct ledger hash. Commit
+`9bf6da2` makes every request/run/stage ancestor explicitly setgid `2750` and
+every atomically written artifact explicitly `0640`; its regression checks all
+three directory levels and the final file. Commit `daaf619` includes the
+existing-artifact mode repair in Session 14 convergence. The repair converge
+completed with `factory-control: ok=61, changed=7, failed=0` and
+`factory-worker: ok=1, changed=0, failed=0`.
+
+After that repair, a fresh authenticated dashboard session fetched all twelve
+#273 artifacts through their exact production evidence routes. Every response
+remained on the requested URL and all 482,613 served bytes matched the twelve
+SHA-256 values above. Passwords, bearer material, capability values, and
+sentinel values were not printed or recorded.
+
+### Disposition
+
+Fieldbook PR #273 is deliberately left open, ready for review, non-draft, and
+unmerged. It carries the real two-file ALPHABETIZE fix. Jacob decides whether
+it is retained as a qualification artifact or reviewed on its merits. The
+earlier failed qualification PRs are closed unmerged with explicit
+dispositions; no PR was closed silently, and no qualification artifact was
+merged or deployed.

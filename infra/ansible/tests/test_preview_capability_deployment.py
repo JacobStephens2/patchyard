@@ -38,9 +38,10 @@ class PreviewCapabilityDeploymentContract(unittest.TestCase):
         slot = SLOT_COMPOSE.read_text()
         dynamic = TRAEFIK_DYNAMIC.read_text()
         self.assertIn(
-            'authResponseHeadersRegex: "^(X-Patchyard-Factory-Capability|X-Patchyard-Factory-Preview-Authorization)$"',
+            'authResponseHeadersRegex: "^X-Patchyard-Factory-Capability$"',
             dynamic,
         )
+        self.assertIn("- X-Patchyard-Factory-Preview-Authorization", dynamic)
         self.assertIn(
             '"patchyard-capability@file"',
             slot,

@@ -182,7 +182,9 @@
       test "$(stat -c '%U:%G:%a' /etc/patchyard-preview/patchyard-traefik-dynamic.yml)" = root:root:644
       grep -Fqx '        address: "http://factory-capability:8080/auth"' \
         /etc/patchyard-preview/patchyard-traefik-dynamic.yml
-      grep -Fqx '        authResponseHeadersRegex: "^(X-Patchyard-Factory-Capability|X-Patchyard-Factory-Preview-Authorization)$"' \
+      grep -Fqx '        authResponseHeadersRegex: "^X-Patchyard-Factory-Capability$"' \
+        /etc/patchyard-preview/patchyard-traefik-dynamic.yml
+      grep -Fqx '          - X-Patchyard-Factory-Preview-Authorization' \
         /etc/patchyard-preview/patchyard-traefik-dynamic.yml
       docker inspect preview-fieldbooks-traefik-1 --format '{{ "{{" }}json .Args{{ "}}" }}' |
         jq -e 'index("--providers.file.filename=/etc/traefik/patchyard-dynamic.yml") != null' >/dev/null

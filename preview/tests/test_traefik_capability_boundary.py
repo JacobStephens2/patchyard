@@ -149,7 +149,9 @@ class TraefikCapabilityBoundary(unittest.TestCase):
                     "    patchyard-capability:",
                     "      forwardAuth:",
                     f'        address: "http://127.0.0.1:{auth_port}/auth"',
-                    '        authResponseHeadersRegex: "^(X-Patchyard-Factory-Capability|X-Patchyard-Factory-Preview-Authorization)$"',
+                    "        authResponseHeaders:",
+                    "          - X-Patchyard-Factory-Preview-Authorization",
+                    '        authResponseHeadersRegex: "^X-Patchyard-Factory-Capability$"',
                     "        trustForwardHeader: false",
                     "  services:",
                     "    fieldbook:",
@@ -190,7 +192,7 @@ class TraefikCapabilityBoundary(unittest.TestCase):
             CAPABILITY_COMPOSE,
         )
         self.assertIn(
-            'authResponseHeadersRegex: "^(X-Patchyard-Factory-Capability|X-Patchyard-Factory-Preview-Authorization)$"',
+            'authResponseHeadersRegex: "^X-Patchyard-Factory-Capability$"',
             TRAEFIK_DYNAMIC,
         )
         self.assertIn(

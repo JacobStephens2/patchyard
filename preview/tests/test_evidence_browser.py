@@ -11,10 +11,14 @@ import tempfile
 import threading
 import time
 import unittest
+import runpy
 
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "patchyard-evidence-child.py"
+EXCEPTION_BROWSER_DIAGNOSTIC = runpy.run_path(str(HELPER))[
+    "exception_browser_diagnostic"
+]
 HOST = "1.preview.example.dev"
 CAPABILITY_ID = "a" * 32
 LEASE_ID = "b" * 32
@@ -271,6 +275,16 @@ class EvidenceBrowserControls(unittest.TestCase):
 
     def test_select_without_options_is_a_contract_rejection(self) -> None:
         self.assert_state("empty-select", "contract_rejected")
+
+    def test_unexpected_exception_is_reduced_to_a_non_secret_class(self) -> None:
+        self.assertEqual(
+            EXCEPTION_BROWSER_DIAGNOSTIC(ValueError("private")),
+            "browser_exception_value",
+        )
+        self.assertEqual(
+            EXCEPTION_BROWSER_DIAGNOSTIC(RuntimeError("private")),
+            "browser_exception_other",
+        )
 
 
 if __name__ == "__main__":

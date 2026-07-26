@@ -335,6 +335,21 @@ def missing_selector_diagnostic(status: int | None, page_kind: object) -> str:
     return document_diagnostic(status)
 
 
+def exception_browser_diagnostic(error: Exception) -> str:
+    """Reduce an unexpected child exception to a fixed, non-secret class."""
+    if isinstance(error, OSError):
+        return "browser_exception_os"
+    if isinstance(error, subprocess.SubprocessError):
+        return "browser_exception_subprocess"
+    if isinstance(error, ValueError):
+        return "browser_exception_value"
+    if isinstance(error, KeyError):
+        return "browser_exception_key"
+    if isinstance(error, TypeError):
+        return "browser_exception_type"
+    return "browser_exception_other"
+
+
 class Cdp:
     """Minimal bounded Chrome DevTools Protocol client over anonymous pipes."""
 
@@ -751,29 +766,9 @@ def run_controlled_browser(
         return dom_value.encode(), screenshot
     except CaptureFailure:
         raise
-    except OSError as error:
-        raise CaptureFailure(
-            "browser_crashed", browser_diagnostic="browser_exception_os"
-        ) from error
-    except subprocess.SubprocessError as error:
-        raise CaptureFailure(
-            "browser_crashed", browser_diagnostic="browser_exception_subprocess"
-        ) from error
-    except ValueError as error:
-        raise CaptureFailure(
-            "browser_crashed", browser_diagnostic="browser_exception_value"
-        ) from error
-    except KeyError as error:
-        raise CaptureFailure(
-            "browser_crashed", browser_diagnostic="browser_exception_key"
-        ) from error
-    except TypeError as error:
-        raise CaptureFailure(
-            "browser_crashed", browser_diagnostic="browser_exception_type"
-        ) from error
     except Exception as error:
         raise CaptureFailure(
-            "browser_crashed", browser_diagnostic="browser_exception_other"
+            "browser_crashed", browser_diagnostic=exception_browser_diagnostic(error)
         ) from error
     finally:
         try:
@@ -947,8 +942,12 @@ def main() -> None:
             error.document_status,
             error.browser_diagnostic,
         )
-    except Exception:
-        fail(output, "browser_crashed")
+    except Exception as error:
+        fail(
+            output,
+            "browser_crashed",
+            browser_diagnostic=exception_browser_diagnostic(error),
+        )
 
 
 if __name__ == "__main__":

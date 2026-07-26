@@ -27,6 +27,9 @@ MAX_EXTRACT_BYTES = 1_048_576
 MAX_STDERR_BYTES = 1_048_576
 PREVIEW_HOST = re.compile(r"^(?:[1-9]|[12][0-9]|30)\.preview\.example\.dev$")
 SELECTOR = re.compile(r"^#[A-Za-z][A-Za-z0-9_-]{0,63}$")
+BLOCKED_PRESENTATION_DEPENDENCIES = {
+    ("https://fonts.googleapis.com", "Stylesheet"),
+}
 FAILURE_STATES = {
     "redirect_blocked",
     "cross_origin_blocked",
@@ -553,6 +556,7 @@ def run_controlled_browser(
             request = params.get("request", {})
             request_id = params.get("requestId")
             url = request.get("url") if isinstance(request, dict) else None
+            resource_type = params.get("resourceType")
             if not isinstance(request_id, str) or not isinstance(url, str):
                 raise CaptureFailure(
                     "browser_crashed", browser_diagnostic="browser_event_invalid"
@@ -563,6 +567,13 @@ def run_controlled_browser(
                     {"requestId": request_id, "errorReason": "BlockedByClient"},
                     session_id if isinstance(session_id, str) else None,
                 )
+                # The live Session 14 page declares this fixed web-font CSS.
+                # Abort it before any network transmission and retain the
+                # evidence capture; the screenshot may use a fallback font.
+                # Every other cross-origin subresource remains a named,
+                # fail-closed exfiltration attempt.
+                if (origin(url), resource_type) in BLOCKED_PRESENTATION_DEPENDENCIES:
+                    return
                 raise CaptureFailure("cross_origin_blocked")
             headers = request.get("headers", {})
             if not isinstance(headers, dict):

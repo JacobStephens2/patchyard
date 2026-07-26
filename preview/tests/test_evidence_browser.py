@@ -55,6 +55,12 @@ class FixtureHandler(BaseHTTPRequestHandler):
             select = "<p>API Access Denied: Invalid authentication credentials.</p>"
         if self.path == "/empty-select":
             select = '<select id="sales_person_id"></select>'
+        presentation = ""
+        if self.path == "/blocked-presentation-dependency":
+            presentation = (
+                '<link rel="stylesheet" '
+                'href="https://fonts.googleapis.com/css2?family=Work+Sans">'
+            )
         if self.path == "/oversized":
             body = f"<!doctype html>{select}<p>{'x' * 200_000}</p>"
         elif self.path == "/cross-origin":
@@ -66,7 +72,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
         elif self.path == "/bearer":
             body = f"<!doctype html>{select}<p>{TOKEN}</p>"
         else:
-            body = f"<!doctype html>{select}"
+            body = f"<!doctype html>{presentation}{select}"
         encoded = body.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -224,6 +230,11 @@ class EvidenceBrowserControls(unittest.TestCase):
 
     def test_cross_origin_subresource_is_named(self) -> None:
         self.assert_state("cross-origin", "cross_origin_blocked")
+
+    def test_fixed_presentation_dependency_is_blocked_without_failing_capture(self) -> None:
+        result, output = self.capture("blocked-presentation-dependency")
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+        self.assertTrue((output / "page.png").is_file())
 
     def test_popup_is_named(self) -> None:
         self.assert_state("popup", "popup_blocked")

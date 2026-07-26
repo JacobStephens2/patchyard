@@ -16,6 +16,16 @@ output "worker_private_ipv4" {
   value = digitalocean_droplet.worker.ipv4_address_private
 }
 
+output "restore_drill_ipv4" {
+  description = "Public break-glass address of the temporary recovery drill target, or null when disabled."
+  value       = var.restore_drill_enabled ? digitalocean_droplet.restore_drill[0].ipv4_address : null
+}
+
+output "restore_drill_private_ipv4" {
+  description = "Private address of the temporary recovery drill target, or null when disabled."
+  value       = var.restore_drill_enabled ? digitalocean_droplet.restore_drill[0].ipv4_address_private : null
+}
+
 output "ansible_inventory" {
   description = "Dynamic inventory consumed verbatim by infra/ansible/inventory/tofu.sh."
   value = {

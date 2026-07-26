@@ -50,8 +50,15 @@ async fn form_notify_claim_and_factoryctl_pause_are_one_durable_path() -> Result
     fs::create_dir(&upload_root)?;
     fs::set_permissions(&upload_root, fs::Permissions::from_mode(0o700))?;
     let dashboard = DashboardStore::connect(&dashboard_url).await?;
-    let app =
-        router(AppState::load(dashboard, checkout, artifact_root.path().to_path_buf()).await?);
+    let app = router(
+        AppState::load(
+            dashboard,
+            checkout.clone(),
+            artifact_root.path().to_path_buf(),
+            checkout.join("docs/ideas.md"),
+        )
+        .await?,
+    );
     let mut listener = PgListener::connect(&supervisor_url).await?;
     listener.listen("factory_intake").await?;
     listener.listen("factory_control").await?;

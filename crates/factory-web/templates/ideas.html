@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Ideas // Patchyard Factory{% endblock %}
+{% block content %}
+<h1>Proposer ideas</h1>
+<p>Read-only runtime observations below the evidence threshold. Raw HTML and images are disabled.</p>
+<article class="markdown">{{ ideas_html|safe }}</article>
+{% endblock %}

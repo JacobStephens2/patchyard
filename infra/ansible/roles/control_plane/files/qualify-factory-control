@@ -65,6 +65,10 @@ assert_path /var/lib/patchyard root factory 750
 assert_path /var/lib/patchyard/artifacts factory-manager factory-web 2750
 assert_path /var/lib/patchyard/artifacts/uploads factory-web factory-web 700
 assert_path /var/lib/patchyard/supervisor factory-manager factory 700
+assert_path /var/lib/patchyard/supervisor/xdg-state factory-manager factory-manager 700
+assert_path /var/lib/patchyard/supervisor/gh-config factory-manager factory-manager 700
+assert_path /var/lib/patchyard/proposer-inbox/docs factory-manager factory 750
+assert_path /var/lib/patchyard/proposer-inbox/docs/ideas.md factory-manager factory 640
 assert_path /var/lib/patchyard/spool factory-web factory-web 700
 assert_path /var/lib/patchyard/worktrees factory-manager factory 750
 assert_path /run/patchyard-children factory-manager factory-manager 700
@@ -98,7 +102,8 @@ test -x /usr/local/libexec/patchyard-preview-resolver
 test -x /usr/local/libexec/patchyard-log-secret-scan
 test -x /usr/local/bin/factory-evidence-qualify
 test -x /usr/local/sbin/patchyard-stage-evidence-qualification
-test -x /usr/local/libexec/patchyard-deployed-version-unconfigured
+test -x /usr/local/libexec/patchyard-deployed-version
+test ! -e /opt/patchyard/.local
 test ! -e /usr/local/libexec/patchyard-headless
 test ! -e /usr/local/sbin/patchyard-preview-capture
 grep -Eq '^patchyard_parity_snapshot_age_days -?[0-9]+$' \
@@ -183,7 +188,25 @@ test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \
   --dbname=patchyard --tuples-only --no-align --command='SHOW ssl')" = on
 test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \
   --dbname=patchyard --tuples-only --no-align \
-  --command='SELECT count(*) FROM public._sqlx_migrations WHERE success')" = 7
+  --command='SELECT count(*) FROM public._sqlx_migrations WHERE success')" = 11
+
+test "$(stat -c '%U:%G:%a' /etc/patchyard/backup.env)" = root:root:600
+test "$(stat -c '%U:%G:%a' /var/lib/patchyard/backups)" = root:root:700
+test "$(systemctl is-enabled patchyard-backup.timer)" = enabled
+systemd-analyze verify /etc/systemd/system/patchyard-backup.service
+systemd-analyze verify /etc/systemd/system/patchyard-backup.timer
+test "$(age --version)" = 1.3.1
+aws --version 2>&1 | grep -Fq 'aws-cli/1.29.62'
+(
+  set -a
+  # shellcheck disable=SC1091
+  source /etc/patchyard/backup.env
+  set +a
+  aws --endpoint-url "$FACTORY_BACKUP_ENDPOINT" s3api head-bucket \
+    --bucket "$FACTORY_BACKUP_BUCKET"
+)
+/usr/local/libexec/patchyard-deployed-version \
+  | jq -e '.schema_version == 1 and .repository == "example-org/fieldbook" and .source == "github-deploy-marker:refs/heads/deploy/production" and (.deployed_sha | test("^[0-9a-f]{40}$"))' >/dev/null
 
 for ROLE in patchyard_migrator patchyard_supervisor patchyard_dashboard grafana_ro patchyard_exporter; do
   test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \

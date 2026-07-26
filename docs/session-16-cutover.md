@@ -16,7 +16,7 @@ The cutover owns these production changes:
 
 1. converge the control plane and disposable worker from the reviewed commit;
 2. install the control-plane-local Fieldbook deploy marker source and protect
-   `refs/deploy/production` without depending on orchestration;
+   `refs/heads/deploy/production` without depending on orchestration;
 3. expose the runtime proposer inbox at admin-only, read-only `GET /ideas`
    through the existing untrusted-markdown filter;
 4. migrate or remove remaining orchestration-side factory records while
@@ -43,7 +43,7 @@ The read-only preflight on 2026-07-26 observed:
   directory is upload staging only;
 - the real clean Fieldbook deployment at
   `ad636c21847b8f2488bfb0479f8d3ade43f9b5a7`, while
-  `refs/deploy/production` did not exist and the installed reconcile source
+  `refs/heads/deploy/production` did not exist and the installed reconcile source
   was the explicit fail-closed stub;
 - the live Factory `master` protection rule at zero required approvals;
 - one orchestration-side pointer file, zero orchestration-side processed-ruling
@@ -147,7 +147,7 @@ each destructive or externally visible step:
    orchestration-remnant before-state; verify disk headroom and no active work;
 2. run all source checks, review all three OpenTofu plans, and apply no plan
    whose target set differs from its declaration;
-3. create `refs/deploy/production` at the independently observed clean
+3. create `refs/heads/deploy/production` at the independently observed clean
    production SHA, apply its GitOps protection, and exercise both valid and
    fail-closed deployed-version observations;
 4. converge the cutover commit, apply migrations, qualify both hosts, repeat

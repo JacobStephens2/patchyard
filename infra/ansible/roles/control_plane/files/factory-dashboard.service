@@ -12,6 +12,7 @@ Environment=DATABASE_URL=postgresql:///patchyard?host=/run/patchyard-postgres&us
 Environment=FACTORY_DASHBOARD_SOCKET=/run/patchyard-dashboard/dashboard.sock
 Environment=FACTORY_INSTALL_ROOT=/opt/patchyard
 Environment=FACTORY_ARTIFACT_ROOT=/var/lib/patchyard/artifacts
+Environment=FACTORY_IDEAS_PATH=/var/lib/patchyard/proposer-inbox/docs/ideas.md
 ExecStart=/usr/local/bin/factory-web
 ExecStartPost=+/usr/local/libexec/patchyard-dashboard-socket-owner
 Restart=on-failure

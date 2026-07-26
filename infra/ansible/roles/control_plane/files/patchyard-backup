@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+readonly backup_root='/var/lib/patchyard/backups'
+readonly artifact_root='/var/lib/patchyard/artifacts'
+readonly runtime_root='/var/lib/patchyard/proposer-inbox'
+readonly socket_root='/run/patchyard-postgres'
+readonly database='patchyard'
+readonly services=(factory-dashboard.service factory-supervisor.service)
+
+: "${FACTORY_BACKUP_BUCKET:?missing backup bucket}"
+: "${FACTORY_BACKUP_ENDPOINT:?missing backup endpoint}"
+: "${FACTORY_BACKUP_AGE_RECIPIENT:?missing age recipient}"
+: "${AWS_ACCESS_KEY_ID:?missing backup access key}"
+: "${AWS_SECRET_ACCESS_KEY:?missing backup secret key}"
+[[ "$FACTORY_BACKUP_ENDPOINT" == https://* ]] || {
+  echo 'backup endpoint must use HTTPS' >&2
+  exit 20
+}
+[[ "$FACTORY_BACKUP_AGE_RECIPIENT" == ssh-ed25519\ * ]] || {
+  echo 'backup recipient must be an SSH Ed25519 public key' >&2
+  exit 20
+}
+
+exec 9>"$backup_root/backup.lock"
+flock --exclusive --nonblock 9 || {
+  echo 'another backup is already active' >&2
+  exit 21
+}
+
+generation=$(date -u +'%Y%m%dT%H%M%SZ')
+generation_root="$backup_root/generations/$generation"
+payload_root="$generation_root/payload"
+[[ ! -e "$generation_root" ]] || {
+  echo 'backup generation already exists' >&2
+  exit 21
+}
+install -d -m 0700 "$payload_root"
+recipient_file="$generation_root/recipient.txt"
+printf '%s\n' "$FACTORY_BACKUP_AGE_RECIPIENT" >"$recipient_file"
+
+active_services=()
+restart_services() {
+  local service
+  for service in "${active_services[@]}"; do
+    systemctl start "$service" || true
+  done
+}
+trap restart_services EXIT
+
+for service in "${services[@]}"; do
+  if systemctl is-active --quiet "$service"; then
+    active_services+=("$service")
+    systemctl stop "$service"
+  fi
+done
+
+if find "$artifact_root" ! -type d ! -type f -print -quit | grep -q .; then
+  echo 'artifact tree contains a non-regular entry' >&2
+  exit 22
+fi
+while IFS= read -r -d '' artifact; do
+  relative=${artifact#"$artifact_root/"}
+  if [[ "$relative" == *$'\n'* || "$relative" == *$'\r'* || "$relative" == *\\* ]]; then
+    echo 'artifact path contains an unsupported manifest character' >&2
+    exit 22
+  fi
+  sha256sum "$artifact"
+done < <(find "$artifact_root" -type f -print0 | sort -z) \
+  | sed "s#  $artifact_root/#  #" >"$payload_root/artifacts.sha256"
+
+artifact_file_count=$(wc -l <"$payload_root/artifacts.sha256")
+artifact_bytes=$(find "$artifact_root" -type f -printf '%s\n' | awk '{total += $1} END {print total + 0}')
+tar --create --file="$payload_root/artifacts.tar" \
+  --numeric-owner --sort=name --mtime='UTC 1970-01-01' \
+  --owner=0 --group=0 --directory="$artifact_root" .
+
+if find "$runtime_root" ! -type d ! -type f -print -quit | grep -q .; then
+  echo 'runtime projection tree contains a non-regular entry' >&2
+  exit 22
+fi
+while IFS= read -r -d '' runtime_file; do
+  relative=${runtime_file#"$runtime_root/"}
+  if [[ "$relative" == *$'\n'* || "$relative" == *$'\r'* || "$relative" == *\\* ]]; then
+    echo 'runtime projection path contains an unsupported manifest character' >&2
+    exit 22
+  fi
+  sha256sum "$runtime_file"
+done < <(find "$runtime_root" -type f -print0 | sort -z) \
+  | sed "s#  $runtime_root/#  #" >"$payload_root/runtime.sha256"
+runtime_file_count=$(wc -l <"$payload_root/runtime.sha256")
+runtime_bytes=$(find "$runtime_root" -type f -printf '%s\n' | awk '{total += $1} END {print total + 0}')
+tar --create --file="$payload_root/runtime.tar" \
+  --numeric-owner --sort=name --mtime='UTC 1970-01-01' \
+  --owner=0 --group=0 --directory="$runtime_root" .
+
+runuser -u postgres -- pg_dump \
+  --host="$socket_root" --dbname="$database" \
+  --format=custom --compress=9 --data-only --no-owner --no-acl \
+  --exclude-table-data=public._sqlx_migrations \
+  --file="$payload_root/database.dump"
+
+tables_file="$generation_root/tables.tsv"
+runuser -u postgres -- psql \
+  --host="$socket_root" --dbname="$database" --tuples-only --no-align \
+  --field-separator=$'\t' \
+  --command="SELECT schemaname, tablename FROM pg_tables WHERE schemaname IN ('factory', 'public') AND NOT (schemaname = 'public' AND tablename = '_sqlx_migrations') ORDER BY schemaname, tablename" \
+  >"$tables_file"
+
+table_counts='{}'
+while IFS=$'\t' read -r schema table; do
+  [[ "$schema" =~ ^[a-z_]+$ && "$table" =~ ^[a-z_]+$ ]] || {
+    echo 'database contains an unexpected table identifier' >&2
+    exit 23
+  }
+  count=$(runuser -u postgres -- psql \
+    --host="$socket_root" --dbname="$database" --tuples-only --no-align \
+    --command="SELECT count(*) FROM \"$schema\".\"$table\"")
+  table_counts=$(jq -c --arg key "$schema.$table" --argjson count "$count" \
+    '. + {($key):$count}' <<<"$table_counts")
+done <"$tables_file"
+
+migration_count=$(runuser -u postgres -- psql \
+  --host="$socket_root" --dbname="$database" --tuples-only --no-align \
+  --command='SELECT count(*) FROM public._sqlx_migrations WHERE success')
+database_sha256=$(sha256sum "$payload_root/database.dump" | cut -d' ' -f1)
+artifacts_archive_sha256=$(sha256sum "$payload_root/artifacts.tar" | cut -d' ' -f1)
+artifacts_manifest_sha256=$(sha256sum "$payload_root/artifacts.sha256" | cut -d' ' -f1)
+runtime_archive_sha256=$(sha256sum "$payload_root/runtime.tar" | cut -d' ' -f1)
+runtime_manifest_sha256=$(sha256sum "$payload_root/runtime.sha256" | cut -d' ' -f1)
+source_revision=$(git -C /opt/patchyard rev-parse HEAD)
+
+jq -n \
+  --arg generation "$generation" \
+  --arg created_at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+  --arg source_revision "$source_revision" \
+  --arg database_sha256 "$database_sha256" \
+  --arg artifacts_archive_sha256 "$artifacts_archive_sha256" \
+  --arg artifacts_manifest_sha256 "$artifacts_manifest_sha256" \
+  --arg runtime_archive_sha256 "$runtime_archive_sha256" \
+  --arg runtime_manifest_sha256 "$runtime_manifest_sha256" \
+  --argjson migration_count "$migration_count" \
+  --argjson table_counts "$table_counts" \
+  --argjson artifact_file_count "$artifact_file_count" \
+  --argjson artifact_bytes "$artifact_bytes" \
+  --argjson runtime_file_count "$runtime_file_count" \
+  --argjson runtime_bytes "$runtime_bytes" \
+  '{schema_version:1,generation:$generation,created_at:$created_at,source_revision:$source_revision,migration_count:$migration_count,table_counts:$table_counts,artifacts:{file_count:$artifact_file_count,bytes:$artifact_bytes,archive_sha256:$artifacts_archive_sha256,manifest_sha256:$artifacts_manifest_sha256},runtime:{file_count:$runtime_file_count,bytes:$runtime_bytes,archive_sha256:$runtime_archive_sha256,manifest_sha256:$runtime_manifest_sha256},database:{sha256:$database_sha256}}' \
+  >"$payload_root/manifest.json"
+
+tar --create --file="$generation_root/backup.tar" \
+  --numeric-owner --sort=name --mtime='UTC 1970-01-01' \
+  --owner=0 --group=0 --directory="$payload_root" .
+age --encrypt --recipients-file "$recipient_file" \
+  --output "$generation_root/backup.tar.age" "$generation_root/backup.tar"
+rm -- "$generation_root/backup.tar"
+
+ciphertext_sha256=$(sha256sum "$generation_root/backup.tar.age" | cut -d' ' -f1)
+ciphertext_bytes=$(stat -c '%s' "$generation_root/backup.tar.age")
+if (( ciphertext_bytes > 4294967296 )); then
+  echo 'encrypted backup exceeds the reviewed single-object limit' >&2
+  exit 24
+fi
+jq -n \
+  --arg generation "$generation" \
+  --arg ciphertext_sha256 "$ciphertext_sha256" \
+  --arg created_at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+  --argjson ciphertext_bytes "$ciphertext_bytes" \
+  '{schema_version:1,generation:$generation,created_at:$created_at,ciphertext_sha256:$ciphertext_sha256,ciphertext_bytes:$ciphertext_bytes}' \
+  >"$generation_root/receipt.json"
+
+s3api=(aws --endpoint-url "$FACTORY_BACKUP_ENDPOINT" s3api)
+object_prefix="generations/$generation"
+"${s3api[@]}" put-object --bucket "$FACTORY_BACKUP_BUCKET" \
+  --key "$object_prefix/backup.tar.age" --body "$generation_root/backup.tar.age" \
+  --metadata "sha256=$ciphertext_sha256" >/dev/null
+remote_sha256=$("${s3api[@]}" head-object --bucket "$FACTORY_BACKUP_BUCKET" \
+  --key "$object_prefix/backup.tar.age" --query Metadata.sha256 --output text)
+[[ "$remote_sha256" == "$ciphertext_sha256" ]] || {
+  echo 'uploaded backup metadata hash did not round-trip' >&2
+  exit 25
+}
+"${s3api[@]}" put-object --bucket "$FACTORY_BACKUP_BUCKET" \
+  --key "$object_prefix/receipt.json" --body "$generation_root/receipt.json" \
+  --content-type application/json >/dev/null
+printf '%s\n' "$generation" >"$generation_root/LATEST"
+"${s3api[@]}" put-object --bucket "$FACTORY_BACKUP_BUCKET" \
+  --key LATEST --body "$generation_root/LATEST" --content-type text/plain >/dev/null
+
+rm -r -- "$payload_root"
+find "$backup_root/generations" -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -r -- {} +
+trap - EXIT
+restart_services
+printf 'backup_complete generation=%s files=%s bytes=%s\n' \
+  "$generation" "$artifact_file_count" "$artifact_bytes"

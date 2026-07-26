@@ -46,7 +46,7 @@ class Session15ProposerContract(unittest.TestCase):
         self.assertIn(
             'FACTORY_PROPOSER_SCHEDULING_ENABLED=false', self.environment
         )
-        self.assertIn('FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED=false', self.environment)
+        self.assertNotIn('FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED', self.environment)
         self.assertIn('FACTORY_PROPOSER_INTERVAL_SECONDS=86400', self.environment)
         self.assertIn(
             'FACTORY_PROPOSER_BASE_SHA={{ factory_repo_revision }}',

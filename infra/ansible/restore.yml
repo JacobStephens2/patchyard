@@ -1,0 +1,185 @@
+---
+- name: Wait for the clean recovery host
+  hosts: control_plane
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Wait for SSH after drill-host creation
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        timeout: 600
+
+    - name: Wait for cloud-init to release package management
+      ansible.builtin.command:
+        argv: [cloud-init, status, --wait]
+      changed_when: false
+
+- name: Provision and restore the clean recovery host
+  hosts: control_plane
+  become: true
+  gather_facts: true
+  roles:
+    - role: common
+    - role: exporters
+    - role: control_plane
+  tasks:
+    - name: Stop every writer before replacing clean migrated state
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop:
+        - factory-supervisor.service
+        - factory-dashboard.service
+        - patchyard-backup.timer
+
+    - name: Remove only the clean recovery artifact targets before restore
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/lib/patchyard/artifacts
+        - /var/lib/patchyard/proposer-inbox
+
+    - name: Install the ephemeral recovery identity
+      ansible.builtin.copy:
+        src: "{{ factory_backup_age_identity_file }}"
+        dest: /run/patchyard-backup-age-identity
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: Exercise recovery with guaranteed private-key cleanup
+      block:
+        - name: Restore the encrypted generation and verify counts and hashes
+          ansible.builtin.command:
+            argv:
+              - /usr/local/sbin/patchyard-restore
+              - --generation
+              - "{{ factory_restore_generation }}"
+              - --identity-file
+              - /run/patchyard-backup-age-identity
+              - --database
+              - patchyard
+              - --artifact-root
+              - /var/lib/patchyard/artifacts
+              - --runtime-root
+              - /var/lib/patchyard/proposer-inbox
+          environment:
+            AWS_ACCESS_KEY_ID: "{{ factory_backup_runtime_access_key }}"
+            AWS_SECRET_ACCESS_KEY: "{{ factory_backup_runtime_secret_key }}"
+            AWS_DEFAULT_REGION: us-east-1
+            AWS_EC2_METADATA_DISABLED: "true"
+            FACTORY_BACKUP_BUCKET: "{{ factory_backup_bucket }}"
+            FACTORY_BACKUP_ENDPOINT: "{{ factory_backup_endpoint }}"
+            PATCHYARD_RESTORE_PRODUCTION: "yes"
+          register: restore_result
+          changed_when: true
+          no_log: true
+
+        - name: Preserve the non-secret restore result
+          ansible.builtin.copy:
+            dest: /var/lib/patchyard/restore-drill-result.txt
+            content: "{{ restore_result.stdout }}\n"
+            owner: root
+            group: root
+            mode: "0600"
+          no_log: true
+      always:
+        - name: Remove the recovery identity after decryption
+          ansible.builtin.file:
+            path: /run/patchyard-backup-age-identity
+            state: absent
+
+    - name: Reapply the declarative runtime grants after data restore
+      ansible.builtin.command:
+        argv:
+          - psql
+          - "--host={{ postgresql_socket_directory }}"
+          - --dbname=patchyard
+          - --set=ON_ERROR_STOP=1
+          - --file=/usr/local/share/patchyard/postgresql/postgresql-grants.sql
+      become: true
+      become_user: postgres
+      changed_when: false
+
+    - name: Start only the recovered read application
+      ansible.builtin.systemd:
+        name: factory-dashboard.service
+        enabled: true
+        state: restarted
+        daemon_reload: true
+
+    - name: Wait for the recovered application health endpoint
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --fail
+          - --silent
+          - --unix-socket
+          - /run/patchyard-dashboard/dashboard.sock
+          - http://localhost/healthz
+      register: recovered_health
+      retries: 20
+      delay: 1
+      until: recovered_health.rc == 0
+      changed_when: false
+
+    - name: Create a drill-only admin after count verification
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/factoryctl
+          - account
+          - provision
+          - --username=restore-drill@example.com
+          - --display-name=Restore Drill
+          - --role=factory-admin
+        stdin: "{{ factory_restore_probe_password }}"
+        stdin_add_newline: false
+      become: true
+      become_user: "{{ factory_manager_user }}"
+      environment:
+        DATABASE_URL: >-
+          postgresql:///patchyard?host={{ postgresql_socket_directory }}&user=patchyard_migrator&sslmode=disable
+      changed_when: true
+      no_log: true
+
+    - name: Install the historical evidence recovery probe
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/roles/control_plane/files/patchyard-restore-evidence-probe"
+        dest: /usr/local/sbin/patchyard-restore-evidence-probe
+        owner: root
+        group: root
+        mode: "0750"
+
+    - name: Exercise recovered evidence with guaranteed password cleanup
+      block:
+        - name: Install the ephemeral evidence-probe password
+          ansible.builtin.copy:
+            dest: /run/patchyard-restore-probe-password
+            content: "{{ factory_restore_probe_password }}"
+            owner: root
+            group: root
+            mode: "0600"
+          no_log: true
+
+        - name: Open and hash a historical run evidence response
+          ansible.builtin.command:
+            argv:
+              - /usr/local/sbin/patchyard-restore-evidence-probe
+              - restore-drill@example.com
+              - /run/patchyard-restore-probe-password
+          register: evidence_probe
+          changed_when: false
+      always:
+        - name: Remove the ephemeral evidence-probe password
+          ansible.builtin.file:
+            path: /run/patchyard-restore-probe-password
+            state: absent
+
+    - name: Report the exercised clean-host recovery facts
+      ansible.builtin.debug:
+        msg:
+          - "restore result preserved at /var/lib/patchyard/restore-drill-result.txt"
+          - "{{ evidence_probe.stdout }}"

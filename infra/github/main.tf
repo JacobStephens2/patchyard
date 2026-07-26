@@ -37,10 +37,30 @@ resource "github_branch_protection" "master" {
   required_pull_request_reviews {
     dismiss_stale_reviews      = true
     require_code_owner_reviews = false
-    # App-authored proposer PRs require two independent human approvals. This
-    # GitOps control is the mechanical A99/F5 gate; the runtime attestation
-    # remains false until operators have applied and verified this rule live.
-    required_approving_review_count = 2
+    # A109 authorizes Jacob and Engineer Two to approve or merge without making an
+    # approval mandatory. A required count remains a separate, unmade ruling.
+    required_approving_review_count = 0
     require_last_push_approval      = false
+  }
+}
+
+data "github_repository" "fieldbook" {
+  full_name = "example-org/fieldbook"
+}
+
+# The moving deploy marker is a branch ref so GitHub can enforce its update
+# policy. Factory runtime tokens are narrowed to contents:read; only the two
+# named human deploy operators may move the ref, and neither deletion nor a
+# force update is permitted.
+resource "github_branch_protection" "fieldbook_deploy_production" {
+  repository_id       = data.github_repository.fieldbook.node_id
+  pattern             = "deploy/production"
+  enforce_admins      = true
+  allows_deletions    = false
+  allows_force_pushes = false
+
+  restrict_pushes {
+    blocks_creations = false
+    push_allowances  = ["/JacobStephens2", "/example-teammate"]
   }
 }

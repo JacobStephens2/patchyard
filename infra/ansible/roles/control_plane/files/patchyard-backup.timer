@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Patchyard Factory encrypted off-host backup
+
+[Timer]
+OnCalendar=*-*-* 02:20:00 UTC
+Persistent=true
+RandomizedDelaySec=10m
+Unit=patchyard-backup.service
+
+[Install]
+WantedBy=timers.target

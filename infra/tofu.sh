@@ -37,6 +37,18 @@ case "$TOFU_ROOT" in
   digitalocean)
     : "${DO_API_TOKEN:?missing DigitalOcean provider token}"
     export DIGITALOCEAN_TOKEN="$DO_API_TOKEN"
+    if [[ -z "${TF_VAR_spaces_management_access_key:-}" ]]; then
+      TF_VAR_spaces_management_access_key=$(
+        tofu -chdir="$TOFU_DIR" output -raw factory_backup_management_access_key 2>/dev/null || true
+      )
+      export TF_VAR_spaces_management_access_key
+    fi
+    if [[ -z "${TF_VAR_spaces_management_secret_key:-}" ]]; then
+      TF_VAR_spaces_management_secret_key=$(
+        tofu -chdir="$TOFU_DIR" output -raw factory_backup_management_secret_key 2>/dev/null || true
+      )
+      export TF_VAR_spaces_management_secret_key
+    fi
     ;;
   aws)
     : "${ROUTE53_AWS_ACCESS_KEY_ID:=$PROVIDER_AWS_ACCESS_KEY_ID}"

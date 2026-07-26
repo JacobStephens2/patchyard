@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+usage() {
+  echo 'usage: patchyard-restore --generation <timestamp|latest> --identity-file <path> --database <name> --artifact-root <absolute-path> --runtime-root <absolute-path>' >&2
+  exit 2
+}
+
+validate_archive() {
+  local archive=$1 label=$2 unexpected_type
+  if tar --list --file="$archive" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+    echo "$label archive contains an unsafe path" >&2
+    exit 33
+  fi
+  unexpected_type=$(tar --list --verbose --numeric-owner --file="$archive" \
+    | awk 'substr($1, 1, 1) != "-" && substr($1, 1, 1) != "d" {print substr($1, 1, 1); exit}')
+  [[ -z "$unexpected_type" ]] || {
+    echo "$label archive contains a non-regular entry" >&2
+    exit 33
+  }
+}
+
+validate_checksum_manifest() {
+  local manifest=$1 label=$2 line path
+  while IFS= read -r line; do
+    [[ "$line" =~ ^[0-9a-f]{64}\ \ (.+)$ ]] || {
+      echo "$label checksum manifest has an invalid record" >&2
+      exit 34
+    }
+    path=${BASH_REMATCH[1]}
+    [[ "$path" != /* && "$path" != '..' && "$path" != ../* \
+      && "$path" != */../* && "$path" != */.. && "$path" != *\\* ]] || {
+      echo "$label checksum manifest has an unsafe path" >&2
+      exit 34
+    }
+  done <"$manifest"
+}
+
+generation=''
+identity_file=''
+database=''
+artifact_root=''
+runtime_root=''
+while (( $# > 0 )); do
+  case "$1" in
+    --generation) generation=${2:-}; shift 2 ;;
+    --identity-file) identity_file=${2:-}; shift 2 ;;
+    --database) database=${2:-}; shift 2 ;;
+    --artifact-root) artifact_root=${2:-}; shift 2 ;;
+    --runtime-root) runtime_root=${2:-}; shift 2 ;;
+    *) usage ;;
+  esac
+done
+[[ -n "$generation" && -f "$identity_file" && "$database" =~ ^[a-z0-9_]+$ && "$artifact_root" == /* && "$runtime_root" == /* ]] || usage
+: "${FACTORY_BACKUP_BUCKET:?missing backup bucket}"
+: "${FACTORY_BACKUP_ENDPOINT:?missing backup endpoint}"
+: "${AWS_ACCESS_KEY_ID:?missing backup access key}"
+: "${AWS_SECRET_ACCESS_KEY:?missing backup secret key}"
+[[ "$FACTORY_BACKUP_ENDPOINT" == https://* ]] || exit 20
+
+if [[ "$database" == patchyard || "$artifact_root" == /var/lib/patchyard/artifacts || "$runtime_root" == /var/lib/patchyard/proposer-inbox ]]; then
+  [[ "${PATCHYARD_RESTORE_PRODUCTION:-}" == yes ]] || {
+    echo 'production target requires PATCHYARD_RESTORE_PRODUCTION=yes' >&2
+    exit 30
+  }
+else
+  [[ "$artifact_root" == /var/lib/patchyard-restore/* ]] || {
+    echo 'non-production artifact root must be under /var/lib/patchyard-restore' >&2
+    exit 30
+  }
+  [[ "$runtime_root" == /var/lib/patchyard-restore/* ]] || {
+    echo 'non-production runtime root must be under /var/lib/patchyard-restore' >&2
+    exit 30
+  }
+fi
+
+restore_root=$(mktemp -d /var/tmp/patchyard-restore.XXXXXX)
+trap 'rm -r -- "$restore_root"' EXIT
+s3api=(aws --endpoint-url "$FACTORY_BACKUP_ENDPOINT" s3api)
+if [[ "$generation" == latest ]]; then
+  "${s3api[@]}" get-object --bucket "$FACTORY_BACKUP_BUCKET" --key LATEST \
+    "$restore_root/LATEST" >/dev/null
+  generation=$(tr -d '\r\n' <"$restore_root/LATEST")
+fi
+[[ "$generation" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || {
+  echo 'invalid backup generation' >&2
+  exit 31
+}
+prefix="generations/$generation"
+"${s3api[@]}" get-object --bucket "$FACTORY_BACKUP_BUCKET" \
+  --key "$prefix/receipt.json" "$restore_root/receipt.json" >/dev/null
+"${s3api[@]}" get-object --bucket "$FACTORY_BACKUP_BUCKET" \
+  --key "$prefix/backup.tar.age" "$restore_root/backup.tar.age" >/dev/null
+
+jq -e --arg generation "$generation" \
+  '.schema_version == 1 and .generation == $generation and (.ciphertext_sha256 | test("^[0-9a-f]{64}$")) and (.ciphertext_bytes | type == "number" and . > 0 and . <= 4294967296)' \
+  "$restore_root/receipt.json" >/dev/null
+expected_ciphertext_sha256=$(jq -r .ciphertext_sha256 "$restore_root/receipt.json")
+actual_ciphertext_sha256=$(sha256sum "$restore_root/backup.tar.age" | cut -d' ' -f1)
+actual_ciphertext_bytes=$(stat -c '%s' "$restore_root/backup.tar.age")
+[[ "$actual_ciphertext_sha256" == "$expected_ciphertext_sha256" ]] || {
+  echo 'encrypted backup hash mismatch' >&2
+  exit 32
+}
+[[ "$actual_ciphertext_bytes" == "$(jq -r .ciphertext_bytes "$restore_root/receipt.json")" ]] || {
+  echo 'encrypted backup byte count mismatch' >&2
+  exit 32
+}
+age --decrypt --identity "$identity_file" \
+  --output "$restore_root/backup.tar" "$restore_root/backup.tar.age"
+validate_archive "$restore_root/backup.tar" backup
+install -d -m 0700 "$restore_root/payload"
+tar --extract --file="$restore_root/backup.tar" \
+  --directory="$restore_root/payload" --no-same-owner --no-same-permissions
+
+manifest="$restore_root/payload/manifest.json"
+jq -e --arg generation "$generation" \
+  '.schema_version == 1 and .generation == $generation
+   and (.source_revision | test("^[0-9a-f]{40}$"))
+   and (.migration_count | type == "number" and . >= 0)
+   and (.table_counts | type == "object")
+   and all(.table_counts[]; type == "number" and . >= 0)
+   and all(.database.sha256,.artifacts.archive_sha256,.artifacts.manifest_sha256,.runtime.archive_sha256,.runtime.manifest_sha256; test("^[0-9a-f]{64}$"))
+   and all(.artifacts.file_count,.artifacts.bytes,.runtime.file_count,.runtime.bytes; type == "number" and . >= 0)' \
+  "$manifest" >/dev/null
+for item in database.dump artifacts.tar artifacts.sha256 runtime.tar runtime.sha256; do
+  [[ -f "$restore_root/payload/$item" ]] || exit 34
+done
+actual_payload_files=$(find "$restore_root/payload" -type f -printf '%P\n' | sort)
+expected_payload_files=$'artifacts.sha256\nartifacts.tar\ndatabase.dump\nmanifest.json\nruntime.sha256\nruntime.tar'
+[[ "$actual_payload_files" == "$expected_payload_files" ]] || {
+  echo 'backup payload contains an unexpected file set' >&2
+  exit 34
+}
+validate_checksum_manifest "$restore_root/payload/artifacts.sha256" artifact
+validate_checksum_manifest "$restore_root/payload/runtime.sha256" runtime
+[[ "$(sha256sum "$restore_root/payload/database.dump" | cut -d' ' -f1)" == "$(jq -r .database.sha256 "$manifest")" ]]
+[[ "$(sha256sum "$restore_root/payload/artifacts.tar" | cut -d' ' -f1)" == "$(jq -r .artifacts.archive_sha256 "$manifest")" ]]
+[[ "$(sha256sum "$restore_root/payload/artifacts.sha256" | cut -d' ' -f1)" == "$(jq -r .artifacts.manifest_sha256 "$manifest")" ]]
+[[ "$(sha256sum "$restore_root/payload/runtime.tar" | cut -d' ' -f1)" == "$(jq -r .runtime.archive_sha256 "$manifest")" ]]
+[[ "$(sha256sum "$restore_root/payload/runtime.sha256" | cut -d' ' -f1)" == "$(jq -r .runtime.manifest_sha256 "$manifest")" ]]
+
+if [[ -e "$artifact_root" ]] && find "$artifact_root" -mindepth 1 -print -quit | grep -q .; then
+  echo 'restore artifact target is not empty' >&2
+  exit 35
+fi
+if [[ -e "$runtime_root" ]] && find "$runtime_root" -mindepth 1 -print -quit | grep -q .; then
+  echo 'restore runtime target is not empty' >&2
+  exit 35
+fi
+
+socket_root=${FACTORY_POSTGRES_SOCKET:-/run/patchyard-postgres}
+current_tables=$(runuser -u postgres -- psql --host="$socket_root" --dbname="$database" \
+  --tuples-only --no-align \
+  --command="SELECT schemaname || '.' || tablename FROM pg_tables WHERE schemaname IN ('factory', 'public') AND NOT (schemaname = 'public' AND tablename = '_sqlx_migrations') ORDER BY schemaname, tablename")
+manifest_tables=$(jq -r '.table_counts | keys[]' "$manifest")
+[[ "$current_tables" == "$manifest_tables" ]] || {
+  echo 'migrated database table set differs from the backup manifest' >&2
+  exit 36
+}
+current_migration_count=$(runuser -u postgres -- psql --host="$socket_root" --dbname="$database" \
+  --tuples-only --no-align \
+  --command='SELECT count(*) FROM public._sqlx_migrations WHERE success')
+[[ "$current_migration_count" == "$(jq -r .migration_count "$manifest")" ]] || {
+  echo 'migrated database version differs from the backup manifest' >&2
+  exit 36
+}
+runuser -u postgres -- psql --host="$socket_root" --dbname="$database" \
+  --set=ON_ERROR_STOP=1 --command="DO \$\$ DECLARE item record; BEGIN FOR item IN SELECT schemaname, tablename FROM pg_tables WHERE schemaname IN ('factory', 'public') AND NOT (schemaname = 'public' AND tablename = '_sqlx_migrations') LOOP EXECUTE format('TRUNCATE TABLE %I.%I CASCADE', item.schemaname, item.tablename); END LOOP; END \$\$;"
+runuser -u postgres -- pg_restore --host="$socket_root" --dbname="$database" \
+  --data-only --no-owner --no-acl --exit-on-error "$restore_root/payload/database.dump"
+
+install -d -m 0750 "$artifact_root"
+validate_archive "$restore_root/payload/artifacts.tar" artifact
+tar --extract --file="$restore_root/payload/artifacts.tar" \
+  --directory="$artifact_root" --no-same-owner
+(cd "$artifact_root" && sha256sum --check "$restore_root/payload/artifacts.sha256")
+chown -R factory-manager:factory-web "$artifact_root"
+find "$artifact_root" -type d -exec chmod 2750 {} +
+find "$artifact_root" -type f -exec chmod 0640 {} +
+if [[ -d "$artifact_root/uploads" ]]; then
+  chown factory-web:factory-web "$artifact_root/uploads"
+  chmod 0700 "$artifact_root/uploads"
+fi
+install -d -m 0750 "$runtime_root"
+validate_archive "$restore_root/payload/runtime.tar" runtime
+tar --extract --file="$restore_root/payload/runtime.tar" \
+  --directory="$runtime_root" --no-same-owner
+(cd "$runtime_root" && sha256sum --check "$restore_root/payload/runtime.sha256")
+chown -R factory-manager:factory "$runtime_root"
+find "$runtime_root" -type d -exec chmod 0750 {} +
+find "$runtime_root" -type f -exec chmod 0640 {} +
+
+while IFS= read -r entry; do
+  key=$(jq -r '.[0]' <<<"$entry")
+  expected=$(jq -r '.[1]' <<<"$entry")
+  schema=${key%%.*}
+  table=${key#*.}
+  [[ "$schema" =~ ^[a-z_]+$ && "$table" =~ ^[a-z_]+$ ]] || exit 36
+  actual=$(runuser -u postgres -- psql --host="$socket_root" --dbname="$database" \
+    --tuples-only --no-align --command="SELECT count(*) FROM \"$schema\".\"$table\"")
+  [[ "$actual" == "$expected" ]] || {
+    echo "row count mismatch for $key: expected $expected, got $actual" >&2
+    exit 36
+  }
+done < <(jq -c '.table_counts | to_entries[] | [.key,.value]' "$manifest")
+
+actual_files=$(find "$artifact_root" -type f | wc -l)
+actual_bytes=$(find "$artifact_root" -type f -printf '%s\n' | awk '{total += $1} END {print total + 0}')
+actual_runtime_files=$(find "$runtime_root" -type f | wc -l)
+actual_runtime_bytes=$(find "$runtime_root" -type f -printf '%s\n' | awk '{total += $1} END {print total + 0}')
+[[ "$actual_files" == "$(jq -r .artifacts.file_count "$manifest")" ]]
+[[ "$actual_bytes" == "$(jq -r .artifacts.bytes "$manifest")" ]]
+[[ "$actual_runtime_files" == "$(jq -r .runtime.file_count "$manifest")" ]]
+[[ "$actual_runtime_bytes" == "$(jq -r .runtime.bytes "$manifest")" ]]
+printf 'restore_complete generation=%s database=%s files=%s bytes=%s\n' \
+  "$generation" "$database" "$actual_files" "$actual_bytes"

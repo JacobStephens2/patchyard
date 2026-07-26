@@ -124,17 +124,15 @@ but cannot create a missing one after cancellation. The supervisor re-reads
 full stop after `reviewing -> publishing`, and the concrete publisher re-reads
 it immediately before each branch push and draft-PR creation effect.
 
-Merge remains a human-only gate under A1. Because A99's App-authorship trigger
-applies, enabling the installed schedule is additionally blocked unless
-`FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED=true`; operators may set that attestation
-only after applying and verifying the GitOps branch-protection rule, which now
-requires two approvals. The same at-threshold gate is enforced inside the
-proposer, so manual execution cannot bypass it; startup recovery treats a
-missing attestation as durable abort intent and cannot create a missing PR.
+Merge remains a human-only gate under A1. A109 subsequently amended A99:
+Jacob and Engineer Two are both authorized approvers and mergers, but no approval
+count is required absent a separate ruling. Session 16 therefore removes the
+unruled dual-approval attestation and preserves the live zero-approval branch
+rule. The proposer still has no merge API, creates drafts only, and remains
+disabled until its live-provider isolation boundary is qualified.
 `FACTORY_PROPOSER_SCHEDULING_ENABLED` starts new scheduled attempts only;
 existing durable work is always reconciled, and full stop is the publication
-kill switch. The installed template leaves scheduling and dual-review
-attestation false.
+kill switch. The installed template leaves scheduling false.
 
 ## Failure-path inventory
 

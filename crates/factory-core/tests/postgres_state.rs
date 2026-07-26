@@ -185,6 +185,49 @@ async fn queued_transition_faults_and_connection_drop_converge() -> Result<(), B
 }
 
 #[tokio::test]
+async fn terminal_request_releases_fingerprint_for_a_fresh_intake() -> Result<(), Box<dyn Error>> {
+    let Some((runtime_url, _admin_url)) = test_urls() else {
+        eprintln!("skipped: disposable PostgreSQL URLs are not set");
+        return Ok(());
+    };
+    let repository = PostgresRepository::connect(&runtime_url).await?;
+    let first = request(19);
+    assert!(repository.create_request(&first).await?.inserted);
+
+    let live_retry = NewRequest::new(
+        Uuid::new_v4(),
+        first.fingerprint,
+        first.source.clone(),
+        first.body.clone(),
+        TraceId::random(),
+    )?;
+    let deduplicated = repository.create_request(&live_retry).await?;
+    assert_eq!((deduplicated.id, deduplicated.inserted), (first.id, false));
+
+    sqlx::query("UPDATE factory.requests SET status='failed' WHERE id=$1")
+        .bind(first.id)
+        .execute(repository.pool())
+        .await?;
+
+    let fresh_retry = NewRequest::new(
+        Uuid::new_v4(),
+        first.fingerprint,
+        first.source.clone(),
+        first.body.clone(),
+        TraceId::random(),
+    )?;
+    let created = repository.create_request(&fresh_retry).await?;
+    assert_eq!((created.id, created.inserted), (fresh_retry.id, true));
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM factory.requests WHERE fingerprint=$1")
+            .bind(first.fingerprint.as_bytes().as_slice())
+            .fetch_one(repository.pool())
+            .await?;
+    assert_eq!(count, 2);
+    Ok(())
+}
+
+#[tokio::test]
 async fn lease_expiry_double_claim_and_close_are_idempotent() -> Result<(), Box<dyn Error>> {
     let Some((runtime_url, admin_url)) = test_urls() else {
         eprintln!("skipped: disposable PostgreSQL URLs are not set");

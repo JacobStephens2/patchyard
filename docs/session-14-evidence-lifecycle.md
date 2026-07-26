@@ -290,3 +290,21 @@ Traefik strip intact, and adds desired-state regression coverage. PR #265 is
 retained draft and unmerged as this failed qualification artifact while the
 repair is converged and a fresh dashboard request is used for the replacement
 success run. No quota was raised and no existing terminal run was reopened.
+
+The replacement form submission exposed a second live-only intake defect. The
+production dashboard correctly recognized the exact sanitized ALPHABETIZE
+body, but returned the prior terminal failure receipt instead of creating a
+new request. The same per-submitter body fingerprint had a durable terminal
+row for each approved account from the predeclared failure exercise. The
+original global unique fingerprint therefore made a clean retry impossible
+without changing the request body, bypassing the form, or mutating a terminal
+record. None of those alternatives was used: the dashboard receipt created no
+new row, no quota was raised, and no terminal request was reopened.
+
+Migration 9 changes that key to a partial unique index over only `queued`,
+`claimed`, and `plan_bin` requests. The intake paths retain live-request
+deduplication, while terminal failures remain durable audit records and no
+longer suppress a fresh identical dashboard submission. Core and dashboard
+PostgreSQL regressions cover both sides of that boundary. After the reviewed
+migration and control-plane converge, the clean retry will again use the
+production dashboard form and the real `#sales_person_id` selector.

@@ -462,7 +462,9 @@ impl DashboardStore {
             r#"
             INSERT INTO factory.requests (id, fingerprint, source, body, trace_id)
             VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (fingerprint) DO NOTHING
+            ON CONFLICT (fingerprint)
+                WHERE status IN ('queued', 'claimed', 'plan_bin')
+                DO NOTHING
             RETURNING id
             "#,
         )
@@ -477,10 +479,14 @@ impl DashboardStore {
         let id = match inserted_id {
             Some(id) => id,
             None => {
-                sqlx::query_scalar("SELECT id FROM factory.requests WHERE fingerprint=$1")
-                    .bind(request.fingerprint.as_bytes().as_slice())
-                    .fetch_one(&mut *transaction)
-                    .await?
+                sqlx::query_scalar(
+                    "SELECT id FROM factory.requests \
+                     WHERE fingerprint=$1 \
+                       AND status IN ('queued', 'claimed', 'plan_bin')",
+                )
+                .bind(request.fingerprint.as_bytes().as_slice())
+                .fetch_one(&mut *transaction)
+                .await?
             }
         };
         append_audit(
@@ -710,7 +716,9 @@ impl DashboardStore {
             r#"
             INSERT INTO factory.requests (id, fingerprint, source, body, trace_id)
             VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (fingerprint) DO NOTHING
+            ON CONFLICT (fingerprint)
+                WHERE status IN ('queued', 'claimed', 'plan_bin')
+                DO NOTHING
             RETURNING id
             "#,
         )
@@ -722,11 +730,14 @@ impl DashboardStore {
         .fetch_optional(&mut *transaction)
         .await?;
         let Some(id) = inserted_id else {
-            let id: Uuid =
-                sqlx::query_scalar("SELECT id FROM factory.requests WHERE fingerprint=$1")
-                    .bind(request.fingerprint.as_bytes().as_slice())
-                    .fetch_one(&mut *transaction)
-                    .await?;
+            let id: Uuid = sqlx::query_scalar(
+                "SELECT id FROM factory.requests \
+                     WHERE fingerprint=$1 \
+                       AND status IN ('queued', 'claimed', 'plan_bin')",
+            )
+            .bind(request.fingerprint.as_bytes().as_slice())
+            .fetch_one(&mut *transaction)
+            .await?;
             sqlx::query(
                 r#"
                 UPDATE factory.upload_admissions

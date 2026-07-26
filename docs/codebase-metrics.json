@@ -6,10 +6,10 @@
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 32262,
-      "comments": 522,
-      "blanks": 2082,
-      "files": 81,
+      "code": 32350,
+      "comments": 525,
+      "blanks": 2088,
+      "files": 82,
       "languages": [
         {
           "language": "CSS",
@@ -48,17 +48,17 @@
         },
         {
           "language": "Rust",
-          "code": 30093,
+          "code": 30176,
           "comments": 117,
-          "blanks": 1830,
+          "blanks": 1835,
           "files": 52
         },
         {
           "language": "SQL",
-          "code": 755,
-          "comments": 0,
-          "blanks": 63,
-          "files": 8
+          "code": 760,
+          "comments": 3,
+          "blanks": 64,
+          "files": 9
         },
         {
           "language": "TOML",
@@ -247,8 +247,8 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8004,
-      "comments": 8714,
-      "blanks": 2691,
+      "comments": 8730,
+      "blanks": 2693,
       "files": 100,
       "languages": [
         {
@@ -268,8 +268,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 8700,
-          "blanks": 2640,
+          "comments": 8716,
+          "blanks": 2642,
           "files": 80
         },
         {

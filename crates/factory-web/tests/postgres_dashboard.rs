@@ -568,6 +568,36 @@ async fn upload_adversarial_fixtures_fail_closed_and_clean_bytes_serve_inactive(
     .fetch_one(&harness.admin)
     .await?;
     assert_eq!((request_count, artifact_count), (1, 1));
+
+    sqlx::query("UPDATE factory.requests SET status='failed' WHERE source=$1 AND body=$2")
+        .bind(format!("dashboard:{}", submitter.id))
+        .bind(&duplicate_body)
+        .execute(&harness.admin)
+        .await?;
+    let retry_after_terminal = submit_screenshot(
+        &harness.app,
+        &submitter,
+        &duplicate_body,
+        "screen.png",
+        "image/png",
+        &valid_png,
+    )
+    .await?;
+    assert_eq!(retry_after_terminal.status(), StatusCode::OK);
+    let recovered_request_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM factory.requests WHERE source=$1 AND body=$2")
+            .bind(format!("dashboard:{}", submitter.id))
+            .bind(&duplicate_body)
+            .fetch_one(&harness.admin)
+            .await?;
+    let recovered_artifact_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM factory.artifacts artifact JOIN factory.requests request ON request.id=artifact.request_id WHERE request.source=$1 AND request.body=$2 AND artifact.run_id IS NULL",
+    )
+    .bind(format!("dashboard:{}", submitter.id))
+    .bind(&duplicate_body)
+    .fetch_one(&harness.admin)
+    .await?;
+    assert_eq!((recovered_request_count, recovered_artifact_count), (2, 2));
     Ok(())
 }
 

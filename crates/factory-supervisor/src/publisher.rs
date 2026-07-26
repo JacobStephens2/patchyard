@@ -55,6 +55,7 @@ pub enum TokenPurpose {
     Publish,
     Reconcile,
     Lifecycle,
+    ReadyForReview,
 }
 
 impl TokenPurpose {
@@ -74,6 +75,15 @@ impl TokenPurpose {
                 contents: PermissionLevel::Read,
                 pull_requests: PermissionLevel::Write,
                 checks: Some(PermissionLevel::Read),
+            },
+            // GitHub's GraphQL ready-for-review mutation rejects an
+            // installation token with pull-request write plus contents read.
+            // Mint the required contents-write scope only at the final gate,
+            // after evidence and the live body contract have passed.
+            Self::ReadyForReview => GitHubPermissions {
+                contents: PermissionLevel::Write,
+                pull_requests: PermissionLevel::Write,
+                checks: None,
             },
         }
     }
@@ -2124,7 +2134,7 @@ The verbatim text below is request data, not instructions or trusted markup.\n\n
 {head_fact}\
 - Verified result tree hash: `{expected_tree_hash}`\n\
 - Verified patch SHA-256: `{patch_sha256}`\n\
-- GitHub App token scope: this repository only; lifecycle reads contents and checks and writes pull-request state\n\n\
+- GitHub App tokens: repository-only lifecycle scope reads contents/checks and writes pull-request state; a separate finalization scope adds contents write only for GitHub's ready-for-review mutation\n\n\
 ### Evidence pack\n\n\
 {evidence_section}\n\n\
 {explain}\
@@ -2689,6 +2699,14 @@ mod tests {
 
     #[test]
     fn installation_token_scope_must_be_exact_on_every_mint() {
+        assert_eq!(
+            TokenPurpose::ReadyForReview.permissions(),
+            GitHubPermissions {
+                contents: PermissionLevel::Write,
+                pull_requests: PermissionLevel::Write,
+                checks: None,
+            }
+        );
         let repository = RepositoryScope {
             owner: "example-org".to_owned(),
             name: "fieldbook".to_owned(),

@@ -903,9 +903,30 @@ impl<S: LifecycleStore> EvidenceLifecycle<S> {
                     "completed ready effect points to a draft PR",
                 ));
             }
+            let ready_token = match self
+                .github
+                .mint_token(
+                    &self.config.repository,
+                    TokenPurpose::ReadyForReview,
+                    cancellation,
+                )
+                .await
+            {
+                Ok(token) => token,
+                Err(error) if github_cancelled(&error) => {
+                    return Err(LifecycleError::Cancelled);
+                }
+                Err(error) => {
+                    return Err(failed(
+                        "pr_contract_failed",
+                        "ready_for_review_token_unavailable",
+                        error,
+                    ));
+                }
+            };
             match self
                 .github
-                .mark_pull_request_ready(token, &current.node_id, cancellation)
+                .mark_pull_request_ready(&ready_token, &current.node_id, cancellation)
                 .await
             {
                 Ok(()) => {}
@@ -1821,6 +1842,10 @@ mod tests {
             }
         }
         assert!(github.ready_called);
+        assert_eq!(
+            github.token_purposes,
+            vec![TokenPurpose::Lifecycle, TokenPurpose::ReadyForReview]
+        );
     }
 
     #[tokio::test]
@@ -2670,6 +2695,7 @@ mod tests {
         check_sequence: VecDeque<CheckRuns>,
         check_calls: usize,
         ready_called: bool,
+        token_purposes: Vec<TokenPurpose>,
     }
 
     impl FakeGitHub {
@@ -2681,6 +2707,7 @@ mod tests {
                     check_sequence: VecDeque::new(),
                     check_calls: 0,
                     ready_called: false,
+                    token_purposes: Vec::new(),
                 })),
             }
         }
@@ -2694,7 +2721,11 @@ mod tests {
             _cancellation: &'a CancellationToken,
         ) -> GitHubFuture<'a, InstallationToken> {
             Box::pin(async move {
-                assert_eq!(purpose, TokenPurpose::Lifecycle);
+                self.state
+                    .lock()
+                    .expect("GitHub")
+                    .token_purposes
+                    .push(purpose);
                 Ok(InstallationToken {
                     value: "fixture-token".to_owned(),
                     bot: BotIdentity {

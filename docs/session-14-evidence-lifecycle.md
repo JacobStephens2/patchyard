@@ -9,7 +9,8 @@ The supervisor owns one restart-safe lifecycle after the publisher creates a
 draft pull request:
 
 1. It mints a fresh GitHub App token for the Fieldbook repository with exactly
-   `contents:read`, `pull_requests:write`, and `checks:read`.
+   `contents:read`, `pull_requests:write`, and `checks:read`. That token owns
+   observation and PR-body work, not the final ready mutation.
 2. It waits for every GitHub check run on the durable PR head to reach
    `success`. An empty check set is a wait state, not success. Every other
    terminal conclusion has its own run state.
@@ -28,9 +29,12 @@ draft pull request:
    snapshot, screenshot, extracted order, child hash manifest, execution
    manifest, and lifecycle proof.
 6. It replaces the pending evidence section in the PR body with authenticated
-   dashboard links and each artifact SHA-256, verifies the full A11 and A26
-   contract as live GitHub state, then uses GitHub's ready-for-review mutation.
-   The drafted requester reply is body text only and is never sent (A34).
+   dashboard links and each artifact SHA-256, then verifies the full A11 and
+   A26 contract as live GitHub state. Only at that final gate does it mint a
+   second repository-only token with exactly `contents:write` and
+   `pull_requests:write`, the scope GitHub's GraphQL ready-for-review mutation
+   requires; that token performs only that mutation. The drafted requester
+   reply is body text only and is never sent (A34).
 
 The dashboard remains a read-only scribe (A53/A66). The supervisor performs
 every transition and side effect (A65). The orchestration host is absent from

@@ -3,10 +3,7 @@ http:
     patchyard-capability:
       forwardAuth:
         address: "http://factory-capability:8080/auth"
-        authResponseHeaders:
-          - Authorization
+        # Strip the browser's private capability before proxying, then copy
+        # only the translator's ordinary application Authorization response.
+        authResponseHeadersRegex: "^(Authorization|X-Patchyard-Factory-Capability)$"
         trustForwardHeader: false
-    patchyard-capability-strip:
-      headers:
-        customRequestHeaders:
-          X-Patchyard-Factory-Capability: ""

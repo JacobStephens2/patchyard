@@ -34,15 +34,15 @@ class PreviewCapabilityDeploymentContract(unittest.TestCase):
         ):
             self.assertIn(inherited_static_flag, compose)
 
-    def test_preview_router_orders_capability_strip_after_forward_auth(self) -> None:
+    def test_forward_auth_replaces_the_private_capability_at_the_boundary(self) -> None:
         slot = SLOT_COMPOSE.read_text()
         dynamic = TRAEFIK_DYNAMIC.read_text()
         self.assertIn(
-            'X-Patchyard-Factory-Capability: ""',
+            'authResponseHeadersRegex: "^(Authorization|X-Patchyard-Factory-Capability)$"',
             dynamic,
         )
         self.assertIn(
-            '"patchyard-capability-strip@file,patchyard-capability@file"',
+            '"patchyard-capability@file"',
             slot,
         )
         tasks = TASKS.read_text()

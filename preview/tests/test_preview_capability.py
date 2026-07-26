@@ -111,13 +111,13 @@ class CapabilityBoundaryTests(unittest.TestCase):
         )
         self.assertIn('address: "http://factory-capability:8080/auth"', TRAEFIK_DYNAMIC)
 
-    def test_traefik_authenticates_then_strips_the_private_capability_header(self) -> None:
+    def test_traefik_replaces_the_private_capability_header(self) -> None:
         self.assertIn(
-            'X-Patchyard-Factory-Capability: ""',
+            'authResponseHeadersRegex: "^(Authorization|X-Patchyard-Factory-Capability)$"',
             TRAEFIK_DYNAMIC,
         )
         self.assertIn(
-            '"patchyard-capability-strip@file,patchyard-capability@file"',
+            '"patchyard-capability@file"',
             SLOT_COMPOSE,
         )
 

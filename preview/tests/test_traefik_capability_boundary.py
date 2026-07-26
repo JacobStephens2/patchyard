@@ -140,19 +140,14 @@ class TraefikCapabilityBoundary(unittest.TestCase):
                     "      entryPoints: [web]",
                     '      rule: "PathPrefix(`/`)"',
                     "      middlewares:",
-                    "        - patchyard-capability-strip",
                     "        - patchyard-capability",
                     "      service: fieldbook",
                     "  middlewares:",
                     "    patchyard-capability:",
                     "      forwardAuth:",
                     f'        address: "http://127.0.0.1:{auth_port}/auth"',
-                    "        authResponseHeaders: [Authorization]",
+                    '        authResponseHeadersRegex: "^(Authorization|X-Patchyard-Factory-Capability)$"',
                     "        trustForwardHeader: false",
-                    "    patchyard-capability-strip:",
-                    "      headers:",
-                    "        customRequestHeaders:",
-                    '          X-Patchyard-Factory-Capability: ""',
                     "  services:",
                     "    fieldbook:",
                     "      loadBalancer:",
@@ -192,11 +187,11 @@ class TraefikCapabilityBoundary(unittest.TestCase):
             CAPABILITY_COMPOSE,
         )
         self.assertIn(
-            'X-Patchyard-Factory-Capability: ""',
+            'authResponseHeadersRegex: "^(Authorization|X-Patchyard-Factory-Capability)$"',
             TRAEFIK_DYNAMIC,
         )
         self.assertIn(
-            '"patchyard-capability-strip@file,patchyard-capability@file"',
+            '"patchyard-capability@file"',
             SLOT_COMPOSE,
         )
 

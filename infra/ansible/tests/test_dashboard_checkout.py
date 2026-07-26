@@ -30,6 +30,17 @@ class DashboardCheckoutContract(unittest.TestCase):
         self.assertNotIn("recurse:", task)
         self.assertIn("SupplementaryGroups=factory", self.service)
 
+    def test_checkout_transfer_does_not_fight_the_dashboard_root_group(self) -> None:
+        task_name = "- name: Transfer the existing checkout to the factory management identity"
+        start = self.tasks.index(task_name)
+        end = self.tasks.find("\n- name:", start + len(task_name))
+        task = self.tasks[start:] if end == -1 else self.tasks[start:end]
+
+        self.assertIn("path: /opt/patchyard", task)
+        self.assertIn('owner: "{{ factory_manager_user }}"', task)
+        self.assertIn("recurse: true", task)
+        self.assertNotIn("group:", task)
+
     def test_root_validation_cannot_take_ownership_of_the_caddy_access_log(self) -> None:
         task_name = "- name: Precreate the Caddy access log for the service identity"
         start = self.tasks.index(task_name)

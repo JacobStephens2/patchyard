@@ -1080,7 +1080,6 @@
   ansible.builtin.file:
     path: /opt/patchyard
     owner: "{{ factory_manager_user }}"
-    group: "{{ factory_manager_user }}"
     recurse: true
   when: factory_checkout.stat.exists
   tags: [session13]

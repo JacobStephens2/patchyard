@@ -7,6 +7,33 @@ use uuid::Uuid;
 
 use crate::{InputError, require_lower_hex};
 
+/// A107 run class. Only the dedicated qualification claim path may select
+/// `qualification`; PostgreSQL verifies this value against the claim event.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunClass {
+    Production,
+    Qualification,
+}
+
+impl RunClass {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Production => "production",
+            Self::Qualification => "qualification",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, LedgerError> {
+        match value {
+            "production" => Ok(Self::Production),
+            "qualification" => Ok(Self::Qualification),
+            _ => Err(LedgerError::InvalidRunClass(value.to_owned())),
+        }
+    }
+}
+
 /// Human-readable seat resolution plus the eight hashes required on every run.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -33,6 +60,7 @@ pub struct Provenance {
 pub struct RunRecord {
     pub id: Uuid,
     pub request_id: Uuid,
+    pub run_class: RunClass,
     pub base_sha: String,
     pub branch: String,
     pub lane: String,
@@ -64,6 +92,8 @@ pub enum LedgerError {
     Database(#[from] sqlx::Error),
     #[error("request does not exist: {0}")]
     RequestNotFound(Uuid),
+    #[error("invalid run class: {0}")]
+    InvalidRunClass(String),
 }
 
 /// Validate all fields before a caller can attempt persistence.
@@ -130,19 +160,20 @@ pub async fn append(pool: &PgPool, run: &ValidatedRunRecord) -> Result<(), Ledge
     sqlx::query(
         r#"
         INSERT INTO factory.runs (
-            id, request_id, base_sha, branch, lane, skill,
+            id, request_id, run_class, base_sha, branch, lane, skill,
             model_id, cli_version, harness, provider, effort, routing_config_version,
             model_id_hash, cli_version_hash, constitution_hash, rubric_hash,
             skill_hash, prompt_template_hash, verifier_binary_hash, base_tree_hash
         ) VALUES (
-            $1, $2, $3, $4, $5, $6,
-            $7, $8, $9, $10, $11, $12,
-            $13, $14, $15, $16, $17, $18, $19, $20
+            $1, $2, $3::factory.run_class, $4, $5, $6, $7,
+            $8, $9, $10, $11, $12, $13,
+            $14, $15, $16, $17, $18, $19, $20, $21
         )
         "#,
     )
     .bind(run.record.id)
     .bind(run.record.request_id)
+    .bind(run.record.run_class.as_str())
     .bind(&run.record.base_sha)
     .bind(&run.record.branch)
     .bind(&run.record.lane)

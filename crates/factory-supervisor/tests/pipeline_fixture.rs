@@ -156,6 +156,7 @@ impl PipelineStore for MemoryStore {
     async fn existing_run(&self, _request_id: Uuid) -> Result<Option<ExistingRun>, StoreError> {
         let state = self.state.lock().expect("memory store");
         Ok(state.run.as_ref().map(|run| ExistingRun {
+            run_class: factory_verify::ledger::RunClass::Production,
             id: run.id,
             base_sha: run.base_sha.clone(),
             branch: run.branch.clone(),
@@ -681,7 +682,7 @@ async fn alphabetize_dry_run_asserts_lane_targets_patch_barrier_and_stop_boundar
     );
     assert_eq!(
         snapshot.run.provenance.routing_config_version,
-        "2026-07-23.1"
+        "2026-07-26.1"
     );
     for digest in [
         &snapshot.run.provenance.model_id_hash,
@@ -911,6 +912,7 @@ async fn kill_cleanup_awaits_both_permitted_worker_attempts() {
 fn fixture_claim(request_id: Uuid) -> WorkClaim {
     WorkClaim {
         request_id,
+        run_class: factory_verify::ledger::RunClass::Production,
         source: "fixture".to_owned(),
         body: "ALPHABETIZE the two named salesperson selectors".to_owned(),
         trace_id: "0123456789abcdef0123456789abcdef".to_owned(),

@@ -1,6 +1,6 @@
 //! LISTEN-driven supervisor with startup, reconnect, and timer recovery sweeps.
 
-use std::{collections::BTreeMap, time::Duration};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use sqlx::postgres::PgListener;
 use thiserror::Error;
@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     pipeline::{Pipeline, PipelineError, PipelineOutcome},
+    proposer::{ImprovementProposer, ProposerError, ProposerOutcome},
     reconcile::Reconciler,
     store::{ControlKind, DailyLimits, PgPipelineStore, PipelineStore, StoreError},
 };
@@ -24,6 +25,8 @@ pub struct DaemonConfig {
     pub max_active: usize,
     pub reconcile_abandoned_after: Duration,
     pub reconcile_sweep_limit: usize,
+    pub proposer_enabled: bool,
+    pub proposer_interval: Duration,
 }
 
 struct ActiveRun {
@@ -36,13 +39,20 @@ struct ActiveReconcile {
     handle: JoinHandle<Result<(), DaemonError>>,
 }
 
+struct ActiveProposer {
+    cancellation: CancellationToken,
+    handle: JoinHandle<Result<ProposerOutcome, ProposerError>>,
+}
+
 pub struct SupervisorDaemon {
     store: PgPipelineStore,
     pipeline: Pipeline<PgPipelineStore>,
     reconciler: Reconciler<PgPipelineStore>,
+    proposer: Arc<ImprovementProposer>,
     config: DaemonConfig,
     active: BTreeMap<Uuid, ActiveRun>,
     active_reconciles: BTreeMap<Uuid, ActiveReconcile>,
+    active_proposer: Option<ActiveProposer>,
 }
 
 impl SupervisorDaemon {
@@ -51,15 +61,18 @@ impl SupervisorDaemon {
         store: PgPipelineStore,
         pipeline: Pipeline<PgPipelineStore>,
         reconciler: Reconciler<PgPipelineStore>,
+        proposer: Arc<ImprovementProposer>,
         config: DaemonConfig,
     ) -> Self {
         Self {
             store,
             pipeline,
             reconciler,
+            proposer,
             config,
             active: BTreeMap::new(),
             active_reconciles: BTreeMap::new(),
+            active_proposer: None,
         }
     }
 
@@ -71,12 +84,19 @@ impl SupervisorDaemon {
             || self.config.reconcile_abandoned_after.is_zero()
             || self.config.reconcile_sweep_limit == 0
             || self.config.reconcile_sweep_limit > 100
+            || self.config.proposer_interval.is_zero()
         {
             return Err(DaemonError::InvalidConfig);
         }
         let mut listener = self.connect_listener().await?;
         let mut interval = tokio::time::interval(self.config.sweep_interval);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut proposer_interval = tokio::time::interval(self.config.proposer_interval);
+        proposer_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // Scheduling begins after one full interval; startup already performs
+        // the normal durable-work sweep and should not unexpectedly spend a
+        // proposer invocation during every service restart.
+        proposer_interval.tick().await;
         self.sweep().await?;
         loop {
             // Cancellation audit: CancellationToken::cancelled and Interval::tick
@@ -86,6 +106,7 @@ impl SupervisorDaemon {
             let wake = tokio::select! {
                 () = shutdown.cancelled() => Wake::Shutdown,
                 _ = interval.tick() => Wake::Sweep,
+                _ = proposer_interval.tick(), if self.config.proposer_enabled => Wake::Proposer,
                 notification = listener.recv() => match notification {
                     Ok(_) => Wake::Sweep,
                     Err(error) => Wake::Reconnect(error),
@@ -99,10 +120,12 @@ impl SupervisorDaemon {
                     listener = self.connect_listener().await?;
                     self.sweep().await?;
                 }
+                Wake::Proposer => self.start_or_reap_proposer().await?,
             }
         }
         self.shutdown_active().await?;
         self.shutdown_reconciles().await?;
+        self.shutdown_proposer().await?;
         Ok(())
     }
 
@@ -147,6 +170,31 @@ impl SupervisorDaemon {
                 },
             );
         }
+        Ok(())
+    }
+
+    async fn start_or_reap_proposer(&mut self) -> Result<(), DaemonError> {
+        if let Some(active) = self.active_proposer.take() {
+            if active.handle.is_finished() {
+                match active.handle.await? {
+                    Ok(outcome) => tracing::info!(?outcome, "scheduled proposer completed"),
+                    Err(error) => tracing::error!(%error, "scheduled proposer failed closed"),
+                }
+            } else {
+                self.active_proposer = Some(active);
+                return Ok(());
+            }
+        }
+        let proposer = self.proposer.clone();
+        let pool = self.store.pool().clone();
+        let cancellation = CancellationToken::new();
+        let task_token = cancellation.clone();
+        let handle =
+            tokio::spawn(async move { proposer.run_from_ledger(&pool, &task_token).await });
+        self.active_proposer = Some(ActiveProposer {
+            cancellation,
+            handle,
+        });
         Ok(())
     }
 
@@ -286,6 +334,10 @@ impl SupervisorDaemon {
         self.store
             .set_claiming_state(true, true, &control.requested_by)
             .await?;
+        if let Some(active) = self.active_proposer.take() {
+            active.cancellation.cancel();
+            let _proposer_result = active.handle.await;
+        }
         let request_ids: Vec<Uuid> = self.active.keys().copied().collect();
         for request_id in request_ids {
             if let Some(active) = self.active.remove(&request_id) {
@@ -347,6 +399,14 @@ impl SupervisorDaemon {
         }
         Ok(())
     }
+
+    async fn shutdown_proposer(&mut self) -> Result<(), DaemonError> {
+        if let Some(active) = self.active_proposer.take() {
+            active.cancellation.cancel();
+            let _proposer_result = active.handle.await?;
+        }
+        Ok(())
+    }
 }
 
 fn kill_outcome(run_id: Uuid, request_id: Option<Uuid>) -> serde_json::Value {
@@ -375,6 +435,7 @@ mod tests {
 
 enum Wake {
     Sweep,
+    Proposer,
     Reconnect(sqlx::Error),
     Shutdown,
 }

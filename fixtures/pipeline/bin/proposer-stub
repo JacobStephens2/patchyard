@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+
+
+def main() -> int:
+    if len(sys.argv) != 4:
+        return 2
+    prompt_path, packet_path, output_path = map(pathlib.Path, sys.argv[1:])
+    prompt = prompt_path.read_text(encoding="utf-8")
+    packet = json.loads(packet_path.read_text(encoding="utf-8"))
+    if "<UNTRUSTED_LESSONS_REPORT>" not in prompt:
+        return 3
+    eligible = [
+        cohort
+        for cohort in packet["report"]["cohorts"]
+        if cohort["eligible_for_policy_pr"]
+    ]
+    if eligible:
+        # The offline fixture deliberately cannot author at-threshold policy.
+        # Acceptance injects an exact patch through the typed test adapter.
+        return 4
+    output = {
+        "schema_version": 1,
+        "kind": "idea_append",
+        "title": "Fixture lessons observation",
+        "summary": "The provider-free proposer fixture observed a below-threshold report.",
+        "markdown": "Collect more relevant production evidence before proposing policy.",
+        "citations": [],
+    }
+    output_path.write_text(json.dumps(output, sort_keys=True) + "\n", encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -43,6 +43,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         runtime.store.clone(),
         runtime.pipeline.clone(),
         runtime.reconciler.clone(),
+        runtime.proposer.clone(),
         runtime.daemon.clone(),
     );
     let result = daemon.run(&shutdown).await;

@@ -95,6 +95,52 @@ erDiagram
         boolean passing_run
         text reconcile_error nullable
     }
+    proposer_artifacts {
+        uuid id PK
+        uuid proposer_run_id
+        text stage
+        text path UK
+        bytea sha256
+        text kind
+        bigint bytes
+        timestamptz created_at
+        timestamptz expires_at nullable
+        timestamptz deleted_at nullable
+    }
+    proposer_events {
+        bigint id PK
+        uuid proposer_run_id
+        text event_type
+        factory_proposer_state from_state nullable
+        factory_proposer_state to_state
+        text reason_code
+        jsonb facts
+        timestamptz occurred_at
+    }
+    proposer_publisher_lease {
+        boolean singleton PK
+        text holder nullable
+        bigint fencing_token
+        timestamptz acquired_at nullable
+        timestamptz expires_at nullable
+        timestamptz released_at nullable
+    }
+    proposer_runs {
+        uuid id PK
+        factory_proposer_state state
+        character40 base_sha
+        bytea report_sha256
+        bigint report_max_event_id
+        bytea prompt_bundle_sha256
+        text branch nullable
+        bytea patch_sha256 nullable
+        integer pr_number nullable
+        text pr_url nullable
+        text failure_code nullable
+        timestamptz queued_at
+        timestamptz started_at nullable
+        timestamptz finished_at nullable
+    }
     publisher_leases {
         text resource PK
         uuid request_id
@@ -156,6 +202,7 @@ erDiagram
         text effort nullable
         text routing_config_version nullable
         smallint lifecycle_attempts
+        factory_run_class run_class
     }
     sessions {
         bytea token_hash PK
@@ -223,6 +270,8 @@ erDiagram
     requests ||--o| leases : "leases_request_id_fkey"
     requests o|--o{ pr_state : "pr_state_request_id_fkey"
     runs o|--o{ pr_state : "pr_state_run_id_fkey"
+    proposer_runs ||--o{ proposer_artifacts : "proposer_artifacts_proposer_run_id_fkey"
+    proposer_runs ||--o{ proposer_events : "proposer_events_proposer_run_id_fkey"
     requests ||--o{ publisher_leases : "publisher_leases_request_id_fkey"
     runs ||--o{ publisher_leases : "publisher_leases_run_id_fkey"
     requests ||--o{ reconcile_requests : "reconcile_requests_request_id_fkey"

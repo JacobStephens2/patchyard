@@ -39,13 +39,13 @@ class ChildLauncherContract(unittest.TestCase):
     def test_probe_result_is_not_mounted_into_either_untrusted_stage(self) -> None:
         self.assertIn('ISOLATION_DIRECTORY="$JOB/probe"', self.launcher)
         self.assertNotIn('ISOLATION_FILE="$OUTPUT/', self.launcher)
-        for prefix in ("REVIEW", "EVIDENCE"):
+        for prefix in ("PROPOSER", "REVIEW", "EVIDENCE"):
             close = f"exec {{{prefix}_PROBE_FD}}>&-"
             child_stage = self.launcher.split(close, 1)[1].split("CHILD_PID=$!", 1)[0]
             self.assertNotIn("/isolation-probe", child_stage)
             self.assertNotIn("/probe-output", child_stage)
-        self.assertEqual(self.launcher.count("/probe-output/isolation.json"), 2)
-        self.assertGreaterEqual(self.launcher.count("chown -R root:root"), 2)
+        self.assertEqual(self.launcher.count("/probe-output/isolation.json"), 3)
+        self.assertGreaterEqual(self.launcher.count("chown -R root:root"), 3)
 
     def test_pinned_hosts_need_no_dns_egress(self) -> None:
         self.assertIn('--ro-bind-fd "$EVIDENCE_HOSTS_FD" /etc/hosts', self.launcher)

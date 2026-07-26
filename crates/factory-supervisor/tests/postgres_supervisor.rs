@@ -8,7 +8,7 @@ use factory_core::{
 use factory_supervisor::store::{
     ControlKind, DailyLimits, PgPipelineStore, PipelineStore, PublisherStore, StoreError,
 };
-use factory_verify::ledger::{self, Provenance, RunRecord};
+use factory_verify::ledger::{self, Provenance, RunClass, RunRecord};
 use uuid::Uuid;
 
 fn urls() -> Option<(String, String)> {
@@ -185,6 +185,7 @@ async fn durable_sweep_claims_recovery_limits_and_control_rows() -> Result<(), B
     let run = ledger::validate(RunRecord {
         id: run_id,
         request_id: swept.request_id,
+        run_class: swept.run_class,
         base_sha: "a".repeat(40),
         branch: format!("factory/kill-fixture/{}", run_id.simple()),
         lane: "A".to_owned(),
@@ -317,6 +318,20 @@ async fn publisher_lease_serializes_cap_check_and_creation() -> Result<(), Box<d
     let second_request = request(&format!("publisher-lease-{}", Uuid::new_v4()));
     admin.create_request(&first_request).await?;
     admin.create_request(&second_request).await?;
+    admin
+        .claim_request(
+            first_request.id,
+            "publisher-fixture-a",
+            Duration::from_secs(60),
+        )
+        .await?;
+    admin
+        .claim_request(
+            second_request.id,
+            "publisher-fixture-b",
+            Duration::from_secs(60),
+        )
+        .await?;
     let first_run = fixture_run(first_request.id);
     let second_run = fixture_run(second_request.id);
     store.append_run(&first_run).await?;
@@ -445,6 +460,7 @@ fn fixture_run(request_id: Uuid) -> ledger::ValidatedRunRecord {
     ledger::validate(RunRecord {
         id: run_id,
         request_id,
+        run_class: RunClass::Production,
         base_sha: "a".repeat(40),
         branch: format!("factory/{request_id}-publisher-lease-{}", run_id.simple()),
         lane: "A".to_owned(),

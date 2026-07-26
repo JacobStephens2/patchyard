@@ -507,6 +507,7 @@ mod tests {
         let merge = "b".repeat(40);
         let store = MemoryReconcileStore {
             run: ExistingRun {
+                run_class: factory_verify::ledger::RunClass::Production,
                 id: run_id,
                 base_sha: "c".repeat(40),
                 branch: branch.clone(),
@@ -563,6 +564,7 @@ mod tests {
         let merge = "b".repeat(40);
         let store = MemoryReconcileStore {
             run: ExistingRun {
+                run_class: factory_verify::ledger::RunClass::Production,
                 id: run_id,
                 base_sha: "c".repeat(40),
                 branch: branch.clone(),
@@ -620,6 +622,7 @@ mod tests {
         let merge = "b".repeat(40);
         let store = MemoryReconcileStore {
             run: ExistingRun {
+                run_class: factory_verify::ledger::RunClass::Production,
                 id: run_id,
                 base_sha: "c".repeat(40),
                 branch: branch.clone(),

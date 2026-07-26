@@ -43,7 +43,7 @@ impl RepositoryScope {
         format!("{}/{}", self.owner, self.name)
     }
 
-    fn validate(&self) -> Result<(), PublisherError> {
+    pub(crate) fn validate(&self) -> Result<(), PublisherError> {
         validate_slug("repository owner", &self.owner)?;
         validate_slug("repository name", &self.name)?;
         Ok(())
@@ -111,7 +111,7 @@ pub struct InstallationToken {
 }
 
 impl InstallationToken {
-    fn expose(&self) -> &str {
+    pub(crate) fn expose(&self) -> &str {
         &self.value
     }
 }
@@ -1969,11 +1969,11 @@ impl<S: PublicationStore + PublisherStore> PublishService for Publisher<S> {
 #[derive(Clone, Debug, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreatePullRequest {
-    title: String,
-    head: String,
-    base: String,
-    body: String,
-    draft: bool,
+    pub(crate) title: String,
+    pub(crate) head: String,
+    pub(crate) base: String,
+    pub(crate) body: String,
+    pub(crate) draft: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

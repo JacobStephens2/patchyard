@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version": "2026-07-23.1",
+  "version": "2026-07-26.1",
   "bench_sha256": "3860fde79c29d35b0f71efe68e4c0881e50c80c671a763087972c29dd18c4716",
   "live_provider_execution": false,
   "rules": {
@@ -32,6 +32,21 @@
     "repair": {
       "selection_rule": "same_as_author",
       "seat": {"model": "GPT-5.6 Sol", "effort": "xhigh", "harness": "Codex", "provider": "OpenAI"},
+      "reviewers": []
+    },
+    "improvement_proposer": {
+      "selection_rule": "no_ceiling_max_intelligence",
+      "seat": {"model": "Claude Fable 5", "effort": "max", "harness": "Claude Code", "provider": "Anthropic"},
+      "reviewers": ["improvement_proposer_review"]
+    },
+    "improvement_proposer_review": {
+      "selection_rule": "cross_family_max_intelligence",
+      "seat": {"model": "GPT-5.6 Sol", "effort": "xhigh", "harness": "Codex", "provider": "OpenAI"},
+      "reviewers": []
+    },
+    "improvement_proposer_disposition": {
+      "selection_rule": "same_as_author",
+      "seat": {"model": "Claude Fable 5", "effort": "max", "harness": "Claude Code", "provider": "Anthropic"},
       "reviewers": []
     }
   }

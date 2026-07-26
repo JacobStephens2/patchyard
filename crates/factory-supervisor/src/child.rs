@@ -25,6 +25,7 @@ const MAX_CONTROL_OUTPUT_BYTES: usize = 64 * 1024;
 #[serde(rename_all = "snake_case")]
 pub enum ChildKind {
     Review,
+    Proposer,
     Evidence,
 }
 
@@ -91,6 +92,14 @@ pub enum ChildContract {
         harness: String,
         provider: String,
     },
+    Proposer {
+        packet_sha256: String,
+        prompt_sha256: String,
+        model: String,
+        effort: String,
+        harness: String,
+        provider: String,
+    },
     Evidence {
         capture: EvidenceContract,
         bearer_sha256: String,
@@ -103,6 +112,7 @@ impl ChildContract {
     pub fn kind(&self) -> ChildKind {
         match self {
             Self::Review { .. } => ChildKind::Review,
+            Self::Proposer { .. } => ChildKind::Proposer,
             Self::Evidence { .. } => ChildKind::Evidence,
         }
     }
@@ -432,6 +442,7 @@ fn validate_terminal(
 fn validate_output_name(kind: ChildKind, name: &str) -> Result<(), ChildError> {
     let allowed: &[&str] = match kind {
         ChildKind::Review => &["review.json", "transcript.log"],
+        ChildKind::Proposer => &["proposal.json", "transcript.log"],
         ChildKind::Evidence => &[
             "page.html",
             "page.png",
@@ -451,6 +462,8 @@ fn output_maximum(contract: &ChildContract, name: &str) -> Result<usize, ChildEr
     match (contract, name) {
         (ChildContract::Review { .. }, "review.json") => Ok(1024 * 1024),
         (ChildContract::Review { .. }, "transcript.log") => Ok(MAX_CHILD_OUTPUT_BYTES),
+        (ChildContract::Proposer { .. }, "proposal.json") => Ok(1024 * 1024),
+        (ChildContract::Proposer { .. }, "transcript.log") => Ok(MAX_CHILD_OUTPUT_BYTES),
         (ChildContract::Evidence { capture, .. }, "page.html") => {
             usize::try_from(capture.maximum_dom_bytes).map_err(|_| ChildError::LengthOverflow)
         }
@@ -469,6 +482,7 @@ fn output_maximum(contract: &ChildContract, name: &str) -> Result<usize, ChildEr
 fn expected_network_policy_sha256(contract: &ChildContract) -> Result<String, ChildError> {
     let policy = match contract {
         ChildContract::Review { .. } => "offline-review".to_owned(),
+        ChildContract::Proposer { .. } => "offline-proposer".to_owned(),
         ChildContract::Evidence { capture, .. } => {
             let remainder = capture
                 .allowed_url

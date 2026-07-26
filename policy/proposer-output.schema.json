@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.example.com/schemas/proposer-output-v1.json",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "title", "summary", "markdown", "citations"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "kind": {"const": "idea_append"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 120},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "markdown": {"type": "string", "minLength": 1, "maxLength": 8000},
+        "citations": {"$ref": "#/$defs/citations"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "kind", "title", "summary", "patch", "citations"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "kind": {"const": "policy_patch"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 120},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "patch": {"type": "string", "minLength": 1, "maxLength": 1048576},
+        "citations": {"$ref": "#/$defs/citations"}
+      }
+    }
+  ],
+  "$defs": {
+    "citations": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["cohort_key", "run_ids", "terminal_state", "numerator", "denominator", "rate_basis_points"],
+        "properties": {
+          "cohort_key": {"type": "string", "pattern": "^cohort:[0-9a-f]{64}$"},
+          "run_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "format": "uuid"}},
+          "terminal_state": {"type": "string", "minLength": 1},
+          "numerator": {"type": "integer", "minimum": 1},
+          "denominator": {"type": "integer", "minimum": 1},
+          "rate_basis_points": {"type": "integer", "minimum": 0, "maximum": 10000}
+        }
+      }
+    }
+  }
+}

@@ -195,7 +195,13 @@ impl<S: PipelineStore> Pipeline<S> {
             Lane::B
         };
         let run = self
-            .ensure_run(claim.request_id, &task_spec, lane, cancellation)
+            .ensure_run(
+                claim.request_id,
+                claim.run_class,
+                &task_spec,
+                lane,
+                cancellation,
+            )
             .await?;
         if matches!(
             run.state.as_str(),
@@ -314,6 +320,7 @@ impl<S: PipelineStore> Pipeline<S> {
     async fn ensure_run(
         &self,
         request_id: Uuid,
+        run_class: factory_verify::ledger::RunClass,
         task: &TaskSpec,
         lane: Lane,
         cancellation: &CancellationToken,
@@ -323,6 +330,12 @@ impl<S: PipelineStore> Pipeline<S> {
                 return Err(PipelineError::RecoveryBaseSha {
                     durable: run.base_sha,
                     configured: self.config.base_sha.clone(),
+                });
+            }
+            if run.run_class != run_class {
+                return Err(PipelineError::RecoveryRunClass {
+                    durable: run.run_class.as_str(),
+                    claimed: run_class.as_str(),
                 });
             }
             return Ok(run);
@@ -358,6 +371,7 @@ impl<S: PipelineStore> Pipeline<S> {
         let record = ledger::validate(RunRecord {
             id: run_id,
             request_id,
+            run_class,
             base_sha: self.config.base_sha.clone(),
             branch: match self.config.mode {
                 RunMode::DryRun => format!("factory/dry-run/{}", run_id.simple()),
@@ -372,6 +386,7 @@ impl<S: PipelineStore> Pipeline<S> {
         self.store.append_run(&record).await?;
         Ok(ExistingRun {
             id: run_id,
+            run_class,
             base_sha: self.config.base_sha.clone(),
             branch: record.record().branch.clone(),
             state: "queued".to_owned(),
@@ -1577,6 +1592,11 @@ pub enum PipelineError {
     Join(tokio::task::JoinError),
     #[error("durable base SHA {durable} differs from configured SHA {configured}")]
     RecoveryBaseSha { durable: String, configured: String },
+    #[error("durable run class {durable} differs from claimed class {claimed}")]
+    RecoveryRunClass {
+        durable: &'static str,
+        claimed: &'static str,
+    },
     #[error("worker patch is not UTF-8")]
     PatchNotUtf8,
     #[error("worker patch has a malformed unified-diff header")]

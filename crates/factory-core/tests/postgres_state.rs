@@ -915,8 +915,20 @@ async fn complete_role_matrix_and_grafana_canary_hold() -> Result<(), Box<dyn Er
     .await?;
     sqlx::query(
         r#"
-        INSERT INTO factory.runs (id, request_id, base_sha, branch, lane, skill)
-        VALUES ($1, $2, repeat('a', 40), $3, 'A', 'canary-skill')
+        INSERT INTO factory.events (request_id,event_type,trace_id,payload)
+        VALUES ($1,'request.claimed','30000000000000000000000000000001',
+                '{"run_class":"production"}'::jsonb)
+        "#,
+    )
+    .bind(canary_id)
+    .execute(&admin)
+    .await?;
+    sqlx::query(
+        r#"
+        INSERT INTO factory.runs (
+            id, request_id, base_sha, branch, lane, skill, run_class
+        )
+        VALUES ($1, $2, repeat('a', 40), $3, 'A', 'canary-skill', 'production')
         "#,
     )
     .bind(run_id)

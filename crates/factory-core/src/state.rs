@@ -550,7 +550,7 @@ impl FactoryRepository for PostgresRepository {
                     from_state: Some(&status),
                     to_state: Some("claimed"),
                     trace_id: &trace_id,
-                    payload: &serde_json::json!({}),
+                    payload: &serde_json::json!({"run_class": "production"}),
                 },
             )
             .await?;
@@ -593,7 +593,7 @@ impl FactoryRepository for PostgresRepository {
                 from_state: Some(&status),
                 to_state: Some("claimed"),
                 trace_id: &trace_id,
-                payload: &serde_json::json!({}),
+                payload: &serde_json::json!({"run_class": "production"}),
             },
         )
         .await?;

@@ -327,3 +327,17 @@ now includes that complete assertion-and-install chain in `session13`, the
 tag inherited by the Session 14 converge path. The regression checks both the
 converger handoff and the task tags; the reconverge must prove the installed
 binary hash before the final form retry.
+
+That hash-correct retry reached real GitHub CI successfully (Fieldbook PR #266,
+head `f89499b115330cab73136f581d1a68affdf209af`) but its baseline child still
+failed closed as `RedirectBlocked`. Its control scan reported `sources=1`,
+`bytes_scanned=1617`, `matches=0`, and `sentinel_matches=1`; its preview scan
+reported `sources=2`, `bytes_scanned=42024`, `matches=0`, and
+`sentinel_matches=1`; the slot-15 release was explicit and
+`cleanup_complete=true` with no cleanup errors. The failure left no evidence
+pack and PR #266 remains draft and unmerged. The cause is the Apache
+PHP-FPM boundary: `SetEnvIf` set an Apache request environment variable, but
+`mod_proxy_fcgi` creates PHP's CGI environment later. The repair uses
+`ProxyFCGISetEnvIf` to project only Traefik's translated `Authorization` into
+`HTTP_AUTHORIZATION` at that exact FastCGI boundary. It still never exposes the
+factory capability to PHP.

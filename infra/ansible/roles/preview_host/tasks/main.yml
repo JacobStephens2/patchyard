@@ -182,7 +182,7 @@
         '      traefik.http.routers.preview-${PREVIEW_SLOT}.middlewares: "patchyard-capability@docker,patchyard-capability-strip@docker"' \
         /etc/patchyard-preview/docker-compose.factory-slot.yml
       test "$(stat -c '%U:%G:%a' /etc/patchyard-preview/patchyard-authorization.conf)" = root:root:644
-      grep -Fqx 'SetEnvIfNoCase Authorization "^(.+)$" HTTP_AUTHORIZATION=$1' \
+      grep -Fqx 'ProxyFCGISetEnvIf "req_novary('\''Authorization'\'') =~ m|^(.+)$|" HTTP_AUTHORIZATION "$1"' \
         /etc/patchyard-preview/patchyard-authorization.conf
       grep -Fqx \
         '      - /etc/patchyard-preview/patchyard-authorization.conf:/etc/httpd/conf.d/99-patchyard-authorization.conf:ro,Z' \

@@ -722,6 +722,7 @@
       - factory_web_binary | length > 0
       - factory_web_sha256 is defined
       - factory_web_sha256 is match('^[0-9a-f]{64}$')
+  tags: [session13]
 
 - name: Hash the local factory-web build artifact
   ansible.builtin.stat:
@@ -730,12 +731,14 @@
   delegate_to: localhost
   become: false
   register: local_factory_web
+  tags: [session13]
 
 - name: Require the exact factory-web build artifact
   ansible.builtin.assert:
     that:
       - local_factory_web.stat.exists
       - local_factory_web.stat.checksum == factory_web_sha256
+  tags: [session13]
 
 - name: Install the reviewed factory-web binary
   ansible.builtin.copy:
@@ -745,6 +748,7 @@
     group: root
     mode: "0755"
   notify: Restart factory dashboard
+  tags: [session13]
 
 - name: Require the reviewed factory-verify build artifact
   ansible.builtin.assert:

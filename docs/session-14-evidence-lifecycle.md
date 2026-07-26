@@ -319,3 +319,11 @@ constraint. The converger now builds, hashes, installs, and restarts the
 reviewed dashboard binary alongside the qualification binaries, with a static
 regression assertion. The failed HTTP attempts created no intake row, did not
 consume a claim, and did not alter the request body or terminal records.
+
+The first repair converge exposed one more deployment-boundary omission: those
+dashboard-binary tasks were untagged, so the Session 14 tagged play skipped
+them even though the converger supplied the reviewed hash. The control role
+now includes that complete assertion-and-install chain in `session13`, the
+tag inherited by the Session 14 converge path. The regression checks both the
+converger handoff and the task tags; the reconverge must prove the installed
+binary hash before the final form retry.

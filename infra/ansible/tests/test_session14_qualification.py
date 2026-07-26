@@ -8,6 +8,7 @@ ENVIRONMENT = ROOT / "infra/ansible/roles/control_plane/templates/patchyard-supe
 GROUP_VARS = ROOT / "infra/ansible/group_vars/all.yml"
 GRANTS = ROOT / "infra/ansible/roles/control_plane/files/postgresql-grants.sql"
 CONVERGE = ROOT / "infra/ansible/converge-session14.sh"
+CONTROL_TASKS = ROOT / "infra/ansible/roles/control_plane/tasks/main.yml"
 
 
 class Session14QualificationContract(unittest.TestCase):
@@ -20,6 +21,7 @@ class Session14QualificationContract(unittest.TestCase):
         cls.group_vars = GROUP_VARS.read_text()
         cls.grants = GRANTS.read_text()
         cls.converge = CONVERGE.read_text()
+        cls.control_tasks = CONTROL_TASKS.read_text()
 
     def test_form_intake_is_required_before_the_supervisor_stops(self) -> None:
         intake = self.stage.index("JOIN factory.users")
@@ -93,6 +95,14 @@ class Session14QualificationContract(unittest.TestCase):
         self.assertIn('FACTORY_WEB_BINARY="$REPO_ROOT/target/release/factory-web"', self.converge)
         self.assertIn('factory_web_binary=$FACTORY_WEB_BINARY', self.converge)
         self.assertIn('factory_web_sha256=$FACTORY_WEB_SHA256', self.converge)
+        for task in (
+            "Require the reviewed factory-web build artifact",
+            "Hash the local factory-web build artifact",
+            "Require the exact factory-web build artifact",
+            "Install the reviewed factory-web binary",
+        ):
+            section = self.control_tasks.split(f"- name: {task}", 1)[1].split("\n- name:", 1)[0]
+            self.assertIn("tags: [session13]", section)
 
 
 if __name__ == "__main__":

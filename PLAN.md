@@ -148,6 +148,7 @@ Session 0 covers the worker desired-state component; sessions 1-2 cover the cont
 
 ### Session 17 - final acceptance against the installed topology
 
+- **Acceptance runs are qualification-class (A107)**: the manifest declares the qualification budget for the batch up front. The production per-submitter and global daily caps are not raised to accommodate it, and the batch is excluded from cost-per-surviving-fix and adoption metrics.
 - **Frozen, versioned case manifest first**: the seven behavioral SPEC § Acceptance cases (smoke, hidden positives, near-miss negatives, injection, concurrency/crash, gate self-tests, dashboard incl. the full-run stage-transition display) × 3 repetitions, each with expected lane, end state, and publication count; fixture hashes recorded. The infrastructure case runs once afterward as a clean-room worker replacement.
 - Run at pass^k, k=3, **against the cut-over topology from session 16**
   - the accepted artifact is the installed system, not a pre-cutover approximation. Discovered failures: fix, then rerun the affected criteria from a clean base; zero unresolved failures.

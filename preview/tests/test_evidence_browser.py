@@ -19,6 +19,9 @@ HELPER = ROOT / "patchyard-evidence-child.py"
 EXCEPTION_BROWSER_DIAGNOSTIC = runpy.run_path(str(HELPER))[
     "exception_browser_diagnostic"
 ]
+COMMAND_REJECTION_DIAGNOSTICS = runpy.run_path(str(HELPER))[
+    "COMMAND_REJECTION_DIAGNOSTICS"
+]
 HOST = "1.preview.example.dev"
 CAPABILITY_ID = "a" * 32
 LEASE_ID = "b" * 32
@@ -58,6 +61,8 @@ class FixtureHandler(BaseHTTPRequestHandler):
         presentation = ""
         if self.path == "/blocked-presentation-dependency":
             presentation = (
+                '<link rel="preconnect" href="https://fonts.googleapis.com">'
+                '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
                 '<link rel="stylesheet" '
                 'href="https://fonts.googleapis.com/css2?family=Work+Sans">'
             )
@@ -295,6 +300,12 @@ class EvidenceBrowserControls(unittest.TestCase):
         self.assertEqual(
             EXCEPTION_BROWSER_DIAGNOSTIC(RuntimeError("private")),
             "browser_exception_other",
+        )
+
+    def test_command_rejection_diagnostics_are_fixed_and_method_specific(self) -> None:
+        self.assertEqual(
+            COMMAND_REJECTION_DIAGNOSTICS["Page.captureScreenshot"],
+            "browser_command_rejected_screenshot",
         )
 
 

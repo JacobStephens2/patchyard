@@ -90,6 +90,7 @@ class ChildLauncherContract(unittest.TestCase):
             "browser_pipe_closed_sigabrt",
             "browser_pipe_closed_sigkill",
             "browser_command_rejected",
+            "browser_command_rejected_screenshot",
             "browser_exception_os",
             "browser_exception_other",
             "browser_action_result_invalid",

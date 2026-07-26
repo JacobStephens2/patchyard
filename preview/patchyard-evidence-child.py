@@ -28,7 +28,9 @@ MAX_STDERR_BYTES = 1_048_576
 PREVIEW_HOST = re.compile(r"^(?:[1-9]|[12][0-9]|30)\.preview\.example\.dev$")
 SELECTOR = re.compile(r"^#[A-Za-z][A-Za-z0-9_-]{0,63}$")
 BLOCKED_PRESENTATION_DEPENDENCIES = {
-    ("https://fonts.googleapis.com", "Stylesheet"),
+    (("https", "fonts.googleapis.com", None), "Other"),
+    (("https", "fonts.googleapis.com", None), "Stylesheet"),
+    (("https", "fonts.gstatic.com", None), "Other"),
 }
 FAILURE_STATES = {
     "redirect_blocked",
@@ -64,6 +66,19 @@ BROWSER_DIAGNOSTICS = {
     "browser_pipe_closed_signal",
     "browser_message_invalid",
     "browser_command_rejected",
+    "browser_command_rejected_browser_version",
+    "browser_command_rejected_target_create",
+    "browser_command_rejected_target_attach",
+    "browser_command_rejected_page_enable",
+    "browser_command_rejected_runtime_enable",
+    "browser_command_rejected_network_enable",
+    "browser_command_rejected_cache_disable",
+    "browser_command_rejected_service_worker_bypass",
+    "browser_command_rejected_fetch_enable",
+    "browser_command_rejected_download_deny",
+    "browser_command_rejected_navigate",
+    "browser_command_rejected_runtime_evaluate",
+    "browser_command_rejected_screenshot",
     "browser_event_invalid",
     "browser_exception_os",
     "browser_exception_subprocess",
@@ -79,6 +94,22 @@ BROWSER_DIAGNOSTICS = {
     "browser_screenshot_base64_invalid",
 }
 TEST_MODE = os.environ.get("PATCHYARD_EVIDENCE_TEST") == "1"
+
+COMMAND_REJECTION_DIAGNOSTICS = {
+    "Browser.getVersion": "browser_command_rejected_browser_version",
+    "Target.createTarget": "browser_command_rejected_target_create",
+    "Target.attachToTarget": "browser_command_rejected_target_attach",
+    "Page.enable": "browser_command_rejected_page_enable",
+    "Runtime.enable": "browser_command_rejected_runtime_enable",
+    "Network.enable": "browser_command_rejected_network_enable",
+    "Network.setCacheDisabled": "browser_command_rejected_cache_disable",
+    "Network.setBypassServiceWorker": "browser_command_rejected_service_worker_bypass",
+    "Fetch.enable": "browser_command_rejected_fetch_enable",
+    "Browser.setDownloadBehavior": "browser_command_rejected_download_deny",
+    "Page.navigate": "browser_command_rejected_navigate",
+    "Runtime.evaluate": "browser_command_rejected_runtime_evaluate",
+    "Page.captureScreenshot": "browser_command_rejected_screenshot",
+}
 
 
 class CaptureFailure(Exception):
@@ -442,7 +473,9 @@ class Cdp:
                 if "error" in message or not isinstance(message.get("result"), dict):
                     raise CaptureFailure(
                         "browser_crashed",
-                        browser_diagnostic="browser_command_rejected",
+                        browser_diagnostic=COMMAND_REJECTION_DIAGNOSTICS.get(
+                            method, "browser_command_rejected"
+                        ),
                     )
                 return message["result"]
             if "method" in message:

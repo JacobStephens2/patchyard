@@ -2106,9 +2106,19 @@ impl PolicyPublisher {
                     )
                     .await?;
                 require_process_success("recover reviewed policy commit", object.code)?;
+                // Observation and local object verification use the read-only
+                // reconcile token. Mint write authority only after proving the
+                // PR is absent and immediately before the repair effects.
+                let publish_token = self
+                    .github
+                    .mint_token(&self.config.repository, TokenPurpose::Publish, cancellation)
+                    .await?;
+                if self.fresh_open_count(&publish_token, cancellation).await? >= 1 {
+                    return Err(ProposerError::OpenProposerPrCap);
+                }
                 let pushed = self
                     .git(
-                        &token,
+                        &publish_token,
                         vec![
                             "-C".into(),
                             mirror.as_os_str().to_owned(),
@@ -2121,13 +2131,13 @@ impl PolicyPublisher {
                     )
                     .await?;
                 require_process_success("recover exact policy branch", pushed.code)?;
-                if self.fresh_open_count(&token, cancellation).await? >= 1 {
+                if self.fresh_open_count(&publish_token, cancellation).await? >= 1 {
                     return Err(ProposerError::OpenProposerPrCap);
                 }
                 let pull = self
                     .github
                     .create_draft_pull_request(
-                        &token,
+                        &publish_token,
                         &self.config.repository,
                         &CreatePullRequest {
                             title: candidate.title.clone(),
@@ -2141,7 +2151,7 @@ impl PolicyPublisher {
                     .await?;
                 let published = validate_policy_pull(
                     &pull,
-                    &token,
+                    &publish_token,
                     &candidate.branch,
                     &self.config.base_branch,
                 )?;
@@ -2177,7 +2187,11 @@ impl PolicyPublisher {
         let branch = format!("{PROPOSER_BRANCH_PREFIX}{}", &packet.report_sha256[..16]);
         let token = self
             .github
-            .mint_token(&self.config.repository, TokenPurpose::Publish, cancellation)
+            .mint_token(
+                &self.config.repository,
+                TokenPurpose::Reconcile,
+                cancellation,
+            )
             .await?;
         tokio::fs::create_dir_all(&self.config.scratch).await?;
         let mirror = self.config.scratch.join("factory-policy.git");
@@ -3970,18 +3984,20 @@ mod tests {
     struct LocalGitHub {
         remote: PathBuf,
         pulls: Arc<Mutex<Vec<PullRequest>>>,
+        purposes: Arc<Mutex<Vec<TokenPurpose>>>,
     }
 
     impl GitHubApi for LocalGitHub {
         fn mint_token<'a>(
             &'a self,
             _repository: &'a RepositoryScope,
-            _purpose: TokenPurpose,
+            purpose: TokenPurpose,
             _cancellation: &'a CancellationToken,
         ) -> GitHubFuture<'a, InstallationToken> {
-            Box::pin(async {
+            Box::pin(async move {
+                self.purposes.lock().expect("purposes").push(purpose);
                 Ok(InstallationToken {
-                    value: "fixture-token".to_owned(),
+                    value: format!("{purpose:?}"),
                     bot: BotIdentity {
                         id: 86,
                         login: "patchyard[bot]".to_owned(),
@@ -4026,12 +4042,17 @@ mod tests {
 
         fn create_draft_pull_request<'a>(
             &'a self,
-            _token: &'a InstallationToken,
+            token: &'a InstallationToken,
             _repository: &'a RepositoryScope,
             request: &'a CreatePullRequest,
             _cancellation: &'a CancellationToken,
         ) -> GitHubFuture<'a, PullRequest> {
             Box::pin(async move {
+                assert_eq!(
+                    token.expose(),
+                    "Publish",
+                    "PR creation requires write token"
+                );
                 let head = git(
                     &self.remote,
                     &["rev-parse", &format!("refs/heads/{}", request.head)],
@@ -4168,11 +4189,12 @@ mod tests {
         let github = Arc::new(LocalGitHub {
             remote: remote.clone(),
             pulls: Arc::new(Mutex::new(Vec::new())),
+            purposes: Arc::new(Mutex::new(Vec::new())),
         });
         let store = ProposerRunStore::new(pool.clone());
         let publisher = PolicyPublisher::new(
             store.clone(),
-            github,
+            github.clone(),
             PolicyPublisherConfig {
                 installed_repository: repository.clone(),
                 scratch: temporary.path().join("publisher"),
@@ -4267,28 +4289,39 @@ mod tests {
             )
             .await
             .expect("publishing");
-        let published = publisher
-            .publish(
-                run_id,
-                &packet,
-                &intent,
-                &validated,
-                &prepared,
-                &body,
-                &CancellationToken::new(),
-            )
+        assert!(github.pulls.lock().expect("pulls").is_empty());
+        // Simulate process exit immediately after the durable publishing
+        // transition, before any branch or PR write. Recovery must first
+        // observe with read scope, then mint write scope for the missing-PR
+        // repair and converge on the exact reviewed head.
+        let (recovered_id, recovered) = publisher
+            .reconcile_incomplete(&CancellationToken::new())
             .await
-            .expect("publish exact candidate");
-        assert_eq!(published.head_sha, prepared.head_sha);
+            .expect("recover missing PR")
+            .expect("incomplete publication");
+        assert_eq!(recovered_id, run_id);
+        assert_eq!(recovered.head_sha, prepared.head_sha);
+        assert_eq!(
+            *github.purposes.lock().expect("purposes"),
+            vec![
+                TokenPurpose::Reconcile,
+                TokenPurpose::Reconcile,
+                TokenPurpose::Publish,
+            ]
+        );
         // Simulate process exit after PR/database recording but before the
         // lifecycle transition. Recovery must converge on that same PR/head.
-        let (recovered_id, recovered) = publisher
+        let (recovered_again_id, recovered_again) = publisher
             .reconcile_incomplete(&CancellationToken::new())
             .await
             .expect("reconcile")
             .expect("incomplete publication");
-        assert_eq!(recovered_id, run_id);
-        assert_eq!(recovered.head_sha, prepared.head_sha);
+        assert_eq!(recovered_again_id, run_id);
+        assert_eq!(recovered_again.head_sha, prepared.head_sha);
+        assert_eq!(
+            github.purposes.lock().expect("purposes").last().copied(),
+            Some(TokenPurpose::Reconcile)
+        );
 
         // Advance the installed checkout while retaining the publisher mirror.
         // The next prepare must import the exact new base and remain stable on retry.

@@ -41,7 +41,7 @@ class PreviewCapabilityDeploymentContract(unittest.TestCase):
             'authResponseHeadersRegex: "^X-Patchyard-Factory-Capability$"',
             dynamic,
         )
-        self.assertIn("- X-Patchyard-Factory-Preview-Key", dynamic)
+        self.assertIn("- X-Patchyard-Factory-Preview-Authorization", dynamic)
         self.assertIn(
             '"patchyard-capability@file"',
             slot,
@@ -58,13 +58,15 @@ class PreviewCapabilityDeploymentContract(unittest.TestCase):
         slot = SLOT_COMPOSE.read_text()
         tasks = TASKS.read_text()
         self.assertIn(
-            'RequestHeader set ETA_API_KEY "expr=%{req:X-Patchyard-Factory-Preview-Key}"',
+            'RequestHeader set Authorization '
+            '"expr=%{req:X-Patchyard-Factory-Preview-Authorization}"',
             authorization,
         )
         self.assertIn(
-            "RequestHeader unset X-Patchyard-Factory-Preview-Key",
+            "RequestHeader unset X-Patchyard-Factory-Preview-Authorization",
             authorization,
         )
+        self.assertIn("CGIPassAuth On", authorization)
         self.assertIn(
             "/etc/patchyard-preview/patchyard-authorization.conf:"
             "/etc/httpd/conf.d/99-patchyard-authorization.conf:ro,Z",

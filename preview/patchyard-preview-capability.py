@@ -64,7 +64,7 @@ def authorize(capability: str, forwarded_host: str, forwarded_method: str) -> st
     key = KEY_FILE.read_text().strip()
     if not key or len(key) > MAX_HEADER or "\n" in key or "\r" in key:
         raise RuntimeError("preview authority is unavailable")
-    return key
+    return f"Bearer {key}"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -89,8 +89,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         if application_key is not None:
             # Traefik removes the browser's private capability and copies this
-            # hyphenated replacement for Apache to project into ETA_API_KEY.
-            self.send_header("X-Patchyard-Factory-Preview-Key", application_key)
+            # replacement for Apache to project into ordinary Authorization.
+            self.send_header("X-Patchyard-Factory-Preview-Authorization", application_key)
         self.end_headers()
 
     def log_message(self, format: str, *args: object) -> None:

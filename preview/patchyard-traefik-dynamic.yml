@@ -6,6 +6,6 @@ http:
         # Strip the browser's private capability before proxying, then copy
         # only the translator's private-to-Apache replacement header.
         authResponseHeaders:
-          - X-Patchyard-Factory-Preview-Key
+          - X-Patchyard-Factory-Preview-Authorization
         authResponseHeadersRegex: "^X-Patchyard-Factory-Capability$"
         trustForwardHeader: false

@@ -77,7 +77,7 @@ class CapabilityBoundaryTests(unittest.TestCase):
         token = f"efc1.{'a' * 32}.{'d' * 64}"
         self.activate(token)
         translated = capability.authorize(token, "1.preview.example.dev", "GET")
-        self.assertEqual(translated, "preview-static-authority")
+        self.assertEqual(translated, "Bearer preview-static-authority")
         self.assertIsNone(capability.authorize("", "1.preview.example.dev", "GET"))
         with self.assertRaises(ValueError):
             capability.authorize(token, "2.preview.example.dev", "GET")
@@ -108,8 +108,8 @@ class CapabilityBoundaryTests(unittest.TestCase):
             response.read()
             self.assertEqual(response.status, 200)
             self.assertEqual(
-                response.getheader("X-Patchyard-Factory-Preview-Key"),
-                "preview-static-authority",
+                response.getheader("X-Patchyard-Factory-Preview-Authorization"),
+                "Bearer preview-static-authority",
             )
             self.assertIsNone(response.getheader("X-Patchyard-Factory-Capability"))
             connection.close()
@@ -149,7 +149,7 @@ class CapabilityBoundaryTests(unittest.TestCase):
             'authResponseHeadersRegex: "^X-Patchyard-Factory-Capability$"',
             TRAEFIK_DYNAMIC,
         )
-        self.assertIn("- X-Patchyard-Factory-Preview-Key", TRAEFIK_DYNAMIC)
+        self.assertIn("- X-Patchyard-Factory-Preview-Authorization", TRAEFIK_DYNAMIC)
         self.assertIn(
             '"patchyard-capability@file"',
             SLOT_COMPOSE,

@@ -42,14 +42,14 @@ The isolated evidence browser sends its short-lived authority only as
 `X-Patchyard-Factory-Capability` to the numbered preview origin. Traefik passes that
 header to its file-provider `forwardAuth`, whose translator validates the
 capability's host, method, expiry, lease, and digest before returning the
-preview authority as `X-Patchyard-Factory-Preview-Key`. Traefik's
+preview authority as `X-Patchyard-Factory-Preview-Authorization`. Traefik's
 `authResponseHeadersRegex` removes the capability from the forwarded request,
 while `authResponseHeaders` copies the returned replacement header into it.
-Apache receives that replacement, projects its value byte-for-byte into the
-legacy `ETA_API_KEY` request header, and removes the replacement before its
-ordinary FastCGI path exposes `ETA_API_KEY` to `authenticate.php`. The
-capability therefore terminates at Traefik and never reaches Apache, PHP-FPM,
-or the Fieldbook application.
+Apache receives that replacement, projects its value byte-for-byte into
+ordinary `Authorization` with the `mod_headers` request function, removes the
+replacement, and explicitly passes only `Authorization` through the PHP-FPM
+CGI boundary. The capability therefore terminates at Traefik and never reaches
+Apache, PHP-FPM, or the Fieldbook application.
 
 ## A26 explain-diff scope
 
@@ -146,7 +146,8 @@ GitHub-hosted CI can prove source-level and provider-free behavior:
 - a real Traefik integration test proves the forward-auth service receives the
   private capability, while the downstream backend receives the translated
   replacement and no `X-Patchyard-Factory-Capability` header; desired-state tests
-  prove Apache projects only that replacement into application `ETA_API_KEY`;
+  prove Apache projects only that replacement into application
+  `Authorization`;
 - only the exact numbered leased preview origin is accepted;
 - final bodies contain the A11/A26 contract, authenticated `/evidence` links,
   artifact SHA-256 values, and no sent reply;

@@ -38,8 +38,7 @@ class PreviewCapabilityDeploymentContract(unittest.TestCase):
         slot = SLOT_COMPOSE.read_text()
         tasks = TASKS.read_text()
         self.assertIn(
-            "ProxyFCGISetEnvIf \"req_novary('Authorization') =~ m|^(.+)$|\" "
-            'HTTP_AUTHORIZATION "$1"',
+            'CGIPassAuth On',
             authorization,
         )
         self.assertIn(

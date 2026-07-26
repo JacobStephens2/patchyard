@@ -6,29 +6,40 @@ ROOT = Path(__file__).resolve().parents[3]
 COMPOSE = ROOT / "preview/docker-compose.factory-capability.yml"
 SLOT_COMPOSE = ROOT / "preview/docker-compose.factory-slot.yml"
 AUTHORIZATION_CONF = ROOT / "preview/patchyard-authorization.conf"
+TRAEFIK_DYNAMIC = ROOT / "preview/patchyard-traefik-dynamic.yml"
 TASKS = ROOT / "infra/ansible/roles/preview_host/tasks/main.yml"
 
 
 class PreviewCapabilityDeploymentContract(unittest.TestCase):
-    def test_translator_has_an_explicit_traefik_backend_port(self) -> None:
-        label = 'traefik.http.services.patchyard-capability.loadbalancer.server.port: "8080"'
-        self.assertIn(label, COMPOSE.read_text())
-        self.assertIn("traefik.http.services.patchyard-capability.loadbalancer.server.port", TASKS.read_text())
-
-    def test_preview_router_orders_capability_strip_after_forward_auth(self) -> None:
-        capability = COMPOSE.read_text()
-        slot = SLOT_COMPOSE.read_text()
+    def test_traefik_loads_the_file_provider_capability_chain(self) -> None:
+        compose = COMPOSE.read_text()
+        dynamic = TRAEFIK_DYNAMIC.read_text()
         self.assertIn(
-            "traefik.http.middlewares.patchyard-capability-strip.headers.customrequestheaders.X-Patchyard-Factory-Capability",
-            capability,
+            "TRAEFIK_PROVIDERS_FILE_FILENAME: /etc/traefik/patchyard-dynamic.yml",
+            compose,
         )
         self.assertIn(
-            '"patchyard-capability@docker,patchyard-capability-strip@docker"',
+            "/etc/patchyard-preview/patchyard-traefik-dynamic.yml:"
+            "/etc/traefik/patchyard-dynamic.yml:ro,Z",
+            compose,
+        )
+        self.assertIn('address: "http://factory-capability:8080/auth"', dynamic)
+        self.assertIn("patchyard-traefik-dynamic.yml", TASKS.read_text())
+
+    def test_preview_router_orders_capability_strip_after_forward_auth(self) -> None:
+        slot = SLOT_COMPOSE.read_text()
+        dynamic = TRAEFIK_DYNAMIC.read_text()
+        self.assertIn(
+            'X-Patchyard-Factory-Capability: ""',
+            dynamic,
+        )
+        self.assertIn(
+            '"patchyard-capability@file,patchyard-capability-strip@file"',
             slot,
         )
         tasks = TASKS.read_text()
         self.assertIn(
-            '"traefik.http.middlewares.patchyard-capability-strip.headers.customrequestheaders.X-Patchyard-Factory-Capability" == ""',
+            'TRAEFIK_PROVIDERS_FILE_FILENAME=/etc/traefik/patchyard-dynamic.yml',
             tasks,
         )
         self.assertIn("docker-compose.factory-slot.yml", tasks)

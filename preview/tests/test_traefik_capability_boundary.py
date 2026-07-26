@@ -17,6 +17,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 CAPABILITY_COMPOSE = (ROOT / "docker-compose.factory-capability.yml").read_text()
 SLOT_COMPOSE = (ROOT / "docker-compose.factory-slot.yml").read_text()
+TRAEFIK_DYNAMIC = (ROOT / "patchyard-traefik-dynamic.yml").read_text()
 TRAEFIK_IMAGE = (
     "traefik@sha256:66b901df20c5b92a43ac79d92d14bd0a1fda50fdb3cae8f77d562aa8f279f748"
 )
@@ -187,11 +188,15 @@ class TraefikCapabilityBoundary(unittest.TestCase):
 
     def test_auth_service_receives_capability_and_backend_does_not(self) -> None:
         self.assertIn(
-            "traefik.http.middlewares.patchyard-capability-strip.headers.customrequestheaders.X-Patchyard-Factory-Capability",
+            "TRAEFIK_PROVIDERS_FILE_FILENAME: /etc/traefik/patchyard-dynamic.yml",
             CAPABILITY_COMPOSE,
         )
         self.assertIn(
-            '"patchyard-capability@docker,patchyard-capability-strip@docker"',
+            'X-Patchyard-Factory-Capability: ""',
+            TRAEFIK_DYNAMIC,
+        )
+        self.assertIn(
+            '"patchyard-capability@file,patchyard-capability-strip@file"',
             SLOT_COMPOSE,
         )
 

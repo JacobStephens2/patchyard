@@ -14,6 +14,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 CAPABILITY_COMPOSE = (ROOT / "docker-compose.factory-capability.yml").read_text()
 SLOT_COMPOSE = (ROOT / "docker-compose.factory-slot.yml").read_text()
+TRAEFIK_DYNAMIC = (ROOT / "patchyard-traefik-dynamic.yml").read_text()
 
 
 def load(name: str, path: Path):
@@ -103,19 +104,20 @@ class CapabilityBoundaryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             capability.authorize(token, "1.preview.example.dev", "GET")
 
-    def test_traefik_can_resolve_the_capability_middleware_backend(self) -> None:
+    def test_traefik_loads_the_file_provider_capability_chain(self) -> None:
         self.assertIn(
-            'traefik.http.services.patchyard-capability.loadbalancer.server.port: "8080"',
+            "TRAEFIK_PROVIDERS_FILE_FILENAME: /etc/traefik/patchyard-dynamic.yml",
             CAPABILITY_COMPOSE,
         )
+        self.assertIn('address: "http://factory-capability:8080/auth"', TRAEFIK_DYNAMIC)
 
     def test_traefik_authenticates_then_strips_the_private_capability_header(self) -> None:
         self.assertIn(
-            "traefik.http.middlewares.patchyard-capability-strip.headers.customrequestheaders.X-Patchyard-Factory-Capability",
-            CAPABILITY_COMPOSE,
+            'X-Patchyard-Factory-Capability: ""',
+            TRAEFIK_DYNAMIC,
         )
         self.assertIn(
-            '"patchyard-capability@docker,patchyard-capability-strip@docker"',
+            '"patchyard-capability@file,patchyard-capability-strip@file"',
             SLOT_COMPOSE,
         )
 

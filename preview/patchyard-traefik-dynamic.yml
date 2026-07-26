@@ -1,0 +1,12 @@
+http:
+  middlewares:
+    patchyard-capability:
+      forwardAuth:
+        address: "http://factory-capability:8080/auth"
+        authResponseHeaders:
+          - Authorization
+        trustForwardHeader: false
+    patchyard-capability-strip:
+      headers:
+        customRequestHeaders:
+          X-Patchyard-Factory-Capability: ""

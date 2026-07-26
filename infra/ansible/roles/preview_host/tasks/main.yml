@@ -60,6 +60,9 @@
     - source: docker-compose.factory-slot.yml
       dest: /etc/patchyard-preview/docker-compose.factory-slot.yml
       mode: "0644"
+    - source: patchyard-traefik-dynamic.yml
+      dest: /etc/patchyard-preview/patchyard-traefik-dynamic.yml
+      mode: "0644"
     - source: patchyard-authorization.conf
       dest: /etc/patchyard-preview/patchyard-authorization.conf
       mode: "0644"
@@ -173,14 +176,18 @@
       CAPABILITY_FORMAT+=' {{ "{{" }}.HostConfig.NetworkMode{{ "}}" }}'
       docker inspect preview-fieldbooks-factory-capability-1 --format "$CAPABILITY_FORMAT" |
         grep -Fx 'true true patchyard-preview-capability'
-      docker inspect preview-fieldbooks-factory-capability-1 --format '{{ "{{" }}json .Config.Labels{{ "}}" }}' |
-        jq -e '
-          ."traefik.http.services.patchyard-capability.loadbalancer.server.port" == "8080"
-          and ."traefik.http.middlewares.patchyard-capability-strip.headers.customrequestheaders.X-Patchyard-Factory-Capability" == ""
-        ' >/dev/null
       grep -Fqx \
-        '      traefik.http.routers.preview-${PREVIEW_SLOT}.middlewares: "patchyard-capability@docker,patchyard-capability-strip@docker"' \
+        '      traefik.http.routers.preview-${PREVIEW_SLOT}.middlewares: "patchyard-capability@file,patchyard-capability-strip@file"' \
         /etc/patchyard-preview/docker-compose.factory-slot.yml
+      test "$(stat -c '%U:%G:%a' /etc/patchyard-preview/patchyard-traefik-dynamic.yml)" = root:root:644
+      grep -Fqx '        address: "http://factory-capability:8080/auth"' \
+        /etc/patchyard-preview/patchyard-traefik-dynamic.yml
+      grep -Fqx '          X-Patchyard-Factory-Capability: ""' \
+        /etc/patchyard-preview/patchyard-traefik-dynamic.yml
+      docker inspect preview-fieldbooks-traefik-1 --format '{{ "{{" }}json .Config.Env{{ "}}" }}' |
+        jq -e 'index("TRAEFIK_PROVIDERS_FILE_FILENAME=/etc/traefik/patchyard-dynamic.yml") != null' >/dev/null
+      docker inspect preview-fieldbooks-traefik-1 --format '{{ "{{" }}json .Mounts{{ "}}" }}' |
+        jq -e 'any(.[]; .Destination == "/etc/traefik/patchyard-dynamic.yml" and .RW == false)' >/dev/null
       test "$(stat -c '%U:%G:%a' /etc/patchyard-preview/patchyard-authorization.conf)" = root:root:644
       grep -Fqx '    CGIPassAuth On' \
         /etc/patchyard-preview/patchyard-authorization.conf

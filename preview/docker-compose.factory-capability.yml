@@ -8,6 +8,11 @@ services:
     networks:
       - preview-net
       - factory-capability
+    environment:
+      TRAEFIK_PROVIDERS_FILE_FILENAME: /etc/traefik/patchyard-dynamic.yml
+      TRAEFIK_PROVIDERS_FILE_WATCH: "true"
+    volumes:
+      - /etc/patchyard-preview/patchyard-traefik-dynamic.yml:/etc/traefik/patchyard-dynamic.yml:ro,Z
 
   factory-capability:
     image: python:3.13.5-alpine3.22@sha256:f1a962d8ffa50b2006b72b4713a09a89e57def2d28ac28a36900bc070a00db61
@@ -30,14 +35,3 @@ services:
       - /etc/patchyard-preview/patchyard-api-key:/secret/patchyard-api-key:ro,Z
     networks:
       - factory-capability
-    labels:
-      traefik.enable: "true"
-      traefik.docker.network: patchyard-preview-capability
-      traefik.http.middlewares.patchyard-capability.forwardauth.address: "http://factory-capability:8080/auth"
-      traefik.http.middlewares.patchyard-capability.forwardauth.authResponseHeaders: "Authorization"
-      traefik.http.middlewares.patchyard-capability.forwardauth.trustForwardHeader: "false"
-      # ForwardAuth must receive the short-lived factory capability, but the
-      # legacy PHP backend must never see it.  Empty custom-request values
-      # remove headers in Traefik; the router applies this after ForwardAuth.
-      traefik.http.middlewares.patchyard-capability-strip.headers.customrequestheaders.X-Patchyard-Factory-Capability: ""
-      traefik.http.services.patchyard-capability.loadbalancer.server.port: "8080"

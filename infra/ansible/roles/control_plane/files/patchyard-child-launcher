@@ -664,8 +664,25 @@ if ! wait "$CHILD_PID"; then
         and (.document_status | floor) == .document_status
       then .document_status else 0 end
     ' "$OUTPUT/capture/failure.json")
+    BROWSER_DIAGNOSTIC=$(jq -r '
+      if .browser_diagnostic == "browser_pipe_write_failed"
+        or .browser_diagnostic == "browser_pipe_closed_running"
+        or .browser_diagnostic == "browser_pipe_closed_clean"
+        or .browser_diagnostic == "browser_pipe_closed_nonzero"
+        or .browser_diagnostic == "browser_pipe_closed_sigtrap"
+        or .browser_diagnostic == "browser_pipe_closed_sigsegv"
+        or .browser_diagnostic == "browser_pipe_closed_sigabrt"
+        or .browser_diagnostic == "browser_pipe_closed_sigkill"
+        or .browser_diagnostic == "browser_pipe_closed_signal"
+        or .browser_diagnostic == "browser_message_invalid"
+        or .browser_diagnostic == "browser_command_rejected"
+        or .browser_diagnostic == "browser_event_invalid"
+      then .browser_diagnostic else "browser_diagnostic_unavailable" end
+    ' "$OUTPUT/capture/failure.json")
     printf 'patchyard_child_failure_diagnostic=%s\n' "$DIAGNOSTIC" >&2
     printf 'patchyard_child_failure_document_status=%s\n' "$DOCUMENT_STATUS" >&2
+    printf 'patchyard_child_failure_browser_diagnostic=%s\n' \
+      "$BROWSER_DIAGNOSTIC" >&2
   else
     STATE=browser_crashed
   fi

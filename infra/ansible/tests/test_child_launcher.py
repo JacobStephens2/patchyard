@@ -69,6 +69,7 @@ class ChildLauncherContract(unittest.TestCase):
     def test_evidence_failure_diagnostic_is_allowlisted_before_journaling(self) -> None:
         self.assertIn("patchyard_child_failure_diagnostic", self.launcher)
         self.assertIn("patchyard_child_failure_document_status", self.launcher)
+        self.assertIn("patchyard_child_failure_browser_diagnostic", self.launcher)
         self.assertIn(".document_status >= 100", self.launcher)
         self.assertIn(".document_status <= 599", self.launcher)
         for value in (
@@ -81,6 +82,14 @@ class ChildLauncherContract(unittest.TestCase):
             "document_php_error_2xx",
             "document_database_error_2xx",
             "document_api_denied_2xx",
+        ):
+            self.assertIn(value, self.launcher)
+        for value in (
+            "browser_pipe_closed_sigtrap",
+            "browser_pipe_closed_sigsegv",
+            "browser_pipe_closed_sigabrt",
+            "browser_pipe_closed_sigkill",
+            "browser_command_rejected",
         ):
             self.assertIn(value, self.launcher)
 

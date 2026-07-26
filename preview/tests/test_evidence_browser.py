@@ -188,6 +188,7 @@ class EvidenceBrowserControls(unittest.TestCase):
         expected: str,
         diagnostic: str | None = None,
         document_status: int | None = None,
+        browser_diagnostic: str | None = None,
         **kwargs: object,
     ) -> None:
         result, output = self.capture(fixture, **kwargs)
@@ -198,6 +199,8 @@ class EvidenceBrowserControls(unittest.TestCase):
             expected_failure["diagnostic"] = diagnostic
         if document_status is not None:
             expected_failure["document_status"] = document_status
+        if browser_diagnostic is not None:
+            expected_failure["browser_diagnostic"] = browser_diagnostic
         self.assertEqual(failure, expected_failure)
         self.assertEqual([path.name for path in output.iterdir()], ["failure.json"])
 
@@ -234,7 +237,12 @@ class EvidenceBrowserControls(unittest.TestCase):
         browser = self.root / "crash-browser"
         browser.write_text("#!/bin/sh\nexit 42\n")
         browser.chmod(0o700)
-        self.assert_state("completed", "browser_crashed", chromium=browser)
+        self.assert_state(
+            "completed",
+            "browser_crashed",
+            browser_diagnostic="browser_pipe_closed_nonzero",
+            chromium=browser,
+        )
 
     def test_browser_timeout_is_named(self) -> None:
         browser = self.root / "hung-browser"

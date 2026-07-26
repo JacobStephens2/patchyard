@@ -49,12 +49,30 @@ FAILURE_DIAGNOSTICS = {
     "document_database_error_2xx",
     "document_api_denied_2xx",
 }
+BROWSER_DIAGNOSTICS = {
+    "browser_pipe_write_failed",
+    "browser_pipe_closed_running",
+    "browser_pipe_closed_clean",
+    "browser_pipe_closed_nonzero",
+    "browser_pipe_closed_sigtrap",
+    "browser_pipe_closed_sigsegv",
+    "browser_pipe_closed_sigabrt",
+    "browser_pipe_closed_sigkill",
+    "browser_pipe_closed_signal",
+    "browser_message_invalid",
+    "browser_command_rejected",
+    "browser_event_invalid",
+}
 TEST_MODE = os.environ.get("PATCHYARD_EVIDENCE_TEST") == "1"
 
 
 class CaptureFailure(Exception):
     def __init__(
-        self, state: str, diagnostic: str | None = None, document_status: int | None = None
+        self,
+        state: str,
+        diagnostic: str | None = None,
+        document_status: int | None = None,
+        browser_diagnostic: str | None = None,
     ) -> None:
         if state not in FAILURE_STATES:
             raise ValueError("unknown fixed failure state")
@@ -62,9 +80,12 @@ class CaptureFailure(Exception):
             raise ValueError("unknown fixed failure diagnostic")
         if document_status is not None and not 100 <= document_status <= 599:
             raise ValueError("invalid document response status")
+        if browser_diagnostic is not None and browser_diagnostic not in BROWSER_DIAGNOSTICS:
+            raise ValueError("unknown fixed browser diagnostic")
         self.state = state
         self.diagnostic = diagnostic
         self.document_status = document_status
+        self.browser_diagnostic = browser_diagnostic
         super().__init__(state)
 
 
@@ -121,7 +142,11 @@ class SelectParser(HTMLParser):
 
 
 def fail(
-    output: Path, state: str, diagnostic: str | None = None, document_status: int | None = None
+    output: Path,
+    state: str,
+    diagnostic: str | None = None,
+    document_status: int | None = None,
+    browser_diagnostic: str | None = None,
 ) -> NoReturn:
     output.mkdir(mode=0o700, exist_ok=True)
     for path in output.iterdir():
@@ -135,6 +160,8 @@ def fail(
         value["diagnostic"] = diagnostic
     if document_status is not None:
         value["document_status"] = document_status
+    if browser_diagnostic is not None:
+        value["browser_diagnostic"] = browser_diagnostic
     failure.write_text(json.dumps(value) + "\n")
     failure.chmod(0o600)
     raise SystemExit(1)
@@ -321,8 +348,25 @@ class Cdp:
         try:
             os.write(self.write_fd, encoded)
         except OSError as error:
-            raise CaptureFailure("browser_crashed") from error
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_pipe_write_failed"
+            ) from error
         return self.sequence
+
+    def closed_diagnostic(self) -> str:
+        returncode = self.process.poll()
+        if returncode is None:
+            return "browser_pipe_closed_running"
+        if returncode == 0:
+            return "browser_pipe_closed_clean"
+        if returncode > 0:
+            return "browser_pipe_closed_nonzero"
+        return {
+            -signal.SIGTRAP: "browser_pipe_closed_sigtrap",
+            -signal.SIGSEGV: "browser_pipe_closed_sigsegv",
+            -signal.SIGABRT: "browser_pipe_closed_sigabrt",
+            -signal.SIGKILL: "browser_pipe_closed_sigkill",
+        }.get(returncode, "browser_pipe_closed_signal")
 
     def receive(self, deadline: float) -> dict:
         while b"\0" not in self.buffer:
@@ -334,7 +378,9 @@ class Cdp:
                 raise CaptureFailure("child_timed_out")
             chunk = os.read(self.read_fd, 128 * 1024)
             if not chunk:
-                raise CaptureFailure("browser_crashed")
+                raise CaptureFailure(
+                    "browser_crashed", browser_diagnostic=self.closed_diagnostic()
+                )
             self.buffer += chunk
             if len(self.buffer) > 2 * 1024 * 1024:
                 raise CaptureFailure("output_limit_exceeded")
@@ -342,9 +388,13 @@ class Cdp:
         try:
             value = json.loads(encoded)
         except json.JSONDecodeError as error:
-            raise CaptureFailure("browser_crashed") from error
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_message_invalid"
+            ) from error
         if not isinstance(value, dict):
-            raise CaptureFailure("browser_crashed")
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_message_invalid"
+            )
         return value
 
     def call(
@@ -360,7 +410,10 @@ class Cdp:
             message = self.receive(deadline)
             if message.get("id") == request_id:
                 if "error" in message or not isinstance(message.get("result"), dict):
-                    raise CaptureFailure("browser_crashed")
+                    raise CaptureFailure(
+                        "browser_crashed",
+                        browser_diagnostic="browser_command_rejected",
+                    )
                 return message["result"]
             if "method" in message:
                 handler(message)
@@ -466,13 +519,17 @@ def run_controlled_browser(
         params = message.get("params", {})
         session_id = message.get("sessionId")
         if not isinstance(params, dict):
-            raise CaptureFailure("browser_crashed")
+            raise CaptureFailure(
+                "browser_crashed", browser_diagnostic="browser_event_invalid"
+            )
         if method == "Fetch.requestPaused":
             request = params.get("request", {})
             request_id = params.get("requestId")
             url = request.get("url") if isinstance(request, dict) else None
             if not isinstance(request_id, str) or not isinstance(url, str):
-                raise CaptureFailure("browser_crashed")
+                raise CaptureFailure(
+                    "browser_crashed", browser_diagnostic="browser_event_invalid"
+                )
             if origin(url) != allowed_origin:
                 cdp.send(
                     "Fetch.failRequest",
@@ -482,7 +539,9 @@ def run_controlled_browser(
                 raise CaptureFailure("cross_origin_blocked")
             headers = request.get("headers", {})
             if not isinstance(headers, dict):
-                raise CaptureFailure("browser_crashed")
+                raise CaptureFailure(
+                    "browser_crashed", browser_diagnostic="browser_event_invalid"
+                )
             forwarded = [
                 {"name": str(name), "value": str(value)}
                 for name, value in headers.items()
@@ -831,7 +890,13 @@ def main() -> None:
         )
         hashes.chmod(0o600)
     except CaptureFailure as error:
-        fail(output, error.state, error.diagnostic, error.document_status)
+        fail(
+            output,
+            error.state,
+            error.diagnostic,
+            error.document_status,
+            error.browser_diagnostic,
+        )
     except Exception:
         fail(output, "browser_crashed")
 

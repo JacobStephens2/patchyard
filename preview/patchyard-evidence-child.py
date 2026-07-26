@@ -62,6 +62,12 @@ BROWSER_DIAGNOSTICS = {
     "browser_message_invalid",
     "browser_command_rejected",
     "browser_event_invalid",
+    "browser_exception_os",
+    "browser_exception_subprocess",
+    "browser_exception_value",
+    "browser_exception_key",
+    "browser_exception_type",
+    "browser_exception_other",
 }
 TEST_MODE = os.environ.get("PATCHYARD_EVIDENCE_TEST") == "1"
 
@@ -725,6 +731,32 @@ def run_controlled_browser(
         except ValueError as error:
             raise CaptureFailure("browser_crashed") from error
         return dom_value.encode(), screenshot
+    except CaptureFailure:
+        raise
+    except OSError as error:
+        raise CaptureFailure(
+            "browser_crashed", browser_diagnostic="browser_exception_os"
+        ) from error
+    except subprocess.SubprocessError as error:
+        raise CaptureFailure(
+            "browser_crashed", browser_diagnostic="browser_exception_subprocess"
+        ) from error
+    except ValueError as error:
+        raise CaptureFailure(
+            "browser_crashed", browser_diagnostic="browser_exception_value"
+        ) from error
+    except KeyError as error:
+        raise CaptureFailure(
+            "browser_crashed", browser_diagnostic="browser_exception_key"
+        ) from error
+    except TypeError as error:
+        raise CaptureFailure(
+            "browser_crashed", browser_diagnostic="browser_exception_type"
+        ) from error
+    except Exception as error:
+        raise CaptureFailure(
+            "browser_crashed", browser_diagnostic="browser_exception_other"
+        ) from error
     finally:
         try:
             cdp.send("Browser.close")

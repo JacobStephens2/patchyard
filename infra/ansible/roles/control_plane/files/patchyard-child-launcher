@@ -677,6 +677,12 @@ if ! wait "$CHILD_PID"; then
         or .browser_diagnostic == "browser_message_invalid"
         or .browser_diagnostic == "browser_command_rejected"
         or .browser_diagnostic == "browser_event_invalid"
+        or .browser_diagnostic == "browser_exception_os"
+        or .browser_diagnostic == "browser_exception_subprocess"
+        or .browser_diagnostic == "browser_exception_value"
+        or .browser_diagnostic == "browser_exception_key"
+        or .browser_diagnostic == "browser_exception_type"
+        or .browser_diagnostic == "browser_exception_other"
       then .browser_diagnostic else "browser_diagnostic_unavailable" end
     ' "$OUTPUT/capture/failure.json")
     printf 'patchyard_child_failure_diagnostic=%s\n' "$DIAGNOSTIC" >&2

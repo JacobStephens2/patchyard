@@ -303,8 +303,9 @@ new row, no quota was raised, and no terminal request was reopened.
 
 Migration 9 changes that key to a partial unique index over only `queued`,
 `claimed`, and `plan_bin` requests. The intake paths retain live-request
-deduplication, while terminal failures remain durable audit records and no
-longer suppress a fresh identical dashboard submission. Core and dashboard
-PostgreSQL regressions cover both sides of that boundary. After the reviewed
-migration and control-plane converge, the clean retry will again use the
-production dashboard form and the real `#sales_person_id` selector.
+deduplication and exact-ID transport retries, while terminal failures remain
+durable audit records and no longer suppress a fresh identical dashboard
+submission. Core, property, and dashboard PostgreSQL regressions cover both
+sides of that boundary. After the reviewed migration and control-plane
+converge, the clean retry will again use the production dashboard form and the
+real `#sales_person_id` selector.

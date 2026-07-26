@@ -462,9 +462,7 @@ impl DashboardStore {
             r#"
             INSERT INTO factory.requests (id, fingerprint, source, body, trace_id)
             VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (fingerprint)
-                WHERE status IN ('queued', 'claimed', 'plan_bin')
-                DO NOTHING
+            ON CONFLICT DO NOTHING
             RETURNING id
             "#,
         )
@@ -481,9 +479,13 @@ impl DashboardStore {
             None => {
                 sqlx::query_scalar(
                     "SELECT id FROM factory.requests \
-                     WHERE fingerprint=$1 \
-                       AND status IN ('queued', 'claimed', 'plan_bin')",
+                     WHERE id=$1 \
+                        OR (fingerprint=$2 \
+                            AND status IN ('queued', 'claimed', 'plan_bin')) \
+                     ORDER BY (id=$1) DESC \
+                     LIMIT 1",
                 )
+                .bind(request.id)
                 .bind(request.fingerprint.as_bytes().as_slice())
                 .fetch_one(&mut *transaction)
                 .await?
@@ -716,9 +718,7 @@ impl DashboardStore {
             r#"
             INSERT INTO factory.requests (id, fingerprint, source, body, trace_id)
             VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (fingerprint)
-                WHERE status IN ('queued', 'claimed', 'plan_bin')
-                DO NOTHING
+            ON CONFLICT DO NOTHING
             RETURNING id
             "#,
         )
@@ -732,9 +732,13 @@ impl DashboardStore {
         let Some(id) = inserted_id else {
             let id: Uuid = sqlx::query_scalar(
                 "SELECT id FROM factory.requests \
-                     WHERE fingerprint=$1 \
-                       AND status IN ('queued', 'claimed', 'plan_bin')",
+                     WHERE id=$1 \
+                        OR (fingerprint=$2 \
+                            AND status IN ('queued', 'claimed', 'plan_bin')) \
+                     ORDER BY (id=$1) DESC \
+                     LIMIT 1",
             )
+            .bind(request.id)
             .bind(request.fingerprint.as_bytes().as_slice())
             .fetch_one(&mut *transaction)
             .await?;

@@ -399,6 +399,9 @@ async fn proposer_run(database_url: String) -> Result<(), Box<dyn Error>> {
     let _signal_result = signal.await;
     runtime.close().await;
     match result? {
+        factory_supervisor::proposer::ProposerOutcome::FullStopActive => {
+            println!("{}", serde_json::json!({"state": "full_stop_active"}));
+        }
         factory_supervisor::proposer::ProposerOutcome::IdeaAppended { run_id } => {
             println!(
                 "{}",

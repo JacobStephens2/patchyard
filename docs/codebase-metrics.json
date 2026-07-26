@@ -6,9 +6,9 @@
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 36854,
-      "comments": 556,
-      "blanks": 2269,
+      "code": 38696,
+      "comments": 573,
+      "blanks": 2320,
       "files": 87,
       "languages": [
         {
@@ -42,20 +42,20 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 402,
+          "comments": 406,
           "blanks": 21,
           "files": 47
         },
         {
           "language": "Rust",
-          "code": 34451,
-          "comments": 129,
-          "blanks": 1994,
+          "code": 36272,
+          "comments": 142,
+          "blanks": 2045,
           "files": 55
         },
         {
           "language": "SQL",
-          "code": 989,
+          "code": 1010,
           "comments": 6,
           "blanks": 84,
           "files": 11
@@ -72,14 +72,14 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 12694,
+      "code": 12713,
       "comments": 444,
       "blanks": 1254,
       "files": 131,
       "languages": [
         {
           "language": "BASH",
-          "code": 3992,
+          "code": 4004,
           "comments": 101,
           "blanks": 294,
           "files": 36
@@ -100,7 +100,7 @@
         },
         {
           "language": "Jinja2",
-          "code": 460,
+          "code": 463,
           "comments": 0,
           "blanks": 27,
           "files": 14
@@ -128,7 +128,7 @@
         },
         {
           "language": "Python",
-          "code": 3647,
+          "code": 3650,
           "comments": 38,
           "blanks": 389,
           "files": 18
@@ -149,7 +149,7 @@
         },
         {
           "language": "SQL",
-          "code": 256,
+          "code": 257,
           "comments": 0,
           "blanks": 10,
           "files": 3
@@ -246,9 +246,9 @@
     {
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
-      "code": 8216,
-      "comments": 9115,
-      "blanks": 2753,
+      "code": 8220,
+      "comments": 9148,
+      "blanks": 2755,
       "files": 107,
       "languages": [
         {
@@ -260,7 +260,7 @@
         },
         {
           "language": "JSON",
-          "code": 7672,
+          "code": 7676,
           "comments": 0,
           "blanks": 1,
           "files": 28
@@ -268,8 +268,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 9101,
-          "blanks": 2702,
+          "comments": 9134,
+          "blanks": 2704,
           "files": 83
         },
         {

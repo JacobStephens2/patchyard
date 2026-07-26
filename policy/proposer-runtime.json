@@ -3,6 +3,8 @@
   "author_roots": [
     "AGENTS.md",
     "policy/proposer.md",
+    "policy/proposer-output.schema.json",
+    "policy/disposition.md",
     "policy/proposer-runtime.json",
     "policy/routing.json",
     "policy/lessons-report.schema.json",
@@ -21,6 +23,8 @@
     "policy/proposer-review.md": [],
     "policy/proposer-runtime.json": [],
     "policy/proposer.md": [],
+    "policy/proposer-output.schema.json": [],
+    "policy/disposition.md": [],
     "policy/provider-egress.json": [],
     "policy/routing.json": ["docs/bench.json"]
   }

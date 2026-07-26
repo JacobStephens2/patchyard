@@ -24,20 +24,23 @@ class Session15ProposerContract(unittest.TestCase):
         cls.routing = json.loads(ROUTING.read_text())
 
     def test_proposer_child_is_offline_and_receives_only_typed_inputs(self) -> None:
-        section = self.launcher.split('if [[ "$KIND" == proposer ]]; then', 1)[1]
+        section = self.launcher.split('if [[ "$KIND" == proposer || "$KIND" == proposer_disposition ]]; then', 1)[1]
         section = section.split('if [[ "$KIND" == review ]]; then', 1)[0]
         self.assertIn('--unshare-net', self.launcher)
         self.assertIn('"${BWRAP_BASE[@]}"', section)
         self.assertIn('"$JOB/input/packet.json"', section)
         self.assertIn('"$JOB/input/prompt.md"', section)
         self.assertIn('/opt/patchyard/fixtures/pipeline/bin/proposer-stub', section)
+        self.assertIn('/opt/patchyard/fixtures/pipeline/bin/disposition-stub', section)
         self.assertIn('offline-proposer', section)
+        self.assertIn('offline-proposer-disposition', section)
         self.assertNotIn('DATABASE_URL', section)
         self.assertNotIn('/opt/patchyard /workspace', section)
         self.assertNotIn('/var/lib/patchyard', section)
 
     def test_schedule_is_installed_dormant_until_live_provider_qualification(self) -> None:
         self.assertIn('FACTORY_PROPOSER_ENABLED=false', self.environment)
+        self.assertIn('FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED=false', self.environment)
         self.assertIn('FACTORY_PROPOSER_INTERVAL_SECONDS=86400', self.environment)
         self.assertIn(
             'FACTORY_PROPOSER_BASE_SHA={{ factory_repo_revision }}',

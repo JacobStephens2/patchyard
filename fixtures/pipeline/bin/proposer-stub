@@ -10,7 +10,7 @@ def main() -> int:
     prompt_path, packet_path, output_path = map(pathlib.Path, sys.argv[1:])
     prompt = prompt_path.read_text(encoding="utf-8")
     packet = json.loads(packet_path.read_text(encoding="utf-8"))
-    if "<UNTRUSTED_LESSONS_REPORT>" not in prompt:
+    if "/input/PACKET.json" not in prompt:
         return 3
     eligible = [
         cohort

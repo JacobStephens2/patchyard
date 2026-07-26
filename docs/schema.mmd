@@ -134,6 +134,11 @@ erDiagram
         bytea prompt_bundle_sha256
         text branch nullable
         bytea patch_sha256 nullable
+        character40 reviewed_sha nullable
+        text pr_title nullable
+        text pr_body nullable
+        jsonb review_artifact nullable
+        jsonb disposition_artifact nullable
         integer pr_number nullable
         text pr_url nullable
         text failure_code nullable

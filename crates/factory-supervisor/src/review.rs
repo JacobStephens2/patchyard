@@ -62,6 +62,9 @@ pub struct PolicyReviewPacket {
     pub reviewed_sha: String,
     pub report_sha256: String,
     pub patch_sha256: String,
+    /// Supervisor-derived, bounded unified diff. This lets the isolated
+    /// reviewer inspect the exact change without exposing the shared Git ODB.
+    pub patch: String,
     pub citations: Vec<EvidenceCitation>,
     pub manifest: DiffManifest,
     pub self_referential_paths: Vec<String>,

@@ -10,10 +10,11 @@ quotes, and validates without invoking any model.
 
 The seat remains disabled in installed configuration while A5 live-provider
 isolation is unqualified. Its complete fixture path is present: daily
-supervisor scheduling, base-pinned prompt bundles, an offline proposer child,
-evidence re-derivation, policy-only detached-worktree validation, cross-family
-adversarial review, a durable publisher lease, a fresh GitHub snapshot with a
-hard one-open-PR cap, bot authorship, draft-only creation, and no merge API.
+supervisor scheduling, base-pinned prompt bundles, offline proposer and
+disposition children, evidence re-derivation, policy-only detached-worktree
+validation, cross-family adversarial review with A77 author adjudication, a
+durable publisher lease, a fresh GitHub snapshot with a hard one-open-PR cap,
+bot authorship, draft-only creation, and no merge API.
 
 Canonical pairing: Claude Fable 5 / max / Claude Code / Anthropic -> GPT-5.6
 Sol / xhigh / Codex / OpenAI (`anthropic-claude_fable_5-max-claude_code` ->
@@ -41,41 +42,66 @@ scalar values. Each span carries its source event, source digest, bounds, and
 an explicit `untrusted_operator_quote` label. Request bodies, review bodies,
 artifacts, model transcripts, and other event payloads are never queried.
 
-Below threshold the validated model result can only produce a literal append
-to the private `docs/ideas.md` projection. Rule 1 in that file makes the append
-authority-free. At threshold the supervisor re-derives every cited run ID,
+Below threshold the validated model result can only produce an idempotent,
+locked, fsynced literal append to the private `docs/ideas.md` projection. The
+report digest is the effect identity, so a crash after fsync cannot duplicate
+the entry. Rule 1 in that file makes the append authority-free. At threshold
+the supervisor re-derives every cited run ID,
 count, outcome, and basis-point rate from the report before inspecting the
 patch. A PR body records those facts and the report, prompt-bundle, and patch
 digests.
 
 ## Authority and R19
 
-The model has no repository or GitHub authority. Its child receives a static
-prompt and typed packet as read-only file descriptors in an offline bubblewrap
-namespace. The supervisor applies its output to a detached scratch worktree,
-rejects paths outside `policy/` plus the optional `docs/ideas.md` append, then
-sends the exact candidate commit to the cross-family reviewer.
+The model has no repository or GitHub authority. Its child receives the static
+instruction prompt and typed packet as separate read-only file descriptors in
+an offline bubblewrap namespace. No report byte is interpolated into the
+instruction prompt, so a bounded quote cannot spoof a fixed prompt delimiter.
+The supervisor applies model output to a detached scratch worktree and rejects
+paths outside `policy/` plus the optional `docs/ideas.md` append.
+
+The publisher then creates one deterministic App-authored commit locally. The
+reviewer receives that exact SHA plus the supervisor-derived bounded unified
+diff in its typed packet, without access to the shared Git object database.
+Only that same commit object may be pushed, and the GitHub PR head must equal
+the reviewed SHA. The persistent publisher mirror imports and verifies the
+configured installed base before every preparation, including after deploys.
 
 The author and reviewer prompt bundles are resolved from the configured base
-commit with `git show`, not the candidate filesystem. `policy/proposer-runtime.json`
-is a typed, closed include graph and includes both proposer prompts and its own
-definition. A candidate may propose a reviewed change to those files, but a
-test changes the proposer's own prompt in a candidate commit and proves the
-current author and reviewer bundle bytes and digest remain those of the base.
-The reviewer receives that base-pinned review prompt plus the same typed
-lessons report used to re-derive the candidate's citations. That is the
-transitive R19 boundary.
+commit with `git show`, not the candidate filesystem. Both actual prompts begin
+with the base-pinned `AGENTS.md` constitution. `policy/proposer-runtime.json`
+is a typed, closed include graph and includes the proposer, reviewer, and
+disposition prompts plus its own definition. Candidate graph closure is parsed
+as data after patch application; the reported R19 surface is the union of base
+and candidate closures, including newly added dependencies and cycle/path
+rejection. Candidate instructions are never loaded into the current execution.
+Tests change `AGENTS.md`, both proposer prompts, and add a new runtime fragment,
+then prove current prompt bytes remain base-pinned while every candidate-added
+dependency is still reported for review.
 
-Successful author and reviewer invocations retain their full transcripts only
-as private artifact-store objects referenced by `proposer_artifacts` and
-append-only ledger events. They are never copied into a subsequent model
-packet, report, PR body, or repository path.
+Successful author, reviewer, and disposition invocations retain their full
+transcripts only as private artifact-store objects referenced by
+`proposer_artifacts` and append-only ledger events. Typed review findings are
+persisted separately. Every finding receives one concede, evidence-backed
+refute, or escalation disposition; disputes become typed records routed to the
+existing third-family arbitration stub, while empirical findings require an
+experiment. Transcripts are never copied into a subsequent model packet,
+report, PR body, or repository path.
 
 The publisher uses the Patchyard Factory GitHub App identity, creates a draft PR,
-and does not expose a merge operation. A serialized publisher lease and a
-fresh remote PR listing enforce the one-open-proposer-PR cap. Merge remains the
-single human gate under A1; no required-approval count is introduced under
-A99.
+and does not expose a merge operation. A serialized execution lease, database
+single-active invariant, publisher lease, and fresh remote PR listing enforce
+one active attempt and the one-open-proposer-PR cap. Publishing identity and PR
+title/body are durable before review. On restart, pre-effect attempts become
+`killed`; a `publishing` attempt reconciles the exact branch/PR/head before any
+new report or model call. Full stop is read durably by scheduler and CLI entry
+and is rechecked around the ideas effect.
+
+Merge remains a human-only gate under A1. Because A99's App-authorship trigger
+applies, enabling the installed schedule is additionally blocked unless
+`FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED=true`; operators may set that attestation
+only after master branch protection mechanically requires two human approvals.
+The installed template leaves both flags false.
 
 ## Failure-path inventory
 
@@ -92,14 +118,16 @@ production run metrics. The named terminal states are:
 | `proposer_contract_failed` | The child failed, was cancelled, timed out, or returned malformed output. |
 | `evidence_citation_failed` | A citation did not exactly match the report cohort, run IDs, count, state, or rate. |
 | `authority_surface_failed` | Patch application, limits, file types, or the `policy/` plus optional ideas allowlist failed. |
-| `adversarial_review_failed` | The independent reviewer failed or returned any finding; a new attempt is required. |
-| `publication_failed` | App authentication, fetch, exact-base verification, push, draft creation, or postcondition verification failed. |
+| `adversarial_review_failed` | Review/disposition failed, findings were conceded, or a typed dispute/experiment requires a new attempt. |
+| `publication_failed` | Candidate preparation failed before the durable publishing boundary. Once `publishing`, retryable external uncertainty stays nonterminal for reconciliation. |
 | `cleanup_failed` | Scratch or child cleanup could not prove completion. |
 | `killed` | Full stop, shutdown, cancellation, or termination interrupted the attempt. |
 
 Transitions and finite reason codes are appended to `proposer_events`.
-Incomplete attempts remain visible for reconciliation; no failure is rewritten
-as success and no PR is merged automatically.
+Incomplete attempts remain visible for reconciliation. The database permits
+only one nonterminal proposer row, and a PostgreSQL advisory lease rejects a
+concurrent timer/CLI attempt. No failure is rewritten as success and no PR is
+merged automatically.
 
 ## Verification limits and planned live coverage
 
@@ -108,13 +136,17 @@ byte-identical reporting, repeatable-read snapshot bounds, production-only
 selection, quote allowlisting and truncation, report-only prompt construction,
 below- and at-threshold behavior, qualification exclusion above threshold,
 exact evidence citations, the one-open-PR refusal, path and symlink rejection,
-R19 base pinning, cross-family routing, durable lifecycle transitions, and the
-fixed child-launcher mount/network contract. The PostgreSQL acceptance test
-runs all migrations and grants against a disposable PostgreSQL 16 service and
-executes the end-to-end fixture lifecycle with fake model and GitHub edges.
+R19 base/candidate closure handling, cross-family routing and A77 disposition,
+durable full-stop checks, cancellation around a held ideas-file lock, lifecycle
+transitions, and the fixed child-launcher mount/network contract. The
+PostgreSQL acceptance test runs all migrations and grants against a disposable
+PostgreSQL 16 service. A second local-bare-remote fixture uses the concrete
+publisher to prove deterministic App identity, reviewed SHA equals published
+SHA, PR-record restart reconciliation, and persistent-mirror refresh across
+two installed base revisions.
 
-Those checks do not prove live provider execution, the installed App's remote
-draft-PR behavior and race recovery, systemd scheduling, the control-plane
+Those checks do not prove live provider execution, the installed App's real
+GitHub draft-PR behavior, systemd scheduling, the control-plane
 bubblewrap/kernel boundary, or persistent ideas projection ownership. After
 A5 qualification, the live/operator path must deliberately cover: a read-only
 standalone report against the installed ledger; one below-threshold append;

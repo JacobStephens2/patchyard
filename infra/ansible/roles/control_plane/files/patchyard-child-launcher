@@ -194,6 +194,8 @@ output_claims() {
     names=(review.json transcript.log)
   elif [[ "$STATE" == completed && "$KIND" == proposer ]]; then
     names=(proposal.json transcript.log)
+  elif [[ "$STATE" == completed && "$KIND" == proposer_disposition ]]; then
+    names=(disposition.json transcript.log)
   elif [[ "$STATE" == completed && "$KIND" == evidence ]]; then
     names=(page.html page.png extract.json hashes.json execution.json)
   fi
@@ -341,6 +343,7 @@ jq -e --arg id "$ID" '
   .schema_version == 1
   and (.job_id | type == "string" and gsub("-"; "") == $id)
   and (.contract.kind == "review" or .contract.kind == "proposer"
+    or .contract.kind == "proposer_disposition"
     or .contract.kind == "evidence")
 ' "$REQUEST" >/dev/null
 JOB_ID=$(jq -r .job_id "$REQUEST")
@@ -372,9 +375,9 @@ BWRAP_BASE=(
   --cap-add CAP_SETGID
 )
 
-if [[ "$KIND" == proposer ]]; then
+if [[ "$KIND" == proposer || "$KIND" == proposer_disposition ]]; then
   jq -e '
-    .contract.kind == "proposer"
+    (.contract.kind == "proposer" or .contract.kind == "proposer_disposition")
     and (.contract.packet_sha256 | test("^[0-9a-f]{64}$"))
     and (.contract.prompt_sha256 | test("^[0-9a-f]{64}$"))
     and ([.contract.model,.contract.effort,.contract.harness,.contract.provider]
@@ -386,7 +389,16 @@ if [[ "$KIND" == proposer ]]; then
     == "$(jq -r .contract.packet_sha256 "$REQUEST")" ]]
   [[ "$(sha256sum "$JOB/input/prompt.md" | cut -d' ' -f1)" \
     == "$(jq -r .contract.prompt_sha256 "$REQUEST")" ]]
-  NETWORK_POLICY_SHA256=$(printf '%s' offline-proposer | sha256sum | cut -d' ' -f1)
+  if [[ "$KIND" == proposer ]]; then
+    NETWORK_POLICY=offline-proposer
+    HARNESS_PATH=/opt/patchyard/fixtures/pipeline/bin/proposer-stub
+    OUTPUT_NAME=proposal.json
+  else
+    NETWORK_POLICY=offline-proposer-disposition
+    HARNESS_PATH=/opt/patchyard/fixtures/pipeline/bin/disposition-stub
+    OUTPUT_NAME=disposition.json
+  fi
+  NETWORK_POLICY_SHA256=$(printf '%s' "$NETWORK_POLICY" | sha256sum | cut -d' ' -f1)
 
   chown "$NOBODY_UID:$NOBODY_GID" \
     "$JOB/input/packet.json" "$JOB/input/prompt.md" "$OUTPUT"
@@ -400,7 +412,7 @@ if [[ "$KIND" == proposer ]]; then
   exec {PROPOSER_PACKET_FD}<"$JOB/input/packet.json"
   exec {PROPOSER_PROMPT_FD}<"$JOB/input/prompt.md"
   exec {PROPOSER_PROBE_FD}</usr/local/libexec/patchyard-child-probe
-  exec {PROPOSER_HARNESS_FD}</opt/patchyard/fixtures/pipeline/bin/proposer-stub
+  exec {PROPOSER_HARNESS_FD}<"$HARNESS_PATH"
   exec {PROPOSER_OUTPUT_FD}<"$OUTPUT"
   mkdir "$ISOLATION_DIRECTORY"
   chown "$NOBODY_UID:$NOBODY_GID" "$ISOLATION_DIRECTORY"
@@ -439,7 +451,7 @@ if [[ "$KIND" == proposer ]]; then
     --setenv PATCHYARD_PROVIDER "$PROVIDER" \
     /usr/bin/setpriv \
       --reuid "$NOBODY_UID" --regid "$NOBODY_GID" --clear-groups \
-      /harness /input/PROMPT.md /input/PACKET.json /output/proposal.json \
+      /harness /input/PROMPT.md /input/PACKET.json "/output/$OUTPUT_NAME" \
     >"$OUTPUT/transcript.log" 2>&1 &
   CHILD_PID=$!
   if ! wait "$CHILD_PID"; then
@@ -450,10 +462,10 @@ if [[ "$KIND" == proposer ]]; then
   CHILD_PID=
   FAILURE_STAGE=proposer_output_validation
   require_isolation
-  [[ -f "$OUTPUT/proposal.json" && ! -L "$OUTPUT/proposal.json" ]]
-  [[ "$(stat -c %s "$OUTPUT/proposal.json")" -le 1048576 ]]
+  [[ -f "$OUTPUT/$OUTPUT_NAME" && ! -L "$OUTPUT/$OUTPUT_NAME" ]]
+  [[ "$(stat -c %s "$OUTPUT/$OUTPUT_NAME")" -le 1048576 ]]
   [[ "$(stat -c %s "$OUTPUT/transcript.log")" -le 8388608 ]]
-  chmod 0600 "$OUTPUT/proposal.json" "$OUTPUT/transcript.log"
+  chmod 0600 "$OUTPUT/$OUTPUT_NAME" "$OUTPUT/transcript.log"
   STATE=completed
   FAILURE_STAGE=none
   exit 0

@@ -304,6 +304,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
             holder: format!("{holder}:policy"),
             lease_ttl: duration_env("FACTORY_PROPOSER_PUBLISHER_LEASE_SECONDS", 3_600)?,
             github_freshness: duration_env("FACTORY_GITHUB_FRESHNESS_SECONDS", 30)?,
+            test_remote: None,
         },
     )?);
     let proposer = Arc::new(ImprovementProposer::new(
@@ -313,7 +314,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         Arc::new(SandboxedReviewer::new(ReviewSandboxConfig {
             spawner: child_spawner.clone(),
             prompt: root.join("policy/proposer-review.md"),
-            worktree_root: scratch.join("proposer-review-worktrees"),
+            worktree_root: scratch.join("review-worktrees"),
             live_network: false,
         })),
         policy_publisher,
@@ -356,6 +357,13 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         publisher,
         lifecycle,
     );
+    let proposer_enabled = bool_env("FACTORY_PROPOSER_ENABLED", false)?;
+    let proposer_dual_review_enforced = bool_env("FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED", false)?;
+    if proposer_enabled && !proposer_dual_review_enforced {
+        return Err(BootstrapError::InvalidEnvironment(
+            "FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED",
+        ));
+    }
     let daemon = DaemonConfig {
         database_url,
         holder,
@@ -369,7 +377,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         max_active: usize_env("FACTORY_MAX_ACTIVE", 2)?,
         reconcile_abandoned_after: duration_env("FACTORY_RECONCILE_ABANDONED_SECONDS", 300)?,
         reconcile_sweep_limit: usize_env("FACTORY_RECONCILE_SWEEP_LIMIT", 10)?,
-        proposer_enabled: bool_env("FACTORY_PROPOSER_ENABLED", false)?,
+        proposer_enabled,
         proposer_interval: duration_env("FACTORY_PROPOSER_INTERVAL_SECONDS", 86_400)?,
     };
     Ok(RuntimeComponents {

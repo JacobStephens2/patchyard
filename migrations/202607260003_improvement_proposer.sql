@@ -27,6 +27,11 @@ CREATE TABLE factory.proposer_runs (
     prompt_bundle_sha256 bytea NOT NULL,
     branch text,
     patch_sha256 bytea,
+    reviewed_sha character(40),
+    pr_title text,
+    pr_body text,
+    review_artifact jsonb,
+    disposition_artifact jsonb,
     pr_number integer,
     pr_url text,
     failure_code text,
@@ -38,6 +43,17 @@ CREATE TABLE factory.proposer_runs (
     CONSTRAINT proposer_runs_prompt_sha CHECK (octet_length(prompt_bundle_sha256) = 32),
     CONSTRAINT proposer_runs_patch_sha CHECK (
         patch_sha256 IS NULL OR octet_length(patch_sha256) = 32
+    ),
+    CONSTRAINT proposer_runs_reviewed_sha CHECK (
+        reviewed_sha IS NULL OR reviewed_sha ~ '^[0-9a-f]{40}$'
+    ),
+    CONSTRAINT proposer_runs_candidate_shape CHECK (
+        (branch IS NULL AND patch_sha256 IS NULL AND reviewed_sha IS NULL
+          AND pr_title IS NULL AND pr_body IS NULL)
+        OR
+        (btrim(branch) <> '' AND patch_sha256 IS NOT NULL
+          AND reviewed_sha IS NOT NULL AND btrim(pr_title) <> ''
+          AND btrim(pr_body) <> '')
     ),
     CONSTRAINT proposer_runs_event_snapshot CHECK (report_max_event_id >= 0),
     CONSTRAINT proposer_runs_terminal_shape CHECK (
@@ -69,7 +85,9 @@ CREATE TABLE factory.proposer_events (
 CREATE TABLE factory.proposer_artifacts (
     id uuid PRIMARY KEY,
     proposer_run_id uuid NOT NULL REFERENCES factory.proposer_runs(id),
-    stage text NOT NULL CHECK (stage IN ('proposer-author', 'proposer-reviewer')),
+    stage text NOT NULL CHECK (stage IN (
+        'proposer-author', 'proposer-reviewer', 'proposer-disposition'
+    )),
     path text NOT NULL UNIQUE,
     sha256 bytea NOT NULL CHECK (octet_length(sha256) = 32),
     kind text NOT NULL CHECK (kind = 'agent-transcript'),
@@ -97,6 +115,9 @@ INSERT INTO factory.proposer_publisher_lease (singleton) VALUES (true);
 
 CREATE INDEX proposer_runs_state_queued_idx
     ON factory.proposer_runs(state, queued_at, id);
+CREATE UNIQUE INDEX proposer_runs_single_active_idx
+    ON factory.proposer_runs ((true))
+    WHERE state IN ('queued','reporting','proposing','reviewing','publishing');
 CREATE INDEX proposer_events_run_idx
     ON factory.proposer_events(proposer_run_id, id);
 CREATE INDEX proposer_artifacts_retention_idx

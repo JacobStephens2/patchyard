@@ -40,6 +40,9 @@ class Session16CutoverContract(unittest.TestCase):
         cls.publisher = (
             ROOT / "crates" / "factory-supervisor" / "src" / "publisher.rs"
         ).read_text()
+        cls.observability = (
+            ROOT / "crates" / "factory-supervisor" / "src" / "observability.rs"
+        ).read_text()
 
     def test_backup_quiesces_writers_and_captures_all_durable_state(self) -> None:
         self.assertIn("readonly services=(factory-dashboard.service factory-supervisor.service)", self.backup)
@@ -155,6 +158,20 @@ class Session16CutoverContract(unittest.TestCase):
             f"grantee = 'grafana_ro'\")\" = {expected_total}",
             self.qualifier,
         )
+
+    def test_qualification_proves_idle_supervisor_metrics(self) -> None:
+        self.assertIn(
+            'describe_gauge!(\n        "factory_supervisor_up",',
+            self.observability,
+        )
+        self.assertIn('gauge!("factory_supervisor_up").set(1.0)', self.observability)
+        self.assertIn(
+            "# HELP factory_supervisor_up Supervisor process is running and "
+            "exporting metrics.",
+            self.qualifier,
+        )
+        self.assertIn("^factory_supervisor_up 1(\\.0)?$", self.qualifier)
+        self.assertNotIn("# HELP factory_runs_total", self.qualifier)
 
     def test_restore_verifies_ciphertext_payload_rows_and_files(self) -> None:
         for required in (

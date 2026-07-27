@@ -6,9 +6,9 @@
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 40033,
+      "code": 40058,
       "comments": 593,
-      "blanks": 2360,
+      "blanks": 2363,
       "files": 88,
       "languages": [
         {
@@ -48,9 +48,9 @@
         },
         {
           "language": "Rust",
-          "code": 37601,
+          "code": 37626,
           "comments": 157,
-          "blanks": 2085,
+          "blanks": 2088,
           "files": 55
         },
         {
@@ -72,14 +72,14 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 15194,
+      "code": 15212,
       "comments": 486,
-      "blanks": 1456,
+      "blanks": 1457,
       "files": 142,
       "languages": [
         {
           "language": "BASH",
-          "code": 4748,
+          "code": 4750,
           "comments": 109,
           "blanks": 350,
           "files": 39
@@ -128,9 +128,9 @@
         },
         {
           "language": "Python",
-          "code": 4005,
+          "code": 4021,
           "comments": 39,
-          "blanks": 413,
+          "blanks": 414,
           "files": 19
         },
         {
@@ -247,7 +247,7 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8267,
-      "comments": 9799,
+      "comments": 9800,
       "blanks": 2855,
       "files": 109,
       "languages": [
@@ -268,7 +268,7 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 9779,
+          "comments": 9780,
           "blanks": 2802,
           "files": 85
         },

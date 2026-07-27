@@ -355,7 +355,9 @@ grep -q '^patchyard_postgresql_tls_certificate_remaining_seconds ' \
   "$QUALIFICATION_TEMP/node.metrics"
 curl --fail --silent --output "$QUALIFICATION_TEMP/supervisor.metrics" \
   "http://$PRIVATE_IP:9464/metrics"
-grep -Fq '# HELP factory_runs_total Pipeline runs by stage and outcome.' \
+grep -Fq '# HELP factory_supervisor_up Supervisor process is running and exporting metrics.' \
+  "$QUALIFICATION_TEMP/supervisor.metrics"
+grep -Eq '^factory_supervisor_up 1(\.0)?$' \
   "$QUALIFICATION_TEMP/supervisor.metrics"
 grep -Eq '^OTEL_EXPORTER_OTLP_ENDPOINT=$' /etc/patchyard/supervisor.env
 

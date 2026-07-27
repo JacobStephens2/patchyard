@@ -101,10 +101,18 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("production restore requires inactive writer", self.restore)
         self.assertIn("production restore requires zero active work", self.restore)
         self.assertIn("assert_production_clean_baseline", self.restore)
+        self.assertIn("assert_production_database_clean_baseline", self.restore)
+        self.assertIn("production database contains durable pipeline state", self.restore)
+        for table in ("requests", "runs", "events", "artifacts", "pr_state", "leases"):
+            self.assertIn(f"factory.{table}", self.restore)
         self.assertIn("production ideas seed differs from reviewed desired state", self.restore)
         destructive = self.restore.rindex('rm -r -- "$artifact_root" "$runtime_root"')
         self.assertLess(
             self.restore.index("migrated database version differs"), destructive
+        )
+        self.assertLess(
+            self.restore.rindex("assert_production_database_clean_baseline"),
+            destructive,
         )
         self.assertLess(destructive, self.restore.index("TRUNCATE TABLE"))
 
@@ -144,6 +152,10 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertGreaterEqual(
             self.replace_operator.count('verify_worker_plan "$PLAN_FILE"'), 2
         )
+        self.assertGreaterEqual(
+            self.replace_operator.count("require_clean_revision"), 3
+        )
+        self.assertIn("committed, clean operator checkout", self.plan_operator)
 
     def test_rollback_binds_live_revision_and_verifies_durable_state(self) -> None:
         self.assertIn('current=$(resolve_reviewed_revision "$(installed_revision', self.rollback_operator)
@@ -151,6 +163,10 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("capture_durable_state", self.rollback_operator)
         self.assertIn("table-sha256", self.rollback_operator)
         self.assertIn("ORDER BY row_to_json(t)::text", self.rollback_operator)
+        self.assertIn("login-challenge-sha256", self.rollback_operator)
+        self.assertIn("changed or removed an existing login challenge", self.rollback_operator)
+        self.assertIn("target_challenge_delta <= 4", self.rollback_operator)
+        self.assertIn("total_challenge_delta <= 8", self.rollback_operator)
         self.assertIn(
             'cmp --silent "$before_stable" "$target_stable"',
             self.rollback_operator,
@@ -160,7 +176,7 @@ class Session16CutoverContract(unittest.TestCase):
             self.rollback_operator,
         )
         self.assertIn(
-            'durable_state:"verified_rollback_and_recovery_equal_except_declared_account_audits"',
+            'durable_state:"verified_rollback_and_recovery_equal_except_declared_account_audits_and_qualification_login_challenges"',
             self.rollback_operator,
         )
         self.assertIn("unexpected_rollback_audits", self.rollback_operator)
@@ -211,6 +227,7 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("permissions\":{\"contents\":\"read\"}", self.deployed)
         self.assertIn("unexpected installation scope", self.deployed)
         self.assertIn("curl --config -", self.deployed)
+        self.assertIn("--connect-timeout 10 --max-time 30", self.deployed)
         self.assertNotIn('--header "Authorization: Bearer', self.deployed)
 
     def test_a109_keeps_factory_approvals_optional_and_marker_human_only(self) -> None:

@@ -6,6 +6,11 @@ REPO_ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 TOFU_ROOT=${1:?usage: infra/plan.sh <digitalocean|aws|github> /absolute/output/directory}
 PLAN_ROOT=${2:?usage: infra/plan.sh <digitalocean|aws|github> /absolute/output/directory}
 
+[[ -z "$(git -C "$REPO_ROOT" status --porcelain)" ]] || {
+  echo 'OpenTofu planning requires a committed, clean operator checkout' >&2
+  exit 2
+}
+
 case "$TOFU_ROOT" in
   digitalocean|aws|github) ;;
   *) echo "unknown OpenTofu root: $TOFU_ROOT" >&2; exit 2 ;;

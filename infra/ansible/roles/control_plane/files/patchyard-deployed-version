@@ -40,7 +40,7 @@ curl_with_bearer() {
     return 20
   }
   printf 'header = "Authorization: Bearer %s"\n' "$bearer" \
-    | curl --config - "$@"
+    | curl --config - --connect-timeout 10 --max-time 30 "$@"
 }
 
 mint_response=$(curl_with_bearer "$app_jwt" \

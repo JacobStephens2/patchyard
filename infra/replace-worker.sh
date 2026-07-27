@@ -5,6 +5,13 @@ umask 077
 REPO_ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 MODE=${1:-}
 
+require_clean_revision() {
+  [[ -z "$(git -C "$REPO_ROOT" status --porcelain)" ]] || {
+    echo 'worker replacement requires a committed, clean operator checkout' >&2
+    exit 2
+  }
+}
+
 verify_worker_plan() {
   local plan_file=$1 plan_json unexpected worker_action firewall_action
   plan_json=$("$REPO_ROOT/infra/tofu.sh" digitalocean show -json "$plan_file") || {
@@ -44,6 +51,7 @@ verify_worker_plan() {
 
 case "$MODE" in
   plan)
+    require_clean_revision
     REPLACE_ROOT=${2:?usage: infra/replace-worker.sh plan /absolute/output/directory}
     if [[ "$REPLACE_ROOT" != /* ]]; then
       echo "replacement plan directory must be absolute" >&2
@@ -62,6 +70,7 @@ case "$MODE" in
     echo "review $PLAN_FILE.txt, then run the apply mode with the encrypted plan"
     ;;
   apply)
+    require_clean_revision
     PLAN_FILE=${2:?usage: infra/replace-worker.sh apply /absolute/worker-replacement.tfplan}
     if [[ "$PLAN_FILE" != /* || ! -f "$PLAN_FILE" ]]; then
       echo "replacement apply requires an existing absolute plan path" >&2

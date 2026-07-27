@@ -132,8 +132,10 @@ data-restore sequence after replacement compute and the backup-compatible
 revision are available. Full control-plane loss - including authoring and
 reviewing replacement identity/DNS/firewall desired state - has not been timed
 and carries no validated RTO in v0. Artifact and runtime generations expire off-host
-after 90 days; non-current overwritten versions expire after seven days; local
-encrypted staging older than seven days is removed. Because a generation
+after 90 days; non-current overwritten versions under the `generations/`
+prefix expire after seven days, while the tiny `LATEST` pointer versions are
+conservatively retained; local encrypted staging older than seven days is
+removed. Because a generation
 captures the then-live 90-day artifact window, an artifact can remain in an
 off-host generation for at most roughly 180 days after creation.
 
@@ -240,9 +242,12 @@ mutation. Restore the selected generation, verify all manifest counts and
 hashes, and only then apply the reviewed identity move. The production
 executable accepts and consumes only the exact declarative clean-host baseline:
 an empty `artifacts/uploads/` directory and the sole runtime
-`docs/ideas.md` file byte-identical to `/opt/patchyard/docs/ideas.md`. Any
-additional entry or changed seed refuses as `restore_target_refused` before
-database or filesystem mutation. Never restore over preserved production data.
+`docs/ideas.md` file byte-identical to `/opt/patchyard/docs/ideas.md`, plus
+zero rows across requests, runs, events, artifacts, PR-state, and leases. The
+database baseline is checked after migration compatibility and again
+immediately before `TRUNCATE`. Any additional filesystem entry, changed seed,
+or durable pipeline row refuses as `restore_target_refused` before database or
+filesystem mutation. Never restore over preserved production data.
 
 ## Roll back
 
@@ -261,16 +266,22 @@ PATCHYARD_ROLLBACK_APPROVED=yes \
 ```
 
 The apply refuses a stale plan if the installed revision moved, captures every
-database table count plus every artifact/runtime file hash, creates an isolated
-worktree at the target commit, converges its binaries, versioned configuration,
-and credential-free checkout, and runs that revision's host qualification. It
-then repeats convergence and qualification at the reviewed return revision
-before removing the public boundary. Both installed stages must prove the SHA,
-core health, and byte-identical non-audit durable-state record. An older target
-revision may
+database table count and deterministic content digest plus every
+artifact/runtime file hash, creates an isolated worktree at the target commit,
+converges its binaries, versioned configuration, and credential-free checkout,
+and runs that revision's host qualification. It then repeats convergence and
+qualification at the reviewed return revision before removing the public
+boundary. Both installed stages must prove the SHA, core health, and
+byte-identical durable-state record outside two declared allowances. An older
+target revision may
 append its bounded `account.provisioned` audit events during declarative
 account convergence; the script permits only that exact action/client class,
-records each delta, and rejects every other audit mutation. It preserves the
+records each delta, and rejects every other audit mutation. Each qualification
+also performs one unauthenticated CSP probe that inserts an anti-CSRF login
+challenge. The script hashes every challenge row without exporting its
+contents, proves every pre-existing and target-stage hash survives unchanged,
+and permits at most four new rows through the target stage and eight total
+through recovery. It excludes no other login/session table. It preserves the
 before/target/recovered stable records and result JSON next to the reviewed
 manifest. Schema
 rollback is not this operation; it needs a separately ruled migration and
@@ -313,10 +324,11 @@ directly.
 
 Once the reviewed return revision has qualified, the evidence comparison is a
 separate fail-closed gate. A row count, deterministic ordered-row digest,
-artifact hash, or allowed-audit mismatch keeps the public reject and backup
-timer stop in force even though the return revision is healthy. Preserve the
-evidence, investigate, and use the explicit state-backend-free
-`release-boundary` path only after independent verification.
+artifact hash, pre-existing challenge mutation, challenge-count bound, or
+allowed-audit mismatch keeps the public reject and backup timer stop in force
+even though the return revision is healthy. Preserve the evidence, investigate,
+and use the explicit state-backend-free `release-boundary` path only after
+independent verification.
 
 If recovery qualification cannot complete because the GitHub marker API is
 unavailable, the safe terminal state intentionally leaves the public reject,

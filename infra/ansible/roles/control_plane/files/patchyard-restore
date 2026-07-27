@@ -66,6 +66,26 @@ assert_production_clean_baseline() {
   fi
 }
 
+assert_production_database_clean_baseline() {
+  local pipeline_rows
+  if ! pipeline_rows=$(runuser -u postgres -- psql --no-psqlrc \
+    --host="$socket_root" --dbname="$database" --tuples-only --no-align \
+    --command="SELECT
+      (SELECT count(*) FROM factory.requests)
+      + (SELECT count(*) FROM factory.runs)
+      + (SELECT count(*) FROM factory.events)
+      + (SELECT count(*) FROM factory.artifacts)
+      + (SELECT count(*) FROM factory.pr_state)
+      + (SELECT count(*) FROM factory.leases)"); then
+    echo 'restore_target_refused: production database clean-host baseline could not be verified' >&2
+    exit 35
+  fi
+  [[ "$pipeline_rows" =~ ^[0-9]+$ && "$pipeline_rows" == 0 ]] || {
+    echo 'restore_target_refused: production database contains durable pipeline state' >&2
+    exit 35
+  }
+}
+
 generation=''
 identity_file=''
 database=''
@@ -237,10 +257,12 @@ current_migration_count=$(runuser -u postgres -- psql --no-psqlrc --host="$socke
   exit 36
 }
 if [[ "$production_restore" == true ]]; then
+  assert_production_database_clean_baseline
   # Re-check immediately before the first mutation, then consume only the
   # exact empty uploads directory and byte-identical desired-state seed that
   # declarative provisioning necessarily created.
   assert_production_clean_baseline
+  assert_production_database_clean_baseline
   rm -r -- "$artifact_root" "$runtime_root"
 fi
 

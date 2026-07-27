@@ -82,6 +82,15 @@ while IFS=$'\t' read -r schema table; do
     | sha256sum | cut -d' ' -f1)
   printf 'row\t%s.%s\t%s\n' "$schema" "$table" "$count"
   printf 'table-sha256\t%s.%s\t%s\n' "$schema" "$table" "$digest"
+  if [[ "$schema.$table" == factory.login_challenges ]]; then
+    runuser -u postgres -- psql --no-psqlrc --host="$socket" --dbname="$database" \
+      --tuples-only --no-align \
+      --command="COPY (SELECT row_to_json(t)::text FROM factory.login_challenges AS t ORDER BY row_to_json(t)::text) TO STDOUT" \
+      | while IFS= read -r challenge; do
+          printf 'login-challenge-sha256\t%s\n' \
+            "$(printf '%s' "$challenge" | sha256sum | cut -d' ' -f1)"
+        done
+  fi
 done < <(runuser -u postgres -- psql --no-psqlrc --host="$socket" --dbname="$database" \
   --tuples-only --no-align --field-separator=$'\t' \
   --command="SELECT schemaname, tablename FROM pg_tables WHERE schemaname IN ('factory', 'public') ORDER BY schemaname, tablename")
@@ -138,8 +147,16 @@ deploy_and_qualify_revision() {
 
 stable_durable_state() {
   local source=$1 destination=$2
-  awk -F '\t' '$1 != "audit" && !(($1 == "row" || $1 == "table-sha256") && $2 == "factory.audit_events")' \
+  awk -F '\t' '$1 != "audit" && $1 != "login-challenge-sha256" && !(($1 == "row" || $1 == "table-sha256") && ($2 == "factory.audit_events" || $2 == "factory.login_challenges"))' \
     "$source" >"$destination"
+}
+
+challenge_hashes() {
+  awk -F '\t' '$1 == "login-challenge-sha256" {print $2}' "$1" | LC_ALL=C sort
+}
+
+challenge_count() {
+  awk -F '\t' '$1 == "login-challenge-sha256" {count += 1} END {print count + 0}' "$1"
 }
 
 case "$MODE" in
@@ -297,17 +314,38 @@ case "$MODE" in
       echo 'rollback emitted an audit action outside declarative account provisioning' >&2
       exit 3
     }
+    before_challenge_count=$(challenge_count "$before_state")
+    target_challenge_count=$(challenge_count "$target_state")
+    recovered_challenge_count=$(challenge_count "$recovered_state")
+    [[ "$before_challenge_count" =~ ^[0-9]+$ \
+      && "$target_challenge_count" =~ ^[0-9]+$ \
+      && "$recovered_challenge_count" =~ ^[0-9]+$ \
+      && "$target_challenge_count" -ge "$before_challenge_count" \
+      && "$recovered_challenge_count" -ge "$target_challenge_count" ]] || exit 3
+    if [[ -n "$(comm -23 <(challenge_hashes "$before_state") \
+      <(challenge_hashes "$target_state"))" \
+      || -n "$(comm -23 <(challenge_hashes "$target_state") \
+        <(challenge_hashes "$recovered_state"))" ]]; then
+      echo 'rollback changed or removed an existing login challenge' >&2
+      exit 3
+    fi
+    target_challenge_delta=$(( target_challenge_count - before_challenge_count ))
+    total_challenge_delta=$(( recovered_challenge_count - before_challenge_count ))
+    (( target_challenge_delta <= 4 && total_challenge_delta <= 8 )) || {
+      echo "rollback/recovery emitted an unbounded login-challenge delta: $total_challenge_delta" >&2
+      exit 3
+    }
     stable_durable_state "$before_state" "$before_stable"
     stable_durable_state "$target_state" "$target_stable"
     stable_durable_state "$recovered_state" "$recovered_stable"
     cmp --silent "$before_stable" "$target_stable" || {
       diff --unified "$before_stable" "$target_stable" >&2 || true
-      echo 'rollback target changed durable state outside declared audit events' >&2
+      echo 'rollback target changed durable state outside declared allowances' >&2
       exit 3
     }
     cmp --silent "$before_stable" "$recovered_stable" || {
       diff --unified "$before_stable" "$recovered_stable" >&2 || true
-      echo 'rollback recovery changed durable state outside declared audit events' >&2
+      echo 'rollback recovery changed durable state outside declared allowances' >&2
       exit 3
     }
     before_sha256=$(sha256sum "$before_state" | cut -d' ' -f1)
@@ -318,8 +356,10 @@ case "$MODE" in
       --arg recovered_sha256 "$recovered_sha256" \
       --argjson target_audit_delta "$target_audit_delta" \
       --argjson total_audit_delta "$total_audit_delta" \
+      --argjson target_login_challenge_delta "$target_challenge_delta" \
+      --argjson total_login_challenge_delta "$total_challenge_delta" \
       --arg completed_at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-      '{schema_version:1,target_revision:$target_revision,return_revision:$return_revision,before_sha256:$before_sha256,target_sha256:$target_sha256,recovered_sha256:$recovered_sha256,target_audit_delta:$target_audit_delta,total_audit_delta:$total_audit_delta,durable_state:"verified_rollback_and_recovery_equal_except_declared_account_audits",completed_at:$completed_at}' \
+      '{schema_version:1,target_revision:$target_revision,return_revision:$return_revision,before_sha256:$before_sha256,target_sha256:$target_sha256,recovered_sha256:$recovered_sha256,target_audit_delta:$target_audit_delta,total_audit_delta:$total_audit_delta,target_login_challenge_delta:$target_login_challenge_delta,total_login_challenge_delta:$total_login_challenge_delta,durable_state:"verified_rollback_and_recovery_equal_except_declared_account_audits_and_qualification_login_challenges",completed_at:$completed_at}' \
       >"$result_file"
     evidence_verification_pending=false
     set_rollback_boundary exit

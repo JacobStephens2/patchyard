@@ -91,21 +91,21 @@ recorded.
 | `remnant_migration_failed` | Before/after counts did not balance, a canonical record was missing, or the orchestration tree retained non-pointer factory state. |
 | `intake_failed` | A real authenticated form submission did not create exactly one durable request and receipt. |
 | `spool_identity_failed` | The supervisor did not consume the exact request ID and hash written by the dashboard, or another intake path was used. |
-| `qualification_budget_failed` | An attended qualification exceeded or bypassed its committed request, run, provider-call, PR, or wall-time budget. |
+| `qualification_budget_failed` | An attended qualification exceeded or bypassed its digest-pinned request/run/wall-time budget or the separately enforced provider seat-call and two-open-PR ceilings. |
 | `reconcile_failed_closed` | GitHub or the deploy-marker source was unavailable/invalid; the run remained pending with the bounded failure recorded. |
 | `reconcile_projection_failed` | A real marker SHA was observed but reconcile persisted a different repository, SHA, source, or state. |
 | `replacement_failed` | Worker replacement, second converge, isolation probe, or no-residue check failed; no old worker data is restored. |
 | `backup_busy` | The attended or scheduled backup observed active work before quiescence, or caught a claim in the stop-window recheck; state-derived recovery resumes any transiently interrupted claim. |
 | `backup_failed` | Bucket versioning, quiescence, `pg_dump`, artifact manifest, row-count manifest, encryption, or off-host upload failed. |
 | `backup_verification_failed` | `LATEST`, its receipt, ciphertext metadata, age, download, decryption, or payload hashes did not agree. |
-| `restore_target_refused` | The drill target binding was absent, or the artifact/runtime roots differed from the exact declarative clean-host baseline. No restore mutation began. |
+| `restore_target_refused` | The drill target binding was absent, artifact/runtime roots differed from the exact declarative clean-host baseline, or requests/runs/events/artifacts/PR-state/leases were nonempty. No restore mutation began. |
 | `restore_provision_failed` | Declarative PostgreSQL/role or clean restore-root provisioning failed. |
 | `restore_migration_failed` | Migrations did not reapply from the reviewed checkout before data restore. |
 | `restore_data_failed` | The dump did not restore cleanly into the drill database. |
 | `restore_artifact_failed` | The artifact archive did not restore into the clean drill root. |
 | `restore_verification_failed` | Restored row counts, artifact membership/hashes, grants, or a historical evidence fetch differed from the backup manifest. |
 | `rollback_target_refused` | The target was unmerged, stale, or its desired and qualification migration pins did not exactly match the installed return revision; no boundary or host mutation began. |
-| `rollback_failed` | The reviewed previous revision could not be reinstalled, qualified, and served with equal per-table row counts/content digests and artifact hashes outside declared audits; an evidence mismatch keeps the public boundary and backup-timer stop in force for explicit release. |
+| `rollback_failed` | The reviewed previous revision could not be reinstalled, qualified, and served with equal per-table row counts/content digests and artifact hashes outside bounded declarative-account audits and bounded qualifier-created login challenges; an evidence mismatch keeps the public boundary and backup-timer stop in force for explicit release. |
 | `rollback_busy` | Dashboard Full stop was not durably active or a production/proposer run was still active before the public-write boundary. |
 | `rollback_recovery_failed` | Reapplying the cutover revision after rollback did not converge and requalify cleanly. |
 | `kill_failed` | A dashboard-issued control did not terminate the target work, release its lease, append `killed`, appear over SSE, or leave zero worker/child residue. |

@@ -78,6 +78,14 @@ class Session16CutoverContract(unittest.TestCase):
             / "patchyard-backup.env.j2"
         ).read_text()
         self.assertIn("FACTORY_BACKUP_AGE_RECIPIENT", backup_env)
+        for variable in (
+            "factory_backup_runtime_access_key",
+            "factory_backup_runtime_secret_key",
+            "factory_backup_bucket",
+            "factory_backup_endpoint",
+            "factory_backup_age_recipient",
+        ):
+            self.assertIn(f"{{{{ {variable} | quote }}}}", backup_env)
         self.assertNotIn("IDENTITY", backup_env)
         self.assertIn("factory_backup_age_identity", self.spaces)
         self.assertIn("sensitive = true", self.spaces)
@@ -113,6 +121,18 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn(
             "status --porcelain --untracked-files=all --ignored",
             converge_hosts,
+        )
+
+    def test_qualification_inspects_an_instantiated_child_unit(self) -> None:
+        self.assertNotIn(
+            "systemctl show patchyard-child@.service", self.qualifier
+        )
+        self.assertEqual(
+            self.qualifier.count(
+                "systemctl show "
+                "patchyard-child@00000000000000000000000000000000.service"
+            ),
+            2,
         )
 
     def test_restore_verifies_ciphertext_payload_rows_and_files(self) -> None:

@@ -180,9 +180,11 @@ test "$(systemctl show factory-evidence-qualification.service \
   --property=RestrictAddressFamilies --value)" = AF_UNIX
 grep -Fxq 'RestrictNamespaces=~user' \
   /etc/systemd/system/patchyard-child@.service
-systemctl show patchyard-child@.service --property=ReadWritePaths --value \
+systemctl show patchyard-child@00000000000000000000000000000000.service \
+  --property=ReadWritePaths --value \
   | grep -Fq /var/lib/patchyard/supervisor/review-worktrees
-systemctl show patchyard-child@.service --property=ReadWritePaths --value \
+systemctl show patchyard-child@00000000000000000000000000000000.service \
+  --property=ReadWritePaths --value \
   | grep -Fq /var/lib/patchyard/supervisor/proposer-review-worktrees
 grep -Fq 'subject.user == "factory-manager"' \
   /etc/polkit-1/rules.d/49-patchyard-child.rules

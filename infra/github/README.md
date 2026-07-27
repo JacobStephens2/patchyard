@@ -11,7 +11,11 @@ but making an approval mandatory requires a separate ruling.
 
 The repository and existing branch rule must be imported before apply. The
 admin-scoped provider credential enters only as `GH_FACTORY_ADMIN_PAT`; the
-ordinary workflow/push PAT remains separate. If `master` has no protection rule,
+ordinary workflow/push PAT remains separate. Session 16 widens that PAT's
+repository selection to include `example-org/fieldbook` with
+Administration read/write so OpenTofu can own the marker rule; the secret is
+still supplied only through process environment and is not installed on a
+Factory host. If `master` has no protection rule,
 the import script adopts the repository and leaves the reviewed OpenTofu apply
 to create the rule rather than confusing absence with missing authority.
 

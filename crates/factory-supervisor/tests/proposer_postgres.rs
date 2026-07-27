@@ -465,6 +465,7 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
             review_worktree_root: repository.path().join("proposer-review-worktrees"),
             review_repository: repository.path().to_path_buf(),
             base_sha,
+            dual_human_review_enforced: true,
         },
     )?);
 
@@ -609,6 +610,82 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
     assert_eq!(production_cohort.production_run_count, 10);
     assert!(production_cohort.run_ids.contains(&tenth[0].1));
 
+    let gated_publisher = Arc::new(FixturePublisher::default());
+    let gated_engine = ImprovementProposer::new(
+        ProposerRunStore::new(runtime.clone()),
+        ArtifactStore::open(artifact_root.clone())?,
+        agent.clone(),
+        Arc::new(FixtureReviewer { finding: false }),
+        gated_publisher.clone(),
+        RoutingConfig::load(
+            &repository.path().join("policy/routing.json"),
+            &repository.path().join("docs/bench.json"),
+        )?,
+        ImprovementProposerConfig {
+            repository: repository.path().to_path_buf(),
+            ideas_path: ideas.clone(),
+            scratch: repository.path().join("gated-scratch"),
+            review_worktree_root: repository.path().join("gated-review-worktrees"),
+            review_repository: repository.path().to_path_buf(),
+            base_sha: git(repository.path(), &["rev-parse", "HEAD"]),
+            dual_human_review_enforced: false,
+        },
+    )?;
+    let calls_before_gate = agent.calls.load(Ordering::SeqCst);
+    assert!(matches!(
+        gated_engine
+            .run(at_threshold.clone(), &CancellationToken::new())
+            .await,
+        Err(ProposerError::DualHumanReviewNotEnforced)
+    ));
+    assert_eq!(agent.calls.load(Ordering::SeqCst), calls_before_gate);
+    assert_eq!(gated_publisher.published.load(Ordering::SeqCst), 0);
+    let gated_recovery_run = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO factory.proposer_runs (
+            id,state,base_sha,report_sha256,report_max_event_id,
+            prompt_bundle_sha256,branch,patch_sha256,reviewed_sha,
+            pr_title,pr_body,started_at
+        ) VALUES (
+            $1,'publishing',$2,decode($3,'hex'),$4,decode(repeat('1',64),'hex'),
+            'factory/proposer/gated-recovery',decode(repeat('2',64),'hex'),
+            repeat('a',40),'Policy: gated recovery','fixture',clock_timestamp()
+        )
+        "#,
+    )
+    .bind(gated_recovery_run)
+    .bind(git(repository.path(), &["rev-parse", "HEAD"]))
+    .bind(at_threshold.sha256()?)
+    .bind(at_threshold.snapshot_max_event_id)
+    .execute(&admin)
+    .await?;
+    *gated_publisher.reconciled.lock().expect("reconciled") =
+        Some(ReconciledPublication::Aborted {
+            run_id: gated_recovery_run,
+            observed_pull_request: None,
+        });
+    assert_eq!(
+        gated_engine
+            .run_from_ledger(&runtime, &CancellationToken::new())
+            .await?,
+        ProposerOutcome::Killed {
+            run_id: gated_recovery_run,
+        }
+    );
+    let gated_abort: bool =
+        sqlx::query_scalar("SELECT abort_requested FROM factory.proposer_runs WHERE id=$1")
+            .bind(gated_recovery_run)
+            .fetch_one(&admin)
+            .await?;
+    assert!(gated_abort);
+    let gated_state: String =
+        sqlx::query_scalar("SELECT state::text FROM factory.proposer_runs WHERE id=$1")
+            .bind(gated_recovery_run)
+            .fetch_one(&admin)
+            .await?;
+    assert_eq!(gated_state, "killed");
+
     let blocking_publisher = Arc::new(BlockingPublisher::default());
     let blocking_engine = Arc::new(ImprovementProposer::new(
         ProposerRunStore::new(runtime.clone()),
@@ -627,6 +704,7 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
             review_worktree_root: repository.path().join("blocking-review-worktrees"),
             review_repository: repository.path().to_path_buf(),
             base_sha: git(repository.path(), &["rev-parse", "HEAD"]),
+            dual_human_review_enforced: true,
         },
     )?);
     let blocked_attempt = tokio::spawn({
@@ -761,6 +839,7 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
             review_worktree_root: repository.path().join("adjudication-review-worktrees"),
             review_repository: repository.path().to_path_buf(),
             base_sha: git(repository.path(), &["rev-parse", "HEAD"]),
+            dual_human_review_enforced: true,
         },
     )?;
     assert!(matches!(

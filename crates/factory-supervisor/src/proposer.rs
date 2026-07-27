@@ -920,6 +920,7 @@ pub struct ImprovementProposerConfig {
     pub review_worktree_root: PathBuf,
     pub review_repository: PathBuf,
     pub base_sha: String,
+    pub dual_human_review_enforced: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1146,9 +1147,14 @@ impl ImprovementProposer {
         cancellation: &CancellationToken,
     ) -> Result<Option<ProposerOutcome>, ProposerError> {
         let full_stop = self.store.full_stop_active().await?;
-        if full_stop {
+        if full_stop || !self.config.dual_human_review_enforced {
+            let reason = if full_stop {
+                "full_stop_during_recovery"
+            } else {
+                "dual_human_review_not_enforced_during_recovery"
+            };
             self.store
-                .request_incomplete_publication_abort("full_stop_during_recovery")
+                .request_incomplete_publication_abort(reason)
                 .await?;
         }
         let full_stop_cancellation = CancellationToken::new();
@@ -1370,6 +1376,19 @@ impl ImprovementProposer {
             .cohorts
             .iter()
             .any(|cohort| cohort.eligible_for_policy_pr);
+        if threshold_reached && !self.config.dual_human_review_enforced {
+            let error = ProposerError::DualHumanReviewNotEnforced;
+            self.store
+                .transition(
+                    run_id,
+                    ProposerState::Proposing,
+                    ProposerState::PublicationFailed,
+                    "dual_human_review_not_enforced",
+                    serde_json::json!({"error": error.to_string()}),
+                )
+                .await?;
+            return Err(error);
+        }
         if threshold_reached {
             match self.publisher.has_open_proposer_pr(cancellation).await {
                 Ok(true) => {
@@ -3955,6 +3974,8 @@ pub enum ProposerError {
     GitObject(String),
     #[error("live proposer provider isolation is not A5-qualified")]
     LiveProviderNotQualified,
+    #[error("proposer-specific dual human review has not been separately authorized and attested")]
+    DualHumanReviewNotEnforced,
     #[error("proposer isolation probe did not prove the no-authority boundary")]
     IsolationProbe,
     #[error("proposer child returned fail-closed state {0:?}")]

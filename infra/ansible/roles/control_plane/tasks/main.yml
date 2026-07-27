@@ -152,6 +152,14 @@
     group: factory
     mode: "0750"
 
+- name: Create the root-controlled rollback state directory
+  ansible.builtin.file:
+    path: /var/lib/patchyard/control
+    state: directory
+    owner: root
+    group: factory
+    mode: "0750"
+
 - name: Create the dashboard-readable artifact root
   ansible.builtin.file:
     path: /var/lib/patchyard/artifacts
@@ -542,6 +550,13 @@
     group: root
     mode: "0600"
   no_log: true
+  when: not (factory_restore_drill | default(false) | bool)
+
+- name: Keep the delete-capable backup key off restore-drill disk
+  ansible.builtin.file:
+    path: /etc/patchyard/backup.env
+    state: absent
+  when: factory_restore_drill | default(false) | bool
 
 - name: Install the executable backup and restore contracts
   ansible.builtin.copy:

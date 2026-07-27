@@ -15,15 +15,19 @@ but no new required-approval count is introduced under A109.
 The cutover owns these production changes:
 
 1. converge the control plane and disposable worker from the reviewed commit;
-2. install the control-plane-local Fieldbook deploy marker source and protect
+2. restrict protected Factory `master` updates to Jacob or Engineer Two while
+   leaving required approvals at zero under A109, and preserve the false,
+   fail-closed proposer-specific F5 dual-review attestation until separately
+   ruled and installed;
+3. install the control-plane-local Fieldbook deploy marker source and protect
    `refs/heads/deploy/production` without depending on orchestration;
-3. expose the runtime proposer inbox at admin-only, read-only `GET /ideas`
+4. expose the runtime proposer inbox at admin-only, read-only `GET /ideas`
    through the existing untrusted-markdown filter;
-4. migrate or remove remaining orchestration-side factory records while
+5. migrate or remove remaining orchestration-side factory records while
    retaining only explicit pointers;
-5. install and operate runbook v0: operate, converge, replace, back up,
+6. install and operate runbook v0: operate, converge, replace, back up,
    restore, roll back, and kill; and
-6. execute the installed intake, replacement, backup/restore, rollback, kill,
+7. execute the installed intake, replacement, backup/restore, rollback, kill,
    and post-cutover smoke paths rather than accepting source descriptions.
 
 The Fieldbook deployment marker is not complete until the companion
@@ -32,6 +36,17 @@ orchestration change in
 is human-reviewed, merged, and installed. That pointer-only repository change
 advances the marker only after a successful production deploy and verifies the
 read-back SHA. Session 16 does not merge or install it for the human operator.
+
+### A103 executable namespace mapping
+
+A103 names the conceptual marker as `refs/deploy/production`. GitHub repository
+rules cannot protect that custom ref namespace, so the executable implementation
+uses the protectable branch `refs/heads/deploy/production` (branch pattern
+`deploy/production`). Every Factory reader, orchestration writer, OpenTofu rule,
+runbook command, and cutover check names that exact branch; no parallel
+unprotected `refs/deploy/production` ref is created. This is an intentional
+platform mapping from the ruling's wording, recorded here rather than silently
+discovered after cutover.
 
 Factory PR #51 must preserve its commits through the normal merge-commit path,
 not GitHub rebase-and-merge or squash. A manual fast-forward that preserves the
@@ -133,6 +148,8 @@ GitHub-hosted CI and local source checks can prove:
   `/decisions`;
 - A109 keeps the required-approval count unchanged and the factory has no
   merge API, while protected `master` allows only Jacob or Engineer Two to push;
+  the independently binding proposer F5 attestation remains false and prevents
+  scheduled or at-threshold policy publication;
   and
 - the complete application gate still passes formatting, clippy, tests,
   deterministic replay, release reproducibility, audit, deny, vet, model, and

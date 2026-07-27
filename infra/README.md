@@ -10,7 +10,7 @@ Ansible owns host configuration. No console edit is part of the operating path.
 | --- | --- | --- |
 | `digitalocean/` | two durable droplets, temporary restore-drill host, VPC placement, cloud firewalls, SSH identity, encrypted/versioned Spaces backup bucket, split management/runtime keys, recovery encryption key, inventory outputs | `factory/digitalocean/tofu.tfstate` |
 | `aws/` | A96 bucket configuration and IAM adoption, Route 53 lifecycle policy, `factory.example.com` | `factory/aws/tofu.tfstate` |
-| `github/` | repository settings and `master` branch protection | `factory/github/tofu.tfstate` |
+| `github/` | Factory repository settings and `master` branch protection, plus Fieldbook `deploy/production` marker protection | `factory/github/tofu.tfstate` |
 | `ansible/` | both Rocky 9 hosts, bootstrap/break-glass and factory-management identities, host firewall, exporters, control prerequisites, PostgreSQL/roles/migrations, Firecracker parity runtime and worker transient state | n/a |
 
 Each OpenTofu root pins OpenTofu 1.12.0 and its provider, enables native S3

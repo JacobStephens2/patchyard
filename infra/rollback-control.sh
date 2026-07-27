@@ -309,6 +309,7 @@ case "$MODE" in
     capture_durable_state "$address" "$target_state"
     [[ "$(unexpected_rollback_audits "$address" "$before_audit_max")" == 0 ]] || {
       echo 'rollback target emitted an audit action outside declarative account provisioning' >&2
+      evidence_verification_pending=true
       exit 3
     }
     deploy_and_qualify_revision "$return_revision" rollback-recovery

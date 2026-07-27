@@ -62,6 +62,7 @@ assert_path() {
 }
 
 assert_path /var/lib/patchyard root factory 750
+assert_path /var/lib/patchyard/control root factory 750
 assert_path /var/lib/patchyard/artifacts factory-manager factory-web 2750
 assert_path /var/lib/patchyard/artifacts/uploads factory-web factory-web 700
 assert_path /var/lib/patchyard/supervisor factory-manager factory 700
@@ -106,7 +107,13 @@ test -x /usr/local/bin/factory-evidence-qualify
 test -x /usr/local/sbin/patchyard-stage-evidence-qualification
 test -x /usr/local/libexec/patchyard-deployed-version
 test ! -e /usr/local/libexec/patchyard-deployed-version-unconfigured
-test ! -e /opt/patchyard/.local
+checkout_runtime_state=$(runuser -u factory-manager -- \
+  git -C /opt/patchyard status --porcelain --untracked-files=all --ignored)
+test -z "$checkout_runtime_state" || {
+  echo 'credential-free checkout contains untracked or ignored runtime state:' >&2
+  printf '%s\n' "$checkout_runtime_state" >&2
+  exit 1
+}
 test ! -e /usr/local/libexec/patchyard-headless
 test ! -e /usr/local/sbin/patchyard-preview-capture
 grep -Eq '^patchyard_parity_snapshot_age_days -?[0-9]+$' \

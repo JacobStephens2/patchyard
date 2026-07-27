@@ -22,6 +22,7 @@ class Session16CutoverContract(unittest.TestCase):
         cls.rollback_boundary = (
             ROOT / "infra" / "ansible" / "rollback-boundary.yml"
         ).read_text()
+        cls.qualifier = (FILES / "qualify-factory-control").read_text()
         cls.tasks = (
             ROOT
             / "infra"
@@ -80,6 +81,39 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertNotIn("IDENTITY", backup_env)
         self.assertIn("factory_backup_age_identity", self.spaces)
         self.assertIn("sensitive = true", self.spaces)
+
+    def test_restore_drill_receives_no_persistent_backup_delete_key(self) -> None:
+        backup_environment_task = self.tasks.split(
+            "- name: Install the bucket-scoped backup environment", maxsplit=1
+        )[1].split("\n- name:", maxsplit=1)[0]
+        self.assertIn(
+            "when: not (factory_restore_drill | default(false) | bool)",
+            backup_environment_task,
+        )
+        drill_absence_task = self.tasks.split(
+            "- name: Keep the delete-capable backup key off restore-drill disk",
+            maxsplit=1,
+        )[1].split("\n- name:", maxsplit=1)[0]
+        self.assertIn("path: /etc/patchyard/backup.env", drill_absence_task)
+        self.assertIn("state: absent", drill_absence_task)
+        self.assertIn(
+            "when: factory_restore_drill | default(false) | bool",
+            drill_absence_task,
+        )
+
+    def test_qualification_rejects_all_checkout_runtime_state(self) -> None:
+        self.assertIn(
+            "git -C /opt/patchyard status --porcelain --untracked-files=all --ignored",
+            self.qualifier,
+        )
+        self.assertIn('test -z "$checkout_runtime_state"', self.qualifier)
+        converge_hosts = (
+            FILES / "patchyard-converge-hosts"
+        ).read_text()
+        self.assertIn(
+            "status --porcelain --untracked-files=all --ignored",
+            converge_hosts,
+        )
 
     def test_restore_verifies_ciphertext_payload_rows_and_files(self) -> None:
         for required in (
@@ -195,6 +229,11 @@ class Session16CutoverContract(unittest.TestCase):
             "ConditionPathExists=!/var/lib/patchyard/control/rollback-boundary",
             self.rollback_boundary,
         )
+        self.assertIn("path: /var/lib/patchyard/control", self.tasks)
+        self.assertIn(
+            "assert_path /var/lib/patchyard/control root factory 750",
+            self.qualifier,
+        )
         self.assertGreaterEqual(
             self.rollback_boundary.count(
                 "/var/lib/patchyard/control/rollback-boundary"
@@ -222,6 +261,10 @@ class Session16CutoverContract(unittest.TestCase):
             self.rollback_operator,
         )
         self.assertIn("evidence_verification_pending=true", self.rollback_operator)
+        target_audit_refusal = self.rollback_operator.split(
+            "rollback target emitted an audit action", maxsplit=1
+        )[1].split("deploy_and_qualify_revision", maxsplit=1)[0]
+        self.assertIn("evidence_verification_pending=true", target_audit_refusal)
         self.assertIn(
             "rollback evidence did not verify; public boundary and reboot-durable backup exclusion remain in force for explicit release",
             self.rollback_operator,

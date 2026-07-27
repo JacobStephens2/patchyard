@@ -281,6 +281,12 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         }
     };
     let proposer_scheduling_enabled = bool_env("FACTORY_PROPOSER_SCHEDULING_ENABLED", false)?;
+    let proposer_dual_review_enforced = bool_env("FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED", false)?;
+    if proposer_scheduling_enabled && !proposer_dual_review_enforced {
+        return Err(BootstrapError::InvalidEnvironment(
+            "FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED",
+        ));
+    }
     let proposer_routing = routing.clone();
     let proposer_github = github_from_environment(scratch.join("proposer-github-private"))?;
     let proposer_store = ProposerRunStore::new(store.pool().clone());
@@ -331,6 +337,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
             review_worktree_root: scratch.join("proposer-review-worktrees"),
             review_repository: scratch.join("policy-publisher/factory-policy.git"),
             base_sha: required("FACTORY_PROPOSER_BASE_SHA")?,
+            dual_human_review_enforced: proposer_dual_review_enforced,
         },
     )?);
     let config = PipelineConfig {

@@ -8,7 +8,7 @@ FACTORY_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
 FACTORYCTL_BINARY=/usr/local/bin/factoryctl
 FACTORY_VERIFY_BINARY=/usr/local/bin/factory-verify
 
-if [[ -n "$(git -C "$REPO_ROOT" status --porcelain)" ]]; then
+if [[ -n "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=all --ignored)" ]]; then
   echo "control-plane converge requires a clean desired-state checkout" >&2
   exit 1
 fi

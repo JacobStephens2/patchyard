@@ -114,6 +114,19 @@ The second normal converge must show `changed=0` for both durable hosts. A
 check-mode difference is drift; inspect and encode the repair rather than
 editing the host.
 
+### A-14 credential rotation inventory
+
+This inventory contains no credential values. Rotation means creating or
+updating the credential, updating its stable 1Password reference when needed,
+relaunching the orchestration session when the value changed, proving the new
+authority, revoking its predecessor, and proving the predecessor fails. A
+vault update alone is not a completed rotation.
+
+| Credential | Current authority and dates | Review and rotation proof | Failure surface |
+| --- | --- | --- | --- |
+| DigitalOcean `conductor-v7`, `op://example-vault/digital-ocean/personal-access-token` | Replaced 2026-07-27; prior 33 scopes plus `spaces_key:create_credentials`, `spaces_key:read`, `spaces_key:delete`, and `account:read`; approximate expiry 2026-09-27. | Review 2026-08-27 and rotate no later than 2026-09-20. Current proof-of-life is HTTP 200 from `/v2/account` plus the reviewed Spaces bootstrap and apply. `conductor-v5` and `conductor-v6` are revoked; the recorded old-token `/v2/spaces/keys` response had the API's unauthorized 404 shape. A 401 from a process launched before replacement means relaunch through `codex-orchestrate`, not scope widening. | Fails mid-converge, not at plan time, when DigitalOcean or Spaces authority is first exercised; source checks do not prove the live credential. |
+| GitHub `patchyard-admin-pat`, `op://example-vault/patchyard-github-app/patchyard-admin-pat` | Scope-edited in place 2026-07-27; repository access is exactly `example-org/fieldbook` and `JacobStephens2/patchyard`, with Administration read/write and metadata read, no organization permissions; expires 2026-10-19. | Review 2026-09-19 and rotate no later than 2026-10-12. Current proof-of-life is exact repository/admin visibility plus the reviewed GitHub protection apply. The 2026-07-27 edit retained the same credential, so there is no dead predecessor to test; the next value rotation must revoke the old value and prove an administration read fails before closure. No relaunch was needed for the in-place scope edit. | Fails mid-converge, not at plan time, at the GitHub protection apply; source checks and the earlier provider plans do not prove its live repository administration authority. |
+
 ## Replace the worker
 
 The worker has no durable state and receives no backup restore:

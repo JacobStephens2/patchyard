@@ -6,6 +6,10 @@ terraform {
       source  = "digitalocean/digitalocean"
       version = "= 2.95.0"
     }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "= 4.1.0"
+    }
   }
 
   backend "s3" {
@@ -48,4 +52,23 @@ variable "state_encryption_passphrase" {
   ephemeral   = true
 }
 
-provider "digitalocean" {}
+variable "spaces_management_access_key" {
+  description = "Full-access Spaces management key read from encrypted state after its one-time targeted bootstrap."
+  type        = string
+  sensitive   = true
+  ephemeral   = true
+  default     = null
+}
+
+variable "spaces_management_secret_key" {
+  description = "Full-access Spaces management secret read from encrypted state after its one-time targeted bootstrap."
+  type        = string
+  sensitive   = true
+  ephemeral   = true
+  default     = null
+}
+
+provider "digitalocean" {
+  spaces_access_id  = var.spaces_management_access_key
+  spaces_secret_key = var.spaces_management_secret_key
+}

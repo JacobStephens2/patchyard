@@ -28,6 +28,18 @@ variable "worker_size" {
   default     = "s-8vcpu-16gb"
 }
 
+variable "restore_drill_enabled" {
+  description = "Create the explicitly temporary clean-host recovery drill target."
+  type        = bool
+  default     = false
+}
+
+variable "restore_drill_size" {
+  description = "Temporary clean-host restore capacity."
+  type        = string
+  default     = "s-2vcpu-4gb"
+}
+
 variable "management_ssh_public_key" {
   description = "Versioned public half of the orchestration bootstrap/break-glass identity; private material stays on orchestration and is never used by factory runtime paths."
   type        = string

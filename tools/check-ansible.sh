@@ -23,7 +23,17 @@ shellcheck --exclude=SC2329 --shell=bash \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-run-session14-qualification" \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-stage-session14-qualification" \
   "$ANSIBLE_ROOT/roles/control_plane/files/qualify-factory-session14" \
-  "$ANSIBLE_ROOT/converge-session14.sh"
+  "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-backup" \
+  "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-restore" \
+  "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-restore-evidence-probe" \
+  "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-deployed-version" \
+  "$ANSIBLE_ROOT/converge-session14.sh" \
+  "$ANSIBLE_ROOT/converge.sh" \
+  "$REPO_ROOT/infra/plan.sh" \
+  "$REPO_ROOT/infra/tofu.sh" \
+  "$REPO_ROOT/infra/replace-worker.sh" \
+  "$REPO_ROOT/infra/restore-drill.sh" \
+  "$REPO_ROOT/infra/rollback-control.sh"
 
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
   -s "$ANSIBLE_ROOT/tests" -v
@@ -31,5 +41,10 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 cd "$ANSIBLE_ROOT"
 ansible-lint site.yml
 ansible-lint preview.yml
+ansible-lint restore.yml
+ansible-lint rollback-boundary.yml
 ansible-playbook --syntax-check -i inventory/ci.yml site.yml
 ansible-playbook --syntax-check -i inventory/ci.yml -i inventory/preview.yml preview.yml
+ansible-playbook --syntax-check -i inventory/ci.yml restore.yml
+ansible-playbook --syntax-check -i inventory/ci.yml rollback-boundary.yml \
+  -e factory_rollback_boundary=enter

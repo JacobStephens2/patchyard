@@ -1,0 +1,240 @@
+---
+- name: Wait for the clean recovery host
+  hosts: control_plane
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Refuse restore outside the generated drill inventory
+      ansible.builtin.assert:
+        that:
+          - factory_restore_drill | default(false) | bool
+          - factory_restore_expected_host is defined
+          - factory_restore_expected_droplet_id is defined
+          - ansible_host == factory_restore_expected_host
+        fail_msg: >-
+          restore.yml is drill-only and requires its generated inventory and
+          explicit target binding before any service or data change
+
+    - name: Wait for SSH after drill-host creation
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        timeout: 600
+
+    - name: Wait for cloud-init to release package management
+      ansible.builtin.command:
+        argv: [cloud-init, status, --wait]
+      changed_when: false
+
+    - name: Read the target DigitalOcean droplet identity
+      ansible.builtin.uri:
+        url: http://169.254.169.254/metadata/v1/id
+        return_content: true
+      register: restore_droplet_metadata
+      changed_when: false
+
+    - name: Bind restore to the planned ephemeral droplet
+      ansible.builtin.assert:
+        that:
+          - >-
+            restore_droplet_metadata.content | trim ==
+            (factory_restore_expected_droplet_id | string)
+        fail_msg: >-
+          restore.yml target is not the reviewed ephemeral DigitalOcean
+          droplet; no provisioning or data mutation began
+
+- name: Provision and restore the clean recovery host
+  hosts: control_plane
+  become: true
+  gather_facts: true
+  roles:
+    - role: common
+    - role: exporters
+    - role: control_plane
+  tasks:
+    - name: Stop every writer before replacing clean migrated state
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop:
+        - factory-supervisor.service
+        - factory-dashboard.service
+        - patchyard-backup.timer
+
+    - name: Install the ephemeral recovery identity
+      ansible.builtin.copy:
+        content: "{{ factory_backup_age_identity }}\n"
+        dest: /run/patchyard-backup-age-identity
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: Exercise recovery with guaranteed private-key cleanup
+      block:
+        - name: Restore the encrypted generation and verify counts and hashes
+          ansible.builtin.command:
+            argv:
+              - /usr/local/sbin/patchyard-restore
+              - --generation
+              - "{{ factory_restore_generation }}"
+              - --identity-file
+              - /run/patchyard-backup-age-identity
+              - --database
+              - patchyard
+              - --artifact-root
+              - /var/lib/patchyard/artifacts
+              - --runtime-root
+              - /var/lib/patchyard/proposer-inbox
+          environment:
+            AWS_ACCESS_KEY_ID: "{{ factory_backup_runtime_access_key }}"
+            AWS_SECRET_ACCESS_KEY: "{{ factory_backup_runtime_secret_key }}"
+            AWS_DEFAULT_REGION: us-east-1
+            AWS_EC2_METADATA_DISABLED: "true"
+            FACTORY_BACKUP_BUCKET: "{{ factory_backup_bucket }}"
+            FACTORY_BACKUP_ENDPOINT: "{{ factory_backup_endpoint }}"
+            PATCHYARD_RESTORE_PRODUCTION: "yes"
+          register: restore_result
+          changed_when: true
+          no_log: true
+
+        - name: Preserve the non-secret restore result
+          ansible.builtin.copy:
+            dest: /var/lib/patchyard/restore-drill-result.txt
+            content: "{{ restore_result.stdout }}\n"
+            owner: root
+            group: root
+            mode: "0600"
+          no_log: true
+      always:
+        - name: Remove the recovery identity after decryption
+          ansible.builtin.file:
+            path: /run/patchyard-backup-age-identity
+            state: absent
+
+    - name: Reapply the declarative runtime grants after data restore
+      ansible.builtin.command:
+        argv:
+          - psql
+          - "--host={{ postgresql_socket_directory }}"
+          - --dbname=patchyard
+          - --set=ON_ERROR_STOP=1
+          - --file=/usr/local/share/patchyard/postgresql/postgresql-grants.sql
+      become: true
+      become_user: postgres
+      changed_when: false
+
+    - name: Exercise the restored Grafana canary-content boundary
+      ansible.builtin.command:
+        argv:
+          - psql
+          - "--host={{ postgresql_socket_directory }}"
+          - --dbname=patchyard
+          - --tuples-only
+          - --no-align
+          - --set=ON_ERROR_STOP=1
+          - >-
+            --command=BEGIN; INSERT INTO factory.requests
+            (id,fingerprint,source,body,trace_id) VALUES
+            ('61000000-0000-4000-8000-000000000001',
+            decode(repeat('61',32),'hex'),'restore-canary',
+            'RESTORE_GRAFANA_REQUEST_CANARY',
+            '61000000000000000000000000000001'); INSERT INTO factory.artifacts
+            (id,request_id,path,sha256,kind) VALUES
+            ('61000000-0000-4000-8000-000000000002',
+            '61000000-0000-4000-8000-000000000001',
+            'RESTORE_GRAFANA_ARTIFACT_CANARY',decode(repeat('62',32),'hex'),
+            'restore-canary'); SET LOCAL ROLE grafana_ro;
+            SELECT jsonb_build_object('requests',COALESCE((SELECT
+            jsonb_agg(to_jsonb(summary)) FROM factory.grafana_request_summary
+            summary),'[]'::jsonb),'runs',COALESCE((SELECT
+            jsonb_agg(to_jsonb(metrics)) FROM factory.grafana_run_metrics
+            metrics),'[]'::jsonb))::text; ROLLBACK;
+      become_user: postgres
+      become: true
+      register: restored_grafana_canary
+      changed_when: false
+      failed_when: >-
+        restored_grafana_canary.rc != 0 or
+        'RESTORE_GRAFANA_REQUEST_CANARY' in restored_grafana_canary.stdout or
+        'RESTORE_GRAFANA_ARTIFACT_CANARY' in restored_grafana_canary.stdout
+
+    - name: Start only the recovered read application
+      ansible.builtin.systemd:
+        name: factory-dashboard.service
+        enabled: true
+        state: restarted
+        daemon_reload: true
+
+    - name: Wait for the recovered application health endpoint
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --fail
+          - --silent
+          - --unix-socket
+          - /run/patchyard-dashboard/dashboard.sock
+          - http://localhost/healthz
+      register: recovered_health
+      retries: 20
+      delay: 1
+      until: recovered_health.rc == 0
+      changed_when: false
+
+    - name: Create a drill-only admin after count verification
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/factoryctl
+          - account
+          - provision
+          - --username=restore-drill@example.com
+          - --display-name=Restore Drill
+          - --role=factory-admin
+        stdin: "{{ factory_restore_probe_password }}"
+        stdin_add_newline: false
+      become: true
+      become_user: "{{ factory_manager_user }}"
+      environment:
+        DATABASE_URL: >-
+          postgresql:///patchyard?host={{ postgresql_socket_directory }}&user=patchyard_migrator&sslmode=disable
+      changed_when: true
+      no_log: true
+
+    - name: Install the historical evidence recovery probe
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/roles/control_plane/files/patchyard-restore-evidence-probe"
+        dest: /usr/local/sbin/patchyard-restore-evidence-probe
+        owner: root
+        group: root
+        mode: "0750"
+
+    - name: Exercise recovered evidence with guaranteed password cleanup
+      block:
+        - name: Install the ephemeral evidence-probe password
+          ansible.builtin.copy:
+            dest: /run/patchyard-restore-probe-password
+            content: "{{ factory_restore_probe_password }}"
+            owner: root
+            group: root
+            mode: "0600"
+          no_log: true
+
+        - name: Open and hash a historical run evidence response
+          ansible.builtin.command:
+            argv:
+              - /usr/local/sbin/patchyard-restore-evidence-probe
+              - restore-drill@example.com
+              - /run/patchyard-restore-probe-password
+          register: evidence_probe
+          changed_when: false
+      always:
+        - name: Remove the ephemeral evidence-probe password
+          ansible.builtin.file:
+            path: /run/patchyard-restore-probe-password
+            state: absent
+
+    - name: Report the exercised clean-host recovery facts
+      ansible.builtin.debug:
+        msg:
+          - "restore result preserved at /var/lib/patchyard/restore-drill-result.txt"
+          - "{{ evidence_probe.stdout }}"

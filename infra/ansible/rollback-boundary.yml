@@ -1,0 +1,176 @@
+---
+- name: Maintain the rollback no-writer boundary
+  hosts: control_plane
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Require an explicit rollback-boundary transition
+      ansible.builtin.assert:
+        that:
+          - factory_rollback_boundary in ['enter', 'exit']
+
+    - name: Enter the rollback boundary without racing scheduled backup
+      when: factory_rollback_boundary == 'enter'
+      block:
+        - name: Install the reboot-durable backup exclusion directory
+          ansible.builtin.file:
+            path: /etc/systemd/system/patchyard-backup.service.d
+            state: directory
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Install the reboot-durable rollback backup exclusion
+          ansible.builtin.copy:
+            dest: /etc/systemd/system/patchyard-backup.service.d/rollback-boundary.conf
+            owner: root
+            group: root
+            mode: "0644"
+            content: |
+              [Unit]
+              ConditionPathExists=!/var/lib/patchyard/control/rollback-boundary
+
+        - name: Create the persistent rollback-boundary sentinel
+          ansible.builtin.file:
+            path: /var/lib/patchyard/control/rollback-boundary
+            state: touch
+            owner: factory-manager
+            group: factory-manager
+            mode: "0600"
+
+        - name: Activate the reboot-durable backup exclusion
+          ansible.builtin.systemd:
+            daemon_reload: true
+
+        - name: Stop scheduled backup before checking the writer boundary
+          ansible.builtin.systemd:
+            name: patchyard-backup.timer
+            state: stopped
+
+        - name: Read active backup state
+          ansible.builtin.command:
+            argv:
+              - systemctl
+              - is-active
+              - patchyard-backup.service
+          register: rollback_backup_state
+          changed_when: false
+          failed_when: false
+
+        - name: Read the durable full-stop and active-work state
+          ansible.builtin.command:
+            argv:
+              - psql
+              - --no-psqlrc
+              - --host=/run/patchyard-postgres
+              - --dbname=patchyard
+              - --tuples-only
+              - --no-align
+              - >-
+                --command=SELECT concat(CASE WHEN full_stop THEN 1 ELSE 0 END,
+                ':', (SELECT count(*) FROM factory.runs WHERE state NOT IN
+                ('ready_for_review','dry_run_complete','failed','killed','closed',
+                'escalated','ci_failed','ci_cancelled','ci_job_timed_out',
+                'ci_action_required','ci_neutral','ci_skipped','ci_stale',
+                'ci_startup_failed','ci_wait_timed_out','ci_observation_failed',
+                'preview_failed','preview_timed_out','preview_sha_changed',
+                'evidence_failed','secret_scan_failed','lease_cleanup_failed',
+                'pr_contract_failed')) + (SELECT count(*) FROM
+                factory.proposer_runs WHERE state IN
+                ('queued','reporting','proposing','reviewing','publishing')))
+                FROM factory.supervisor_state WHERE singleton
+          become_user: postgres
+          become: true
+          register: rollback_runtime_state
+          changed_when: false
+
+        - name: Require full stop, zero active work, and no active backup
+          ansible.builtin.assert:
+            that:
+              - rollback_runtime_state.stdout | trim == '1:0'
+              - rollback_backup_state.stdout | trim == 'inactive'
+            fail_msg: >-
+              rollback_busy: use dashboard Full stop, wait for zero active
+              production/proposer work and backup completion, then retry
+
+        - name: Block public dashboard writes across rollback convergence
+          ansible.posix.firewalld:
+            zone: public
+            rich_rule: >-
+              rule priority="-100" family="ipv4"
+              port port="{{ item }}" protocol="tcp" reject
+            state: enabled
+            permanent: true
+            immediate: true
+          loop:
+            - "80"
+            - "443"
+      rescue:
+        - name: Remove any partial public rollback boundary
+          ansible.posix.firewalld:
+            zone: public
+            rich_rule: >-
+              rule priority="-100" family="ipv4"
+              port port="{{ item }}" protocol="tcp" reject
+            state: disabled
+            permanent: true
+            immediate: true
+          loop:
+            - "80"
+            - "443"
+          failed_when: false
+
+        - name: Remove any partial reboot-durable backup exclusion
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /var/lib/patchyard/control/rollback-boundary
+            - /etc/systemd/system/patchyard-backup.service.d/rollback-boundary.conf
+
+        - name: Reload systemd after removing the refused backup exclusion
+          ansible.builtin.systemd:
+            daemon_reload: true
+
+        - name: Restore scheduled backup after refused boundary entry
+          ansible.builtin.systemd:
+            name: patchyard-backup.timer
+            state: started
+
+        - name: Report refused rollback boundary
+          ansible.builtin.fail:
+            msg: rollback_busy or rollback-boundary application failed safely
+
+    - name: Remove the reboot-durable rollback backup exclusion
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/lib/patchyard/control/rollback-boundary
+        - /etc/systemd/system/patchyard-backup.service.d/rollback-boundary.conf
+      when: factory_rollback_boundary == 'exit'
+
+    - name: Reload systemd after releasing the backup exclusion
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: factory_rollback_boundary == 'exit'
+
+    - name: Restore scheduled backup before reopening public intake
+      ansible.builtin.systemd:
+        name: patchyard-backup.timer
+        state: started
+      when: factory_rollback_boundary == 'exit'
+
+    - name: Exit the public rollback boundary
+      ansible.posix.firewalld:
+        zone: public
+        rich_rule: >-
+          rule priority="-100" family="ipv4"
+          port port="{{ item }}" protocol="tcp" reject
+        state: disabled
+        permanent: true
+        immediate: true
+      loop:
+        - "80"
+        - "443"
+      when: factory_rollback_boundary == 'exit'

@@ -63,6 +63,25 @@ resource "digitalocean_droplet" "worker" {
   }
 }
 
+resource "digitalocean_droplet" "restore_drill" {
+  count = var.restore_drill_enabled ? 1 : 0
+
+  name     = "factory-restore-drill.example.com"
+  region   = var.region
+  size     = var.restore_drill_size
+  image    = var.image
+  vpc_uuid = data.digitalocean_vpc.factory.id
+  ssh_keys = [digitalocean_ssh_key.management.id]
+  # The temporary drill must not enter production tag-based monitoring or
+  # automation while its edge and writers are deliberately disabled.
+  tags          = []
+  user_data     = local.cloud_init
+  backups       = false
+  monitoring    = true
+  droplet_agent = true
+  ipv6          = false
+}
+
 resource "digitalocean_firewall" "control_plane" {
   name        = "patchyard-control-plane"
   droplet_ids = [digitalocean_droplet.control_plane.id]
@@ -147,6 +166,36 @@ resource "digitalocean_firewall" "worker" {
     protocol         = "tcp"
     port_range       = "9187"
     source_addresses = [var.monitoring_private_cidr]
+  }
+
+  outbound_rule {
+    protocol              = "tcp"
+    port_range            = "all"
+    destination_addresses = ["0.0.0.0/0", "::/0"]
+  }
+
+  outbound_rule {
+    protocol              = "udp"
+    port_range            = "all"
+    destination_addresses = ["0.0.0.0/0", "::/0"]
+  }
+
+  outbound_rule {
+    protocol              = "icmp"
+    destination_addresses = ["0.0.0.0/0", "::/0"]
+  }
+}
+
+resource "digitalocean_firewall" "restore_drill" {
+  count = var.restore_drill_enabled ? 1 : 0
+
+  name        = "patchyard-restore-drill"
+  droplet_ids = [digitalocean_droplet.restore_drill[0].id]
+
+  inbound_rule {
+    protocol         = "tcp"
+    port_range       = "22"
+    source_addresses = [var.orchestration_public_cidr]
   }
 
   outbound_rule {

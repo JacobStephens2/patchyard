@@ -37,6 +37,18 @@ case "$TOFU_ROOT" in
   digitalocean)
     : "${DO_API_TOKEN:?missing DigitalOcean provider token}"
     export DIGITALOCEAN_TOKEN="$DO_API_TOKEN"
+    if [[ -z "${TF_VAR_spaces_management_access_key:-}" ]]; then
+      TF_VAR_spaces_management_access_key=$(
+        tofu -chdir="$TOFU_DIR" output -raw factory_backup_management_access_key 2>/dev/null || true
+      )
+      export TF_VAR_spaces_management_access_key
+    fi
+    if [[ -z "${TF_VAR_spaces_management_secret_key:-}" ]]; then
+      TF_VAR_spaces_management_secret_key=$(
+        tofu -chdir="$TOFU_DIR" output -raw factory_backup_management_secret_key 2>/dev/null || true
+      )
+      export TF_VAR_spaces_management_secret_key
+    fi
     ;;
   aws)
     : "${ROUTE53_AWS_ACCESS_KEY_ID:=$PROVIDER_AWS_ACCESS_KEY_ID}"
@@ -60,5 +72,17 @@ case "$TOFU_ROOT" in
     export GITHUB_TOKEN="$GITHUB_PROVIDER_TOKEN"
     ;;
 esac
+
+if [[ "$TOFU_ROOT" == digitalocean && "${1:-}" == apply ]]; then
+  state_list=$(tofu -chdir="$TOFU_DIR" state list) || {
+    echo 'DigitalOcean apply refused because restore-drill state could not be inspected' >&2
+    exit 2
+  }
+  if grep -Fxq 'digitalocean_droplet.restore_drill[0]' <<<"$state_list" \
+    && [[ "${PATCHYARD_RESTORE_DRILL_APPLY:-}" != destroy ]]; then
+    echo 'DigitalOcean apply refused while the restore drill exists; only the address-pinned restore-drill destroy path is allowed' >&2
+    exit 2
+  fi
+fi
 
 exec tofu -chdir="$TOFU_DIR" "$@"

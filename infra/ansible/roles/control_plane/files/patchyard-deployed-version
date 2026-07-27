@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+readonly repository='example-org/fieldbook'
+readonly marker_api_path='heads/deploy/production'
+readonly marker_source='github-deploy-marker:refs/heads/deploy/production'
+readonly api_base='https://api.github.com'
+
+: "${GH_PATCHYARD_APP_ID:?missing GitHub App ID}"
+: "${GH_PATCHYARD_APP_INSTALLATION_ID:?missing GitHub App installation ID}"
+: "${GH_PATCHYARD_APP_PRIVATE_KEY_FILE:?missing GitHub App private key path}"
+[[ -f "$GH_PATCHYARD_APP_PRIVATE_KEY_FILE" ]] || {
+  echo 'GitHub App private key is not a regular file' >&2
+  exit 20
+}
+
+base64url() {
+  openssl base64 -A | tr '+/' '-_' | tr -d '='
+}
+
+now=$(date +%s)
+header=$(printf '%s' '{"alg":"RS256","typ":"JWT"}' | base64url)
+payload=$(jq -cn \
+  --argjson issued_at "$((now - 60))" \
+  --argjson expires_at "$((now + 540))" \
+  --arg issuer "$GH_PATCHYARD_APP_ID" \
+  '{iat:$issued_at,exp:$expires_at,iss:$issuer}' | base64url)
+unsigned_token="$header.$payload"
+signature=$(printf '%s' "$unsigned_token" \
+  | openssl dgst -sha256 -sign "$GH_PATCHYARD_APP_PRIVATE_KEY_FILE" -binary \
+  | base64url)
+app_jwt="$unsigned_token.$signature"
+
+curl_with_bearer() {
+  local bearer=$1
+  shift
+  [[ "$bearer" =~ ^[A-Za-z0-9._-]+$ ]] || {
+    echo 'refusing malformed bearer token' >&2
+    return 20
+  }
+  printf 'header = "Authorization: Bearer %s"\n' "$bearer" \
+    | curl --config - --connect-timeout 10 --max-time 30 "$@"
+}
+
+mint_response=$(curl_with_bearer "$app_jwt" \
+  --fail --silent --show-error --request POST \
+  --header 'Accept: application/vnd.github+json' \
+  --header 'X-GitHub-Api-Version: 2022-11-28' \
+  --data '{"repositories":["fieldbook"],"permissions":{"contents":"read"}}' \
+  "$api_base/app/installations/$GH_PATCHYARD_APP_INSTALLATION_ID/access_tokens")
+installation_token=$(jq -er \
+  'if (.permissions.contents == "read" and (.repositories | length) == 1 and .repositories[0].full_name == "example-org/fieldbook") then .token else error("unexpected installation scope") end' \
+  <<<"$mint_response")
+
+marker_response=$(curl_with_bearer "$installation_token" \
+  --fail --silent --show-error \
+  --header 'Accept: application/vnd.github+json' \
+  --header 'X-GitHub-Api-Version: 2022-11-28' \
+  "$api_base/repos/$repository/git/ref/$marker_api_path")
+deployed_sha=$(jq -er \
+  'if (.ref == "refs/heads/deploy/production" and .object.type == "commit" and (.object.sha | test("^[0-9a-f]{40}$"))) then .object.sha else error("invalid deploy marker") end' \
+  <<<"$marker_response")
+
+jq -cn \
+  --arg repository "$repository" \
+  --arg deployed_sha "$deployed_sha" \
+  --arg observed_at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+  --arg source "$marker_source" \
+  '{schema_version:1,repository:$repository,deployed_sha:$deployed_sha,observed_at:$observed_at,source:$source}'

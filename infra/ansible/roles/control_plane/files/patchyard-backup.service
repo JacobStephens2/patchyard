@@ -1,0 +1,21 @@
+[Unit]
+Description=Patchyard Factory encrypted off-host backup
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=/etc/patchyard/backup.env
+ExecStart=/usr/local/sbin/patchyard-backup
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/patchyard/backups
+NoNewPrivileges=true
+LockPersonality=true
+RestrictSUIDSGID=true

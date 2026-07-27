@@ -31,6 +31,12 @@ struct Cli {
         default_value = "/var/lib/patchyard/artifacts"
     )]
     artifact_root: PathBuf,
+    #[arg(
+        long,
+        env = "FACTORY_IDEAS_PATH",
+        default_value = "/var/lib/patchyard/proposer-inbox/docs/ideas.md"
+    )]
+    ideas_path: PathBuf,
 }
 
 #[tokio::main]
@@ -47,7 +53,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let listener = UnixListener::bind(&cli.socket)?;
     tokio::fs::set_permissions(&cli.socket, std::fs::Permissions::from_mode(0o660)).await?;
     let store = DashboardStore::connect(&cli.database_url).await?;
-    let state = AppState::load(store.clone(), cli.checkout_root, cli.artifact_root).await?;
+    let state = AppState::load(
+        store.clone(),
+        cli.checkout_root,
+        cli.artifact_root,
+        cli.ideas_path,
+    )
+    .await?;
     tracing::info!(socket = %cli.socket.display(), "factory dashboard listening");
     let server = axum::serve(listener, router(state)).with_graceful_shutdown(shutdown_signal());
     let result = server.await;

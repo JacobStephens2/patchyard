@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+readonly socket='/run/patchyard-dashboard/dashboard.sock'
+readonly database_socket='/run/patchyard-postgres'
+readonly artifact_root='/var/lib/patchyard/artifacts'
+readonly username=${1:?restore probe username is required}
+readonly password_file=${2:?restore probe password file is required}
+[[ -f "$password_file" ]] || exit 2
+password=$(<"$password_file")
+readonly password
+
+probe_root=$(mktemp -d /var/tmp/patchyard-evidence-probe.XXXXXX)
+trap 'rm -r -- "$probe_root"' EXIT
+
+artifact_row=$(runuser -u postgres -- psql --no-psqlrc \
+  --host="$database_socket" --dbname=patchyard --tuples-only --no-align \
+  --field-separator=$'\t' --command="
+    SELECT run_id::text, path, encode(sha256, 'hex')
+    FROM factory.artifacts
+    WHERE run_id IS NOT NULL
+      AND regexp_replace(path, '^.*/', '') ~ '^[A-Za-z0-9._-]{1,128}$'
+    ORDER BY created_at DESC
+  " | while IFS=$'\t' read -r run_id path sha256; do
+    [[ "$path" != /* && "$path" != *'..'* && -f "$artifact_root/$path" ]] || continue
+    printf '%s\t%s\t%s\n' "$run_id" "$path" "$sha256"
+    break
+  done)
+[[ -n "$artifact_row" ]] || {
+  echo 'restored backup has no openable historical run evidence' >&2
+  exit 40
+}
+IFS=$'\t' read -r run_id path expected_sha256 <<<"$artifact_row"
+name=${path##*/}
+
+curl --fail --silent --show-error --dump-header "$probe_root/login.headers" \
+  --output "$probe_root/login.html" --unix-socket "$socket" http://localhost/login
+login_cookie=$(tr -d '\r' <"$probe_root/login.headers" \
+  | sed -n 's/^set-cookie: __Host-factory_login=\([^;]*\).*/\1/ip' | head -n 1)
+csrf=$(sed -n 's/.*name="csrf_token" value="\([^"]*\)".*/\1/p' \
+  "$probe_root/login.html" | head -n 1)
+[[ -n "$login_cookie" && -n "$csrf" ]] || exit 41
+
+login_status=$(curl --silent --show-error --dump-header "$probe_root/session.headers" \
+  --output /dev/null --write-out '%{http_code}' --request POST \
+  --cookie "__Host-factory_login=$login_cookie" \
+  --unix-socket "$socket" --config - http://localhost/login <<CURL_CONFIG
+data-urlencode = "csrf_token=$csrf"
+data-urlencode = "username=$username"
+data-urlencode = "password=$password"
+CURL_CONFIG
+)
+[[ "$login_status" == 302 ]] || {
+  echo "restore evidence login returned HTTP $login_status" >&2
+  exit 41
+}
+session_cookie=$(tr -d '\r' <"$probe_root/session.headers" \
+  | sed -n 's/^set-cookie: __Host-factory_session=\([^;]*\).*/\1/ip' | head -n 1)
+[[ -n "$session_cookie" ]] || exit 41
+
+evidence_status=$(curl --silent --show-error --output "$probe_root/evidence" \
+  --write-out '%{http_code}' --cookie "__Host-factory_session=$session_cookie" \
+  --unix-socket "$socket" "http://localhost/evidence/$run_id/$name")
+[[ "$evidence_status" == 200 ]] || {
+  echo "historical evidence route returned HTTP $evidence_status" >&2
+  exit 42
+}
+actual_sha256=$(sha256sum "$probe_root/evidence" | cut -d' ' -f1)
+[[ "$actual_sha256" == "$expected_sha256" ]] || {
+  echo 'historical evidence response hash mismatch' >&2
+  exit 42
+}
+printf 'historical_evidence_opened run_id=%s name=%s sha256=%s\n' \
+  "$run_id" "$name" "$actual_sha256"

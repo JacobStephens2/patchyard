@@ -110,6 +110,7 @@ async fn harness(hostile_body: &str) -> Result<Option<Harness>, Box<dyn Error>> 
         store,
         checkout.path().to_path_buf(),
         artifacts.path().to_path_buf(),
+        checkout.path().join("runtime-ideas.md"),
     )
     .await?;
     Ok(Some(Harness {
@@ -226,6 +227,7 @@ async fn exact_route_by_role_matrix() -> Result<(), Box<dyn Error>> {
             200,
         ),
         route(Method::GET, "/decisions", 302, 200, 200),
+        route(Method::GET, "/ideas", 302, 403, 200),
         route(Method::GET, "/bench", 302, 403, 200),
         route(Method::GET, "/schema", 302, 403, 200),
         route(Method::GET, "/model", 302, 200, 200),
@@ -299,6 +301,32 @@ async fn exact_route_by_role_matrix() -> Result<(), Box<dyn Error>> {
             .iter()
             .any(|action| action == "reconcile.queued")
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn ideas_is_runtime_backed_and_uses_the_governance_content_filter()
+-> Result<(), Box<dyn Error>> {
+    let Some(harness) = harness("ideas projection fixture").await? else {
+        return Ok(());
+    };
+    let admin = seed_identity(&harness.admin, AccountRole::Admin).await?;
+    let response = call(
+        &harness.app,
+        Method::GET,
+        "/ideas",
+        Some(&admin),
+        FormKind::None,
+    )
+    .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(response.into_body().collect().await?.to_bytes().to_vec())?;
+    assert!(html.contains("Runtime ideas"));
+    assert!(html.contains("href=\"https://example.test\""));
+    assert!(html.contains("pixel"));
+    assert!(!html.contains("<script>"));
+    assert!(!html.contains("data:image"));
+    assert!(!html.contains("<img"));
     Ok(())
 }
 
@@ -1165,6 +1193,10 @@ fn fixture_checkout() -> Result<TempDir, Box<dyn Error>> {
     fs::write(
         root.path().join("docs/decision-log.md"),
         "| ID | Decision |\n| --- | --- |\n| A53 | scribe |\n",
+    )?;
+    fs::write(
+        root.path().join("runtime-ideas.md"),
+        "# Runtime ideas\n\n[safe](https://example.test)\n\n<script>bad()</script>\n\n![pixel](data:image/png;base64,AA==)\n",
     )?;
     fs::write(
         root.path().join("docs/codebase-metrics.json"),

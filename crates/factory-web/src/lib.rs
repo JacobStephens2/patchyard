@@ -100,6 +100,7 @@ pub struct AppState {
     pub store: DashboardStore,
     pub checkout_root: PathBuf,
     pub artifact_root: PathBuf,
+    pub ideas_path: PathBuf,
     upload_storage: UploadStorage,
     decode_slots: Arc<tokio::sync::Semaphore>,
     dummy_password_hash: String,
@@ -111,6 +112,7 @@ impl AppState {
         store: DashboardStore,
         checkout_root: PathBuf,
         artifact_root: PathBuf,
+        ideas_path: PathBuf,
     ) -> Result<Self, AppError> {
         let model = read_model(&checkout_root).await?;
         let dummy_password_hash = tokio::task::spawn_blocking(auth::dummy_password_hash).await??;
@@ -121,6 +123,7 @@ impl AppState {
             store,
             checkout_root,
             artifact_root,
+            ideas_path,
             upload_storage,
             decode_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DECODES)),
             dummy_password_hash,
@@ -133,6 +136,7 @@ impl AppState {
         store: DashboardStore,
         checkout_root: PathBuf,
         artifact_root: PathBuf,
+        ideas_path: PathBuf,
         dummy_password_hash: String,
         actor_by_stage: BTreeMap<String, String>,
     ) -> Self {
@@ -142,6 +146,7 @@ impl AppState {
             store,
             checkout_root,
             artifact_root,
+            ideas_path,
             upload_storage,
             decode_slots: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DECODES)),
             dummy_password_hash,
@@ -168,6 +173,7 @@ pub fn router(state: AppState) -> Router {
         .route("/upload/{id}", get(upload))
         .route("/evidence/{run_id}/{name}", get(evidence))
         .route("/decisions", get(decisions))
+        .route("/ideas", get(ideas))
         .route("/bench", get(bench))
         .route("/schema", get(schema))
         .route("/model", get(model))
@@ -1301,6 +1307,29 @@ async fn decisions(State(state): State<AppState>, headers: HeaderMap) -> Respons
     .await
 }
 
+async fn ideas(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let authenticated = match require_auth(&state, &headers, Access::Admin).await {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let source = match tokio::fs::read_to_string(&state.ideas_path).await {
+        Ok(value) => value,
+        Err(error) => return internal_error(error).await,
+    };
+    let html = match tokio::task::spawn_blocking(move || markdown_without_raw_html(&source)).await {
+        Ok(value) => value,
+        Err(error) => return internal_error(error).await,
+    };
+    render_page(
+        IdeasTemplate {
+            chrome: chrome(&authenticated),
+            ideas_html: html,
+        },
+        None,
+    )
+    .await
+}
+
 async fn bench(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let authenticated = match require_auth(&state, &headers, Access::Admin).await {
         Ok(value) => value,
@@ -1981,6 +2010,13 @@ struct DecisionsTemplate {
 }
 
 #[derive(Template)]
+#[template(path = "ideas.html")]
+struct IdeasTemplate {
+    chrome: PageChrome,
+    ideas_html: String,
+}
+
+#[derive(Template)]
 #[template(path = "bench.html")]
 struct BenchTemplate {
     chrome: PageChrome,
@@ -2039,6 +2075,7 @@ impl_nonce!(
     ReceiptTemplate,
     DetailTemplate,
     DecisionsTemplate,
+    IdeasTemplate,
     BenchTemplate,
     SchemaTemplate,
     ModelTemplate,
@@ -2233,6 +2270,7 @@ mod tests {
             store,
             PathBuf::from("../.."),
             PathBuf::from("/tmp/patchyard-test-artifacts"),
+            PathBuf::from("/dev/null"),
             hash_password("test-dummy-password-long-enough").expect("hash"),
             BTreeMap::new(),
         )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.machinery
 from pathlib import Path
+import sys
 import unittest
 
 
@@ -14,6 +15,7 @@ SCRIPT = (
     / "files"
     / "patchyard-log-secret-scan"
 )
+sys.dont_write_bytecode = True
 loader = importlib.machinery.SourceFileLoader("patchyard_log_secret_scan", str(SCRIPT))
 scan_module = loader.load_module()
 

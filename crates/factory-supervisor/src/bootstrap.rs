@@ -3,6 +3,7 @@
 use std::{
     collections::BTreeMap,
     env,
+    ffi::OsString,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -280,12 +281,6 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         }
     };
     let proposer_scheduling_enabled = bool_env("FACTORY_PROPOSER_SCHEDULING_ENABLED", false)?;
-    let proposer_dual_review_enforced = bool_env("FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED", false)?;
-    if proposer_scheduling_enabled && !proposer_dual_review_enforced {
-        return Err(BootstrapError::InvalidEnvironment(
-            "FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED",
-        ));
-    }
     let proposer_routing = routing.clone();
     let proposer_github = github_from_environment(scratch.join("proposer-github-private"))?;
     let proposer_store = ProposerRunStore::new(store.pool().clone());
@@ -336,7 +331,6 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
             review_worktree_root: scratch.join("proposer-review-worktrees"),
             review_repository: scratch.join("policy-publisher/factory-policy.git"),
             base_sha: required("FACTORY_PROPOSER_BASE_SHA")?,
-            dual_human_review_enforced: proposer_dual_review_enforced,
         },
     )?);
     let config = PipelineConfig {
@@ -410,6 +404,14 @@ fn deployed_version_config() -> Result<DeployedVersionConfig, BootstrapError> {
     Ok(DeployedVersionConfig {
         program: required_path("FACTORY_DEPLOYED_VERSION_PROGRAM")?,
         arguments: os_args_json("FACTORY_DEPLOYED_VERSION_ARGUMENTS_JSON")?,
+        environment: [
+            "GH_PATCHYARD_APP_ID",
+            "GH_PATCHYARD_APP_INSTALLATION_ID",
+            "GH_PATCHYARD_APP_PRIVATE_KEY_FILE",
+        ]
+        .into_iter()
+        .map(|name| Ok((OsString::from(name), OsString::from(required(name)?))))
+        .collect::<Result<Vec<_>, BootstrapError>>()?,
         timeout: duration_env("FACTORY_DEPLOYED_VERSION_TIMEOUT_SECONDS", 30)?,
         output_limit: usize_env("FACTORY_DEPLOYED_VERSION_OUTPUT_BYTES", 64 * 1024)?,
     })
@@ -418,6 +420,11 @@ fn deployed_version_config() -> Result<DeployedVersionConfig, BootstrapError> {
 fn github_from_environment(scratch: PathBuf) -> Result<Arc<GhGitHub>, BootstrapError> {
     Ok(Arc::new(GhGitHub::new(GhGitHubConfig {
         gh_program: path_env("FACTORY_GH_PROGRAM", "/bin/gh"),
+        xdg_state_home: path_env(
+            "XDG_STATE_HOME",
+            "/var/lib/patchyard/supervisor/xdg-state",
+        ),
+        gh_config_dir: path_env("GH_CONFIG_DIR", "/var/lib/patchyard/supervisor/gh-config"),
         curl_program: path_env("FACTORY_CURL_PROGRAM", "/bin/curl"),
         openssl_program: path_env("FACTORY_OPENSSL_PROGRAM", "/bin/openssl"),
         app_id: u64_env("GH_PATCHYARD_APP_ID")?,

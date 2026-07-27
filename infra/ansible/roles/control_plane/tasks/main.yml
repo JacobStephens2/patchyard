@@ -8,6 +8,8 @@
   ansible.builtin.dnf:
     name:
       - "{{ chromium_nevra }}"
+      - "{{ age_nevra }}"
+      - "{{ awscli_nevra }}"
       - bubblewrap
       - fontconfig
       - git
@@ -145,6 +147,14 @@
 - name: Create the factory state root
   ansible.builtin.file:
     path: /var/lib/patchyard
+    state: directory
+    owner: root
+    group: factory
+    mode: "0750"
+
+- name: Create the root-controlled rollback state directory
+  ansible.builtin.file:
+    path: /var/lib/patchyard/control
     state: directory
     owner: root
     group: factory
@@ -505,6 +515,81 @@
     group: root
     mode: "0755"
 
+- name: Require the encrypted off-host backup bootstrap inputs
+  ansible.builtin.assert:
+    that:
+      - factory_backup_bucket is defined
+      - factory_backup_bucket == 'patchyard-backups'
+      - factory_backup_endpoint is defined
+      - factory_backup_endpoint is match('^https://[a-z0-9.-]+$')
+      - factory_backup_runtime_access_key is defined
+      - factory_backup_runtime_access_key | length > 0
+      - factory_backup_runtime_secret_key is defined
+      - factory_backup_runtime_secret_key | length > 0
+      - factory_backup_age_recipient is defined
+      - factory_backup_age_recipient is match('^ssh-ed25519 ')
+    fail_msg: "Use converge.sh after applying the reviewed backup storage plan."
+  no_log: true
+
+- name: Create the root-private backup state
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop:
+    - /var/lib/patchyard/backups
+    - /var/lib/patchyard/backups/generations
+
+- name: Install the bucket-scoped backup environment
+  ansible.builtin.template:
+    src: patchyard-backup.env.j2
+    dest: /etc/patchyard/backup.env
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: not (factory_restore_drill | default(false) | bool)
+
+- name: Keep the delete-capable backup key off restore-drill disk
+  ansible.builtin.file:
+    path: /etc/patchyard/backup.env
+    state: absent
+  when: factory_restore_drill | default(false) | bool
+
+- name: Install the executable backup and restore contracts
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/usr/local/sbin/{{ item }}"
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - patchyard-backup
+    - patchyard-restore
+
+- name: Install the daily backup units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - patchyard-backup.service
+    - patchyard-backup.timer
+
+- name: Enable the daily encrypted backup timer
+  ansible.builtin.systemd:
+    name: patchyard-backup.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - not (factory_restore_drill | default(false) | bool)
+    - not (factory_rollback_boundary | default(false) | bool)
+
 - name: Publish the non-secret PostgreSQL TLS trust root
   ansible.builtin.copy:
     src: "{{ postgresql_tls_directory }}/server.crt"
@@ -850,6 +935,7 @@
     factory_dashboard_accounts: >-
       {{ lookup('ansible.builtin.file', factory_dashboard_accounts_file) | from_json }}
   no_log: true
+  when: not (factory_restore_drill | default(false) | bool)
 
 - name: Require the ruled Git-controlled dashboard identity roster
   ansible.builtin.assert:
@@ -901,6 +987,7 @@
         | length == 1
   loop: "{{ factory_dashboard_accounts }}"
   no_log: true
+  when: not (factory_restore_drill | default(false) | bool)
 
 - name: Provision factory-native dashboard accounts
   ansible.builtin.command:
@@ -921,6 +1008,7 @@
   loop: "{{ factory_dashboard_accounts }}"
   no_log: true
   changed_when: false
+  when: not (factory_restore_drill | default(false) | bool)
 
 - name: Install PostgreSQL TLS expiry metric generator
   ansible.builtin.template:
@@ -988,6 +1076,7 @@
     group: "{{ factory_manager_user }}"
     mode: "0440"
   no_log: true
+  when: not (factory_restore_drill | default(false) | bool)
 
 - name: Create Caddy service group
   ansible.builtin.group:
@@ -1190,13 +1279,22 @@
     mode: "0750"
   tags: [session13]
 
+- name: Create the traversable manager-owned proposer runtime root
+  ansible.builtin.file:
+    path: /var/lib/patchyard/proposer-inbox
+    state: directory
+    owner: "{{ factory_manager_user }}"
+    group: factory
+    mode: "0750"
+  tags: [session15]
+
 - name: Create the manager-owned proposer ideas projection
   ansible.builtin.file:
     path: /var/lib/patchyard/proposer-inbox/docs
     state: directory
     owner: "{{ factory_manager_user }}"
-    group: "{{ factory_manager_user }}"
-    mode: "0700"
+    group: factory
+    mode: "0750"
   tags: [session15]
 
 - name: Seed the append-only proposer ideas projection without overwriting observations
@@ -1205,8 +1303,8 @@
     remote_src: true
     dest: /var/lib/patchyard/proposer-inbox/docs/ideas.md
     owner: "{{ factory_manager_user }}"
-    group: "{{ factory_manager_user }}"
-    mode: "0600"
+    group: factory
+    mode: "0640"
     force: false
   tags: [session15]
 
@@ -1351,12 +1449,33 @@
 
 - name: Install the explicit fail-closed deployed-version source
   ansible.builtin.copy:
-    src: patchyard-deployed-version-unconfigured
-    dest: /usr/local/libexec/patchyard-deployed-version-unconfigured
+    src: patchyard-deployed-version
+    dest: /usr/local/libexec/patchyard-deployed-version
     owner: root
     group: root
     mode: "0755"
   notify: Restart factory supervisor
+
+- name: Remove the superseded fail-closed deployed-version stub
+  ansible.builtin.file:
+    path: /usr/local/libexec/patchyard-deployed-version-unconfigured
+    state: absent
+
+- name: Create private GitHub CLI runtime-state roots outside the checkout
+  ansible.builtin.file:
+    path: "/var/lib/patchyard/supervisor/{{ item }}"
+    state: directory
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
+    mode: "0700"
+  loop:
+    - xdg-state
+    - gh-config
+
+- name: Remove superseded GitHub CLI state from the credential-free checkout
+  ansible.builtin.file:
+    path: /opt/patchyard/.local
+    state: absent
 
 - name: Install the factory dashboard systemd unit
   ansible.builtin.copy:
@@ -1382,6 +1501,7 @@
     enabled: true
     state: started
     daemon_reload: true
+  when: not (factory_restore_drill | default(false) | bool)
 
 - name: Create the Caddy configuration directory
   ansible.builtin.file:
@@ -1434,6 +1554,7 @@
     enabled: true
     state: started
     daemon_reload: true
+  when: not (factory_restore_drill | default(false) | bool)
 
 - name: Install the Session 9 dry-run supervisor environment
   ansible.builtin.template:
@@ -1444,6 +1565,15 @@
     mode: "0640"
   notify: Restart factory supervisor
   tags: [session13]
+
+- name: Install the deployed-version operator environment allowlist
+  ansible.builtin.template:
+    src: patchyard-deployed-version.env.j2
+    dest: /etc/patchyard/deployed-version.env
+    owner: root
+    group: "{{ factory_manager_user }}"
+    mode: "0640"
+  tags: [session16]
 
 - name: Install the fixed A104 isolated-child operations
   ansible.builtin.copy:
@@ -1604,6 +1734,7 @@
     state: started
     daemon_reload: true
   tags: [session13]
+  when: not (factory_restore_drill | default(false) | bool)
 
 - name: Apply pending Session 13 service restarts before qualification
   ansible.builtin.meta: flush_handlers
@@ -1625,6 +1756,7 @@
       - "{{ factory_repo_revision }}"
   changed_when: false
   tags: [session13]
+  when: not (factory_restore_drill | default(false) | bool)
 
 - name: Install the fixed Session 14 lifecycle qualification operations
   ansible.builtin.copy:
@@ -1672,6 +1804,7 @@
       - "{{ factory_repo_revision }}"
   changed_when: false
   tags: [session14]
+  when: not (factory_restore_drill | default(false) | bool)
 
 - name: Publish the expected PHPUnit checksum to the verifier coordinator
   ansible.builtin.copy:

@@ -50,8 +50,15 @@ async fn form_notify_claim_and_factoryctl_pause_are_one_durable_path() -> Result
     fs::create_dir(&upload_root)?;
     fs::set_permissions(&upload_root, fs::Permissions::from_mode(0o700))?;
     let dashboard = DashboardStore::connect(&dashboard_url).await?;
-    let app =
-        router(AppState::load(dashboard, checkout, artifact_root.path().to_path_buf()).await?);
+    let app = router(
+        AppState::load(
+            dashboard,
+            checkout.clone(),
+            artifact_root.path().to_path_buf(),
+            checkout.join("docs/ideas.md"),
+        )
+        .await?,
+    );
     let mut listener = PgListener::connect(&supervisor_url).await?;
     listener.listen("factory_intake").await?;
     listener.listen("factory_control").await?;
@@ -185,13 +192,43 @@ async fn account_disable_enable_and_reset_revoke_sessions_and_audit() -> Result<
     assert!(provision.status.success(), "{provision:?}");
     assert!(!String::from_utf8_lossy(&provision.stdout).contains(initial_password));
 
-    let (user_id, password_hash, session_version): (Uuid, String, i64) = sqlx::query_as(
-        "SELECT id,password_hash,session_version FROM factory.users WHERE username=$1",
+    let (user_id, password_hash, session_version, updated_at): (
+        Uuid,
+        String,
+        i64,
+        time::OffsetDateTime,
+    ) = sqlx::query_as(
+        "SELECT id,password_hash,session_version,updated_at FROM factory.users WHERE username=$1",
     )
     .bind(&username)
     .fetch_one(&admin)
     .await?;
     assert!(verify_password(initial_password, &password_hash));
+    let duplicate = account_command(
+        &admin_url,
+        [
+            "provision",
+            "--username",
+            &username,
+            "--display-name",
+            "Account fixture",
+            "--role",
+            "factory-admin",
+        ],
+        Some("account-fixture-duplicate-password"),
+    )
+    .await?;
+    assert!(duplicate.status.success(), "{duplicate:?}");
+    assert!(String::from_utf8_lossy(&duplicate.stdout).contains("unchanged"));
+    let (duplicate_updated_at, provision_audits): (time::OffsetDateTime, i64) =
+        sqlx::query_as(
+            "SELECT updated_at,(SELECT count(*) FROM factory.audit_events WHERE user_id=$1 AND action='account.provisioned') FROM factory.users WHERE id=$1",
+        )
+        .bind(user_id)
+        .fetch_one(&admin)
+        .await?;
+    assert_eq!(duplicate_updated_at, updated_at);
+    assert_eq!(provision_audits, 1);
     let first_session = seed_account_session(&admin, user_id, session_version).await?;
 
     let disable = account_command(&admin_url, ["disable", "--username", &username], None).await?;

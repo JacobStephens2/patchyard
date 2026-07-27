@@ -56,10 +56,43 @@ jq -e '
   exit 1
 }
 
+FACTORY_BACKUP_BUCKET=$("$REPO_ROOT/infra/tofu.sh" digitalocean output -raw factory_backup_bucket)
+FACTORY_BACKUP_ENDPOINT=$("$REPO_ROOT/infra/tofu.sh" digitalocean output -raw factory_backup_endpoint)
+FACTORY_BACKUP_RUNTIME_ACCESS_KEY=$(
+  "$REPO_ROOT/infra/tofu.sh" digitalocean output -raw factory_backup_runtime_access_key
+)
+FACTORY_BACKUP_RUNTIME_SECRET_KEY=$(
+  "$REPO_ROOT/infra/tofu.sh" digitalocean output -raw factory_backup_runtime_secret_key
+)
+FACTORY_BACKUP_AGE_RECIPIENT=$(
+  "$REPO_ROOT/infra/tofu.sh" digitalocean output -raw factory_backup_age_recipient
+)
+[[ "$FACTORY_BACKUP_BUCKET" == patchyard-backups \
+  && "$FACTORY_BACKUP_ENDPOINT" == https://* \
+  && -n "$FACTORY_BACKUP_RUNTIME_ACCESS_KEY" \
+  && -n "$FACTORY_BACKUP_RUNTIME_SECRET_KEY" \
+  && "$FACTORY_BACKUP_AGE_RECIPIENT" == ssh-ed25519\ * ]] || {
+  echo "backup storage outputs are incomplete; apply the reviewed DigitalOcean plan first" >&2
+  exit 1
+}
+
 CONVERGE_TEMP=$(mktemp -d /tmp/patchyard-converge.XXXXXX)
 trap 'rm -r -- "$CONVERGE_TEMP"' EXIT
 FACTORY_BUNDLE="$CONVERGE_TEMP/factory.bundle"
 git -C "$REPO_ROOT" bundle create "$FACTORY_BUNDLE" --all
+BACKUP_VARS_FILE="$CONVERGE_TEMP/backup-vars.json"
+export FACTORY_BACKUP_BUCKET FACTORY_BACKUP_ENDPOINT
+export FACTORY_BACKUP_RUNTIME_ACCESS_KEY FACTORY_BACKUP_RUNTIME_SECRET_KEY
+export FACTORY_BACKUP_AGE_RECIPIENT
+jq -n '{
+  factory_backup_bucket:env.FACTORY_BACKUP_BUCKET,
+  factory_backup_endpoint:env.FACTORY_BACKUP_ENDPOINT,
+  factory_backup_runtime_access_key:env.FACTORY_BACKUP_RUNTIME_ACCESS_KEY,
+  factory_backup_runtime_secret_key:env.FACTORY_BACKUP_RUNTIME_SECRET_KEY,
+  factory_backup_age_recipient:env.FACTORY_BACKUP_AGE_RECIPIENT
+}' >"$BACKUP_VARS_FILE"
+chmod 0600 "$BACKUP_VARS_FILE"
+unset FACTORY_BACKUP_RUNTIME_ACCESS_KEY FACTORY_BACKUP_RUNTIME_SECRET_KEY
 
 "$CARGO_BIN" build --locked --release \
   --package factoryctl --package factory-verify --package factory-supervisor \
@@ -103,4 +136,5 @@ cd "$ANSIBLE_ROOT"
   -e "factory_github_app_id=$GH_PATCHYARD_APP_ID" \
   -e "factory_github_app_installation_id=$GH_PATCHYARD_APP_INSTALLATION_ID" \
   -e "factory_github_app_private_key_file=$GH_PATCHYARD_APP_PRIVATE_KEY_FILE" \
+  -e "@$BACKUP_VARS_FILE" \
   "$@"

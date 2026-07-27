@@ -315,6 +315,8 @@ pub trait PublishService: Send + Sync {
 #[derive(Clone, Debug)]
 pub struct GhGitHubConfig {
     pub gh_program: PathBuf,
+    pub xdg_state_home: PathBuf,
+    pub gh_config_dir: PathBuf,
     pub curl_program: PathBuf,
     pub openssl_program: PathBuf,
     pub app_id: u64,
@@ -338,6 +340,9 @@ impl GhGitHub {
         validate_slug_github("GitHub App slug", &config.app_slug)?;
         if config.timeout.is_zero() || config.timeout > Duration::from_secs(300) {
             return Err(GitHubError::InvalidConfig("GitHub timeout"));
+        }
+        if !config.xdg_state_home.is_absolute() || !config.gh_config_dir.is_absolute() {
+            return Err(GitHubError::InvalidConfig("GitHub private state roots"));
         }
         Ok(Self { config })
     }
@@ -501,6 +506,14 @@ impl GhGitHub {
             (OsString::from("GH_TOKEN"), OsString::from(token)),
             (OsString::from("GH_HOST"), OsString::from("github.com")),
             (OsString::from("GH_PROMPT_DISABLED"), OsString::from("1")),
+            (
+                OsString::from("XDG_STATE_HOME"),
+                self.config.xdg_state_home.as_os_str().to_owned(),
+            ),
+            (
+                OsString::from("GH_CONFIG_DIR"),
+                self.config.gh_config_dir.as_os_str().to_owned(),
+            ),
         ];
         spec.timeout = self.config.timeout;
         spec.output_limit = MAX_GITHUB_OUTPUT;

@@ -205,9 +205,10 @@ artifacts, and the runtime ideas projection, reapplies grants, and verifies
 every manifest count and digest. It then starts the dashboard only, creates a
 drill-only admin after count verification, authenticates through the real
 login route, opens one historical run evidence route, and verifies the response
-hash. controller-side recovery credentials are staged only in a mode-0700
-directory under `/dev/shm` and removed by the operator trap; the recovery key
-and probe password are removed from the target's `/run` afterward.
+hash. controller-side recovery credentials are passed only through the
+attended Ansible process environment, never staged in a controller file or
+placed in argv; the recovery key and probe password are removed from the
+target's `/run` afterward.
 Its first tasks bind the generated drill flag and public IP to the planned
 DigitalOcean droplet ID read from the provider metadata endpoint; running the
 play against normal production or a caller-spoofed inventory refuses before
@@ -269,6 +270,12 @@ construction. The earliest safe Session 16 rollback anchor is
 human-reviewed and merged. Use it or a later compatible merged revision. A
 target rejected by this preflight ends as `rollback_target_refused` before the
 public boundary or any host mutation.
+
+PR #51 must be merged with a merge commit (the repository's established
+practice) or rebased with its commits preserved, never squash-merged. A squash
+would omit the declared anchor from `origin/master`, and the operator correctly
+refuses any target that is not its ancestor. Before the drill, independently
+prove `git merge-base --is-ancestor 7b032c7 origin/master` succeeds.
 
 Before creating or applying the rollback manifest, use the dashboard `Full
 stop` and wait until the dashboard shows no active production or proposer run.

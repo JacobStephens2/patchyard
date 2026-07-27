@@ -93,7 +93,7 @@
 
     - name: Install the ephemeral recovery identity
       ansible.builtin.copy:
-        src: "{{ factory_backup_age_identity_file }}"
+        content: "{{ factory_backup_age_identity }}\n"
         dest: /run/patchyard-backup-age-identity
         owner: root
         group: root

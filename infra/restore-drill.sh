@@ -75,8 +75,7 @@ case "$MODE" in
     orchestration_public_cidr=$(jq -er '.all.vars.orchestration_public_cidr' <<<"$live_inventory")
 
     drill_root=$(mktemp -d /tmp/patchyard-restore-drill.XXXXXX)
-    secret_root=$(mktemp -d /dev/shm/patchyard-restore-secrets.XXXXXX)
-    trap 'rm -r -- "$drill_root" "$secret_root"' EXIT
+    trap 'rm -r -- "$drill_root"' EXIT
     inventory_file="$drill_root/inventory.json"
     jq -n \
       --arg restore_ip "$restore_ip" --arg restore_private_ip "$restore_private_ip" \
@@ -88,10 +87,7 @@ case "$MODE" in
       '{all:{vars:{ansible_user:"conductor",ansible_ssh_private_key_file:"/var/lib/conductor/.ssh/id_ed25519",monitoring_private_cidr:$monitoring_private_cidr,orchestration_public_cidr:$orchestration_public_cidr,control_plane_private_cidr:$control_private_cidr},children:{control_plane:{hosts:{"factory-restore-drill.example.com":{ansible_host:$restore_ip,private_ip:$restore_private_ip,factory_role:"control-plane"}}},worker:{hosts:{($worker_host):{ansible_host:$worker_ip,private_ip:$worker_private_ip,factory_role:"worker"}}}}}}' \
       >"$inventory_file"
 
-    identity_file="$secret_root/age-identity"
-    "$REPO_ROOT/infra/tofu.sh" digitalocean output -raw factory_backup_age_identity \
-      >"$identity_file"
-    chmod 0600 "$identity_file"
+    backup_identity=$("$REPO_ROOT/infra/tofu.sh" digitalocean output -raw factory_backup_age_identity)
     backup_access=$("$REPO_ROOT/infra/tofu.sh" digitalocean output -raw factory_backup_runtime_access_key)
     backup_secret=$("$REPO_ROOT/infra/tofu.sh" digitalocean output -raw factory_backup_runtime_secret_key)
     backup_bucket=$("$REPO_ROOT/infra/tofu.sh" digitalocean output -raw factory_backup_bucket)
@@ -106,14 +102,7 @@ case "$MODE" in
       --package factoryctl --package factory-verify --package factory-supervisor \
       --package factory-web
     revision=$(git -C "$REPO_ROOT" rev-parse HEAD)
-    extra_vars="$secret_root/extra-vars.json"
-    export ETA_RESTORE_IDENTITY_FILE="$identity_file"
-    export ETA_RESTORE_BACKUP_ACCESS="$backup_access"
-    export ETA_RESTORE_BACKUP_SECRET="$backup_secret"
-    export ETA_RESTORE_BACKUP_BUCKET="$backup_bucket"
-    export ETA_RESTORE_BACKUP_ENDPOINT="$backup_endpoint"
-    export ETA_RESTORE_BACKUP_RECIPIENT="$backup_recipient"
-    export ETA_RESTORE_PROBE_PASSWORD="$probe_password"
+    extra_vars="$drill_root/extra-vars.json"
     jq -n \
       --arg bundle "$bundle_file" --arg revision "$revision" \
       --arg generation "$generation" \
@@ -126,7 +115,10 @@ case "$MODE" in
       --arg installation_id "$GH_PATCHYARD_APP_INSTALLATION_ID" \
       --arg restore_expected_host "$restore_ip" \
       --arg restore_droplet_id "$restore_droplet_id" \
-      '{factory_restore_drill:true,factory_restore_expected_host:$restore_expected_host,factory_restore_expected_droplet_id:$restore_droplet_id,factory_restore_generation:$generation,factory_backup_age_identity_file:env.ETA_RESTORE_IDENTITY_FILE,factory_backup_runtime_access_key:env.ETA_RESTORE_BACKUP_ACCESS,factory_backup_runtime_secret_key:env.ETA_RESTORE_BACKUP_SECRET,factory_backup_bucket:env.ETA_RESTORE_BACKUP_BUCKET,factory_backup_endpoint:env.ETA_RESTORE_BACKUP_ENDPOINT,factory_backup_age_recipient:env.ETA_RESTORE_BACKUP_RECIPIENT,factory_restore_probe_password:env.ETA_RESTORE_PROBE_PASSWORD,factory_repo_bundle:$bundle,factory_repo_revision:$revision,factoryctl_binary:$factoryctl,factory_verify_binary:$factory_verify,factory_supervisor_binary:$factory_supervisor,factory_evidence_qualify_binary:$evidence_qualify,factory_web_binary:$factory_web,factory_dashboard_accounts_file:"/dev/null",factory_github_app_private_key_file:"/dev/null",factory_github_app_id:$app_id,factory_github_app_installation_id:$installation_id}' \
+      --arg backup_bucket "$backup_bucket" \
+      --arg backup_endpoint "$backup_endpoint" \
+      --arg backup_recipient "$backup_recipient" \
+      '{factory_restore_drill:true,factory_restore_expected_host:$restore_expected_host,factory_restore_expected_droplet_id:$restore_droplet_id,factory_restore_generation:$generation,factory_backup_age_identity:"{{ lookup(\"env\", \"ETA_RESTORE_IDENTITY\") }}",factory_backup_runtime_access_key:"{{ lookup(\"env\", \"ETA_RESTORE_BACKUP_ACCESS\") }}",factory_backup_runtime_secret_key:"{{ lookup(\"env\", \"ETA_RESTORE_BACKUP_SECRET\") }}",factory_backup_bucket:$backup_bucket,factory_backup_endpoint:$backup_endpoint,factory_backup_age_recipient:$backup_recipient,factory_restore_probe_password:"{{ lookup(\"env\", \"ETA_RESTORE_PROBE_PASSWORD\") }}",factory_repo_bundle:$bundle,factory_repo_revision:$revision,factoryctl_binary:$factoryctl,factory_verify_binary:$factory_verify,factory_supervisor_binary:$factory_supervisor,factory_evidence_qualify_binary:$evidence_qualify,factory_web_binary:$factory_web,factory_dashboard_accounts_file:"/dev/null",factory_github_app_private_key_file:"/dev/null",factory_github_app_id:$app_id,factory_github_app_installation_id:$installation_id}' \
       >"$extra_vars"
     for binary in factoryctl factory-verify factory-supervisor factory-evidence-qualify factory-web; do
       key=$(tr '-' '_' <<<"$binary")_sha256
@@ -135,11 +127,16 @@ case "$MODE" in
       mv "$extra_vars.next" "$extra_vars"
     done
     chmod 0600 "$extra_vars"
-    unset ETA_RESTORE_BACKUP_ACCESS ETA_RESTORE_BACKUP_SECRET ETA_RESTORE_PROBE_PASSWORD
-
     ansible_playbook="$ANSIBLE_ROOT/.venv/bin/ansible-playbook"
     [[ -x "$ansible_playbook" ]] || ansible_playbook=ansible-playbook
-    (cd "$ANSIBLE_ROOT" && "$ansible_playbook" -i "$inventory_file" restore.yml -e "@$extra_vars")
+    (
+      cd "$ANSIBLE_ROOT"
+      ETA_RESTORE_IDENTITY="$backup_identity" \
+      ETA_RESTORE_BACKUP_ACCESS="$backup_access" \
+      ETA_RESTORE_BACKUP_SECRET="$backup_secret" \
+      ETA_RESTORE_PROBE_PASSWORD="$probe_password" \
+        "$ansible_playbook" -i "$inventory_file" restore.yml -e "@$extra_vars"
+    )
     ;;
   plan-destroy)
     require_clean_revision

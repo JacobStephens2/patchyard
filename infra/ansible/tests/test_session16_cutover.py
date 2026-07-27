@@ -116,7 +116,8 @@ class Session16CutoverContract(unittest.TestCase):
         )
         self.assertIn("restore_target_refused", self.restore_play)
         self.assertIn("clean_restore_targets.results[0].matched == 0", self.restore_play)
-        self.assertIn("/dev/shm/patchyard-restore-secrets", self.restore_operator)
+        self.assertIn('lookup(\\"env\\", \\"ETA_RESTORE_IDENTITY\\")', self.restore_operator)
+        self.assertNotIn("factory_backup_age_identity_file", self.restore_operator)
         self.assertIn("routine DigitalOcean plan refused while the restore drill exists", self.plan_operator)
 
     def test_rollback_binds_live_revision_and_verifies_durable_state(self) -> None:
@@ -150,6 +151,10 @@ class Session16CutoverContract(unittest.TestCase):
         )
         self.assertIn("rollback-emergency-recovery", self.rollback_operator)
         self.assertIn("qualification_migration_count", self.rollback_operator)
+        rollback_deploy = self.rollback_operator.split(
+            "deploy_and_qualify_revision() {", maxsplit=1
+        )[1].split("stable_durable_state() {", maxsplit=1)[0]
+        self.assertGreaterEqual(rollback_deploy.count("|| return"), 6)
         self.assertIn(
             "public boundary and backup-timer stop remain in force",
             self.rollback_operator,

@@ -33,6 +33,11 @@ is human-reviewed, merged, and installed. That pointer-only repository change
 advances the marker only after a successful production deploy and verifies the
 read-back SHA. Session 16 does not merge or install it for the human operator.
 
+Factory PR #51 must preserve its commits through the normal merge-commit path
+(or rebase), not squash. The rollback drill's exact target is the intermediate
+reviewed anchor `7b032c7c7ceb7c427cf5e73c43e2116acaf5614a`; automatic rollback
+requires that object to be an ancestor of merged `origin/master`.
+
 ## Before-state inventory
 
 The read-only preflight on 2026-07-26 observed:

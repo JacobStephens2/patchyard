@@ -34,6 +34,9 @@ class Session16CutoverContract(unittest.TestCase):
         cls.github = (ROOT / "infra" / "github" / "main.tf").read_text()
         cls.digitalocean = (ROOT / "infra" / "digitalocean" / "main.tf").read_text()
         cls.spaces = (ROOT / "infra" / "digitalocean" / "backup.tf").read_text()
+        cls.publisher = (
+            ROOT / "crates" / "factory-supervisor" / "src" / "publisher.rs"
+        ).read_text()
 
     def test_backup_quiesces_writers_and_captures_all_durable_state(self) -> None:
         self.assertIn("readonly services=(factory-dashboard.service factory-supervisor.service)", self.backup)
@@ -223,6 +226,8 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("path: /var/lib/patchyard/proposer-inbox", self.tasks)
         self.assertIn("src: patchyard-deployed-version.env.j2", self.tasks)
         self.assertIn("patchyard-deployed-version-unconfigured", self.tasks)
+        self.assertIn('OsString::from("XDG_STATE_HOME")', self.publisher)
+        self.assertIn('OsString::from("GH_CONFIG_DIR")', self.publisher)
 
 
 if __name__ == "__main__":

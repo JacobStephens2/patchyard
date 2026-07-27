@@ -85,6 +85,33 @@ The counts above are evidence inputs, not postconditions. The restore drill
 must compare against a fresh backup manifest captured at drill time so that
 legitimate attended cutover events are not mistaken for drift.
 
+## Execution record - 2026-07-27
+
+Current terminal state: `converge_failed`. The installed cutover revision is
+healthy and idempotent, but its committed host qualifier failed on two
+installed-only probe defects. The remaining live drills are paused at that
+boundary. No Session 17 behavioral acceptance case has started.
+
+| Step | Actual result |
+| --- | --- |
+| Credential preflight | `DO_API_TOKEN` and `GH_FACTORY_ADMIN_PAT` were nonempty without printing either value. The current DigitalOcean token returned HTTP 200 for the active account. |
+| Selected source | Factory PR #51 merged as `ed15a6d6d0065b31a3c0ecebbdd41109d233f463`. Both GitHub CI workflows passed at that SHA. Fresh application, infrastructure, and Ansible source checks also passed. |
+| Infrastructure | The reviewed bootstrap created only the Spaces management key. The complete DigitalOcean plan created only the private, versioned backup bucket and bucket-scoped runtime key; AWS changed nothing; GitHub updated Factory protection and created Fieldbook deploy-marker protection. Every saved plan applied with zero destroys. |
+| Deploy marker | Jacob's existing GitHub identity created protected `refs/heads/deploy/production` at independently observed Fieldbook production SHA `ad636c21847b8f2488bfb0479f8d3ade43f9b5a7`. The installed reader returned that exact commit. Invalid App identity inputs failed closed with exit 22. Orchestration PR #5 was therefore marked ready for human review at `be43c34e019d414514f8c35554195fde75ca102b`. |
+| First converge | Control plane: `ok=212 changed=37 failed=0 unreachable=0`. Worker: `ok=82 changed=1 failed=0 unreachable=0`. |
+| Installed state | `/opt/patchyard` is clean at `ed15a6d6d0065b31a3c0ecebbdd41109d233f463`; the undeclared `.local` tree is absent; 11 migrations are applied; dashboard, supervisor, Caddy, PostgreSQL, and both exporters are active; the backup timer is enabled and active; dashboard health is `ok`. |
+| Second converge | Control plane: `ok=204 changed=0 failed=0 unreachable=0`. Worker: `ok=82 changed=0 failed=0 unreachable=0`. |
+| Installed qualification | The committed qualifier stopped because the installed systemd rejects `systemctl show patchyard-child@.service`; a root diagnostic proved the template and a dummy UUID instance valid. The corrected diagnostic then stopped because the unquoted SSH age recipient made `/etc/patchyard/backup.env` unsourceable. Factory PR #54 carries both source repairs and regression coverage. No host was edited to bypass either failure. |
+
+The frozen Session 17 manifest in draft Factory PR #53 at
+`914d90a052b70600eece39afbf8042a270b9865c` is superseded and has not been
+executed. Its replacement must derive the installed revision from the observed
+11-migration state, carry a provider-by-provider A-5 capability matrix, require
+at least two qualified providers before A77 places implementation and review
+in different families, and price the actual subcase and seat-call graph rather
+than multiplying 21 top-level repetitions. Until that replacement is reviewed
+and at least two providers qualify, acceptance remains paused.
+
 ## Failure-path inventory
 
 Every Session 16 operator record ends in one of the named states below. A

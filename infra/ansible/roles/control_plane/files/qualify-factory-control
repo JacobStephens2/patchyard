@@ -339,7 +339,7 @@ assert_role_denied grafana_ro 'SELECT path FROM factory.artifacts LIMIT 1'
 test "$("${PSQL[@]}" --tuples-only --no-align \
   --command="SELECT count(*) FROM information_schema.role_table_grants WHERE table_schema = 'factory' AND grantee = 'grafana_ro'")" = 0
 test "$("${PSQL[@]}" --tuples-only --no-align \
-  --command="SELECT count(*) FROM information_schema.column_privileges WHERE table_schema = 'factory' AND grantee = 'grafana_ro'")" = 19
+  --command="SELECT count(*) FROM information_schema.column_privileges WHERE table_schema = 'factory' AND grantee = 'grafana_ro'")" = 20
 
 grep -Eq '^patchyard_postgresql_tls_certificate_remaining_seconds [0-9]+$' \
   /var/lib/node_exporter/textfile_collector/patchyard_postgresql_tls.prom

@@ -88,20 +88,22 @@ legitimate attended cutover events are not mistaken for drift.
 ## Execution record - 2026-07-27
 
 Current terminal state: `converge_failed`. The installed cutover revision is
-healthy and idempotent, but its committed host qualifier failed on two
-installed-only probe defects. The remaining live drills are paused at that
-boundary. No Session 17 behavioral acceptance case has started.
+healthy and idempotent, but its committed host qualifier failed on an exact
+Grafana grant-count assertion left stale when `run_class` was added to the
+declared projection. The remaining live drills are paused at that boundary. No
+Session 17 behavioral acceptance case has started.
 
 | Step | Actual result |
 | --- | --- |
 | Credential preflight | `DO_API_TOKEN` and `GH_FACTORY_ADMIN_PAT` were nonempty without printing either value. The current DigitalOcean token returned HTTP 200 for the active account. |
-| Selected source | Factory PR #51 merged as `ed15a6d6d0065b31a3c0ecebbdd41109d233f463`. Both GitHub CI workflows passed at that SHA. Fresh application, infrastructure, and Ansible source checks also passed. |
+| Selected source | Factory PR #51 merged as `ed15a6d6d0065b31a3c0ecebbdd41109d233f463`. Both GitHub CI workflows passed at that SHA. Fresh application, infrastructure, and Ansible source checks also passed. Jacob then merged installed-qualification repair PR #54 as `a54627ee9f585a792a2ac1524ae877ac06b3e375`; its Application and Infrastructure workflows both passed. |
 | Infrastructure | The reviewed bootstrap created only the Spaces management key. The complete DigitalOcean plan created only the private, versioned backup bucket and bucket-scoped runtime key; AWS changed nothing; GitHub updated Factory protection and created Fieldbook deploy-marker protection. Every saved plan applied with zero destroys. |
 | Deploy marker | Jacob's existing GitHub identity created protected `refs/heads/deploy/production` at independently observed Fieldbook production SHA `ad636c21847b8f2488bfb0479f8d3ade43f9b5a7`. The installed reader returned that exact commit, and invalid App identity inputs failed closed with exit 22. Jacob merged orchestration PR #5 as `a5b681d86982e618ee292e8c0b9d390b7a06ab13`, then explicitly authorized its installation. The live checkout was fast-forwarded to that exact SHA without touching unrelated worktree changes; the full Ansible path installed the fixed repair wrapper and both reviewed sudoers policies with zero failures; Ansible restarted the dashboard at 2026-07-27 17:54:08 UTC; local health returned `ok`; both sudoers files parsed cleanly; and the no-argument repair wrapper independently resolved production and returned `marker already at ad636c21847b8f2488bfb0479f8d3ade43f9b5a7`. Ongoing marker advancement is installed. |
 | First converge | Control plane: `ok=212 changed=37 failed=0 unreachable=0`. Worker: `ok=82 changed=1 failed=0 unreachable=0`. |
-| Installed state | `/opt/patchyard` is clean at `ed15a6d6d0065b31a3c0ecebbdd41109d233f463`; the undeclared `.local` tree is absent; 11 migrations are applied; dashboard, supervisor, Caddy, PostgreSQL, and both exporters are active; the backup timer is enabled and active; dashboard health is `ok`. |
+| Installed state | `/opt/patchyard` is clean at `a54627ee9f585a792a2ac1524ae877ac06b3e375`; the undeclared `.local` tree is absent; 11 migrations are applied; dashboard, supervisor, Caddy, PostgreSQL, and both exporters are active; the backup timer is enabled and active; dashboard health is `ok`. The repaired `/etc/patchyard/backup.env` sources successfully and the live Spaces `head-bucket` check passes. |
 | Second converge | Control plane: `ok=204 changed=0 failed=0 unreachable=0`. Worker: `ok=82 changed=0 failed=0 unreachable=0`. |
-| Installed qualification | The committed qualifier stopped because the installed systemd rejects `systemctl show patchyard-child@.service`; a root diagnostic proved the template and a dummy UUID instance valid. The corrected diagnostic then stopped because the unquoted SSH age recipient made `/etc/patchyard/backup.env` unsourceable. Factory PR #54 carries both source repairs and regression coverage. No host was edited to bypass either failure. |
+| PR #54 repair converge | First repair pass: control plane `ok=209 changed=8 failed=0 unreachable=0`; worker `ok=82 changed=0 failed=0 unreachable=0`. Second full pass: control plane `ok=204 changed=0 failed=0 unreachable=0`; worker `ok=82 changed=0 failed=0 unreachable=0`. |
+| Installed qualification | PR #54 cleared both prior installed-only defects: the qualifier now inspects a dummy UUID child instance and the quoted backup environment sources successfully. The next exact installed run passed every check through the Grafana RBAC canary, including denial of raw request bodies and artifact paths, then stopped because the qualifier expected 19 `grafana_ro` column privileges while the declared and installed grants contain 20: seven on `grafana_request_summary` and thirteen on `grafana_run_metrics`, including Session 16's `run_class`. The source repair changes that stale exact total to 20 and adds regression coverage. No host or database was edited to bypass the failure. |
 
 The frozen Session 17 manifest in draft Factory PR #53 at
 `914d90a052b70600eece39afbf8042a270b9865c` is superseded and has not been

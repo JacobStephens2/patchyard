@@ -84,7 +84,7 @@ case "$MODE" in
       '._meta.hostvars[$host].ansible_host' <<<"$INVENTORY_JSON")
     REPLACEMENT_EVIDENCE="/var/lib/patchyard/artifacts/worker-replacement-$(date -u +%Y%m%dT%H%M%SZ)"
     ssh -i /var/lib/conductor/.ssh/id_ed25519 \
-      -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+      -o BatchMode=yes -o StrictHostKeyChecking=yes \
       "conductor@$CONTROL_IP" \
       sudo -u factory-manager /usr/local/sbin/patchyard-run-isolation-probe \
       /var/lib/patchyard/snapshots/current "$REPLACEMENT_EVIDENCE"

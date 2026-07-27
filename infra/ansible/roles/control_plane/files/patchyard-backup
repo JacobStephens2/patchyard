@@ -143,7 +143,13 @@ cleanup_and_restart() {
   fi
   return 0
 }
-trap 'cleanup_and_restart false' EXIT
+cleanup_on_exit() {
+  local original_rc=$?
+  trap - EXIT
+  cleanup_and_restart true || exit 28
+  exit "$original_rc"
+}
+trap cleanup_on_exit EXIT
 
 for service in "${services[@]}"; do
   if systemctl is-active --quiet "$service"; then

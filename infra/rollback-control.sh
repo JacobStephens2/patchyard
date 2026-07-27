@@ -76,7 +76,12 @@ database=patchyard
 while IFS=$'\t' read -r schema table; do
   count=$(runuser -u postgres -- psql --no-psqlrc --host="$socket" --dbname="$database" \
     --tuples-only --no-align --command="SELECT count(*) FROM \"$schema\".\"$table\"")
+  digest=$(runuser -u postgres -- psql --no-psqlrc --host="$socket" --dbname="$database" \
+    --tuples-only --no-align \
+    --command="COPY (SELECT row_to_json(t)::text FROM \"$schema\".\"$table\" AS t ORDER BY row_to_json(t)::text) TO STDOUT" \
+    | sha256sum | cut -d' ' -f1)
   printf 'row\t%s.%s\t%s\n' "$schema" "$table" "$count"
+  printf 'table-sha256\t%s.%s\t%s\n' "$schema" "$table" "$digest"
 done < <(runuser -u postgres -- psql --no-psqlrc --host="$socket" --dbname="$database" \
   --tuples-only --no-align --field-separator=$'\t' \
   --command="SELECT schemaname, tablename FROM pg_tables WHERE schemaname IN ('factory', 'public') ORDER BY schemaname, tablename")
@@ -133,7 +138,7 @@ deploy_and_qualify_revision() {
 
 stable_durable_state() {
   local source=$1 destination=$2
-  awk -F '\t' '$1 != "audit" && !($1 == "row" && $2 == "factory.audit_events")' \
+  awk -F '\t' '$1 != "audit" && !(($1 == "row" || $1 == "table-sha256") && $2 == "factory.audit_events")' \
     "$source" >"$destination"
 }
 
@@ -229,6 +234,7 @@ case "$MODE" in
     set_rollback_boundary enter
     boundary_entered=true
     return_qualified=false
+    evidence_verification_pending=false
     rollback_root=''
     release_boundary_and_cleanup() {
       if [[ -n "$rollback_root" ]]; then
@@ -244,13 +250,18 @@ case "$MODE" in
           rollback_root=''
         fi
       fi
-      if [[ "$boundary_entered" == true && "$return_qualified" == true ]]; then
+      if [[ "$boundary_entered" == true && "$return_qualified" == true \
+        && "$evidence_verification_pending" != true ]]; then
         if set_rollback_boundary exit; then
           boundary_entered=false
         fi
       fi
       if [[ "$boundary_entered" == true ]]; then
-        echo 'rollback recovery did not qualify; public boundary and backup-timer stop remain in force' >&2
+        if [[ "$evidence_verification_pending" == true ]]; then
+          echo 'rollback evidence did not verify; public boundary and backup-timer stop remain in force for explicit release' >&2
+        else
+          echo 'rollback recovery did not qualify; public boundary and backup-timer stop remain in force' >&2
+        fi
       fi
       if [[ -n "${boundary_inventory:-}" ]]; then
         rm -f -- "$boundary_inventory"
@@ -264,6 +275,7 @@ case "$MODE" in
     capture_durable_state "$address" "$target_state"
     deploy_and_qualify_revision "$return_revision" rollback-recovery
     return_qualified=true
+    evidence_verification_pending=true
     capture_durable_state "$address" "$recovered_state"
 
     before_audit_max=$(awk -F '\t' '$1 == "audit" {print $2}' "$before_state")
@@ -309,6 +321,7 @@ case "$MODE" in
       --arg completed_at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
       '{schema_version:1,target_revision:$target_revision,return_revision:$return_revision,before_sha256:$before_sha256,target_sha256:$target_sha256,recovered_sha256:$recovered_sha256,target_audit_delta:$target_audit_delta,total_audit_delta:$total_audit_delta,durable_state:"verified_rollback_and_recovery_equal_except_declared_account_audits",completed_at:$completed_at}' \
       >"$result_file"
+    evidence_verification_pending=false
     set_rollback_boundary exit
     boundary_entered=false
     ssh "${SSH_ARGS[@]}" "conductor@$address" \

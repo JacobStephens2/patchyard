@@ -28,6 +28,10 @@ shellcheck --exclude=SC2329 --shell=bash \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-restore-evidence-probe" \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-deployed-version" \
   "$ANSIBLE_ROOT/converge-session14.sh" \
+  "$ANSIBLE_ROOT/converge.sh" \
+  "$REPO_ROOT/infra/plan.sh" \
+  "$REPO_ROOT/infra/tofu.sh" \
+  "$REPO_ROOT/infra/replace-worker.sh" \
   "$REPO_ROOT/infra/restore-drill.sh" \
   "$REPO_ROOT/infra/rollback-control.sh"
 

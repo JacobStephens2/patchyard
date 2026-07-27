@@ -49,6 +49,7 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("contains a non-regular entry", self.backup)
         self.assertIn("backup_busy active_work=", self.backup)
         self.assertIn("service_resume_failed", self.backup)
+        self.assertIn("cleanup_and_restart true || exit 28", self.backup)
         self.assertIn('>"$payload_root/database.dump"', self.backup)
         self.assertNotIn('--file="$payload_root/database.dump"', self.backup)
 
@@ -148,6 +149,8 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn('current=$(resolve_reviewed_revision "$(installed_revision', self.rollback_operator)
         self.assertIn("installed revision changed after rollback plan review", self.rollback_operator)
         self.assertIn("capture_durable_state", self.rollback_operator)
+        self.assertIn("table-sha256", self.rollback_operator)
+        self.assertIn("ORDER BY row_to_json(t)::text", self.rollback_operator)
         self.assertIn(
             'cmp --silent "$before_stable" "$target_stable"',
             self.rollback_operator,
@@ -186,6 +189,11 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertGreaterEqual(rollback_deploy.count("|| return"), 6)
         self.assertIn(
             "public boundary and backup-timer stop remain in force",
+            self.rollback_operator,
+        )
+        self.assertIn("evidence_verification_pending=true", self.rollback_operator)
+        self.assertIn(
+            "rollback evidence did not verify; public boundary and backup-timer stop remain in force for explicit release",
             self.rollback_operator,
         )
 

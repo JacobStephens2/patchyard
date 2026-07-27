@@ -299,8 +299,9 @@ boundary that rejects public HTTP/HTTPS while the target and return revisions
 run their own Ansible convergence and qualifications. Scheduled backup is
 stopped before the boundary preflight and cannot restart inside convergence.
 An already-established HTTP keep-alive can outlive the firewalld transition;
-any resulting submission changes the durable-state comparison and strands the
-operation fail closed as `rollback_failed` rather than being silently accepted.
+any resulting submission changes the per-table row count/content digest or
+artifact hash comparison and strands the operation fail closed as
+`rollback_failed` rather than being silently accepted.
 This keeps the dashboard and
 supervisor processes available for real target-revision qualification without
 giving either a writer input. If a target-stage failure occurs, the EXIT trap
@@ -309,6 +310,13 @@ revision qualifies; otherwise the public reject and timer stop remain in force
 for explicit recovery. After a successful rollback/recovery drill, use
 dashboard `Resume`; the operator script never writes the full-stop state
 directly.
+
+Once the reviewed return revision has qualified, the evidence comparison is a
+separate fail-closed gate. A row count, deterministic ordered-row digest,
+artifact hash, or allowed-audit mismatch keeps the public reject and backup
+timer stop in force even though the return revision is healthy. Preserve the
+evidence, investigate, and use the explicit state-backend-free
+`release-boundary` path only after independent verification.
 
 If recovery qualification cannot complete because the GitHub marker API is
 unavailable, the safe terminal state intentionally leaves the public reject,

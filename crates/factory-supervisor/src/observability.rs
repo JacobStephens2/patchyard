@@ -2,7 +2,7 @@
 
 use std::{net::SocketAddr, time::Duration};
 
-use metrics::{counter, describe_counter, describe_histogram, histogram};
+use metrics::{counter, describe_counter, describe_gauge, describe_histogram, gauge, histogram};
 use metrics_exporter_prometheus::{BuildError, PrometheusBuilder};
 use opentelemetry::{global, trace::TracerProvider as _};
 use opentelemetry_otlp::WithExportConfig as _;
@@ -17,6 +17,11 @@ pub fn install_metrics(address: SocketAddr) -> Result<(), BuildError> {
     PrometheusBuilder::new()
         .with_http_listener(address)
         .install()?;
+    register_metrics();
+    Ok(())
+}
+
+fn register_metrics() {
     describe_counter!("factory_runs_total", "Pipeline runs by stage and outcome.");
     describe_counter!(
         "factory_llm_tokens_total",
@@ -30,7 +35,11 @@ pub fn install_metrics(address: SocketAddr) -> Result<(), BuildError> {
         "factory_stage_latency_seconds",
         "Pipeline stage wall latency."
     );
-    Ok(())
+    describe_gauge!(
+        "factory_supervisor_up",
+        "Supervisor process is running and exporting metrics."
+    );
+    gauge!("factory_supervisor_up").set(1.0);
 }
 
 pub fn record_stage(stage: &'static str, outcome: &'static str, duration: Duration) {
@@ -133,7 +142,26 @@ pub enum TelemetryError {
 
 #[cfg(test)]
 mod tests {
-    use super::{TelemetryGuard, configured_endpoint};
+    use super::{TelemetryGuard, configured_endpoint, register_metrics};
+    use metrics_exporter_prometheus::PrometheusBuilder;
+
+    #[test]
+    fn idle_supervisor_exposes_liveness_without_run_activity() {
+        let recorder = PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, register_metrics);
+
+        let rendered = handle.render();
+        assert!(rendered.contains(
+            "# HELP factory_supervisor_up Supervisor process is running and exporting metrics."
+        ));
+        assert!(
+            rendered
+                .lines()
+                .any(|line| line == "factory_supervisor_up 1")
+        );
+        assert!(!rendered.contains("factory_runs_total"));
+    }
 
     #[tokio::test]
     async fn unreachable_otlp_collector_is_fail_open() {

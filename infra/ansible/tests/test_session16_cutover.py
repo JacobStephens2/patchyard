@@ -287,8 +287,9 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("--connect-timeout 10 --max-time 30", self.deployed)
         self.assertNotIn('--header "Authorization: Bearer', self.deployed)
 
-    def test_a109_keeps_factory_approvals_optional_and_marker_human_only(self) -> None:
+    def test_a111_keeps_factory_approvals_optional_and_marker_human_only(self) -> None:
         self.assertIn("required_approving_review_count = 0", self.github)
+        self.assertIn("A111 keeps approvals optional", self.github)
         master = self.github.split('data "github_repository" "fieldbook"', maxsplit=1)[0]
         self.assertIn('push_allowances  = ["/JacobStephens2", "/example-teammate"]', master)
         self.assertIn('pattern             = "deploy/production"', self.github)

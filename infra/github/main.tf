@@ -37,13 +37,13 @@ resource "github_branch_protection" "master" {
   required_pull_request_reviews {
     dismiss_stale_reviews      = true
     require_code_owner_reviews = false
-    # A109 authorizes Jacob and Engineer Two to approve or merge without making an
-    # approval mandatory. A required count remains a separate, unmade ruling.
+    # A111 makes approvals optional: one authorized human merge satisfies A1
+    # for every Factory PR, including proposer-authored policy changes.
     required_approving_review_count = 0
     require_last_push_approval      = false
   }
 
-  # A109 keeps approvals optional. A1 is enforced independently: only the two
+  # A111 keeps approvals optional. A1 is enforced independently: only the two
   # authorized human mergers may update protected master; the Factory App may
   # create proposal branches and PRs but cannot merge or push its own output.
   restrict_pushes {

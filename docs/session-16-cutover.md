@@ -10,15 +10,15 @@ Session 16 turns the installed two-host topology into the phase-1 artifact. It
 does not merge a pull request, deploy Fieldbook code, send a requester reply, or
 raise a production intake cap. Qualification remains attended and
 manifest-bound under A107/A108. Engineer Two is an authorized approver and merger,
-but no new required-approval count is introduced under A109.
+and A111 keeps approvals optional: Jacob or Engineer Two may satisfy A1 alone for
+any Factory code or policy PR after its required checks and adversarial review.
 
 The cutover owns these production changes:
 
 1. converge the control plane and disposable worker from the reviewed commit;
 2. restrict protected Factory `master` updates to Jacob or Engineer Two while
-   leaving required approvals at zero under A109, and preserve the false,
-   fail-closed proposer-specific F5 dual-review attestation until separately
-   ruled and installed;
+   leaving required approvals at zero under A111; one authorized human may
+   merge code or proposer-authored policy, while the Factory App cannot merge;
 3. install the control-plane-local Fieldbook deploy marker source and protect
    `refs/heads/deploy/production` without depending on orchestration;
 4. expose the runtime proposer inbox at admin-only, read-only `GET /ideas`
@@ -146,10 +146,10 @@ GitHub-hosted CI and local source checks can prove:
 - `GET /ideas` is admin-only, read-only, runtime-backed, raw-HTML-free,
   image-free, and restricted to safe link schemes through the same filter as
   `/decisions`;
-- A109 keeps the required-approval count unchanged and the factory has no
-  merge API, while protected `master` allows only Jacob or Engineer Two to push;
-  the independently binding proposer F5 attestation remains false and prevents
-  scheduled or at-threshold policy publication;
+- A111 keeps required approvals at zero, one authorized human merge satisfies
+  A1 for code and proposer-authored policy, the Factory App has no merge API,
+  and protected `master` allows only Jacob or Engineer Two to push; policy PRs
+  still require cross-family adversarial review before that human merge;
   and
 - the complete application gate still passes formatting, clippy, tests,
   deterministic replay, release reproducibility, audit, deny, vet, model, and

@@ -124,18 +124,16 @@ but cannot create a missing one after cancellation. The supervisor re-reads
 full stop after `reviewing -> publishing`, and the concrete publisher re-reads
 it immediately before each branch push and draft-PR creation effect.
 
-Merge remains a human-only gate under A1. A109 subsequently amended A99:
-Jacob and Engineer Two are both authorized approvers and mergers, but no repository
-approval count is required absent a separate ruling. That ruling does not reach
-F5's proposer-specific dual-human-review binding. Session 16 therefore preserves
-the runtime gate and its false installed attestation while keeping the live
-repository approval count at zero. The proposer still has no merge API, creates
-drafts only, and cannot be enabled until humans separately reconcile and install
-that F5 control in addition to qualifying its live-provider isolation boundary.
-`FACTORY_PROPOSER_SCHEDULING_ENABLED` starts new scheduled attempts only and
-startup refuses it while `FACTORY_PROPOSER_DUAL_REVIEW_ENFORCED=false`;
-existing durable work is always reconciled, and full stop is the publication
-kill switch. The installed template leaves scheduling false.
+Merge remains a human-only gate under A1. A109 authorizes Jacob and Engineer Two as
+approvers and mergers; A111 makes approvals optional and rules that either one
+may satisfy A1 alone for every Factory PR, including proposer-authored policy.
+Policy PRs still receive cross-family adversarial review, remain constrained to
+their narrow write surface and one-open-PR cap, and are drafts that the proposer
+cannot approve, merge, protect, or deploy. The proposer cannot be enabled until
+its live-provider isolation boundary is qualified. `FACTORY_PROPOSER_SCHEDULING_ENABLED`
+starts new scheduled attempts only; existing durable work is always reconciled,
+and full stop is the publication kill switch. The installed template leaves
+scheduling false.
 
 ## Failure-path inventory
 

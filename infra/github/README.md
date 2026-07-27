@@ -6,8 +6,9 @@ marker branch `refs/heads/deploy/production`. It uses the encrypted
 `factory/github/tofu.tfstate` backend key. The branch rule requires a PR,
 current application and infrastructure checks, and resolved review threads; it
 permits no force push, deletion, or bypass. The platform approval count remains
-zero under A109: Jacob and Engineer Two are both authorized approvers and mergers,
-but making an approval mandatory requires a separate ruling.
+zero under A111: Jacob or Engineer Two may merge any code or policy PR alone after
+its required checks and adversarial review. The Factory App can propose but
+cannot merge or update protected `master`.
 
 The repository and existing branch rule must be imported before apply. The
 admin-scoped provider credential enters only as `GH_FACTORY_ADMIN_PAT`; the

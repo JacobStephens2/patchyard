@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import re
 import unittest
 
 
@@ -13,6 +14,7 @@ class Session16CutoverContract(unittest.TestCase):
         cls.backup = (FILES / "patchyard-backup").read_text()
         cls.restore = (FILES / "patchyard-restore").read_text()
         cls.deployed = (FILES / "patchyard-deployed-version").read_text()
+        cls.postgresql_grants = (FILES / "postgresql-grants.sql").read_text()
         cls.restore_play = (ROOT / "infra" / "ansible" / "restore.yml").read_text()
         cls.restore_operator = (ROOT / "infra" / "restore-drill.sh").read_text()
         cls.plan_operator = (ROOT / "infra" / "plan.sh").read_text()
@@ -133,6 +135,25 @@ class Session16CutoverContract(unittest.TestCase):
                 "patchyard-child@00000000000000000000000000000000.service"
             ),
             2,
+        )
+
+    def test_qualification_tracks_the_exact_grafana_projection_grants(self) -> None:
+        blocks = {
+            view: [column.strip().rstrip(",") for column in columns.splitlines()]
+            for columns, view in re.findall(
+                r"GRANT SELECT \(\n(.*?)\n\) ON factory\."
+                r"(grafana_(?:request_summary|run_metrics)) TO grafana_ro;",
+                self.postgresql_grants,
+                re.DOTALL,
+            )
+        }
+        self.assertEqual(set(blocks), {"grafana_request_summary", "grafana_run_metrics"})
+        self.assertIn("run_class", blocks["grafana_run_metrics"])
+        expected_total = sum(len(columns) for columns in blocks.values())
+        self.assertEqual(expected_total, 20)
+        self.assertIn(
+            f"grantee = 'grafana_ro'\")\" = {expected_total}",
+            self.qualifier,
         )
 
     def test_restore_verifies_ciphertext_payload_rows_and_files(self) -> None:

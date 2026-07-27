@@ -200,8 +200,9 @@ each destructive or externally visible step:
    refused before mutation;
 10. use dashboard Full stop and wait for zero active work; enter the versioned
     public-write rollback boundary, install the declared compatible Session 16
-    rollback anchor (pre-cutover `84708ba` is structurally ineligible because
-    its desired migration count is 11 but its qualifier pins 7),
+    rollback anchor `7b032c7c7ceb7c427cf5e73c43e2116acaf5614a` after it is
+    human-reviewed and merged (pre-cutover `84708ba` is structurally ineligible
+    because its desired migration count is 11 but its qualifier pins 7),
     application/config revision, qualify and smoke it without reversing
     append-only migrations, then reinstall the cutover revision, repeat
     qualification, remove the boundary, and use dashboard Resume;

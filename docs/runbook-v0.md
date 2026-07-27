@@ -264,10 +264,11 @@ recovery plan.
 Base revision `84708ba` and the other pre-cutover revisions are not valid
 automatic rollback targets: their desired migration count is 11 while their
 host qualifier hard-codes 7, so they would enter the boundary and then fail by
-construction. Use only the reviewed Session 16 rollback anchor identified in
-the cutover record (or a later compatible merged revision). A target rejected
-by this preflight ends as `rollback_target_refused` before the public boundary
-or any host mutation.
+construction. The earliest safe Session 16 rollback anchor is
+`7b032c7c7ceb7c427cf5e73c43e2116acaf5614a`, once that revision is
+human-reviewed and merged. Use it or a later compatible merged revision. A
+target rejected by this preflight ends as `rollback_target_refused` before the
+public boundary or any host mutation.
 
 Before creating or applying the rollback manifest, use the dashboard `Full
 stop` and wait until the dashboard shows no active production or proposer run.

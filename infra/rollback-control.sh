@@ -91,6 +91,15 @@ while IFS=$'\t' read -r schema table; do
             "$(printf '%s' "$challenge" | sha256sum | cut -d' ' -f1)"
         done
   fi
+  if [[ "$schema.$table" == factory.audit_events ]]; then
+    runuser -u postgres -- psql --no-psqlrc --host="$socket" --dbname="$database" \
+      --tuples-only --no-align \
+      --command="COPY (SELECT row_to_json(t)::text FROM factory.audit_events AS t ORDER BY row_to_json(t)::text) TO STDOUT" \
+      | while IFS= read -r audit_row; do
+          printf 'audit-row-sha256\t%s\n' \
+            "$(printf '%s' "$audit_row" | sha256sum | cut -d' ' -f1)"
+        done
+  fi
 done < <(runuser -u postgres -- psql --no-psqlrc --host="$socket" --dbname="$database" \
   --tuples-only --no-align --field-separator=$'\t' \
   --command="SELECT schemaname, tablename FROM pg_tables WHERE schemaname IN ('factory', 'public') ORDER BY schemaname, tablename")
@@ -147,8 +156,12 @@ deploy_and_qualify_revision() {
 
 stable_durable_state() {
   local source=$1 destination=$2
-  awk -F '\t' '$1 != "audit" && $1 != "login-challenge-sha256" && !(($1 == "row" || $1 == "table-sha256") && ($2 == "factory.audit_events" || $2 == "factory.login_challenges"))' \
+  awk -F '\t' '$1 != "audit" && $1 != "audit-row-sha256" && $1 != "login-challenge-sha256" && !(($1 == "row" || $1 == "table-sha256") && ($2 == "factory.audit_events" || $2 == "factory.login_challenges"))' \
     "$source" >"$destination"
+}
+
+audit_hashes() {
+  awk -F '\t' '$1 == "audit-row-sha256" {print $2}' "$1" | LC_ALL=C sort
 }
 
 challenge_hashes() {
@@ -275,9 +288,9 @@ case "$MODE" in
       fi
       if [[ "$boundary_entered" == true ]]; then
         if [[ "$evidence_verification_pending" == true ]]; then
-          echo 'rollback evidence did not verify; public boundary and backup-timer stop remain in force for explicit release' >&2
+          echo 'rollback evidence did not verify; public boundary and reboot-durable backup exclusion remain in force for explicit release' >&2
         else
-          echo 'rollback recovery did not qualify; public boundary and backup-timer stop remain in force' >&2
+          echo 'rollback recovery did not qualify; public boundary and reboot-durable backup exclusion remain in force' >&2
         fi
       fi
       if [[ -n "${boundary_inventory:-}" ]]; then
@@ -287,16 +300,22 @@ case "$MODE" in
     }
     trap release_boundary_and_cleanup EXIT
     capture_durable_state "$address" "$before_state"
+    before_audit_max=$(awk -F '\t' '$1 == "audit" {print $2}' "$before_state")
+    before_audit_count=$(awk -F '\t' '$1 == "audit" {print $3}' "$before_state")
+    [[ "$before_audit_max" =~ ^[0-9]+$ && "$before_audit_count" =~ ^[0-9]+$ ]] \
+      || exit 3
 
     deploy_and_qualify_revision "$target" rollback-target
     capture_durable_state "$address" "$target_state"
+    [[ "$(unexpected_rollback_audits "$address" "$before_audit_max")" == 0 ]] || {
+      echo 'rollback target emitted an audit action outside declarative account provisioning' >&2
+      exit 3
+    }
     deploy_and_qualify_revision "$return_revision" rollback-recovery
     return_qualified=true
     evidence_verification_pending=true
     capture_durable_state "$address" "$recovered_state"
 
-    before_audit_max=$(awk -F '\t' '$1 == "audit" {print $2}' "$before_state")
-    before_audit_count=$(awk -F '\t' '$1 == "audit" {print $3}' "$before_state")
     target_audit_count=$(awk -F '\t' '$1 == "audit" {print $3}' "$target_state")
     recovered_audit_count=$(awk -F '\t' '$1 == "audit" {print $3}' "$recovered_state")
     [[ "$before_audit_max" =~ ^[0-9]+$ && "$before_audit_count" =~ ^[0-9]+$ \
@@ -314,6 +333,13 @@ case "$MODE" in
       echo 'rollback emitted an audit action outside declarative account provisioning' >&2
       exit 3
     }
+    if [[ -n "$(comm -23 <(audit_hashes "$before_state") \
+      <(audit_hashes "$target_state"))" \
+      || -n "$(comm -23 <(audit_hashes "$target_state") \
+        <(audit_hashes "$recovered_state"))" ]]; then
+      echo 'rollback changed or removed an existing audit event' >&2
+      exit 3
+    fi
     before_challenge_count=$(challenge_count "$before_state")
     target_challenge_count=$(challenge_count "$target_state")
     recovered_challenge_count=$(challenge_count "$recovered_state")

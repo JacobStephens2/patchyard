@@ -12,6 +12,36 @@
     - name: Enter the rollback boundary without racing scheduled backup
       when: factory_rollback_boundary == 'enter'
       block:
+        - name: Install the reboot-durable backup exclusion directory
+          ansible.builtin.file:
+            path: /etc/systemd/system/patchyard-backup.service.d
+            state: directory
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Install the reboot-durable rollback backup exclusion
+          ansible.builtin.copy:
+            dest: /etc/systemd/system/patchyard-backup.service.d/rollback-boundary.conf
+            owner: root
+            group: root
+            mode: "0644"
+            content: |
+              [Unit]
+              ConditionPathExists=!/var/lib/patchyard/control/rollback-boundary
+
+        - name: Create the persistent rollback-boundary sentinel
+          ansible.builtin.file:
+            path: /var/lib/patchyard/control/rollback-boundary
+            state: touch
+            owner: factory-manager
+            group: factory-manager
+            mode: "0600"
+
+        - name: Activate the reboot-durable backup exclusion
+          ansible.builtin.systemd:
+            daemon_reload: true
+
         - name: Stop scheduled backup before checking the writer boundary
           ansible.builtin.systemd:
             name: patchyard-backup.timer
@@ -90,6 +120,18 @@
             - "443"
           failed_when: false
 
+        - name: Remove any partial reboot-durable backup exclusion
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /var/lib/patchyard/control/rollback-boundary
+            - /etc/systemd/system/patchyard-backup.service.d/rollback-boundary.conf
+
+        - name: Reload systemd after removing the refused backup exclusion
+          ansible.builtin.systemd:
+            daemon_reload: true
+
         - name: Restore scheduled backup after refused boundary entry
           ansible.builtin.systemd:
             name: patchyard-backup.timer
@@ -98,6 +140,20 @@
         - name: Report refused rollback boundary
           ansible.builtin.fail:
             msg: rollback_busy or rollback-boundary application failed safely
+
+    - name: Remove the reboot-durable rollback backup exclusion
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/lib/patchyard/control/rollback-boundary
+        - /etc/systemd/system/patchyard-backup.service.d/rollback-boundary.conf
+      when: factory_rollback_boundary == 'exit'
+
+    - name: Reload systemd after releasing the backup exclusion
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: factory_rollback_boundary == 'exit'
 
     - name: Restore scheduled backup before reopening public intake
       ansible.builtin.systemd:

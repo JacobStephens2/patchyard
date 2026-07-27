@@ -105,7 +105,7 @@ recorded.
 | `restore_artifact_failed` | The artifact archive did not restore into the clean drill root. |
 | `restore_verification_failed` | Restored row counts, artifact membership/hashes, grants, or a historical evidence fetch differed from the backup manifest. |
 | `rollback_target_refused` | The target was unmerged, stale, or its desired and qualification migration pins did not exactly match the installed return revision; no boundary or host mutation began. |
-| `rollback_failed` | The reviewed previous revision could not be reinstalled, qualified, and served with equal per-table row counts/content digests and artifact hashes outside bounded declarative-account audits and bounded qualifier-created login challenges; an evidence mismatch keeps the public boundary and backup-timer stop in force for explicit release. |
+| `rollback_failed` | The reviewed previous revision could not be reinstalled, qualified, and served with equal per-table row counts/content digests and artifact hashes outside bounded declarative-account audits and bounded qualifier-created login challenges; an evidence mismatch keeps the public boundary and reboot-durable backup exclusion in force for explicit release. |
 | `rollback_busy` | Dashboard Full stop was not durably active or a production/proposer run was still active before the public-write boundary. |
 | `rollback_recovery_failed` | Reapplying the cutover revision after rollback did not converge and requalify cleanly. |
 | `kill_failed` | A dashboard-issued control did not terminate the target work, release its lease, append `killed`, appear over SSE, or leave zero worker/child residue. |
@@ -162,7 +162,10 @@ as installed proof.
 
 Because the protected marker is a qualification dependency, a real GitHub API
 or App outage also prevents installed converge, worker replacement, and
-rollback recovery from qualifying. Automatic rollback/recovery additionally
+rollback recovery from qualifying. The same is true of the real DigitalOcean
+Spaces `head-bucket` qualification check: endpoint, credential, or bucket
+unavailability fails closed even when local services are healthy. Automatic
+rollback/recovery additionally
 depends on the AWS S3 OpenTofu state backend, DigitalOcean authority, and the
 pinned Cargo inputs being locally available or fetchable. CI can prove only
 the fail-closed behavior and the manifest-bound, state-backend-free boundary

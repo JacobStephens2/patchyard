@@ -98,6 +98,7 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("--disable-triggers", self.restore)
         self.assertIn('<"$restore_root/payload/database.dump"', self.restore)
         self.assertIn("RESTORE_GRAFANA_REQUEST_CANARY", self.restore_play)
+        self.assertIn("restored_grafana_canary.rc != 0", self.restore_play)
         self.assertIn("production restore requires inactive writer", self.restore)
         self.assertIn("production restore requires zero active work", self.restore)
         self.assertIn("assert_production_clean_baseline", self.restore)
@@ -163,6 +164,9 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("capture_durable_state", self.rollback_operator)
         self.assertIn("table-sha256", self.rollback_operator)
         self.assertIn("ORDER BY row_to_json(t)::text", self.rollback_operator)
+        self.assertIn("audit-row-sha256", self.rollback_operator)
+        self.assertIn("changed or removed an existing audit event", self.rollback_operator)
+        self.assertIn("rollback target emitted an audit action outside", self.rollback_operator)
         self.assertIn("login-challenge-sha256", self.rollback_operator)
         self.assertIn("changed or removed an existing login challenge", self.rollback_operator)
         self.assertIn("target_challenge_delta <= 4", self.rollback_operator)
@@ -187,6 +191,16 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("factory.proposer_runs", self.rollback_boundary)
         self.assertIn('port="{{ item }}" protocol="tcp" reject', self.rollback_boundary)
         self.assertIn("patchyard-backup.service", self.rollback_boundary)
+        self.assertIn(
+            "ConditionPathExists=!/var/lib/patchyard/control/rollback-boundary",
+            self.rollback_boundary,
+        )
+        self.assertGreaterEqual(
+            self.rollback_boundary.count(
+                "/var/lib/patchyard/control/rollback-boundary"
+            ),
+            3,
+        )
         self.assertIn('deploy_and_qualify_revision "$target"', self.rollback_operator)
         self.assertIn(
             'deploy_and_qualify_revision "$return_revision"',
@@ -204,12 +218,12 @@ class Session16CutoverContract(unittest.TestCase):
         )[1].split("stable_durable_state() {", maxsplit=1)[0]
         self.assertGreaterEqual(rollback_deploy.count("|| return"), 6)
         self.assertIn(
-            "public boundary and backup-timer stop remain in force",
+            "public boundary and reboot-durable backup exclusion remain in force",
             self.rollback_operator,
         )
         self.assertIn("evidence_verification_pending=true", self.rollback_operator)
         self.assertIn(
-            "rollback evidence did not verify; public boundary and backup-timer stop remain in force for explicit release",
+            "rollback evidence did not verify; public boundary and reboot-durable backup exclusion remain in force for explicit release",
             self.rollback_operator,
         )
 

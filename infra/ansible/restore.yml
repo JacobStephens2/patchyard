@@ -155,6 +155,7 @@
       register: restored_grafana_canary
       changed_when: false
       failed_when: >-
+        restored_grafana_canary.rc != 0 or
         'RESTORE_GRAFANA_REQUEST_CANARY' in restored_grafana_canary.stdout or
         'RESTORE_GRAFANA_ARTIFACT_CANARY' in restored_grafana_canary.stdout
 

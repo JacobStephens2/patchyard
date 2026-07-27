@@ -65,6 +65,13 @@ at qualification even when the local services are healthy. Preserve the local
 health evidence and retry qualification after marker authority recovers; never
 substitute the checkout SHA for the protected ref.
 
+Qualification also performs a real `head-bucket` against the configured
+DigitalOcean Spaces backup bucket. A Spaces endpoint, credential, or bucket
+outage therefore fails converge, worker replacement, and rollback-recovery
+qualification even when local services and the GitHub marker are healthy.
+Preserve the local evidence and retry after that authority recovers; never
+waive the off-host backup check.
+
 ## Converge
 
 Use only a clean checkout at a merged revision. Create plans with
@@ -276,7 +283,9 @@ byte-identical durable-state record outside two declared allowances. An older
 target revision may
 append its bounded `account.provisioned` audit events during declarative
 account convergence; the script permits only that exact action/client class,
-records each delta, and rejects every other audit mutation. Each qualification
+records each delta, hashes every audit row without exporting its contents,
+proves every prior and target-stage row survives unchanged, and rejects every
+other target-stage or recovered audit mutation. Each qualification
 also performs one unauthenticated CSP probe that inserts an anti-CSRF login
 challenge. The script hashes every challenge row without exporting its
 contents, proves every pre-existing and target-stage hash survives unchanged,
@@ -309,6 +318,9 @@ The apply verifies those durable facts, then installs a versioned firewalld
 boundary that rejects public HTTP/HTTPS while the target and return revisions
 run their own Ansible convergence and qualifications. Scheduled backup is
 stopped before the boundary preflight and cannot restart inside convergence.
+A persistent boundary sentinel plus a versioned systemd condition also refuses
+the backup service after a reboot, while leaving the timer enabled so both the
+current and rollback-anchor host qualifiers can verify its desired installation.
 An already-established HTTP keep-alive can outlive the firewalld transition;
 any resulting submission changes the per-table row count/content digest or
 artifact hash comparison and strands the operation fail closed as
@@ -317,22 +329,27 @@ This keeps the dashboard and
 supervisor processes available for real target-revision qualification without
 giving either a writer input. If a target-stage failure occurs, the EXIT trap
 retries the reviewed return revision and removes the boundary only after that
-revision qualifies; otherwise the public reject and timer stop remain in force
-for explicit recovery. After a successful rollback/recovery drill, use
+revision qualifies; otherwise the public reject and scheduled-backup exclusion remain in force
+for explicit recovery. The reboot-durable scheduled-backup exclusion remains
+active even if systemd reactivates the enabled timer. After a successful
+rollback/recovery drill, use
 dashboard `Resume`; the operator script never writes the full-stop state
 directly.
 
 Once the reviewed return revision has qualified, the evidence comparison is a
 separate fail-closed gate. A row count, deterministic ordered-row digest,
 artifact hash, pre-existing challenge mutation, challenge-count bound, or
-allowed-audit mismatch keeps the public reject and backup timer stop in force
-even though the return revision is healthy. Preserve the evidence, investigate,
+allowed-audit mismatch keeps the public reject and scheduled-backup exclusion in force
+even though the return revision is healthy; the systemd condition continues to
+refuse backup service execution after a reboot. Preserve the evidence, investigate,
 and use the explicit state-backend-free `release-boundary` path only after
 independent verification.
 
 If recovery qualification cannot complete because the GitHub marker API is
 unavailable, the safe terminal state intentionally leaves the public reject,
-Full stop, and backup-timer stop in force. Preserve the rollback evidence.
+Full stop, and scheduled-backup exclusion in force. Preserve the rollback evidence.
+The persistent condition continues to refuse backup service execution after a
+reboot even if the enabled timer itself is reactivated.
 The automatic rollback/recovery path also depends on the AWS S3 OpenTofu state
 backend, DigitalOcean provider authority, and locally available pinned Cargo
 inputs. An outage or cold-cache fetch failure in any of those can strand the

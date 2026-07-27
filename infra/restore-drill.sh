@@ -157,7 +157,8 @@ case "$MODE" in
     : "${PATCHYARD_RESTORE_DESTROY_APPROVED:?set PATCHYARD_RESTORE_DESTROY_APPROVED=yes after human plan review}"
     [[ "$PATCHYARD_RESTORE_DESTROY_APPROVED" == yes ]] || exit 2
     verify_plan_addresses "$plan_file" delete
-    "$REPO_ROOT/infra/tofu.sh" digitalocean apply "$plan_file"
+    PATCHYARD_RESTORE_DRILL_APPLY=destroy \
+      "$REPO_ROOT/infra/tofu.sh" digitalocean apply "$plan_file"
     ;;
   *)
     echo 'usage: infra/restore-drill.sh <plan-create|apply-restore|plan-destroy|apply-destroy> ...' >&2

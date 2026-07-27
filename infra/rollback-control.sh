@@ -4,7 +4,7 @@ umask 077
 
 REPO_ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 MODE=${1:-}
-SSH_ARGS=(-i /var/lib/conductor/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+SSH_ARGS=(-i /var/lib/conductor/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes)
 
 require_clean_revision() {
   if [[ -n "$(git -C "$REPO_ROOT" status --porcelain)" ]]; then
@@ -37,11 +37,28 @@ qualification_migration_count() {
   printf '%s\n' "$count"
 }
 
-control_ip() {
-  local inventory control_host
+control_target() {
+  local inventory control_host address
   inventory=$("$REPO_ROOT/infra/ansible/inventory/tofu.sh")
-  control_host=$(jq -r '.control_plane.hosts[0]' <<<"$inventory")
-  jq -er --arg host "$control_host" '._meta.hostvars[$host].ansible_host' <<<"$inventory"
+  control_host=$(jq -er '.control_plane.hosts[0]' <<<"$inventory")
+  address=$(jq -er --arg host "$control_host" \
+    '._meta.hostvars[$host].ansible_host' <<<"$inventory")
+  printf '%s\t%s\n' "$control_host" "$address"
+}
+
+write_boundary_inventory() {
+  local host=$1 address=$2 destination=$3
+  jq -n --arg host "$host" --arg address "$address" '
+    {all:{vars:{
+      ansible_user:"conductor",
+      ansible_ssh_private_key_file:"/var/lib/conductor/.ssh/id_ed25519",
+      ansible_ssh_common_args:"-o BatchMode=yes -o StrictHostKeyChecking=yes"
+    },children:{control_plane:{hosts:{($host):{
+      ansible_host:$address,
+      factory_role:"control-plane"
+    }}}}}}
+  ' >"$destination"
+  chmod 0600 "$destination"
 }
 
 installed_revision() {
@@ -57,13 +74,13 @@ set -euo pipefail
 socket=/run/patchyard-postgres
 database=patchyard
 while IFS=$'\t' read -r schema table; do
-  count=$(runuser -u postgres -- psql --host="$socket" --dbname="$database" \
+  count=$(runuser -u postgres -- psql --no-psqlrc --host="$socket" --dbname="$database" \
     --tuples-only --no-align --command="SELECT count(*) FROM \"$schema\".\"$table\"")
   printf 'row\t%s.%s\t%s\n' "$schema" "$table" "$count"
-done < <(runuser -u postgres -- psql --host="$socket" --dbname="$database" \
+done < <(runuser -u postgres -- psql --no-psqlrc --host="$socket" --dbname="$database" \
   --tuples-only --no-align --field-separator=$'\t' \
   --command="SELECT schemaname, tablename FROM pg_tables WHERE schemaname IN ('factory', 'public') ORDER BY schemaname, tablename")
-runuser -u postgres -- psql --host="$socket" --dbname="$database" \
+runuser -u postgres -- psql --no-psqlrc --host="$socket" --dbname="$database" \
   --tuples-only --no-align \
   --command="SELECT 'audit' || E'\\t' || COALESCE(max(id),0) || E'\\t' || count(*) FROM factory.audit_events"
 for root in artifacts proposer-inbox; do
@@ -81,7 +98,7 @@ unexpected_rollback_audits() {
   # The only client-expanded value is validated as decimal digits above.
   # shellcheck disable=SC2029
   ssh "${SSH_ARGS[@]}" "conductor@$address" \
-    "sudo -n runuser -u postgres -- psql --host=/run/patchyard-postgres --dbname=patchyard --tuples-only --no-align --command=\"SELECT count(*) FROM factory.audit_events WHERE id > $minimum_id AND (action <> 'account.provisioned' OR client_key <> 'factoryctl')\""
+    "sudo -n runuser -u postgres -- psql --no-psqlrc --host=/run/patchyard-postgres --dbname=patchyard --tuples-only --no-align --command=\"SELECT count(*) FROM factory.audit_events WHERE id > $minimum_id AND (action <> 'account.provisioned' OR client_key <> 'factoryctl')\""
 }
 
 set_rollback_boundary() {
@@ -90,7 +107,7 @@ set_rollback_boundary() {
   [[ -x "$ansible_playbook" ]] || ansible_playbook=ansible-playbook
   (
     cd "$REPO_ROOT/infra/ansible"
-    "$ansible_playbook" -i inventory/tofu.sh rollback-boundary.yml \
+    "$ansible_playbook" -i "$boundary_inventory" rollback-boundary.yml \
       -e "factory_rollback_boundary=$state"
   )
 }
@@ -127,7 +144,7 @@ case "$MODE" in
     output_dir=${3:-}
     [[ "$output_dir" == /* ]] || exit 2
     target=$(resolve_reviewed_revision "$target")
-    address=$(control_ip)
+    IFS=$'\t' read -r control_host address < <(control_target)
     current=$(resolve_reviewed_revision "$(installed_revision "$address")")
     target_migrations=$(git -C "$REPO_ROOT" show "$target:infra/ansible/group_vars/all.yml" \
       | sed -n 's/^factory_migration_count:[[:space:]]*//p')
@@ -145,12 +162,13 @@ case "$MODE" in
     install -d -m 0700 "$output_dir"
     manifest="$output_dir/control-rollback.json"
     jq -n --arg target_revision "$target" --arg return_revision "$current" \
+      --arg control_host "$control_host" --arg control_address "$address" \
       --arg target_tree "$(git -C "$REPO_ROOT" rev-parse "$target^{tree}")" \
       --arg return_tree "$(git -C "$REPO_ROOT" rev-parse "$current^{tree}")" \
       --argjson migration_count "$current_migrations" \
       --argjson qualification_migration_count "$current_qualification_migrations" \
       --arg created_at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-      '{schema_version:1,target_revision:$target_revision,target_tree:$target_tree,return_revision:$return_revision,return_tree:$return_tree,migration_count:$migration_count,qualification_migration_count:$qualification_migration_count,created_at:$created_at,scope:"application-binaries-config-and-checkout",durable_state:"must-preserve-with-declared-account-audits"}' \
+      '{schema_version:2,target_revision:$target_revision,target_tree:$target_tree,return_revision:$return_revision,return_tree:$return_tree,control_host:$control_host,control_address:$control_address,migration_count:$migration_count,qualification_migration_count:$qualification_migration_count,created_at:$created_at,scope:"application-binaries-config-and-checkout",durable_state:"must-preserve-with-declared-account-audits"}' \
       >"$manifest"
     sha256sum "$manifest" >"$manifest.sha256"
     echo "review $manifest and $manifest.sha256, then run apply"
@@ -162,7 +180,7 @@ case "$MODE" in
     : "${PATCHYARD_ROLLBACK_APPROVED:?set PATCHYARD_ROLLBACK_APPROVED=yes after manifest review}"
     [[ "$PATCHYARD_ROLLBACK_APPROVED" == yes ]] || exit 2
     (cd "$(dirname "$manifest")" && sha256sum --check "$(basename "$manifest").sha256")
-    jq -e '.schema_version == 1 and .scope == "application-binaries-config-and-checkout" and .durable_state == "must-preserve-with-declared-account-audits" and (.migration_count | type == "number") and (.qualification_migration_count | type == "number") and (.target_revision | test("^[0-9a-f]{40}$")) and (.return_revision | test("^[0-9a-f]{40}$"))' \
+    jq -e '.schema_version == 2 and .scope == "application-binaries-config-and-checkout" and .durable_state == "must-preserve-with-declared-account-audits" and (.migration_count | type == "number") and (.qualification_migration_count | type == "number") and (.target_revision | test("^[0-9a-f]{40}$")) and (.return_revision | test("^[0-9a-f]{40}$")) and (.control_host | test("^[A-Za-z0-9.-]+$")) and (.control_address | test("^([0-9]{1,3}\\.){3}[0-9]{1,3}$"))' \
       "$manifest" >/dev/null
     target=$(jq -r .target_revision "$manifest")
     target=$(resolve_reviewed_revision "$target")
@@ -185,7 +203,8 @@ case "$MODE" in
       exit 2
     }
 
-    address=$(control_ip)
+    control_host=$(jq -r .control_host "$manifest")
+    address=$(jq -r .control_address "$manifest")
     [[ "$(installed_revision "$address")" == "$return_revision" ]] || {
       echo 'installed revision changed after rollback plan review' >&2
       exit 2
@@ -205,6 +224,8 @@ case "$MODE" in
       echo 'rollback evidence files already exist' >&2
       exit 2
     }
+    boundary_inventory=$(mktemp /tmp/patchyard-rollback-boundary.XXXXXX)
+    write_boundary_inventory "$control_host" "$address" "$boundary_inventory"
     set_rollback_boundary enter
     boundary_entered=true
     return_qualified=false
@@ -230,6 +251,10 @@ case "$MODE" in
       fi
       if [[ "$boundary_entered" == true ]]; then
         echo 'rollback recovery did not qualify; public boundary and backup-timer stop remain in force' >&2
+      fi
+      if [[ -n "${boundary_inventory:-}" ]]; then
+        rm -f -- "$boundary_inventory"
+        boundary_inventory=''
       fi
     }
     trap release_boundary_and_cleanup EXIT
@@ -289,11 +314,40 @@ case "$MODE" in
     ssh "${SSH_ARGS[@]}" "conductor@$address" \
       'sudo systemctl is-active --quiet postgresql factory-dashboard factory-supervisor caddy patchyard-backup.timer'
     trap - EXIT
+    rm -f -- "$boundary_inventory"
+    boundary_inventory=''
     printf 'rollback_complete target=%s recovered=%s durable_state_sha256=%s\n' \
       "$target" "$return_revision" "$recovered_sha256"
     ;;
+  release-boundary)
+    require_clean_revision
+    manifest=${2:?usage: infra/rollback-control.sh release-boundary /absolute/control-rollback.json}
+    [[ "$manifest" == /* && -f "$manifest" && -f "$manifest.sha256" ]] || exit 2
+    : "${PATCHYARD_ROLLBACK_RELEASE_APPROVED:?set PATCHYARD_ROLLBACK_RELEASE_APPROVED=yes after independent recovery qualification}"
+    [[ "$PATCHYARD_ROLLBACK_RELEASE_APPROVED" == yes ]] || exit 2
+    (cd "$(dirname "$manifest")" && sha256sum --check "$(basename "$manifest").sha256")
+    jq -e '.schema_version == 2 and (.return_revision | test("^[0-9a-f]{40}$")) and (.control_host | test("^[A-Za-z0-9.-]+$")) and (.control_address | test("^([0-9]{1,3}\\.){3}[0-9]{1,3}$"))' \
+      "$manifest" >/dev/null
+    control_host=$(jq -r .control_host "$manifest")
+    address=$(jq -r .control_address "$manifest")
+    return_revision=$(jq -r .return_revision "$manifest")
+    [[ "$(installed_revision "$address")" == "$return_revision" ]] || {
+      echo 'state-free boundary release refused: reviewed return revision is not installed' >&2
+      exit 3
+    }
+    ssh "${SSH_ARGS[@]}" "conductor@$address" \
+      'sudo systemctl is-active --quiet postgresql factory-dashboard factory-supervisor caddy && sudo curl --fail --silent --unix-socket /run/patchyard-dashboard/dashboard.sock http://localhost/healthz' \
+      >/dev/null
+    boundary_inventory=$(mktemp /tmp/patchyard-rollback-boundary.XXXXXX)
+    trap 'rm -f -- "$boundary_inventory"' EXIT
+    write_boundary_inventory "$control_host" "$address" "$boundary_inventory"
+    set_rollback_boundary exit
+    ssh "${SSH_ARGS[@]}" "conductor@$address" \
+      'sudo systemctl is-active --quiet postgresql factory-dashboard factory-supervisor caddy patchyard-backup.timer'
+    echo 'rollback_boundary_released_from_reviewed_manifest'
+    ;;
   *)
-    echo 'usage: infra/rollback-control.sh <plan|apply> ...' >&2
+    echo 'usage: infra/rollback-control.sh <plan|apply|release-boundary> ...' >&2
     exit 2
     ;;
 esac

@@ -127,7 +127,11 @@ other old-host data to the replacement.
 ## Back up
 
 RPO is 24 hours; the timer runs daily at 02:20 UTC with up to ten minutes of
-jitter. RTO is four hours. Artifact and runtime generations expire off-host
+jitter. The four-hour RTO is an objective only for the reviewed clean-host
+data-restore sequence after replacement compute and the backup-compatible
+revision are available. Full control-plane loss - including authoring and
+reviewing replacement identity/DNS/firewall desired state - has not been timed
+and carries no validated RTO in v0. Artifact and runtime generations expire off-host
 after 90 days; non-current overwritten versions expire after seven days; local
 encrypted staging older than seven days is removed. Because a generation
 captures the then-live 90-day artifact window, an artifact can remain in an
@@ -144,9 +148,12 @@ sudo bash -c 'set -a; source /etc/patchyard/backup.env; set +a; exec /usr/local/
 ```
 
 The executable contract first requires live bucket versioning, takes an
-advisory lock, and refuses with `backup_busy` rather than interrupting an
-active production or proposer run. It remembers which writers were active;
-stops dashboard and supervisor; rejects non-regular artifact/runtime
+advisory lock, and refuses with `backup_busy` when it observes active
+production or proposer work. A claim in the narrow interval after the first
+check can be interrupted by writer quiescence; the required second check then
+returns `backup_busy`, and normal state-derived recovery resumes that work.
+It remembers which writers were active; stops dashboard and supervisor;
+rejects non-regular artifact/runtime
 entries and unsupported path characters; records exact table counts; creates
 a custom data-only `pg_dump` excluding `_sqlx_migrations`; manifests artifacts and the
 runtime ideas projection; creates deterministic tar inputs; encrypts the whole
@@ -220,15 +227,22 @@ targets must refuse rather than delete them.
 inventory. For actual control-plane loss, first preserve the failed host and
 its volume. The control-plane resource has `prevent_destroy`; create and review
 a desired-state replacement plus the later DNS/firewall identity move rather
-than repointing or replacing it by hand, and include both reviews in the
-four-hour RTO. Provision the replacement declaratively and apply migrations.
+than repointing or replacing it by hand. Record both review durations; they are
+outside v0's unvalidated actual-loss recovery time, not hidden inside the
+clean-host four-hour objective. Provision the replacement from the backup manifest's
+`source_revision` (or a reviewed revision with exactly the same migration set)
+and apply those migrations.
 Before invoking the installed restore executable against production paths,
 stop `factory-dashboard`, `factory-supervisor`, `patchyard-backup.service`,
 and `patchyard-backup.timer`, and independently verify zero active production
 and proposer work. The executable repeats those checks before download or data
 mutation. Restore the selected generation, verify all manifest counts and
-hashes, and only then apply the reviewed identity move. Never restore into an
-active database or a non-empty artifact/runtime target.
+hashes, and only then apply the reviewed identity move. The production
+executable accepts and consumes only the exact declarative clean-host baseline:
+an empty `artifacts/uploads/` directory and the sole runtime
+`docs/ideas.md` file byte-identical to `/opt/patchyard/docs/ideas.md`. Any
+additional entry or changed seed refuses as `restore_target_refused` before
+database or filesystem mutation. Never restore over preserved production data.
 
 ## Roll back
 
@@ -272,10 +286,11 @@ target rejected by this preflight ends as `rollback_target_refused` before the
 public boundary or any host mutation.
 
 PR #51 must be merged with a merge commit (the repository's established
-practice) or rebased with its commits preserved, never squash-merged. A squash
-would omit the declared anchor from `origin/master`, and the operator correctly
-refuses any target that is not its ancestor. Before the drill, independently
-prove `git merge-base --is-ancestor 7b032c7 origin/master` succeeds.
+practice) or a manual fast-forward that preserves the exact commits, never
+GitHub rebase-and-merge or squash. Either rewrite would omit the declared
+anchor from `origin/master`, and the operator correctly refuses any target that
+is not its ancestor. Before the drill, independently prove
+`git merge-base --is-ancestor 7b032c7 origin/master` succeeds.
 
 Before creating or applying the rollback manifest, use the dashboard `Full
 stop` and wait until the dashboard shows no active production or proposer run.
@@ -283,6 +298,9 @@ The apply verifies those durable facts, then installs a versioned firewalld
 boundary that rejects public HTTP/HTTPS while the target and return revisions
 run their own Ansible convergence and qualifications. Scheduled backup is
 stopped before the boundary preflight and cannot restart inside convergence.
+An already-established HTTP keep-alive can outlive the firewalld transition;
+any resulting submission changes the durable-state comparison and strands the
+operation fail closed as `rollback_failed` rather than being silently accepted.
 This keeps the dashboard and
 supervisor processes available for real target-revision qualification without
 giving either a writer input. If a target-stage failure occurs, the EXIT trap
@@ -295,19 +313,28 @@ directly.
 If recovery qualification cannot complete because the GitHub marker API is
 unavailable, the safe terminal state intentionally leaves the public reject,
 Full stop, and backup-timer stop in force. Preserve the rollback evidence.
+The automatic rollback/recovery path also depends on the AWS S3 OpenTofu state
+backend, DigitalOcean provider authority, and locally available pinned Cargo
+inputs. An outage or cold-cache fetch failure in any of those can strand the
+same fail-closed boundary. The reviewed rollback manifest therefore freezes
+the control-plane host and address before entry; releasing the boundary does
+not require OpenTofu state or a provider API.
 After independently proving that the reviewed return revision is installed,
 its local services and durable state are healthy, marker authority is restored,
 and qualification passes, a human operator may explicitly release only the
 versioned boundary with:
 
 ```bash
-cd infra/ansible
-ansible-playbook -i inventory/tofu.sh rollback-boundary.yml \
-  -e factory_rollback_boundary=exit
+PATCHYARD_ROLLBACK_RELEASE_APPROVED=yes \
+  infra/rollback-control.sh release-boundary "$ROLLBACK_MANIFEST"
 ```
 
 Then verify the public health path and use dashboard `Resume`. Do not run this
 recovery command merely because the automated trap failed.
+
+`GET /ideas` fails closed with HTTP 500 if the declared runtime projection is
+missing or unreadable. It does not render an empty page that could be mistaken
+for an intact proposer record.
 
 ## Kill and full stop
 

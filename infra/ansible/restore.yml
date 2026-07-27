@@ -51,28 +51,6 @@
     - role: exporters
     - role: control_plane
   tasks:
-    - name: Inventory the declarative clean-host restore targets
-      ansible.builtin.find:
-        paths: "{{ item }}"
-        file_type: file
-        recurse: true
-      loop:
-        - /var/lib/patchyard/artifacts
-        - /var/lib/patchyard/proposer-inbox
-      register: clean_restore_targets
-
-    - name: Refuse restore over data outside the clean-host baseline
-      ansible.builtin.assert:
-        that:
-          - clean_restore_targets.results[0].matched == 0
-          - clean_restore_targets.results[1].matched == 1
-          - >-
-            clean_restore_targets.results[1].files[0].path ==
-            '/var/lib/patchyard/proposer-inbox/docs/ideas.md'
-        fail_msg: >-
-          restore_target_refused: artifact/runtime targets differ from the
-          declarative clean-host baseline; preserve them and investigate
-
     - name: Stop every writer before replacing clean migrated state
       ansible.builtin.systemd:
         name: "{{ item }}"
@@ -82,14 +60,6 @@
         - factory-supervisor.service
         - factory-dashboard.service
         - patchyard-backup.timer
-
-    - name: Remove only the clean recovery artifact targets before restore
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - /var/lib/patchyard/artifacts
-        - /var/lib/patchyard/proposer-inbox
 
     - name: Install the ephemeral recovery identity
       ansible.builtin.copy:

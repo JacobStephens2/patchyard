@@ -1441,6 +1441,11 @@
     mode: "0755"
   notify: Restart factory supervisor
 
+- name: Remove the superseded fail-closed deployed-version stub
+  ansible.builtin.file:
+    path: /usr/local/libexec/patchyard-deployed-version-unconfigured
+    state: absent
+
 - name: Create private GitHub CLI runtime-state roots outside the checkout
   ansible.builtin.file:
     path: "/var/lib/patchyard/supervisor/{{ item }}"

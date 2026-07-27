@@ -37,6 +37,35 @@ validate_checksum_manifest() {
   done <"$manifest"
 }
 
+assert_production_clean_baseline() {
+  local artifact_entries runtime_entries
+  [[ -d "$artifact_root" && ! -L "$artifact_root" ]] || {
+    echo 'restore_target_refused: production artifact target is not the declarative directory' >&2
+    exit 35
+  }
+  artifact_entries=$(find "$artifact_root" -mindepth 1 -printf '%y\t%P\n' | LC_ALL=C sort)
+  [[ "$artifact_entries" == $'d\tuploads' ]] || {
+    echo 'restore_target_refused: production artifact target differs from the declarative clean-host baseline' >&2
+    exit 35
+  }
+
+  [[ -d "$runtime_root" && ! -L "$runtime_root" ]] || {
+    echo 'restore_target_refused: production runtime target is not the declarative directory' >&2
+    exit 35
+  }
+  runtime_entries=$(find "$runtime_root" -mindepth 1 -printf '%y\t%P\n' | LC_ALL=C sort)
+  [[ "$runtime_entries" == $'d\tdocs\nf\tdocs/ideas.md' ]] || {
+    echo 'restore_target_refused: production runtime target differs from the declarative clean-host baseline' >&2
+    exit 35
+  }
+  if [[ ! -f /opt/patchyard/docs/ideas.md \
+    || -L /opt/patchyard/docs/ideas.md ]] \
+    || ! cmp --silent /opt/patchyard/docs/ideas.md "$runtime_root/docs/ideas.md"; then
+    echo 'restore_target_refused: production ideas seed differs from reviewed desired state' >&2
+    exit 35
+  fi
+}
+
 generation=''
 identity_file=''
 database=''
@@ -90,7 +119,7 @@ if [[ "$production_restore" == true ]]; then
       exit 30
     fi
   done
-  active_work=$(runuser -u postgres -- psql \
+  active_work=$(runuser -u postgres -- psql --no-psqlrc \
     --host="$socket_root" --dbname="$database" --tuples-only --no-align \
     --command="
       SELECT
@@ -179,16 +208,20 @@ validate_checksum_manifest "$restore_root/payload/runtime.sha256" runtime
 [[ "$(sha256sum "$restore_root/payload/runtime.tar" | cut -d' ' -f1)" == "$(jq -r .runtime.archive_sha256 "$manifest")" ]]
 [[ "$(sha256sum "$restore_root/payload/runtime.sha256" | cut -d' ' -f1)" == "$(jq -r .runtime.manifest_sha256 "$manifest")" ]]
 
-if [[ -e "$artifact_root" ]] && find "$artifact_root" -mindepth 1 -print -quit | grep -q .; then
-  echo 'restore artifact target is not empty' >&2
-  exit 35
-fi
-if [[ -e "$runtime_root" ]] && find "$runtime_root" -mindepth 1 -print -quit | grep -q .; then
-  echo 'restore runtime target is not empty' >&2
-  exit 35
+if [[ "$production_restore" == true ]]; then
+  assert_production_clean_baseline
+else
+  if [[ -e "$artifact_root" ]] && find "$artifact_root" -mindepth 1 -print -quit | grep -q .; then
+    echo 'restore artifact target is not empty' >&2
+    exit 35
+  fi
+  if [[ -e "$runtime_root" ]] && find "$runtime_root" -mindepth 1 -print -quit | grep -q .; then
+    echo 'restore runtime target is not empty' >&2
+    exit 35
+  fi
 fi
 
-current_tables=$(runuser -u postgres -- psql --host="$socket_root" --dbname="$database" \
+current_tables=$(runuser -u postgres -- psql --no-psqlrc --host="$socket_root" --dbname="$database" \
   --tuples-only --no-align \
   --command="SELECT schemaname || '.' || tablename FROM pg_tables WHERE schemaname IN ('factory', 'public') AND NOT (schemaname = 'public' AND tablename = '_sqlx_migrations') ORDER BY schemaname, tablename")
 manifest_tables=$(jq -r '.table_counts | keys[]' "$manifest")
@@ -196,14 +229,22 @@ manifest_tables=$(jq -r '.table_counts | keys[]' "$manifest")
   echo 'migrated database table set differs from the backup manifest' >&2
   exit 36
 }
-current_migration_count=$(runuser -u postgres -- psql --host="$socket_root" --dbname="$database" \
+current_migration_count=$(runuser -u postgres -- psql --no-psqlrc --host="$socket_root" --dbname="$database" \
   --tuples-only --no-align \
   --command='SELECT count(*) FROM public._sqlx_migrations WHERE success')
 [[ "$current_migration_count" == "$(jq -r .migration_count "$manifest")" ]] || {
   echo 'migrated database version differs from the backup manifest' >&2
   exit 36
 }
-runuser -u postgres -- psql --host="$socket_root" --dbname="$database" \
+if [[ "$production_restore" == true ]]; then
+  # Re-check immediately before the first mutation, then consume only the
+  # exact empty uploads directory and byte-identical desired-state seed that
+  # declarative provisioning necessarily created.
+  assert_production_clean_baseline
+  rm -r -- "$artifact_root" "$runtime_root"
+fi
+
+runuser -u postgres -- psql --no-psqlrc --host="$socket_root" --dbname="$database" \
   --set=ON_ERROR_STOP=1 --command="DO \$\$ DECLARE item record; BEGIN FOR item IN SELECT schemaname, tablename FROM pg_tables WHERE schemaname IN ('factory', 'public') AND NOT (schemaname = 'public' AND tablename = '_sqlx_migrations') LOOP EXECUTE format('TRUNCATE TABLE %I.%I CASCADE', item.schemaname, item.tablename); END LOOP; END \$\$;"
 runuser -u postgres -- pg_restore --host="$socket_root" --dbname="$database" \
   --data-only --disable-triggers --no-owner --no-acl --exit-on-error \
@@ -236,7 +277,7 @@ while IFS= read -r entry; do
   schema=${key%%.*}
   table=${key#*.}
   [[ "$schema" =~ ^[a-z_]+$ && "$table" =~ ^[a-z_]+$ ]] || exit 36
-  actual=$(runuser -u postgres -- psql --host="$socket_root" --dbname="$database" \
+  actual=$(runuser -u postgres -- psql --no-psqlrc --host="$socket_root" --dbname="$database" \
     --tuples-only --no-align --command="SELECT count(*) FROM \"$schema\".\"$table\"")
   [[ "$actual" == "$expected" ]] || {
     echo "row count mismatch for $key: expected $expected, got $actual" >&2

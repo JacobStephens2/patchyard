@@ -33,8 +33,9 @@ is human-reviewed, merged, and installed. That pointer-only repository change
 advances the marker only after a successful production deploy and verifies the
 read-back SHA. Session 16 does not merge or install it for the human operator.
 
-Factory PR #51 must preserve its commits through the normal merge-commit path
-(or rebase), not squash. The rollback drill's exact target is the intermediate
+Factory PR #51 must preserve its commits through the normal merge-commit path,
+not GitHub rebase-and-merge or squash. A manual fast-forward that preserves the
+exact objects is also valid. The rollback drill's exact target is the intermediate
 reviewed anchor `7b032c7c7ceb7c427cf5e73c43e2116acaf5614a`; automatic rollback
 requires that object to be an ancestor of merged `origin/master`.
 
@@ -94,10 +95,10 @@ recorded.
 | `reconcile_failed_closed` | GitHub or the deploy-marker source was unavailable/invalid; the run remained pending with the bounded failure recorded. |
 | `reconcile_projection_failed` | A real marker SHA was observed but reconcile persisted a different repository, SHA, source, or state. |
 | `replacement_failed` | Worker replacement, second converge, isolation probe, or no-residue check failed; no old worker data is restored. |
-| `backup_busy` | The attended or scheduled backup found an active production/proposer run and refused to interrupt it. |
+| `backup_busy` | The attended or scheduled backup observed active work before quiescence, or caught a claim in the stop-window recheck; state-derived recovery resumes any transiently interrupted claim. |
 | `backup_failed` | Bucket versioning, quiescence, `pg_dump`, artifact manifest, row-count manifest, encryption, or off-host upload failed. |
 | `backup_verification_failed` | `LATEST`, its receipt, ciphertext metadata, age, download, decryption, or payload hashes did not agree. |
-| `restore_target_refused` | The drill flag and generated-inventory target binding were absent or the artifact/runtime targets were populated. No restore mutation began. |
+| `restore_target_refused` | The drill target binding was absent, or the artifact/runtime roots differed from the exact declarative clean-host baseline. No restore mutation began. |
 | `restore_provision_failed` | Declarative PostgreSQL/role or clean restore-root provisioning failed. |
 | `restore_migration_failed` | Migrations did not reapply from the reviewed checkout before data restore. |
 | `restore_data_failed` | The dump did not restore cleanly into the drill database. |
@@ -161,9 +162,12 @@ as installed proof.
 
 Because the protected marker is a qualification dependency, a real GitHub API
 or App outage also prevents installed converge, worker replacement, and
-rollback recovery from qualifying. CI can prove only the fail-closed behavior,
-not availability of that external authority or release of a stuck rollback
-boundary.
+rollback recovery from qualifying. Automatic rollback/recovery additionally
+depends on the AWS S3 OpenTofu state backend, DigitalOcean authority, and the
+pinned Cargo inputs being locally available or fetchable. CI can prove only
+the fail-closed behavior and the manifest-bound, state-backend-free boundary
+release path, not availability of those external authorities. The live drill
+must exercise that release path with the state backend deliberately unavailable.
 
 ## Deliberate live coverage
 
@@ -175,8 +179,9 @@ each destructive or externally visible step:
 2. run all source checks with the PostgreSQL-backed suite explicitly active,
    review all three OpenTofu plans, and apply no plan whose target set differs
    from its declaration;
-3. create `refs/heads/deploy/production` at the independently observed clean
-   production SHA, apply its GitOps protection, exercise both valid and
+3. apply GitOps protection that restricts both creation and updates, then have
+   a named operator create `refs/heads/deploy/production` at the independently
+   observed clean production SHA; exercise both valid and
    fail-closed observations, and require the companion orchestration deploy
    flow before declaring ongoing marker advancement installed;
 4. converge the cutover commit, apply migrations, qualify both hosts, repeat
@@ -225,8 +230,11 @@ production form submission and requires no console fallback.
 
 ## Recovery objectives
 
-Phase-1 runbook v0 declares an RPO of 24 hours and an RTO of 4 hours. A backup
-is accepted only after off-host verification. Expired artifacts disappear from
+Phase-1 runbook v0 declares an RPO of 24 hours. Its four-hour RTO objective is
+limited to the drilled clean-host data restore after replacement compute and a
+backup-compatible revision are available. End-to-end actual-loss replacement,
+identity move, and review time remains unvalidated and is not claimed as an RTO.
+A backup is accepted only after off-host verification. Expired artifacts disappear from
 new generations after the normal retention sweep; older versioned generations
 age out under the separately declared backup lifecycle, so an artifact is
 never deleted from the only remaining restorable generation.

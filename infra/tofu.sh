@@ -73,4 +73,16 @@ case "$TOFU_ROOT" in
     ;;
 esac
 
+if [[ "$TOFU_ROOT" == digitalocean && "${1:-}" == apply ]]; then
+  state_list=$(tofu -chdir="$TOFU_DIR" state list) || {
+    echo 'DigitalOcean apply refused because restore-drill state could not be inspected' >&2
+    exit 2
+  }
+  if grep -Fxq 'digitalocean_droplet.restore_drill[0]' <<<"$state_list" \
+    && [[ "${PATCHYARD_RESTORE_DRILL_APPLY:-}" != destroy ]]; then
+    echo 'DigitalOcean apply refused while the restore drill exists; only the address-pinned restore-drill destroy path is allowed' >&2
+    exit 2
+  fi
+fi
+
 exec tofu -chdir="$TOFU_DIR" "$@"

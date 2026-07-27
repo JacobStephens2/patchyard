@@ -16,6 +16,8 @@ class Session16CutoverContract(unittest.TestCase):
         cls.restore_play = (ROOT / "infra" / "ansible" / "restore.yml").read_text()
         cls.restore_operator = (ROOT / "infra" / "restore-drill.sh").read_text()
         cls.plan_operator = (ROOT / "infra" / "plan.sh").read_text()
+        cls.replace_operator = (ROOT / "infra" / "replace-worker.sh").read_text()
+        cls.tofu_operator = (ROOT / "infra" / "tofu.sh").read_text()
         cls.rollback_operator = (ROOT / "infra" / "rollback-control.sh").read_text()
         cls.rollback_boundary = (
             ROOT / "infra" / "ansible" / "rollback-boundary.yml"
@@ -30,6 +32,7 @@ class Session16CutoverContract(unittest.TestCase):
             / "main.yml"
         ).read_text()
         cls.github = (ROOT / "infra" / "github" / "main.tf").read_text()
+        cls.digitalocean = (ROOT / "infra" / "digitalocean" / "main.tf").read_text()
         cls.spaces = (ROOT / "infra" / "digitalocean" / "backup.tf").read_text()
 
     def test_backup_quiesces_writers_and_captures_all_durable_state(self) -> None:
@@ -93,6 +96,13 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("RESTORE_GRAFANA_REQUEST_CANARY", self.restore_play)
         self.assertIn("production restore requires inactive writer", self.restore)
         self.assertIn("production restore requires zero active work", self.restore)
+        self.assertIn("assert_production_clean_baseline", self.restore)
+        self.assertIn("production ideas seed differs from reviewed desired state", self.restore)
+        destructive = self.restore.rindex('rm -r -- "$artifact_root" "$runtime_root"')
+        self.assertLess(
+            self.restore.index("migrated database version differs"), destructive
+        )
+        self.assertLess(destructive, self.restore.index("TRUNCATE TABLE"))
 
     def test_clean_host_drill_has_reviewed_create_and_destroy_plans(self) -> None:
         self.assertIn("digitalocean_droplet.restore_drill[0]", self.restore_operator)
@@ -103,9 +113,7 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn('factory_github_app_private_key_file:"/dev/null"', self.restore_operator)
         guard = self.restore_play.index("Refuse restore outside the generated drill inventory")
         roles = self.restore_play.index("roles:")
-        destructive = self.restore_play.index("Remove only the clean recovery artifact targets")
         self.assertLess(guard, roles)
-        self.assertLess(guard, destructive)
         self.assertIn("factory_restore_expected_host", self.restore_operator)
         self.assertIn("factory_restore_expected_droplet_id", self.restore_operator)
         self.assertIn("restore_drill_id", self.restore_operator)
@@ -114,11 +122,24 @@ class Session16CutoverContract(unittest.TestCase):
             self.restore_play.index("Wait for SSH after drill-host creation"),
             self.restore_play.index("Read the target DigitalOcean droplet identity"),
         )
-        self.assertIn("restore_target_refused", self.restore_play)
-        self.assertIn("clean_restore_targets.results[0].matched == 0", self.restore_play)
+        self.assertNotIn("Remove only the clean recovery artifact targets", self.restore_play)
+        self.assertIn("restore_target_refused", self.restore)
         self.assertIn('lookup(\\"env\\", \\"ETA_RESTORE_IDENTITY\\")', self.restore_operator)
         self.assertNotIn("factory_backup_age_identity_file", self.restore_operator)
         self.assertIn("routine DigitalOcean plan refused while the restore drill exists", self.plan_operator)
+        self.assertIn("state_list=", self.plan_operator)
+        self.assertIn("grep -Fxq", self.plan_operator)
+        self.assertIn("DigitalOcean apply refused while the restore drill exists", self.tofu_operator)
+        self.assertIn("PATCHYARD_RESTORE_DRILL_APPLY=destroy", self.restore_operator)
+
+    def test_worker_replacement_plan_is_mechanically_address_pinned(self) -> None:
+        self.assertIn("verify_worker_plan", self.replace_operator)
+        self.assertIn("digitalocean_droplet.worker", self.replace_operator)
+        self.assertIn("digitalocean_firewall.worker", self.replace_operator)
+        self.assertIn("changes an out-of-scope resource", self.replace_operator)
+        self.assertGreaterEqual(
+            self.replace_operator.count('verify_worker_plan "$PLAN_FILE"'), 2
+        )
 
     def test_rollback_binds_live_revision_and_verifies_durable_state(self) -> None:
         self.assertIn('current=$(resolve_reviewed_revision "$(installed_revision', self.rollback_operator)
@@ -151,6 +172,11 @@ class Session16CutoverContract(unittest.TestCase):
         )
         self.assertIn("rollback-emergency-recovery", self.rollback_operator)
         self.assertIn("qualification_migration_count", self.rollback_operator)
+        self.assertIn("schema_version:2", self.rollback_operator)
+        self.assertIn("control_address", self.rollback_operator)
+        self.assertIn("release-boundary", self.rollback_operator)
+        self.assertIn("PATCHYARD_ROLLBACK_RELEASE_APPROVED", self.rollback_operator)
+        self.assertIn("StrictHostKeyChecking=yes", self.rollback_operator)
         rollback_deploy = self.rollback_operator.split(
             "deploy_and_qualify_revision() {", maxsplit=1
         )[1].split("stable_durable_state() {", maxsplit=1)[0]
@@ -181,12 +207,22 @@ class Session16CutoverContract(unittest.TestCase):
         master = self.github.split('data "github_repository" "fieldbook"', maxsplit=1)[0]
         self.assertIn('push_allowances  = ["/JacobStephens2", "/example-teammate"]', master)
         self.assertIn('pattern             = "deploy/production"', self.github)
-        self.assertIn('push_allowances  = ["/JacobStephens2", "/example-teammate"]', self.github)
-        self.assertIn("allows_force_pushes = true", self.github)
+        marker = self.github.split(
+            'resource "github_branch_protection" "fieldbook_deploy_production"',
+            maxsplit=1,
+        )[1]
+        self.assertIn('push_allowances  = ["/JacobStephens2", "/example-teammate"]', marker)
+        self.assertIn("blocks_creations = true", marker)
+        self.assertIn("allows_force_pushes = true", marker)
+
+    def test_ipv4_rollback_boundary_is_coupled_to_disabled_droplet_ipv6(self) -> None:
+        self.assertEqual(3, self.digitalocean.count("ipv6          = false"))
+        self.assertIn('family="ipv4"', self.rollback_boundary)
 
     def test_installed_parent_and_deployed_version_operator_env_are_repaired(self) -> None:
         self.assertIn("path: /var/lib/patchyard/proposer-inbox", self.tasks)
         self.assertIn("src: patchyard-deployed-version.env.j2", self.tasks)
+        self.assertIn("patchyard-deployed-version-unconfigured", self.tasks)
 
 
 if __name__ == "__main__":

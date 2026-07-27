@@ -15,8 +15,9 @@ ordinary workflow/push PAT remains separate. If `master` has no protection rule,
 the import script adopts the repository and leaves the reviewed OpenTofu apply
 to create the rule rather than confusing absence with missing authority.
 
-The Fieldbook marker protection permits direct updates only by Jacob Stephens or
-Engineer Two, blocks deletion and force pushes, and grants no Factory App
-bypass. The App reads the marker with a per-mint `contents:read` token. The
+The Fieldbook marker protection permits creation and direct updates only by
+Jacob Stephens or Engineer Two, blocks deletion, permits their forced
+rollback move, and grants no Factory App bypass. The App reads the marker with
+a per-mint `contents:read` token. The
 production deploy flow advances this marker only after the deployed checkout
 has been verified at the target SHA.

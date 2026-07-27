@@ -14,7 +14,7 @@ readonly password
 probe_root=$(mktemp -d /var/tmp/patchyard-evidence-probe.XXXXXX)
 trap 'rm -r -- "$probe_root"' EXIT
 
-artifact_row=$(runuser -u postgres -- psql \
+artifact_row=$(runuser -u postgres -- psql --no-psqlrc \
   --host="$database_socket" --dbname=patchyard --tuples-only --no-align \
   --field-separator=$'\t' --command="
     SELECT run_id::text, path, encode(sha256, 'hex')
@@ -45,9 +45,12 @@ csrf=$(sed -n 's/.*name="csrf_token" value="\([^"]*\)".*/\1/p' \
 login_status=$(curl --silent --show-error --dump-header "$probe_root/session.headers" \
   --output /dev/null --write-out '%{http_code}' --request POST \
   --cookie "__Host-factory_login=$login_cookie" \
-  --data-urlencode "csrf_token=$csrf" --data-urlencode "username=$username" \
-  --data-urlencode "password=$password" \
-  --unix-socket "$socket" http://localhost/login)
+  --unix-socket "$socket" --config - http://localhost/login <<CURL_CONFIG
+data-urlencode = "csrf_token=$csrf"
+data-urlencode = "username=$username"
+data-urlencode = "password=$password"
+CURL_CONFIG
+)
 [[ "$login_status" == 302 ]] || {
   echo "restore evidence login returned HTTP $login_status" >&2
   exit 41

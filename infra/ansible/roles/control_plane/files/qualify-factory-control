@@ -105,6 +105,7 @@ test -x /usr/local/libexec/patchyard-log-secret-scan
 test -x /usr/local/bin/factory-evidence-qualify
 test -x /usr/local/sbin/patchyard-stage-evidence-qualification
 test -x /usr/local/libexec/patchyard-deployed-version
+test ! -e /usr/local/libexec/patchyard-deployed-version-unconfigured
 test ! -e /opt/patchyard/.local
 test ! -e /usr/local/libexec/patchyard-headless
 test ! -e /usr/local/sbin/patchyard-preview-capture

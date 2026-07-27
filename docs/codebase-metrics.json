@@ -72,16 +72,16 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 14724,
-      "comments": 477,
-      "blanks": 1430,
+      "code": 14882,
+      "comments": 481,
+      "blanks": 1436,
       "files": 142,
       "languages": [
         {
           "language": "BASH",
-          "code": 4673,
-          "comments": 106,
-          "blanks": 346,
+          "code": 4712,
+          "comments": 109,
+          "blanks": 349,
           "files": 39
         },
         {
@@ -115,7 +115,7 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 234,
+          "comments": 235,
           "blanks": 62,
           "files": 6
         },
@@ -128,16 +128,16 @@
         },
         {
           "language": "Python",
-          "code": 3846,
+          "code": 3880,
           "comments": 39,
-          "blanks": 407,
+          "blanks": 409,
           "files": 19
         },
         {
           "language": "Shell",
-          "code": 1072,
+          "code": 1179,
           "comments": 21,
-          "blanks": 108,
+          "blanks": 111,
           "files": 18
         },
         {
@@ -156,9 +156,9 @@
         },
         {
           "language": "YAML",
-          "code": 3261,
+          "code": 3239,
           "comments": 15,
-          "blanks": 331,
+          "blanks": 329,
           "files": 22
         }
       ]
@@ -246,14 +246,14 @@
     {
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
-      "code": 8268,
-      "comments": 9674,
-      "blanks": 2843,
+      "code": 8267,
+      "comments": 9709,
+      "blanks": 2844,
       "files": 109,
       "languages": [
         {
           "language": "BASH",
-          "code": 229,
+          "code": 228,
           "comments": 18,
           "blanks": 21,
           "files": 14
@@ -268,8 +268,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 9654,
-          "blanks": 2790,
+          "comments": 9689,
+          "blanks": 2791,
           "files": 85
         },
         {

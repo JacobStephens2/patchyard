@@ -84,7 +84,7 @@ flock --exclusive --nonblock 9 || {
 }
 
 active_work_count() {
-  runuser -u postgres -- psql \
+  runuser -u postgres -- psql --no-psqlrc \
     --host="$socket_root" --dbname="$database" --tuples-only --no-align \
     --command="
     SELECT
@@ -208,7 +208,7 @@ runuser -u postgres -- pg_dump \
   >"$payload_root/database.dump"
 
 tables_file="$generation_root/tables.tsv"
-runuser -u postgres -- psql \
+runuser -u postgres -- psql --no-psqlrc \
   --host="$socket_root" --dbname="$database" --tuples-only --no-align \
   --field-separator=$'\t' \
   --command="SELECT schemaname, tablename FROM pg_tables WHERE schemaname IN ('factory', 'public') AND NOT (schemaname = 'public' AND tablename = '_sqlx_migrations') ORDER BY schemaname, tablename" \
@@ -220,14 +220,14 @@ while IFS=$'\t' read -r schema table; do
     echo 'database contains an unexpected table identifier' >&2
     exit 23
   }
-  count=$(runuser -u postgres -- psql \
+  count=$(runuser -u postgres -- psql --no-psqlrc \
     --host="$socket_root" --dbname="$database" --tuples-only --no-align \
     --command="SELECT count(*) FROM \"$schema\".\"$table\"")
   table_counts=$(jq -c --arg key "$schema.$table" --argjson count "$count" \
     '. + {($key):$count}' <<<"$table_counts")
 done <"$tables_file"
 
-migration_count=$(runuser -u postgres -- psql \
+migration_count=$(runuser -u postgres -- psql --no-psqlrc \
   --host="$socket_root" --dbname="$database" --tuples-only --no-align \
   --command='SELECT count(*) FROM public._sqlx_migrations WHERE success')
 database_sha256=$(sha256sum "$payload_root/database.dump" | cut -d' ' -f1)

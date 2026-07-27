@@ -5,6 +5,43 @@ umask 077
 REPO_ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 MODE=${1:-}
 
+verify_worker_plan() {
+  local plan_file=$1 plan_json unexpected worker_action firewall_action
+  plan_json=$("$REPO_ROOT/infra/tofu.sh" digitalocean show -json "$plan_file") || {
+    echo 'worker replacement refused because the reviewed plan could not be inspected' >&2
+    exit 2
+  }
+  unexpected=$(jq -r '
+    .resource_changes[]
+    | select(.change.actions != ["no-op"])
+    | .address
+    | select(. != "digitalocean_droplet.worker" and . != "digitalocean_firewall.worker")
+  ' <<<"$plan_json")
+  [[ -z "$unexpected" ]] || {
+    echo "worker replacement plan changes an out-of-scope resource: $unexpected" >&2
+    exit 2
+  }
+  worker_action=$(jq -c '
+    [.resource_changes[]
+     | select(.address == "digitalocean_droplet.worker")
+     | .change.actions]
+  ' <<<"$plan_json")
+  [[ "$worker_action" == '[["create","delete"]]' \
+    || "$worker_action" == '[["delete","create"]]' ]] || {
+    echo "worker replacement plan lacks one exact worker replacement: $worker_action" >&2
+    exit 2
+  }
+  firewall_action=$(jq -c '
+    [.resource_changes[]
+     | select(.address == "digitalocean_firewall.worker")
+     | .change.actions]
+  ' <<<"$plan_json")
+  [[ "$firewall_action" == '[["no-op"]]' || "$firewall_action" == '[["update"]]' ]] || {
+    echo "worker replacement plan has an unexpected worker-firewall action: $firewall_action" >&2
+    exit 2
+  }
+}
+
 case "$MODE" in
   plan)
     REPLACE_ROOT=${2:?usage: infra/replace-worker.sh plan /absolute/output/directory}
@@ -19,6 +56,7 @@ case "$MODE" in
     "$REPO_ROOT/infra/tofu.sh" digitalocean plan \
       -replace=digitalocean_droplet.worker \
       -out="$PLAN_FILE"
+    verify_worker_plan "$PLAN_FILE"
     "$REPO_ROOT/infra/tofu.sh" digitalocean show -no-color "$PLAN_FILE" \
       >"$PLAN_FILE.txt"
     echo "review $PLAN_FILE.txt, then run the apply mode with the encrypted plan"
@@ -34,6 +72,7 @@ case "$MODE" in
       echo "replacement approval must be the literal value yes" >&2
       exit 2
     fi
+    verify_worker_plan "$PLAN_FILE"
     "$REPO_ROOT/infra/tofu.sh" digitalocean show -no-color "$PLAN_FILE"
     "$REPO_ROOT/infra/tofu.sh" digitalocean apply "$PLAN_FILE"
     "$REPO_ROOT/infra/ansible/converge.sh"

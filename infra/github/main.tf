@@ -69,7 +69,7 @@ resource "github_branch_protection" "fieldbook_deploy_production" {
   allows_force_pushes = true
 
   restrict_pushes {
-    blocks_creations = false
+    blocks_creations = true
     push_allowances  = ["/JacobStephens2", "/example-teammate"]
   }
 }

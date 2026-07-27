@@ -31,6 +31,7 @@
           ansible.builtin.command:
             argv:
               - psql
+              - --no-psqlrc
               - --host=/run/patchyard-postgres
               - --dbname=patchyard
               - --tuples-only

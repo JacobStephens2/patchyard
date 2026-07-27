@@ -15,6 +15,7 @@ class Session16CutoverContract(unittest.TestCase):
         cls.deployed = (FILES / "patchyard-deployed-version").read_text()
         cls.restore_play = (ROOT / "infra" / "ansible" / "restore.yml").read_text()
         cls.restore_operator = (ROOT / "infra" / "restore-drill.sh").read_text()
+        cls.plan_operator = (ROOT / "infra" / "plan.sh").read_text()
         cls.rollback_operator = (ROOT / "infra" / "rollback-control.sh").read_text()
         cls.rollback_boundary = (
             ROOT / "infra" / "ansible" / "rollback-boundary.yml"
@@ -90,6 +91,8 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("--disable-triggers", self.restore)
         self.assertIn('<"$restore_root/payload/database.dump"', self.restore)
         self.assertIn("RESTORE_GRAFANA_REQUEST_CANARY", self.restore_play)
+        self.assertIn("production restore requires inactive writer", self.restore)
+        self.assertIn("production restore requires zero active work", self.restore)
 
     def test_clean_host_drill_has_reviewed_create_and_destroy_plans(self) -> None:
         self.assertIn("digitalocean_droplet.restore_drill[0]", self.restore_operator)
@@ -107,8 +110,14 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("factory_restore_expected_droplet_id", self.restore_operator)
         self.assertIn("restore_drill_id", self.restore_operator)
         self.assertIn("metadata/v1/id", self.restore_play)
+        self.assertLess(
+            self.restore_play.index("Wait for SSH after drill-host creation"),
+            self.restore_play.index("Read the target DigitalOcean droplet identity"),
+        )
         self.assertIn("restore_target_refused", self.restore_play)
         self.assertIn("clean_restore_targets.results[0].matched == 0", self.restore_play)
+        self.assertIn("/dev/shm/patchyard-restore-secrets", self.restore_operator)
+        self.assertIn("routine DigitalOcean plan refused while the restore drill exists", self.plan_operator)
 
     def test_rollback_binds_live_revision_and_verifies_durable_state(self) -> None:
         self.assertIn('current=$(resolve_reviewed_revision "$(installed_revision', self.rollback_operator)
@@ -140,6 +149,7 @@ class Session16CutoverContract(unittest.TestCase):
             self.rollback_operator,
         )
         self.assertIn("rollback-emergency-recovery", self.rollback_operator)
+        self.assertIn("qualification_migration_count", self.rollback_operator)
         self.assertIn(
             "public boundary and backup-timer stop remain in force",
             self.rollback_operator,
@@ -158,6 +168,8 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("repositories\":[\"fieldbook\"]", self.deployed)
         self.assertIn("permissions\":{\"contents\":\"read\"}", self.deployed)
         self.assertIn("unexpected installation scope", self.deployed)
+        self.assertIn("curl --config -", self.deployed)
+        self.assertNotIn('--header "Authorization: Bearer', self.deployed)
 
     def test_a109_keeps_factory_approvals_optional_and_marker_human_only(self) -> None:
         self.assertIn("required_approving_review_count = 0", self.github)
@@ -165,6 +177,7 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn('push_allowances  = ["/JacobStephens2", "/example-teammate"]', master)
         self.assertIn('pattern             = "deploy/production"', self.github)
         self.assertIn('push_allowances  = ["/JacobStephens2", "/example-teammate"]', self.github)
+        self.assertIn("allows_force_pushes = true", self.github)
 
     def test_installed_parent_and_deployed_version_operator_env_are_repaired(self) -> None:
         self.assertIn("path: /var/lib/patchyard/proposer-inbox", self.tasks)

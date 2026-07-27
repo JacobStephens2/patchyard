@@ -58,14 +58,15 @@ data "github_repository" "fieldbook" {
 
 # The moving deploy marker is a branch ref so GitHub can enforce its update
 # policy. Factory runtime tokens are narrowed to contents:read; only the two
-# named human deploy operators may move the ref, and neither deletion nor a
-# force update is permitted.
+# named human deploy operators may move the ref. Deletion remains forbidden;
+# force updates are required so a verified Fieldbook rollback can move the
+# marker to the older commit that is actually live.
 resource "github_branch_protection" "fieldbook_deploy_production" {
   repository_id       = data.github_repository.fieldbook.node_id
   pattern             = "deploy/production"
   enforce_admins      = true
   allows_deletions    = false
-  allows_force_pushes = false
+  allows_force_pushes = true
 
   restrict_pushes {
     blocks_creations = false

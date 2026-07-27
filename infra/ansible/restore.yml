@@ -15,6 +15,16 @@
           restore.yml is drill-only and requires its generated inventory and
           explicit target binding before any service or data change
 
+    - name: Wait for SSH after drill-host creation
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        timeout: 600
+
+    - name: Wait for cloud-init to release package management
+      ansible.builtin.command:
+        argv: [cloud-init, status, --wait]
+      changed_when: false
+
     - name: Read the target DigitalOcean droplet identity
       ansible.builtin.uri:
         url: http://169.254.169.254/metadata/v1/id
@@ -31,16 +41,6 @@
         fail_msg: >-
           restore.yml target is not the reviewed ephemeral DigitalOcean
           droplet; no provisioning or data mutation began
-
-    - name: Wait for SSH after drill-host creation
-      ansible.builtin.wait_for_connection:
-        delay: 5
-        timeout: 600
-
-    - name: Wait for cloud-init to release package management
-      ansible.builtin.command:
-        argv: [cloud-init, status, --wait]
-      changed_when: false
 
 - name: Provision and restore the clean recovery host
   hosts: control_plane

@@ -58,12 +58,15 @@ done
 : "${AWS_ACCESS_KEY_ID:?missing backup access key}"
 : "${AWS_SECRET_ACCESS_KEY:?missing backup secret key}"
 [[ "$FACTORY_BACKUP_ENDPOINT" == https://* ]] || exit 20
+socket_root=${FACTORY_POSTGRES_SOCKET:-/run/patchyard-postgres}
+production_restore=false
 
 if [[ "$database" == patchyard || "$artifact_root" == /var/lib/patchyard/artifacts || "$runtime_root" == /var/lib/patchyard/proposer-inbox ]]; then
   [[ "${PATCHYARD_RESTORE_PRODUCTION:-}" == yes ]] || {
     echo 'production target requires PATCHYARD_RESTORE_PRODUCTION=yes' >&2
     exit 30
   }
+  production_restore=true
 else
   [[ "$artifact_root" == /var/lib/patchyard-restore/* ]] || {
     echo 'non-production artifact root must be under /var/lib/patchyard-restore' >&2
@@ -71,6 +74,41 @@ else
   }
   [[ "$runtime_root" == /var/lib/patchyard-restore/* ]] || {
     echo 'non-production runtime root must be under /var/lib/patchyard-restore' >&2
+    exit 30
+  }
+fi
+
+if [[ "$production_restore" == true ]]; then
+  systemctl is-active --quiet postgresql.service || {
+    echo 'production restore requires active declarative PostgreSQL' >&2
+    exit 30
+  }
+  for writer in factory-dashboard.service factory-supervisor.service \
+    patchyard-backup.service patchyard-backup.timer; do
+    if systemctl is-active --quiet "$writer"; then
+      echo "production restore requires inactive writer: $writer" >&2
+      exit 30
+    fi
+  done
+  active_work=$(runuser -u postgres -- psql \
+    --host="$socket_root" --dbname="$database" --tuples-only --no-align \
+    --command="
+      SELECT
+        (SELECT count(*) FROM factory.runs WHERE state NOT IN (
+          'ready_for_review', 'dry_run_complete', 'failed', 'killed',
+          'closed', 'escalated', 'ci_failed', 'ci_cancelled',
+          'ci_job_timed_out', 'ci_action_required', 'ci_neutral',
+          'ci_skipped', 'ci_stale', 'ci_startup_failed',
+          'ci_wait_timed_out', 'ci_observation_failed', 'preview_failed',
+          'preview_timed_out', 'preview_sha_changed', 'evidence_failed',
+          'secret_scan_failed', 'lease_cleanup_failed', 'pr_contract_failed'
+        ))
+        +
+        (SELECT count(*) FROM factory.proposer_runs
+         WHERE state IN ('queued','reporting','proposing','reviewing','publishing'));"
+  )
+  [[ "$active_work" == 0 ]] || {
+    echo "production restore requires zero active work; found $active_work" >&2
     exit 30
   }
 fi
@@ -150,7 +188,6 @@ if [[ -e "$runtime_root" ]] && find "$runtime_root" -mindepth 1 -print -quit | g
   exit 35
 fi
 
-socket_root=${FACTORY_POSTGRES_SOCKET:-/run/patchyard-postgres}
 current_tables=$(runuser -u postgres -- psql --host="$socket_root" --dbname="$database" \
   --tuples-only --no-align \
   --command="SELECT schemaname || '.' || tablename FROM pg_tables WHERE schemaname IN ('factory', 'public') AND NOT (schemaname = 'public' AND tablename = '_sqlx_migrations') ORDER BY schemaname, tablename")

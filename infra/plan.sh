@@ -30,6 +30,12 @@ if [[ "$TOFU_ROOT" == digitalocean ]]; then
 fi
 
 "$REPO_ROOT/infra/tofu.sh" "$TOFU_ROOT" init -reconfigure
+if [[ "$TOFU_ROOT" == digitalocean ]] \
+  && "$REPO_ROOT/infra/tofu.sh" digitalocean state list \
+    | rg -Fxq 'digitalocean_droplet.restore_drill[0]'; then
+  echo 'routine DigitalOcean plan refused while the restore drill exists; use restore-drill.sh plan-destroy' >&2
+  exit 2
+fi
 "$REPO_ROOT/infra/tofu.sh" "$TOFU_ROOT" plan -out="$PLAN_ROOT/$TOFU_ROOT.tfplan"
 "$REPO_ROOT/infra/tofu.sh" "$TOFU_ROOT" show -no-color "$PLAN_ROOT/$TOFU_ROOT.tfplan" \
   >"$PLAN_ROOT/$TOFU_ROOT.tfplan.txt"

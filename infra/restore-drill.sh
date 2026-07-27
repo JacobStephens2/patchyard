@@ -71,19 +71,24 @@ case "$MODE" in
     worker_ip=$(jq -r --arg host "$worker_host" '._meta.hostvars[$host].ansible_host' <<<"$live_inventory")
     worker_private_ip=$(jq -r --arg host "$worker_host" '._meta.hostvars[$host].private_ip' <<<"$live_inventory")
     control_private_ip=$(jq -r '.control_plane.hosts[0] as $host | ._meta.hostvars[$host].private_ip' <<<"$live_inventory")
+    monitoring_private_cidr=$(jq -er '.all.vars.monitoring_private_cidr' <<<"$live_inventory")
+    orchestration_public_cidr=$(jq -er '.all.vars.orchestration_public_cidr' <<<"$live_inventory")
 
     drill_root=$(mktemp -d /tmp/patchyard-restore-drill.XXXXXX)
-    trap 'rm -r -- "$drill_root"' EXIT
+    secret_root=$(mktemp -d /dev/shm/patchyard-restore-secrets.XXXXXX)
+    trap 'rm -r -- "$drill_root" "$secret_root"' EXIT
     inventory_file="$drill_root/inventory.json"
     jq -n \
       --arg restore_ip "$restore_ip" --arg restore_private_ip "$restore_private_ip" \
       --arg worker_host "$worker_host" --arg worker_ip "$worker_ip" \
       --arg worker_private_ip "$worker_private_ip" \
       --arg control_private_cidr "$control_private_ip/32" \
-      '{all:{vars:{ansible_user:"conductor",ansible_ssh_private_key_file:"/var/lib/conductor/.ssh/id_ed25519",monitoring_private_cidr:"10.132.0.14/32",orchestration_public_cidr:"142.93.121.94/32",control_plane_private_cidr:$control_private_cidr},children:{control_plane:{hosts:{"factory-restore-drill.example.com":{ansible_host:$restore_ip,private_ip:$restore_private_ip,factory_role:"control-plane"}}},worker:{hosts:{($worker_host):{ansible_host:$worker_ip,private_ip:$worker_private_ip,factory_role:"worker"}}}}}}' \
+      --arg monitoring_private_cidr "$monitoring_private_cidr" \
+      --arg orchestration_public_cidr "$orchestration_public_cidr" \
+      '{all:{vars:{ansible_user:"conductor",ansible_ssh_private_key_file:"/var/lib/conductor/.ssh/id_ed25519",monitoring_private_cidr:$monitoring_private_cidr,orchestration_public_cidr:$orchestration_public_cidr,control_plane_private_cidr:$control_private_cidr},children:{control_plane:{hosts:{"factory-restore-drill.example.com":{ansible_host:$restore_ip,private_ip:$restore_private_ip,factory_role:"control-plane"}}},worker:{hosts:{($worker_host):{ansible_host:$worker_ip,private_ip:$worker_private_ip,factory_role:"worker"}}}}}}' \
       >"$inventory_file"
 
-    identity_file="$drill_root/age-identity"
+    identity_file="$secret_root/age-identity"
     "$REPO_ROOT/infra/tofu.sh" digitalocean output -raw factory_backup_age_identity \
       >"$identity_file"
     chmod 0600 "$identity_file"
@@ -101,7 +106,7 @@ case "$MODE" in
       --package factoryctl --package factory-verify --package factory-supervisor \
       --package factory-web
     revision=$(git -C "$REPO_ROOT" rev-parse HEAD)
-    extra_vars="$drill_root/extra-vars.json"
+    extra_vars="$secret_root/extra-vars.json"
     export ETA_RESTORE_IDENTITY_FILE="$identity_file"
     export ETA_RESTORE_BACKUP_ACCESS="$backup_access"
     export ETA_RESTORE_BACKUP_SECRET="$backup_secret"

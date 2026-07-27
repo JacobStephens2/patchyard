@@ -135,9 +135,11 @@ cleanup_and_restart() {
       restart_failed=1
     fi
   done
-  if (( restart_failed != 0 )) && [[ "$strict" == true ]]; then
+  if (( restart_failed != 0 )); then
     echo 'service_resume_failed: one or more writers did not restart' >&2
-    return 28
+    if [[ "$strict" == true ]]; then
+      return 28
+    fi
   fi
   return 0
 }

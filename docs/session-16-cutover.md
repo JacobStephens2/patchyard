@@ -78,8 +78,8 @@ recorded.
 | `preflight_failed` | Identity, revision, service, capacity, secret-reference, clean-tree, or maintenance-window checks failed before mutation. |
 | `source_verification_failed` | CI/source checks failed or the reviewed commit was not the exact commit selected for converge. |
 | `infrastructure_plan_failed` | An OpenTofu plan failed, widened an undeclared surface, or did not match the reviewed target set. |
-| `deploy_marker_failed` | The marker was absent, malformed, stale, moved non-fast-forward, or differed from the independently observed production SHA. |
-| `deploy_marker_protection_failed` | The marker could be deleted, force-moved, or changed by an unauthorized path after desired state was applied. |
+| `deploy_marker_failed` | The marker was absent, malformed, stale, could not be moved to the independently observed production SHA, or failed read-back verification. |
+| `deploy_marker_protection_failed` | The marker could be deleted or changed by an unauthorized path after desired state was applied. Verified rollback force-moves remain limited to Jacob and Engineer Two. |
 | `converge_failed` | Either host failed desired-state application, migration, binary/hash assertion, service restart, or host qualification. |
 | `converge_non_idempotent` | The immediate second converge reported an unexplained change. |
 | `remnant_migration_failed` | Before/after counts did not balance, a canonical record was missing, or the orchestration tree retained non-pointer factory state. |
@@ -98,6 +98,7 @@ recorded.
 | `restore_data_failed` | The dump did not restore cleanly into the drill database. |
 | `restore_artifact_failed` | The artifact archive did not restore into the clean drill root. |
 | `restore_verification_failed` | Restored row counts, artifact membership/hashes, grants, or a historical evidence fetch differed from the backup manifest. |
+| `rollback_target_refused` | The target was unmerged, stale, or its desired and qualification migration pins did not exactly match the installed return revision; no boundary or host mutation began. |
 | `rollback_failed` | The reviewed previous revision could not be reinstalled, qualified, and served without schema or artifact loss. |
 | `rollback_busy` | Dashboard Full stop was not durably active or a production/proposer run was still active before the public-write boundary. |
 | `rollback_recovery_failed` | Reapplying the cutover revision after rollback did not converge and requalify cleanly. |
@@ -153,6 +154,12 @@ Those checks cannot prove:
 Only installed evidence may close those items. A fixture pass is never labeled
 as installed proof.
 
+Because the protected marker is a qualification dependency, a real GitHub API
+or App outage also prevents installed converge, worker replacement, and
+rollback recovery from qualifying. CI can prove only the fail-closed behavior,
+not availability of that external authority or release of a stuck rollback
+boundary.
+
 ## Deliberate live coverage
 
 The live sequence is ordered to keep a known recoverable checkpoint before
@@ -192,7 +199,9 @@ each destructive or externally visible step:
    its authenticated route, and prove a populated/wrong-inventory restore is
    refused before mutation;
 10. use dashboard Full stop and wait for zero active work; enter the versioned
-    public-write rollback boundary, install the previous reviewed
+    public-write rollback boundary, install the declared compatible Session 16
+    rollback anchor (pre-cutover `84708ba` is structurally ineligible because
+    its desired migration count is 11 but its qualifier pins 7),
     application/config revision, qualify and smoke it without reversing
     append-only migrations, then reinstall the cutover revision, repeat
     qualification, remove the boundary, and use dashboard Resume;
@@ -233,6 +242,13 @@ when compromise is suspected. This is a named Phase-1 residual risk, not an
 immutability claim. DigitalOcean's current capability references are the
 [Spaces permission matrix](https://docs.digitalocean.com/reference/api/spaces/)
 and [S3 compatibility table](https://docs.digitalocean.com/products/spaces/reference/s3-compatibility/).
+
+The separate bootstrap/management Spaces key is broader: DigitalOcean issues
+it as account-wide `fullaccess`, and the provider wrapper supplies it during
+all Spaces-capable DigitalOcean plans. It is retained only in encrypted
+OpenTofu state and never installed on a Factory host, but compromise of the
+orchestration authority could affect other Spaces resources in the account.
+That bootstrap/provider breadth is also an accepted Phase-1 residual risk.
 
 Worker recovery has no RPO because the worker contains no durable data. Its
 recovery source is the reviewed OpenTofu + Ansible revision, the parity image,

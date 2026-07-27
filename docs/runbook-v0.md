@@ -20,7 +20,7 @@ unexplained difference.
 | replace worker | exact replacement plan applies; two converges, host qualification, isolation probe, and no-residue probe pass with no restored worker state | `worker_replacement_failed` |
 | back up | active work refuses as `backup_busy`; otherwise writers quiesce, dump/manifests complete, age ciphertext uploads, remote metadata hash round-trips, `LATEST` advances, prior service state resumes | `backup_busy`, `backup_failed`, or `service_resume_failed` |
 | restore | clean host is provisioned, migrations precede data restore, every row/file/hash matches, dashboard starts, historical evidence opens | `restore_failed` or `restore_verification_failed` |
-| roll back | merged target with equal migration count converges and qualifies, then the reviewed cutover revision reconverges and requalifies; both preserve declared durable state | `rollback_busy`, `rollback_failed`, or `rollback_recovery_failed` |
+| roll back | merged target with equal desired and qualified migration pins converges and qualifies, then the reviewed cutover revision reconverges and requalifies; both preserve declared durable state | `rollback_target_refused`, `rollback_busy`, `rollback_failed`, or `rollback_recovery_failed` |
 | kill | control row reaches `completed`, child/worker residue is zero, lease is released, run and request terminate as `killed` with an event | `kill_failed` |
 
 Never label a partial operation as success. Preserve its command output and the
@@ -59,6 +59,12 @@ production checkout. The ongoing marker-advance contract is installed by the
 human-merged orchestration PR #5; a deploy is not complete if its read-back
 marker update fails.
 
+The marker is a qualification dependency, not merely an observation. A GitHub
+API or App outage therefore makes converge and worker replacement fail closed
+at qualification even when the local services are healthy. Preserve the local
+health evidence and retry qualification after marker authority recovers; never
+substitute the checkout SHA for the protected ref.
+
 ## Converge
 
 Use only a clean checkout at a merged revision. Create plans with
@@ -80,9 +86,14 @@ infra/plan.sh digitalocean "$PLAN_DIR"
 infra/tofu.sh digitalocean apply "$PLAN_DIR/digitalocean.tfplan"
 ```
 
-The management key remains only in client-side-encrypted OpenTofu state. The
-control plane receives the separate bucket-scoped object key and only the
-public age recipient. It never receives the recovery private key.
+The bootstrap management key is an account-wide DigitalOcean Spaces
+`fullaccess` key because the provider needs it to create and manage the bucket
+itself. The OpenTofu wrapper supplies it to every DigitalOcean provider
+invocation after bootstrap. This broad management authority is an accepted
+Phase-1 residual risk; it remains only in client-side-encrypted OpenTofu state
+and is never installed on either Factory host. The control plane receives the
+separate bucket-scoped object key and only the public age recipient. It never
+receives the recovery private key.
 
 After all reviewed plans:
 
@@ -181,6 +192,11 @@ PATCHYARD_RESTORE_DESTROY_APPROVED=yes \
     "$RESTORE_DIR/restore-drill-destroy.tfplan"
 ```
 
+While a restore drill resource exists, an ordinary DigitalOcean plan with the
+default `restore_drill_enabled=false` proposes to destroy it. Do not create or
+apply routine DigitalOcean plans during the drill; use only the restore
+operator's reviewed create and destroy plans until the drill resource is gone.
+
 The restore play provisions Rocky, exact PostgreSQL packages, peer roles,
 socket policy, binaries, and migrations from Git before downloading data. It
 keeps the supervisor and backup timer disabled, decrypts with an ephemeral
@@ -189,7 +205,9 @@ artifacts, and the runtime ideas projection, reapplies grants, and verifies
 every manifest count and digest. It then starts the dashboard only, creates a
 drill-only admin after count verification, authenticates through the real
 login route, opens one historical run evidence route, and verifies the response
-hash. The recovery key and probe password are removed from `/run` afterward.
+hash. controller-side recovery credentials are staged only in a mode-0700
+directory under `/dev/shm` and removed by the operator trap; the recovery key
+and probe password are removed from the target's `/run` afterward.
 Its first tasks bind the generated drill flag and public IP to the planned
 DigitalOcean droplet ID read from the provider metadata endpoint; running the
 play against normal production or a caller-spoofed inventory refuses before
@@ -197,19 +215,27 @@ roles, services, or data are touched. After restoration it also reruns the A94
 Grafana canary-content probe. Re-running the data restore against populated
 targets must refuse rather than delete them.
 
-For actual control-plane loss, first preserve the failed host and its volume.
-Create a reviewed replacement resource rather than repointing the production
-name by hand, apply the same declarative provisioning, and run the same restore
-contract against the selected generation. Only after verification may an
-operator plan the DNS/firewall identity move. Never restore into an active
-database or a non-empty artifact/runtime target.
+`infra/ansible/restore.yml` is drill-only and refuses a normal production
+inventory. For actual control-plane loss, first preserve the failed host and
+its volume. The control-plane resource has `prevent_destroy`; create and review
+a desired-state replacement plus the later DNS/firewall identity move rather
+than repointing or replacing it by hand, and include both reviews in the
+four-hour RTO. Provision the replacement declaratively and apply migrations.
+Before invoking the installed restore executable against production paths,
+stop `factory-dashboard`, `factory-supervisor`, `patchyard-backup.service`,
+and `patchyard-backup.timer`, and independently verify zero active production
+and proposer work. The executable repeats those checks before download or data
+mutation. Restore the selected generation, verify all manifest counts and
+hashes, and only then apply the reviewed identity move. Never restore into an
+active database or a non-empty artifact/runtime target.
 
 ## Roll back
 
 Application rollback preserves PostgreSQL, artifacts, backup storage, and
 OpenTofu state. The target and actually installed revision must both already be
-merged to `origin/master`, and the script refuses a target with a different
-migration count:
+merged to `origin/master`. The script refuses unless each revision's desired
+migration count and hard qualification count are present and all four values
+agree:
 
 ```bash
 ROLLBACK_DIR=$(mktemp -d /tmp/patchyard-rollback.XXXXXX)
@@ -235,6 +261,14 @@ manifest. Schema
 rollback is not this operation; it needs a separately ruled migration and
 recovery plan.
 
+Base revision `84708ba` and the other pre-cutover revisions are not valid
+automatic rollback targets: their desired migration count is 11 while their
+host qualifier hard-codes 7, so they would enter the boundary and then fail by
+construction. Use only the reviewed Session 16 rollback anchor identified in
+the cutover record (or a later compatible merged revision). A target rejected
+by this preflight ends as `rollback_target_refused` before the public boundary
+or any host mutation.
+
 Before creating or applying the rollback manifest, use the dashboard `Full
 stop` and wait until the dashboard shows no active production or proposer run.
 The apply verifies those durable facts, then installs a versioned firewalld
@@ -249,6 +283,23 @@ revision qualifies; otherwise the public reject and timer stop remain in force
 for explicit recovery. After a successful rollback/recovery drill, use
 dashboard `Resume`; the operator script never writes the full-stop state
 directly.
+
+If recovery qualification cannot complete because the GitHub marker API is
+unavailable, the safe terminal state intentionally leaves the public reject,
+Full stop, and backup-timer stop in force. Preserve the rollback evidence.
+After independently proving that the reviewed return revision is installed,
+its local services and durable state are healthy, marker authority is restored,
+and qualification passes, a human operator may explicitly release only the
+versioned boundary with:
+
+```bash
+cd infra/ansible
+ansible-playbook -i inventory/tofu.sh rollback-boundary.yml \
+  -e factory_rollback_boundary=exit
+```
+
+Then verify the public health path and use dashboard `Resume`. Do not run this
+recovery command merely because the automated trap failed.
 
 ## Kill and full stop
 

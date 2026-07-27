@@ -25,6 +25,18 @@ resolve_reviewed_revision() {
   printf '%s\n' "$resolved"
 }
 
+qualification_migration_count() {
+  local revision=$1 count
+  count=$(git -C "$REPO_ROOT" show \
+    "$revision:infra/ansible/roles/control_plane/files/qualify-factory-control" \
+    | sed -n "/SELECT count(\*) FROM public\._sqlx_migrations/s/.*= \([0-9][0-9]*\)$/\1/p")
+  [[ "$count" =~ ^[0-9]+$ ]] || {
+    echo "revision $revision has no exact migration qualification pin" >&2
+    exit 2
+  }
+  printf '%s\n' "$count"
+}
+
 control_ip() {
   local inventory control_host
   inventory=$("$REPO_ROOT/infra/ansible/inventory/tofu.sh")
@@ -120,8 +132,13 @@ case "$MODE" in
       | sed -n 's/^factory_migration_count:[[:space:]]*//p')
     current_migrations=$(git -C "$REPO_ROOT" show "$current:infra/ansible/group_vars/all.yml" \
       | sed -n 's/^factory_migration_count:[[:space:]]*//p')
-    [[ "$target_migrations" =~ ^[0-9]+$ && "$target_migrations" == "$current_migrations" ]] || {
-      echo 'automatic application rollback requires equal migration counts' >&2
+    target_qualification_migrations=$(qualification_migration_count "$target")
+    current_qualification_migrations=$(qualification_migration_count "$current")
+    [[ "$target_migrations" =~ ^[0-9]+$ \
+      && "$target_migrations" == "$current_migrations" \
+      && "$target_qualification_migrations" == "$current_qualification_migrations" \
+      && "$target_qualification_migrations" == "$current_migrations" ]] || {
+      echo 'automatic rollback requires equal desired and qualified migration counts' >&2
       exit 2
     }
     install -d -m 0700 "$output_dir"
@@ -130,8 +147,9 @@ case "$MODE" in
       --arg target_tree "$(git -C "$REPO_ROOT" rev-parse "$target^{tree}")" \
       --arg return_tree "$(git -C "$REPO_ROOT" rev-parse "$current^{tree}")" \
       --argjson migration_count "$current_migrations" \
+      --argjson qualification_migration_count "$current_qualification_migrations" \
       --arg created_at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-      '{schema_version:1,target_revision:$target_revision,target_tree:$target_tree,return_revision:$return_revision,return_tree:$return_tree,migration_count:$migration_count,created_at:$created_at,scope:"application-binaries-config-and-checkout",durable_state:"must-preserve-with-declared-account-audits"}' \
+      '{schema_version:1,target_revision:$target_revision,target_tree:$target_tree,return_revision:$return_revision,return_tree:$return_tree,migration_count:$migration_count,qualification_migration_count:$qualification_migration_count,created_at:$created_at,scope:"application-binaries-config-and-checkout",durable_state:"must-preserve-with-declared-account-audits"}' \
       >"$manifest"
     sha256sum "$manifest" >"$manifest.sha256"
     echo "review $manifest and $manifest.sha256, then run apply"
@@ -143,7 +161,7 @@ case "$MODE" in
     : "${PATCHYARD_ROLLBACK_APPROVED:?set PATCHYARD_ROLLBACK_APPROVED=yes after manifest review}"
     [[ "$PATCHYARD_ROLLBACK_APPROVED" == yes ]] || exit 2
     (cd "$(dirname "$manifest")" && sha256sum --check "$(basename "$manifest").sha256")
-    jq -e '.schema_version == 1 and .scope == "application-binaries-config-and-checkout" and .durable_state == "must-preserve-with-declared-account-audits" and (.target_revision | test("^[0-9a-f]{40}$")) and (.return_revision | test("^[0-9a-f]{40}$"))' \
+    jq -e '.schema_version == 1 and .scope == "application-binaries-config-and-checkout" and .durable_state == "must-preserve-with-declared-account-audits" and (.migration_count | type == "number") and (.qualification_migration_count | type == "number") and (.target_revision | test("^[0-9a-f]{40}$")) and (.return_revision | test("^[0-9a-f]{40}$"))' \
       "$manifest" >/dev/null
     target=$(jq -r .target_revision "$manifest")
     target=$(resolve_reviewed_revision "$target")
@@ -151,6 +169,20 @@ case "$MODE" in
     [[ "$target" == "$(jq -r .target_revision "$manifest")" ]] || exit 2
     [[ "$(git -C "$REPO_ROOT" rev-parse "$target^{tree}")" == "$(jq -r .target_tree "$manifest")" ]] || exit 2
     [[ "$(git -C "$REPO_ROOT" rev-parse "$return_revision^{tree}")" == "$(jq -r .return_tree "$manifest")" ]] || exit 2
+    target_migrations=$(git -C "$REPO_ROOT" show "$target:infra/ansible/group_vars/all.yml" \
+      | sed -n 's/^factory_migration_count:[[:space:]]*//p')
+    return_migrations=$(git -C "$REPO_ROOT" show "$return_revision:infra/ansible/group_vars/all.yml" \
+      | sed -n 's/^factory_migration_count:[[:space:]]*//p')
+    target_qualification_migrations=$(qualification_migration_count "$target")
+    return_qualification_migrations=$(qualification_migration_count "$return_revision")
+    [[ "$target_migrations" == "$(jq -r .migration_count "$manifest")" \
+      && "$return_migrations" == "$target_migrations" \
+      && "$target_qualification_migrations" == \
+        "$(jq -r .qualification_migration_count "$manifest")" \
+      && "$return_qualification_migrations" == "$target_qualification_migrations" ]] || {
+      echo 'rollback migration or qualification pins changed after plan review' >&2
+      exit 2
+    }
 
     address=$(control_ip)
     [[ "$(installed_revision "$address")" == "$return_revision" ]] || {

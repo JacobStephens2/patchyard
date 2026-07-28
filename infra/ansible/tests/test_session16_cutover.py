@@ -1054,6 +1054,10 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
             "    - name: Refuse restore outside the generated drill inventory",
             maxsplit=1,
         )[1].split("\n    - name:", maxsplit=1)[0]
+        self.assertSetEqual(
+            set(re.findall(r"^      ([a-z_.]+):", guard, re.MULTILINE)),
+            {"ansible.builtin.assert"},
+        )
         condition_block = guard.split("that:", maxsplit=1)[1].split(
             "fail_msg:", maxsplit=1
         )[0]
@@ -1150,6 +1154,10 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
         guard = self.restore_play.split(f"    - name: {guard_name}", maxsplit=1)[
             1
         ].split("\n- name:", maxsplit=1)[0]
+        self.assertSetEqual(
+            set(re.findall(r"^      ([a-z_.]+):", guard, re.MULTILINE)),
+            {"ansible.builtin.assert"},
+        )
         condition_block = guard.split("that:", maxsplit=1)[1].split(
             "fail_msg:", maxsplit=1
         )[0]

@@ -313,11 +313,14 @@ recovery plan.
 Base revision `84708ba` and the other pre-cutover revisions are not valid
 automatic rollback targets: their desired migration count is 11 while their
 host qualifier hard-codes 7, so they would enter the boundary and then fail by
-construction. The earliest safe Session 16 rollback anchor is
-`7b032c7c7ceb7c427cf5e73c43e2116acaf5614a`, once that revision is
-human-reviewed and merged. Use it or a later compatible merged revision. A
-target rejected by this preflight ends as `rollback_target_refused` before the
-public boundary or any host mutation.
+construction. Installed preflight also rejected the initially selected
+`7b032c7c7ceb7c427cf5e73c43e2116acaf5614a` anchor: although both migration
+counts are 11, it still qualifies Chromium `.124` and 19 Grafana column
+privileges, while the installed contract requires `.181` and 20. The earliest
+safe Session 16 rollback anchor is merged, installed, and fully qualified PR
+#61 revision `02c9e2da1f2ebdd877a5e867351da1f500eeaa45`. Use it or a later
+compatible merged revision. A target rejected by this preflight ends as
+`rollback_target_refused` before the public boundary or any host mutation.
 
 PR #51 must be merged with a merge commit (the repository's established
 practice) or a manual fast-forward that preserves the exact commits, never

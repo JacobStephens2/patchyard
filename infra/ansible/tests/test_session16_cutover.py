@@ -21,6 +21,8 @@ class Session16CutoverContract(unittest.TestCase):
         cls.replace_operator = (ROOT / "infra" / "replace-worker.sh").read_text()
         cls.tofu_operator = (ROOT / "infra" / "tofu.sh").read_text()
         cls.rollback_operator = (ROOT / "infra" / "rollback-control.sh").read_text()
+        cls.runbook = (ROOT / "docs" / "runbook-v0.md").read_text()
+        cls.session16 = (ROOT / "docs" / "session-16-cutover.md").read_text()
         cls.rollback_boundary = (
             ROOT / "infra" / "ansible" / "rollback-boundary.yml"
         ).read_text()
@@ -311,6 +313,10 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("disable_gpg_check: false", package_task)
 
     def test_rollback_binds_live_revision_and_verifies_durable_state(self) -> None:
+        rollback_anchor = "02c9e2da1f2ebdd877a5e867351da1f500eeaa45"
+        self.assertIn(rollback_anchor, self.runbook)
+        self.assertIn(rollback_anchor, self.session16)
+        self.assertIn("Chromium `.124` and 19 Grafana", self.session16)
         self.assertIn('current=$(resolve_reviewed_revision "$(installed_revision', self.rollback_operator)
         self.assertIn("installed revision changed after rollback plan review", self.rollback_operator)
         self.assertIn("capture_durable_state", self.rollback_operator)

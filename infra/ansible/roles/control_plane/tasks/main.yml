@@ -37,6 +37,17 @@
     fail_msg: "Use converge.sh after applying the reviewed backup storage plan."
   no_log: true
 
+- name: Bind mirrored Chromium filenames to the declared NEVRAs
+  ansible.builtin.assert:
+    that:
+      - >-
+        chromium_rpm_mirror | map(attribute='filename') | list | sort
+        ==
+        [chromium_nevra ~ '.rpm', chromium_common_nevra ~ '.rpm'] | sort
+    fail_msg: >-
+      The immutable Chromium mirror filenames must exactly match the declared
+      chromium_nevra and chromium_common_nevra package pins.
+
 - name: Create the immutable RPM mirror cache
   ansible.builtin.file:
     path: "{{ chromium_rpm_mirror_directory }}"

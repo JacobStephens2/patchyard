@@ -374,6 +374,26 @@ fi
         )
 
     def test_chromium_pin_uses_immutable_mirrored_object_versions(self) -> None:
+        declared_nevras = dict(
+            re.findall(
+                r"^(chromium(?:_common)?_nevra):\s*(\S+)$",
+                self.group_vars,
+                re.MULTILINE,
+            )
+        )
+        mirror_block = self.group_vars.split(
+            "chromium_rpm_mirror:\n", maxsplit=1
+        )[1].split("\nage_nevra:", maxsplit=1)[0]
+        mirror_filenames = re.findall(
+            r"^\s+- filename:\s*(\S+)$", mirror_block, re.MULTILINE
+        )
+        expected_filenames = {
+            f"{declared_nevras[name]}.rpm"
+            for name in ("chromium_nevra", "chromium_common_nevra")
+        }
+        self.assertEqual(len(mirror_filenames), len(expected_filenames))
+        self.assertSetEqual(set(mirror_filenames), expected_filenames)
+
         for required in (
             "chromium_common_nevra: chromium-common-150.0.7871.181-1.el9.x86_64",
             "version_id: 9k88XXeRJzRUTRwYOFcTu2ICMqWR3iJ",
@@ -383,6 +403,13 @@ fi
         ):
             self.assertIn(required, self.group_vars)
         self.assertNotIn('- "{{ chromium_nevra }}"', self.tasks)
+        filename_binding = self.tasks.split(
+            "- name: Bind mirrored Chromium filenames to the declared NEVRAs",
+            maxsplit=1,
+        )[1].split("\n- name:", maxsplit=1)[0]
+        self.assertIn("chromium_nevra ~ '.rpm'", filename_binding)
+        self.assertIn("chromium_common_nevra ~ '.rpm'", filename_binding)
+        self.assertIn("chromium_rpm_mirror | map(attribute='filename')", filename_binding)
         self.assertIn("Synchronize the exact Chromium RPM object versions", self.tasks)
         package_task = self.tasks.split(
             "- name: Install Chromium from the immutable RPM mirror", maxsplit=1

@@ -27,9 +27,23 @@ resolve_reviewed_revision() {
 
 qualification_migration_count() {
   local revision=$1 count
-  count=$(git -C "$REPO_ROOT" show \
-    "$revision:infra/ansible/roles/control_plane/files/qualify-factory-control" \
-    | sed -n "/SELECT count(\*) FROM public\._sqlx_migrations/s/.*= \([0-9][0-9]*\)$/\1/p")
+  if git -C "$REPO_ROOT" cat-file -e \
+    "$revision:infra/ansible/roles/control_plane/templates/qualify-factory-control.j2" \
+    2>/dev/null; then
+    git -C "$REPO_ROOT" show \
+      "$revision:infra/ansible/roles/control_plane/templates/qualify-factory-control.j2" \
+      | grep -Fq '{{ factory_migration_count }}' || {
+        echo "revision $revision qualifier does not read the declared migration pin" >&2
+        exit 2
+      }
+    count=$(git -C "$REPO_ROOT" show \
+      "$revision:infra/ansible/group_vars/all.yml" \
+      | sed -n 's/^factory_migration_count:[[:space:]]*//p')
+  else
+    count=$(git -C "$REPO_ROOT" show \
+      "$revision:infra/ansible/roles/control_plane/files/qualify-factory-control" \
+      | sed -n "/SELECT count(\*) FROM public\._sqlx_migrations/s/.*= \([0-9][0-9]*\)$/\1/p")
+  fi
   [[ "$count" =~ ^[0-9]+$ ]] || {
     echo "revision $revision has no exact migration qualification pin" >&2
     exit 2

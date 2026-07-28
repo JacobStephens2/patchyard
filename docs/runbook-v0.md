@@ -133,6 +133,12 @@ retention never expires them. Ansible requests the recorded object version,
 checks remote metadata and local byte count/SHA-256, and then installs with RPM
 signature verification still enabled.
 
+The A-14 installed-environment declarations in `group_vars/all.yml` are the
+single source for the Chromium NEVRAs, desired migration count, and exact
+Grafana column-grant count. Ansible renders the installed qualifier from those
+declarations; the qualifier carries no second per-revision copy. This source
+consolidation does not choose either of the still-open rollback models below.
+
 | Dependency contract | Controlled copy | Review and qualification proof | Failure surface |
 | --- | --- | --- | --- |
 | Chromium `150.0.7871.181-1.el9.x86_64` plus `chromium-common` at the same version; ChromeDriver is deliberately absent because the evidence child speaks CDP to its one-shot Chromium subprocess and never uses WebDriver. | Private versioned Spaces bucket `patchyard-backups`: `dependencies/epel/9/x86_64/chromium-150.0.7871.181-1.el9.x86_64.rpm` version `9k88XXeRJzRUTRwYOFcTu2ICMqWR3iJ`, SHA-256 `05bda830ab035517ee6388c1a0d963d6de67eadb03c68cdd6ff90e8f888fd086`, 132085705 bytes; matching `chromium-common` object version `Gfh5nef193tTyupbpfhjGMofEJmg0-v`, SHA-256 `b2f46d0d00cb47e4fd6a5b73b7edc02e196feb7d683fbfa5007e0a34cfb45202`, 16974965 bytes. | Review on every browser pin change and monthly with the DigitalOcean credential. Every converge proves the exact remote versions and cached bytes; the installed qualifier proves both RPM NEVRAs and hashes. Re-render `fixtures/visual/chromium-baseline.html` with the evidence harness flags after a browser change and stop on an unexplained DOM or screenshot difference. The `.124` to `.181` recheck is recorded in `fixtures/visual/chromium-baseline.json`: DOM SHA-256 `aa1f5b8b3a43b2ec3fd16d9d86075b51cd28504287b347027b0215c5ab1d5b27` and screenshot SHA-256 `e5f7076666fdd849e0cbb6eb3408605cbe97e14a67d79d042a11561a0db9cc18` were byte-identical. | A missing/deleted object or mismatched metadata fails during converge before Chromium installation. A cached wrong byte fails qualification. EPEL remains a dependency source for ordinary transitive packages, but clean provisioning no longer depends on EPEL retaining these two finite-lived exact NEVRAs. |
@@ -222,6 +228,7 @@ RESTORE_DIR=$(mktemp -d /tmp/patchyard-restore.XXXXXX)
 infra/restore-drill.sh plan-create "$RESTORE_DIR"
 # Review restore-drill-create.tfplan.txt.
 PATCHYARD_RESTORE_APPROVED=yes \
+PATCHYARD_RESTORE_APPROVED_SHA256=REPLACE_WITH_REVIEWED_SHA256 \
   infra/restore-drill.sh apply-restore \
     "$RESTORE_DIR/restore-drill-create.tfplan" latest
 
@@ -323,11 +330,22 @@ recovery plan.
 Base revision `84708ba` and the other pre-cutover revisions are not valid
 automatic rollback targets: their desired migration count is 11 while their
 host qualifier hard-codes 7, so they would enter the boundary and then fail by
-construction. The earliest safe Session 16 rollback anchor is
-`7b032c7c7ceb7c427cf5e73c43e2116acaf5614a`, once that revision is
-human-reviewed and merged. Use it or a later compatible merged revision. A
-target rejected by this preflight ends as `rollback_target_refused` before the
-public boundary or any host mutation.
+construction. Installed preflight also rejected the initially selected
+`7b032c7c7ceb7c427cf5e73c43e2116acaf5614a` anchor: although both migration
+counts are 11, it still qualifies Chromium `.124` and 19 Grafana column
+privileges, while the installed contract requires `.181` and 20. The earliest
+safe Session 16 rollback anchor is merged, installed, and fully qualified PR
+#61 revision `02c9e2da1f2ebdd877a5e867351da1f500eeaa45`. Use it or a later
+compatible merged revision. A target rejected by this preflight ends as
+`rollback_target_refused` before the public boundary or any host mutation.
+
+This exact whole-revision target is the reviewed Session 16 drill contract,
+not a permanent incident-rollback design. Two invalidated anchors show that a
+qualifier which advances environment constants can make every earlier whole
+revision ineligible. Before declaring another rollback anchor, Jacob must rule
+whether rollback qualifiers accept reviewed compatible ranges for those facts,
+or whether rollback installs an earlier application revision under the current
+infrastructure/qualification contract. Neither model is adopted implicitly.
 
 PR #51 must be merged with a merge commit (the repository's established
 practice) or a manual fast-forward that preserves the exact commits, never

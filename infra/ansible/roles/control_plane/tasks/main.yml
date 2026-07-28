@@ -1177,8 +1177,8 @@
     group: root
 
 - name: Install control-plane qualification probe
-  ansible.builtin.copy:
-    src: qualify-factory-control
+  ansible.builtin.template:
+    src: qualify-factory-control.j2
     dest: /usr/local/sbin/qualify-factory-control
     owner: root
     group: root

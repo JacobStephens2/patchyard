@@ -2,11 +2,15 @@
 import json
 from pathlib import Path
 import re
+import subprocess
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[3]
 FILES = ROOT / "infra" / "ansible" / "roles" / "control_plane" / "files"
+TEMPLATES = (
+    ROOT / "infra" / "ansible" / "roles" / "control_plane" / "templates"
+)
 
 
 class Session16CutoverContract(unittest.TestCase):
@@ -25,7 +29,7 @@ class Session16CutoverContract(unittest.TestCase):
         cls.rollback_boundary = (
             ROOT / "infra" / "ansible" / "rollback-boundary.yml"
         ).read_text()
-        cls.qualifier = (FILES / "qualify-factory-control").read_text()
+        cls.qualifier = (TEMPLATES / "qualify-factory-control.j2").read_text()
         cls.tasks = (
             ROOT
             / "infra"
@@ -62,6 +66,9 @@ class Session16CutoverContract(unittest.TestCase):
         cls.github = (ROOT / "infra" / "github" / "main.tf").read_text()
         cls.digitalocean = (ROOT / "infra" / "digitalocean" / "main.tf").read_text()
         cls.spaces = (ROOT / "infra" / "digitalocean" / "backup.tf").read_text()
+        cls.restore_plan_change_count = (
+            ROOT / "infra" / "restore-plan-change-count.jq"
+        )
         cls.publisher = (
             ROOT / "crates" / "factory-supervisor" / "src" / "publisher.rs"
         ).read_text()
@@ -182,9 +189,16 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertEqual(set(blocks), {"grafana_request_summary", "grafana_run_metrics"})
         self.assertIn("run_class", blocks["grafana_run_metrics"])
         expected_total = sum(len(columns) for columns in blocks.values())
-        self.assertEqual(expected_total, 20)
+        declared_total = re.search(
+            r"^factory_grafana_column_privilege_count:\s*(\d+)$",
+            self.group_vars,
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(declared_total)
+        self.assertEqual(int(declared_total.group(1)), expected_total)
         self.assertIn(
-            f"grantee = 'grafana_ro'\")\" = {expected_total}",
+            "grantee = 'grafana_ro'\")\" = "
+            "{{ factory_grafana_column_privilege_count }}",
             self.qualifier,
         )
 
@@ -208,8 +222,21 @@ class Session16CutoverContract(unittest.TestCase):
         )
         self.assertIsNotNone(chromium_nevra)
         self.assertIn(
-            f'test "$(rpm -q chromium)" = {chromium_nevra.group(1)}',
+            'test "$(rpm -q chromium)" = {{ chromium_nevra | quote }}',
             self.qualifier,
+        )
+        self.assertNotIn(chromium_nevra.group(1), self.qualifier)
+
+    def test_qualification_environment_constants_have_one_declared_source(self) -> None:
+        self.assertIn("ansible.builtin.template:", self.tasks)
+        self.assertIn("src: qualify-factory-control.j2", self.tasks)
+        self.assertIn("{{ factory_migration_count }}", self.qualifier)
+        self.assertIn(
+            "{{ factory_grafana_column_privilege_count }}", self.qualifier
+        )
+        self.assertNotRegex(
+            self.qualifier,
+            r"SELECT count\(\*\) FROM public\._sqlx_migrations[^\n]*\)\" = 11$",
         )
 
     def test_chromium_pin_uses_immutable_mirrored_object_versions(self) -> None:
@@ -232,6 +259,8 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("sha256sum --check --status", self.rpm_mirror_sync)
         self.assertIn('mv -f -- "$TEMP_FILE" "$destination"', self.rpm_mirror_sync)
         self.assertIn("patchyard-sync-rpm-mirror", self.qualifier)
+        self.assertIn("{% for rpm in chromium_rpm_mirror %}", self.qualifier)
+        self.assertIn("{{ rpm.sha256 | quote }}", self.qualifier)
         self.assertIn("sha256sum --check --status", self.qualifier)
         self.assertEqual(
             self.chromium_visual_baseline["before"]["dom_sha256"],
@@ -305,7 +334,58 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("state_list=", self.plan_operator)
         self.assertIn("grep -Fxq", self.plan_operator)
         self.assertIn("DigitalOcean apply refused while the restore drill exists", self.tofu_operator)
+        self.assertIn("PATCHYARD_RESTORE_APPROVED_SHA256", self.restore_operator)
+        self.assertIn("skipping apply", self.restore_operator)
         self.assertIn("PATCHYARD_RESTORE_DRILL_APPLY=destroy", self.restore_operator)
+
+    def test_restore_plan_change_count_fails_closed_and_counts_mutations(self) -> None:
+        def count(plan: dict[str, object]) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["jq", "-er", "-f", str(self.restore_plan_change_count)],
+                input=json.dumps(plan),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+        no_op = count(
+            {
+                "resource_changes": [
+                    {"change": {"actions": ["no-op"]}},
+                ],
+                "output_changes": {"restore_drill_id": {"actions": ["no-op"]}},
+            }
+        )
+        self.assertEqual(no_op.returncode, 0)
+        self.assertEqual(no_op.stdout.strip(), "0")
+
+        resource_create = count(
+            {
+                "resource_changes": [
+                    {"change": {"actions": ["no-op"]}},
+                    {"change": {"actions": ["create"]}},
+                ],
+                "output_changes": {"restore_drill_id": {"actions": ["no-op"]}},
+            }
+        )
+        self.assertEqual(resource_create.returncode, 0)
+        self.assertEqual(resource_create.stdout.strip(), "1")
+
+        output_update = count(
+            {
+                "resource_changes": [],
+                "output_changes": {"restore_drill_id": {"actions": ["update"]}},
+            }
+        )
+        self.assertEqual(output_update.returncode, 0)
+        self.assertEqual(output_update.stdout.strip(), "1")
+
+        for malformed in (
+            {},
+            {"resource_changes": None, "output_changes": {}},
+            {"resource_changes": [], "output_changes": None},
+        ):
+            self.assertNotEqual(count(malformed).returncode, 0)
 
     def test_worker_replacement_plan_is_mechanically_address_pinned(self) -> None:
         self.assertIn("verify_worker_plan", self.replace_operator)

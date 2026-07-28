@@ -31,7 +31,7 @@ Design authority: `docs/decision-log.md` in this repo. The founding synthesis re
 2. The isolation substrate - a containerized (or microVM) implement and verifier execution plane on a dedicated secret-free worker droplet.
 3. The state layer - local PostgreSQL ledger + artifact store under `/var/lib/patchyard/`.
 4. Dashboard v0 at `factory.example.com` (intake + observability).
-5. OpenTofu + Ansible desired state for reproducible worker provisioning, configuration, drift checks, replacement, and rollback.
+5. OpenTofu + Ansible desired state for reproducible worker provisioning, configuration, drift checks, replacement, and rollback - a forward-only infrastructure/qualification contract with application-revision rollback under the current contract (A112).
 
 Non-goals (phase 2): mailbox intake, automatic reconciliation/polling, requester-facing pages and notifications (A34's option b), automated cross-family verify, page-view usage middleware (A92).
 

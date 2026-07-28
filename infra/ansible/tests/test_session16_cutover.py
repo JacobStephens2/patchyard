@@ -1254,6 +1254,50 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
         self.assertIsNotNone(consumer_allowance)
         self.assertEqual(consumer_allowance.groups(), source_allowance.groups())
 
+    def test_rollback_manifest_literals_match_the_apply_validator(self) -> None:
+        plan = self.operator.split("  plan)", maxsplit=1)[1].split(
+            "\n  apply)", maxsplit=1
+        )[0]
+        apply = self.operator.split("  apply)", maxsplit=1)[1].split(
+            "\n  release-boundary)", maxsplit=1
+        )[0]
+        producer = re.search(
+            r'\{schema_version:([0-9]+),.*?scope:"([^"]+)",'
+            r'durable_state:"([^"]+)"\}',
+            plan,
+            re.DOTALL,
+        )
+        validator = re.search(
+            r'\.schema_version == ([0-9]+) and \.scope == "([^"]+)"'
+            r' and \.durable_state == "([^"]+)"',
+            apply,
+        )
+        self.assertIsNotNone(producer)
+        self.assertIsNotNone(validator)
+        self.assertEqual(validator.groups(), producer.groups())
+
+    def test_rollback_consumed_durable_labels_are_emitted(self) -> None:
+        capture = self.operator.split("capture_durable_state() {", maxsplit=1)[1].split(
+            "\nstable_durable_state() {", maxsplit=1
+        )[0]
+        consumers = self.operator.split("stable_durable_state() {", maxsplit=1)[1].split(
+            '\ncase "$MODE" in', maxsplit=1
+        )[0]
+        emitted = set(
+            re.findall(r"printf '([a-z][a-z0-9-]*)\\t", capture)
+        )
+        emitted.update(
+            re.findall(
+                r'--command="SELECT \'([a-z][a-z0-9-]*)\' \|\|', capture
+            )
+        )
+        consumed = set(
+            re.findall(r'\$1\s*(?:==|!=)\s*"([a-z][a-z0-9-]*)"', consumers)
+        )
+        self.assertGreater(len(emitted), 0)
+        self.assertGreater(len(consumed), 0)
+        self.assertLessEqual(consumed, emitted)
+
 
 if __name__ == "__main__":
     unittest.main()

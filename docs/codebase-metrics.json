@@ -72,16 +72,16 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 15667,
+      "code": 16702,
       "comments": 491,
-      "blanks": 1484,
+      "blanks": 1529,
       "files": 144,
       "languages": [
         {
           "language": "BASH",
-          "code": 4404,
+          "code": 4435,
           "comments": 108,
-          "blanks": 330,
+          "blanks": 331,
           "files": 38
         },
         {
@@ -135,16 +135,16 @@
         },
         {
           "language": "Python",
-          "code": 4256,
+          "code": 5212,
           "comments": 39,
-          "blanks": 427,
+          "blanks": 468,
           "files": 19
         },
         {
           "language": "Shell",
-          "code": 1359,
+          "code": 1391,
           "comments": 25,
-          "blanks": 119,
+          "blanks": 121,
           "files": 18
         },
         {
@@ -163,9 +163,9 @@
         },
         {
           "language": "YAML",
-          "code": 3353,
+          "code": 3369,
           "comments": 17,
-          "blanks": 344,
+          "blanks": 345,
           "files": 22
         }
       ]
@@ -268,9 +268,9 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8268,
-      "comments": 9882,
-      "blanks": 2862,
-      "files": 109,
+      "comments": 10208,
+      "blanks": 2925,
+      "files": 111,
       "languages": [
         {
           "language": "BASH",
@@ -289,9 +289,9 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 9862,
-          "blanks": 2809,
-          "files": 85
+          "comments": 10188,
+          "blanks": 2872,
+          "files": 87
         },
         {
           "language": "Shell",

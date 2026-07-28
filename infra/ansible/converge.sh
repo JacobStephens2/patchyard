@@ -41,6 +41,15 @@ jq --exit-status '
   exit 1
 }
 
+if [[ "${1:-}" == --check-inputs ]]; then
+  [[ $# -eq 1 ]] || {
+    echo "--check-inputs accepts no additional arguments" >&2
+    exit 2
+  }
+  echo "converge_inputs_valid"
+  exit 0
+fi
+
 if [[ -n "$(git -C "$REPO_ROOT" status --porcelain)" ]]; then
   echo "converge requires a committed, clean desired-state revision" >&2
   exit 1
@@ -94,7 +103,7 @@ jq -n '{
 chmod 0600 "$BACKUP_VARS_FILE"
 unset FACTORY_BACKUP_RUNTIME_ACCESS_KEY FACTORY_BACKUP_RUNTIME_SECRET_KEY
 
-"$CARGO_BIN" build --locked --release \
+"$CARGO_BIN" build --manifest-path "$REPO_ROOT/Cargo.toml" --locked --release \
   --package factoryctl --package factory-verify --package factory-supervisor \
   --package factory-web
 FACTORYCTL_BINARY="$REPO_ROOT/target/release/factoryctl"

@@ -134,6 +134,24 @@ write_boundary_inventory() {
   chmod 0600 "$destination"
 }
 
+validate_boundary_inventory() {
+  local inventory=$1 expected_host=$2 expected_address=$3 rendered
+  local ansible_inventory="$REPO_ROOT/infra/ansible/.venv/bin/ansible-inventory"
+  [[ -x "$ansible_inventory" ]] || ansible_inventory=ansible-inventory
+  rendered=$("$ansible_inventory" -i "$inventory" --list) || {
+    echo 'rollback boundary inventory could not be parsed' >&2
+    return 2
+  }
+  jq -e --arg host "$expected_host" --arg address "$expected_address" '
+    (.control_plane.hosts // []) == [$host]
+    and ._meta.hostvars[$host].ansible_host == $address
+    and ._meta.hostvars[$host].factory_role == "control-plane"
+  ' <<<"$rendered" >/dev/null || {
+    echo 'rollback boundary inventory did not resolve the reviewed control host' >&2
+    return 2
+  }
+}
+
 installed_revision() {
   local address=$1
   ssh "${SSH_ARGS[@]}" "conductor@$address" \
@@ -201,8 +219,9 @@ set_rollback_boundary() {
   local state=$1
   local ansible_playbook="$REPO_ROOT/infra/ansible/.venv/bin/ansible-playbook"
   [[ -x "$ansible_playbook" ]] || ansible_playbook=ansible-playbook
+  validate_boundary_inventory "$boundary_inventory" "$control_host" "$address"
   (
-    cd "$REPO_ROOT/infra/ansible"
+    cd "$REPO_ROOT/infra/ansible" &&
     "$ansible_playbook" -i "$boundary_inventory" rollback-boundary.yml \
       -e "factory_rollback_boundary=$state"
   )
@@ -212,14 +231,19 @@ deploy_and_qualify_revision() {
   local revision=$1 label=$2
   rollback_root=$(mktemp -d "/tmp/patchyard-${label}.XXXXXX") || return
   git -C "$REPO_ROOT" worktree add --detach "$rollback_root" "$revision" || return
-  "$rollback_root/infra/tofu.sh" digitalocean init -reconfigure || return
-  "$rollback_root/infra/ansible/converge.sh" \
-    -e factory_rollback_boundary=true || return
+  (
+    cd "$rollback_root" &&
+    ./infra/tofu.sh digitalocean init -reconfigure &&
+    ./infra/ansible/converge.sh -e factory_rollback_boundary=true
+  ) || return
   [[ "$(installed_revision "$address")" == "$revision" ]] || {
     echo "$label installed an unexpected revision" >&2
     return 3
   }
-  "$rollback_root/infra/ansible/qualify.sh" || return
+  (
+    cd "$rollback_root" &&
+    ./infra/ansible/qualify.sh
+  ) || return
   ssh "${SSH_ARGS[@]}" "conductor@$address" \
     'sudo systemctl stop patchyard-backup.timer && sudo systemctl is-active --quiet postgresql factory-dashboard factory-supervisor caddy && ! sudo systemctl is-active --quiet patchyard-backup.timer && sudo curl --fail --silent --unix-socket /run/patchyard-dashboard/dashboard.sock http://localhost/healthz' \
     || return
@@ -342,7 +366,8 @@ case "$MODE" in
       echo 'rollback evidence files already exist' >&2
       exit 2
     }
-    boundary_inventory=$(mktemp /tmp/patchyard-rollback-boundary.XXXXXX)
+    "$REPO_ROOT/infra/ansible/converge.sh" --check-inputs
+    boundary_inventory=$(mktemp --suffix=.json /tmp/patchyard-rollback-boundary.XXXXXX)
     write_boundary_inventory "$control_host" "$address" "$boundary_inventory"
     set_rollback_boundary enter
     boundary_entered=true
@@ -501,7 +526,7 @@ case "$MODE" in
     ssh "${SSH_ARGS[@]}" "conductor@$address" \
       'sudo systemctl is-active --quiet postgresql factory-dashboard factory-supervisor caddy && sudo curl --fail --silent --unix-socket /run/patchyard-dashboard/dashboard.sock http://localhost/healthz' \
       >/dev/null
-    boundary_inventory=$(mktemp /tmp/patchyard-rollback-boundary.XXXXXX)
+    boundary_inventory=$(mktemp --suffix=.json /tmp/patchyard-rollback-boundary.XXXXXX)
     trap 'rm -f -- "$boundary_inventory"' EXIT
     write_boundary_inventory "$control_host" "$address" "$boundary_inventory"
     set_rollback_boundary exit

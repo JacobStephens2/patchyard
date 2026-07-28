@@ -2,7 +2,7 @@
   "schema_version": 1,
   "default": "deny",
   "runtime_dns": "deny",
-  "qualification_rule": "Session 5 qualifies the shared worker boundary only; each provider stays ineligible until its own A-5 credential lifecycle proves issuance, delivery, expiry, revocation, crash cleanup, and provider-side spend enforcement before routing.",
+  "qualification_rule": "Session 5 qualifies the shared worker boundary only; each provider stays ineligible until its own A-5 credential lifecycle proves issuance, delivery, expiry, revocation, crash cleanup, and provider-side spend enforcement before routing. A113 rules what those six proofs must show, including the bounded revocation window for federated providers, the recorded spend overshoot, and the zero-prepaid precondition for team-scoped caps.",
   "providers": {
     "anthropic": {
       "display_name": "Anthropic",

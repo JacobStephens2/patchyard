@@ -174,8 +174,9 @@ advisory lock, and refuses with `backup_busy` when it observes active
 production or proposer work. A claim in the narrow interval after the first
 check can be interrupted by writer quiescence; the required second check then
 returns `backup_busy`, and normal state-derived recovery resumes that work.
-It remembers which writers were active; stops dashboard and supervisor;
-rejects non-regular artifact/runtime
+It remembers which public and writer services were active; stops Caddy before
+dashboard and supervisor so systemd dependency propagation cannot hide Caddy
+from the restart set; rejects non-regular artifact/runtime
 entries and unsupported path characters; records exact table counts; creates
 a custom data-only `pg_dump` excluding `_sqlx_migrations`; manifests artifacts and the
 runtime ideas projection; creates deterministic tar inputs; encrypts the whole

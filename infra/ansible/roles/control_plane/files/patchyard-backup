@@ -7,7 +7,9 @@ readonly artifact_root='/var/lib/patchyard/artifacts'
 readonly runtime_root='/var/lib/patchyard/proposer-inbox'
 readonly socket_root='/run/patchyard-postgres'
 readonly database='patchyard'
-readonly services=(factory-dashboard.service factory-supervisor.service)
+# Caddy requires the dashboard, so stop it first. Otherwise stopping the
+# dashboard implicitly stops Caddy before it can be recorded for restart.
+readonly services=(caddy.service factory-dashboard.service factory-supervisor.service)
 
 : "${FACTORY_BACKUP_BUCKET:?missing backup bucket}"
 : "${FACTORY_BACKUP_ENDPOINT:?missing backup endpoint}"

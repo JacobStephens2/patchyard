@@ -26,6 +26,19 @@ postgres_exporter_sha256: 89d4f7e7920cad48fdc3133f789556ef5253c330a9f5fdace3bdb6
 caddy_version: 2.11.4
 caddy_sha512: 8220d1f013b6f27510247b2360c9e0ca9f018feebd82515f07635318b34ff9777ccc8fd0b6e6f2486ce3a33fe389fbb7db12d05baa474f4587509fb4f5ebf1c9
 chromium_nevra: chromium-150.0.7871.181-1.el9.x86_64
+chromium_common_nevra: chromium-common-150.0.7871.181-1.el9.x86_64
+chromium_rpm_mirror_directory: /var/cache/patchyard/rpm-mirror
+chromium_rpm_mirror:
+  - filename: chromium-150.0.7871.181-1.el9.x86_64.rpm
+    object_key: dependencies/epel/9/x86_64/chromium-150.0.7871.181-1.el9.x86_64.rpm
+    version_id: 9k88XXeRJzRUTRwYOFcTu2ICMqWR3iJ
+    sha256: 05bda830ab035517ee6388c1a0d963d6de67eadb03c68cdd6ff90e8f888fd086
+    size: 132085705
+  - filename: chromium-common-150.0.7871.181-1.el9.x86_64.rpm
+    object_key: dependencies/epel/9/x86_64/chromium-common-150.0.7871.181-1.el9.x86_64.rpm
+    version_id: Gfh5nef193tTyupbpfhjGMofEJmg0-v
+    sha256: b2f46d0d00cb47e4fd6a5b73b7edc02e196feb7d683fbfa5007e0a34cfb45202
+    size: 16974965
 age_nevra: age-1.3.1-1.el9.x86_64
 awscli_nevra: awscli-1.29.62-1.el9.noarch
 

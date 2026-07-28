@@ -114,7 +114,7 @@ The second normal converge must show `changed=0` for both durable hosts. A
 check-mode difference is drift; inspect and encode the repair rather than
 editing the host.
 
-### A-14 credential rotation inventory
+### A-14 rotation and expiring-dependency inventory
 
 This inventory contains no credential values. Rotation means creating or
 updating the credential, updating its stable 1Password reference when needed,
@@ -126,6 +126,16 @@ vault update alone is not a completed rotation.
 | --- | --- | --- | --- |
 | DigitalOcean `conductor-v7`, `op://example-vault/digital-ocean/personal-access-token` | Replaced 2026-07-27; prior 33 scopes plus `spaces_key:create_credentials`, `spaces_key:read`, `spaces_key:delete`, and `account:read`; approximate expiry 2026-09-27. | Review 2026-08-27 and rotate no later than 2026-09-20. Current proof-of-life is HTTP 200 from `/v2/account` plus the reviewed Spaces bootstrap and apply. `conductor-v5` and `conductor-v6` are revoked; the recorded old-token `/v2/spaces/keys` response had the API's unauthorized 404 shape. A 401 from a process launched before replacement means relaunch through `codex-orchestrate`, not scope widening. | Fails mid-converge, not at plan time, when DigitalOcean or Spaces authority is first exercised; source checks do not prove the live credential. |
 | GitHub `patchyard-admin-pat`, `op://example-vault/patchyard-github-app/patchyard-admin-pat` | Scope-edited in place 2026-07-27; repository access is exactly `example-org/fieldbook` and `JacobStephens2/patchyard`, with Administration read/write and metadata read, no organization permissions; expires 2026-10-19. | Review 2026-09-19 and rotate no later than 2026-10-12. Current proof-of-life is exact repository/admin visibility plus the reviewed GitHub protection apply. The 2026-07-27 edit retained the same credential, so there is no dead predecessor to test; the next value rotation must revoke the old value and prove an administration read fails before closure. No relaunch was needed for the in-place scope edit. | Fails mid-converge, not at plan time, at the GitHub protection apply; source checks and the earlier provider plans do not prove its live repository administration authority. |
+
+Exact upstream package pins also need a durable acquisition path. The mirrored
+objects below live outside the `generations/` lifecycle prefix, so backup
+retention never expires them. Ansible requests the recorded object version,
+checks remote metadata and local byte count/SHA-256, and then installs with RPM
+signature verification still enabled.
+
+| Dependency contract | Controlled copy | Review and qualification proof | Failure surface |
+| --- | --- | --- | --- |
+| Chromium `150.0.7871.181-1.el9.x86_64` plus `chromium-common` at the same version; ChromeDriver is deliberately absent because the evidence child speaks CDP to its one-shot Chromium subprocess and never uses WebDriver. | Private versioned Spaces bucket `patchyard-backups`: `dependencies/epel/9/x86_64/chromium-150.0.7871.181-1.el9.x86_64.rpm` version `9k88XXeRJzRUTRwYOFcTu2ICMqWR3iJ`, SHA-256 `05bda830ab035517ee6388c1a0d963d6de67eadb03c68cdd6ff90e8f888fd086`, 132085705 bytes; matching `chromium-common` object version `Gfh5nef193tTyupbpfhjGMofEJmg0-v`, SHA-256 `b2f46d0d00cb47e4fd6a5b73b7edc02e196feb7d683fbfa5007e0a34cfb45202`, 16974965 bytes. | Review on every browser pin change and monthly with the DigitalOcean credential. Every converge proves the exact remote versions and cached bytes; the installed qualifier proves both RPM NEVRAs and hashes. Re-render `fixtures/visual/chromium-baseline.html` with the evidence harness flags after a browser change and stop on an unexplained DOM or screenshot difference. The `.124` to `.181` recheck is recorded in `fixtures/visual/chromium-baseline.json`: DOM SHA-256 `aa1f5b8b3a43b2ec3fd16d9d86075b51cd28504287b347027b0215c5ab1d5b27` and screenshot SHA-256 `e5f7076666fdd849e0cbb6eb3408605cbe97e14a67d79d042a11561a0db9cc18` were byte-identical. | A missing/deleted object or mismatched metadata fails during converge before Chromium installation. A cached wrong byte fails qualification. EPEL remains a dependency source for ordinary transitive packages, but clean provisioning no longer depends on EPEL retaining these two finite-lived exact NEVRAs. |
 
 ## Replace the worker
 

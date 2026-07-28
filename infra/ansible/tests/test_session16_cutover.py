@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 from pathlib import Path
 import re
 import unittest
@@ -46,6 +47,18 @@ class Session16CutoverContract(unittest.TestCase):
         cls.group_vars = (
             ROOT / "infra" / "ansible" / "group_vars" / "all.yml"
         ).read_text()
+        cls.rpm_mirror_sync = (
+            ROOT
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "control_plane"
+            / "templates"
+            / "patchyard-sync-rpm-mirror.j2"
+        ).read_text()
+        cls.chromium_visual_baseline = json.loads(
+            (ROOT / "fixtures" / "visual" / "chromium-baseline.json").read_text()
+        )
         cls.github = (ROOT / "infra" / "github" / "main.tf").read_text()
         cls.digitalocean = (ROOT / "infra" / "digitalocean" / "main.tf").read_text()
         cls.spaces = (ROOT / "infra" / "digitalocean" / "backup.tf").read_text()
@@ -198,6 +211,37 @@ class Session16CutoverContract(unittest.TestCase):
             f'test "$(rpm -q chromium)" = {chromium_nevra.group(1)}',
             self.qualifier,
         )
+
+    def test_chromium_pin_uses_immutable_mirrored_object_versions(self) -> None:
+        for required in (
+            "chromium_common_nevra: chromium-common-150.0.7871.181-1.el9.x86_64",
+            "version_id: 9k88XXeRJzRUTRwYOFcTu2ICMqWR3iJ",
+            "version_id: Gfh5nef193tTyupbpfhjGMofEJmg0-v",
+            "05bda830ab035517ee6388c1a0d963d6de67eadb03c68cdd6ff90e8f888fd086",
+            "b2f46d0d00cb47e4fd6a5b73b7edc02e196feb7d683fbfa5007e0a34cfb45202",
+        ):
+            self.assertIn(required, self.group_vars)
+        self.assertNotIn('- "{{ chromium_nevra }}"', self.tasks)
+        self.assertIn("Synchronize the exact Chromium RPM object versions", self.tasks)
+        self.assertIn("Install Chromium from the immutable RPM mirror", self.tasks)
+        self.assertIn("disable_gpg_check: false", self.tasks)
+        self.assertIn("s3api head-object", self.rpm_mirror_sync)
+        self.assertIn("--version-id", self.rpm_mirror_sync)
+        self.assertIn("Metadata.sha256", self.rpm_mirror_sync)
+        self.assertIn("s3api get-object", self.rpm_mirror_sync)
+        self.assertIn("sha256sum --check --status", self.rpm_mirror_sync)
+        self.assertIn('mv -f -- "$TEMP_FILE" "$destination"', self.rpm_mirror_sync)
+        self.assertIn("patchyard-sync-rpm-mirror", self.qualifier)
+        self.assertIn("sha256sum --check --status", self.qualifier)
+        self.assertEqual(
+            self.chromium_visual_baseline["before"]["dom_sha256"],
+            self.chromium_visual_baseline["after"]["dom_sha256"],
+        )
+        self.assertEqual(
+            self.chromium_visual_baseline["before"]["screenshot_sha256"],
+            self.chromium_visual_baseline["after"]["screenshot_sha256"],
+        )
+        self.assertEqual(self.chromium_visual_baseline["result"], "byte-identical")
 
     def test_restore_verifies_ciphertext_payload_rows_and_files(self) -> None:
         for required in (

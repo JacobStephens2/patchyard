@@ -1,0 +1,25 @@
+{
+  "fixture": {
+    "path": "fixtures/visual/chromium-baseline.html",
+    "sha256": "3a8d8034cb08658343921da8daea5ef8ca9b0ad797c4155099813b66e7ababf4"
+  },
+  "capture": {
+    "browser_mode": "headless=new",
+    "viewport": "1440x1200",
+    "dom_expression": "document.documentElement.outerHTML",
+    "screenshot_format": "png",
+    "capture_beyond_viewport": false
+  },
+  "before": {
+    "nevra": "chromium-150.0.7871.124-1.el9.x86_64",
+    "dom_sha256": "aa1f5b8b3a43b2ec3fd16d9d86075b51cd28504287b347027b0215c5ab1d5b27",
+    "screenshot_sha256": "e5f7076666fdd849e0cbb6eb3408605cbe97e14a67d79d042a11561a0db9cc18"
+  },
+  "after": {
+    "nevra": "chromium-150.0.7871.181-1.el9.x86_64",
+    "dom_sha256": "aa1f5b8b3a43b2ec3fd16d9d86075b51cd28504287b347027b0215c5ab1d5b27",
+    "screenshot_sha256": "e5f7076666fdd849e0cbb6eb3408605cbe97e14a67d79d042a11561a0db9cc18"
+  },
+  "result": "byte-identical",
+  "recorded_at": "2026-07-28"
+}

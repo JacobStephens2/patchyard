@@ -547,7 +547,9 @@ class Session16CutoverContract(unittest.TestCase):
         stale_environment = inventory(
             "7b032c7c7ceb7c427cf5e73c43e2116acaf5614a"
         )
-        inconsistent_migrations = inventory("84708ba")
+        inconsistent_migrations = inventory(
+            "84708ba8a1e0c6786a9b934f110a5f6b8adfde3b"
+        )
         declared_inventory = inventory("HEAD")
 
         for result in (

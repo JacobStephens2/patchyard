@@ -261,6 +261,11 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("state_list=", self.plan_operator)
         self.assertIn("grep -Fxq", self.plan_operator)
         self.assertIn("DigitalOcean apply refused while the restore drill exists", self.tofu_operator)
+        self.assertIn("PATCHYARD_RESTORE_DRILL_APPLY=reuse", self.restore_operator)
+        self.assertIn("PATCHYARD_RESTORE_DRILL_REUSE_PLAN", self.restore_operator)
+        self.assertIn("reuse_plan_json=", self.tofu_operator)
+        self.assertIn('.change.actions != [\"no-op\"]', self.tofu_operator)
+        self.assertIn("saved plan changes", self.tofu_operator)
         self.assertIn("PATCHYARD_RESTORE_DRILL_APPLY=destroy", self.restore_operator)
 
     def test_worker_replacement_plan_is_mechanically_address_pinned(self) -> None:

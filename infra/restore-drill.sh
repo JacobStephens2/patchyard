@@ -61,7 +61,9 @@ case "$MODE" in
     : "${PATCHYARD_RESTORE_APPROVED:?set PATCHYARD_RESTORE_APPROVED=yes after human plan review}"
     [[ "$PATCHYARD_RESTORE_APPROVED" == yes ]] || exit 2
     verify_plan_addresses "$plan_file" create
-    "$REPO_ROOT/infra/tofu.sh" digitalocean apply "$plan_file"
+    PATCHYARD_RESTORE_DRILL_APPLY=reuse \
+      PATCHYARD_RESTORE_DRILL_REUSE_PLAN="$plan_file" \
+      "$REPO_ROOT/infra/tofu.sh" digitalocean apply "$plan_file"
 
     restore_ip=$("$REPO_ROOT/infra/tofu.sh" digitalocean output -raw restore_drill_ipv4)
     restore_private_ip=$("$REPO_ROOT/infra/tofu.sh" digitalocean output -raw restore_drill_private_ipv4)

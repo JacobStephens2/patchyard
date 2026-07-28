@@ -78,10 +78,36 @@ if [[ "$TOFU_ROOT" == digitalocean && "${1:-}" == apply ]]; then
     echo 'DigitalOcean apply refused because restore-drill state could not be inspected' >&2
     exit 2
   }
-  if grep -Fxq 'digitalocean_droplet.restore_drill[0]' <<<"$state_list" \
-    && [[ "${PATCHYARD_RESTORE_DRILL_APPLY:-}" != destroy ]]; then
-    echo 'DigitalOcean apply refused while the restore drill exists; only the address-pinned restore-drill destroy path is allowed' >&2
-    exit 2
+  if grep -Fxq 'digitalocean_droplet.restore_drill[0]' <<<"$state_list"; then
+    case "${PATCHYARD_RESTORE_DRILL_APPLY:-}" in
+      destroy)
+        ;;
+      reuse)
+        reuse_plan=${PATCHYARD_RESTORE_DRILL_REUSE_PLAN:-}
+        if [[ $# -ne 2 || "$1" != apply || "$2" != "$reuse_plan" \
+          || "$reuse_plan" != /* || ! -f "$reuse_plan" ]]; then
+          echo 'DigitalOcean restore-drill reuse refused without the exact absolute saved plan' >&2
+          exit 2
+        fi
+        reuse_plan_json=$(tofu -chdir="$TOFU_DIR" show -json "$reuse_plan") || {
+          echo 'DigitalOcean restore-drill reuse refused because the saved plan could not be inspected' >&2
+          exit 2
+        }
+        unexpected=$(jq -r '
+          .resource_changes[]?
+          | select(.change.actions != ["no-op"])
+          | .address
+        ' <<<"$reuse_plan_json")
+        if [[ -n "$unexpected" ]]; then
+          echo "DigitalOcean restore-drill reuse refused because the saved plan changes: $unexpected" >&2
+          exit 2
+        fi
+        ;;
+      *)
+        echo 'DigitalOcean apply refused while the restore drill exists; only a no-op saved restore plan or the address-pinned destroy path is allowed' >&2
+        exit 2
+        ;;
+    esac
   fi
 fi
 

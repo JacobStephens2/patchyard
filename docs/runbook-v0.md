@@ -136,8 +136,8 @@ signature verification still enabled.
 The A-14 installed-environment declarations in `group_vars/all.yml` are the
 single source for the Chromium NEVRAs, desired migration count, and exact
 Grafana column-grant count. Ansible renders the installed qualifier from those
-declarations; the qualifier carries no second per-revision copy. This source
-consolidation does not choose either of the still-open rollback models below.
+declarations; the qualifier carries no second per-revision copy and keeps
+A112's current-contract checks exact rather than weakening them to ranges.
 
 | Dependency contract | Controlled copy | Review and qualification proof | Failure surface |
 | --- | --- | --- | --- |
@@ -340,12 +340,25 @@ compatible merged revision. A target rejected by this preflight ends as
 `rollback_target_refused` before the public boundary or any host mutation.
 
 This exact whole-revision target is the reviewed Session 16 drill contract,
-not a permanent incident-rollback design. Two invalidated anchors show that a
-qualifier which advances environment constants can make every earlier whole
-revision ineligible. Before declaring another rollback anchor, Jacob must rule
-whether rollback qualifiers accept reviewed compatible ranges for those facts,
-or whether rollback installs an earlier application revision under the current
-infrastructure/qualification contract. Neither model is adopted implicitly.
+not the permanent incident-rollback design. Two invalidated anchors showed
+that a qualifier asserting exact equality against advancing environment
+constants makes every earlier whole revision ineligible.
+
+**A112 rules the permanent model.** The infrastructure and qualification
+contract is forward-only, and rollback installs an earlier *application*
+revision under the *current* contract, never an earlier whole revision.
+Environment constants - package NEVRA pins, database grant counts, desired
+migration count - belong in the declared A-14 pin inventory that the qualifier
+reads, not hard-coded per revision in `qualify-factory-control`. Compatible
+qualifier ranges are rejected: a range on a grant count would accept an
+over-grant and defeat the least-privilege check it exists to make.
+
+Before PR #63 is merged and installed, Session 16 continues to use the
+whole-revision target above for its already-declared drill. PR #63 makes the
+qualifier read those constants from the inventory; any rollback begun after
+that installed transition must use A112's earlier-application/current-contract
+model. A target failing the compatibility predicate ends as
+`rollback_target_refused` before the public boundary or any host mutation.
 
 PR #51 must be merged with a merge commit (the repository's established
 practice) or a manual fast-forward that preserves the exact commits, never

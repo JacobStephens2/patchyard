@@ -34,6 +34,18 @@ class Session16CutoverContract(unittest.TestCase):
             / "tasks"
             / "main.yml"
         ).read_text()
+        cls.worker_tasks = (
+            ROOT
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "worker"
+            / "tasks"
+            / "main.yml"
+        ).read_text()
+        cls.group_vars = (
+            ROOT / "infra" / "ansible" / "group_vars" / "all.yml"
+        ).read_text()
         cls.github = (ROOT / "infra" / "github" / "main.tf").read_text()
         cls.digitalocean = (ROOT / "infra" / "digitalocean" / "main.tf").read_text()
         cls.spaces = (ROOT / "infra" / "digitalocean" / "backup.tf").read_text()
@@ -249,6 +261,35 @@ class Session16CutoverContract(unittest.TestCase):
             self.replace_operator.count("require_clean_revision"), 3
         )
         self.assertIn("committed, clean operator checkout", self.plan_operator)
+
+    def test_clean_worker_imports_the_pinned_remi_signing_key(self) -> None:
+        bootstrap = self.worker_tasks.index(
+            "- name: Install the checksum-pinned Remi repository bootstrap"
+        )
+        key_import = self.worker_tasks.index(
+            "- name: Import the fingerprint-pinned Remi package signing key"
+        )
+        packages = self.worker_tasks.index(
+            "- name: Install checksum-pinned targeted-PHPUnit runtime packages"
+        )
+        self.assertLess(bootstrap, key_import)
+        self.assertLess(key_import, packages)
+        self.assertIn("ansible.builtin.rpm_key:", self.worker_tasks[key_import:packages])
+        self.assertIn(
+            "key: /etc/pki/rpm-gpg/RPM-GPG-KEY-remi.el9",
+            self.worker_tasks[key_import:packages],
+        )
+        self.assertIn(
+            'fingerprint: "{{ remi_signing_key_fingerprint }}"',
+            self.worker_tasks[key_import:packages],
+        )
+        self.assertIn(
+            "remi_signing_key_fingerprint: "
+            "B1ABF71E14C9D74897E198A8B19527F1478F8947",
+            self.group_vars,
+        )
+        package_task = self.worker_tasks[packages:].split("\n- name:", 1)[0]
+        self.assertIn("disable_gpg_check: false", package_task)
 
     def test_rollback_binds_live_revision_and_verifies_durable_state(self) -> None:
         self.assertIn('current=$(resolve_reviewed_revision "$(installed_revision', self.rollback_operator)

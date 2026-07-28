@@ -973,6 +973,8 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
         cls.probe = (cls.files / "patchyard-restore-evidence-probe").read_text()
         cls.operator = (ROOT / "infra" / "rollback-control.sh").read_text()
         cls.boundary = (ROOT / "infra" / "ansible" / "rollback-boundary.yml").read_text()
+        cls.restore_play = (ROOT / "infra" / "ansible" / "restore.yml").read_text()
+        cls.restore_operator = (ROOT / "infra" / "restore-drill.sh").read_text()
         cls.tasks = (
             ROOT / "infra" / "ansible" / "roles" / "control_plane" / "tasks" / "main.yml"
         ).read_text()
@@ -999,6 +1001,187 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
         cls.migrations = "\n".join(
             path.read_text() for path in sorted((ROOT / "migrations").glob("*.sql"))
         )
+
+    def _restore_target_contract(self):
+        target_values = dict(
+            re.findall(
+                r"(factory_restore_(?:drill|expected_[a-z_]+)):"
+                r"(true|\$[a-z_][a-z0-9_]*)",
+                self.restore_operator,
+            )
+        )
+        jq_arguments = dict(
+            re.findall(
+                r'^\s+--arg ([a-z_][a-z0-9_]*) "\$([a-z_][a-z0-9_]*)"',
+                self.restore_operator,
+                re.MULTILINE,
+            )
+        )
+        expected_targets = {
+            name for name, value in target_values.items() if value.startswith("$")
+        }
+        target_sources = {
+            name: jq_arguments[value.removeprefix("$")]
+            for name, value in target_values.items()
+            if value.startswith("$")
+        }
+        inventory_builder = self.restore_operator.split(
+            'inventory_file="$drill_root/inventory.json"', maxsplit=1
+        )[1].split('>"$inventory_file"', maxsplit=1)[0]
+        inventory_fields = set(
+            re.findall(
+                r"\b([a-z_][a-z0-9_]*):\$([a-z_][a-z0-9_]*)",
+                inventory_builder,
+            )
+        )
+        host_bindings = {
+            (field, target)
+            for field, source in inventory_fields
+            for target, target_source in target_sources.items()
+            if source == target_source
+        }
+        drill_flags = {
+            name for name, value in target_values.items() if value == "true"
+        }
+        self.assertTrue(drill_flags)
+        self.assertTrue(expected_targets)
+        self.assertTrue(host_bindings)
+        return drill_flags, expected_targets, target_sources, host_bindings
+
+    def test_restore_inventory_guard_matches_generated_target_bindings(self) -> None:
+        drill_flags, expected_targets, _, host_bindings = self._restore_target_contract()
+        guard = self.restore_play.split(
+            "    - name: Refuse restore outside the generated drill inventory",
+            maxsplit=1,
+        )[1].split("\n    - name:", maxsplit=1)[0]
+        self.assertSetEqual(
+            set(re.findall(r"^      ([a-z_.]+):", guard, re.MULTILINE)),
+            {"ansible.builtin.assert"},
+        )
+        condition_block = guard.split("that:", maxsplit=1)[1].split(
+            "fail_msg:", maxsplit=1
+        )[0]
+        conditions = re.findall(r"^\s+- (.+)$", condition_block, re.MULTILINE)
+        asserted_flags = {
+            match.group(1)
+            for condition in conditions
+            if (
+                match := re.fullmatch(
+                    r"([a-z_][a-z0-9_]*) \| default\(false\) \| bool",
+                    condition,
+                )
+            )
+        }
+        asserted_definitions = {
+            match.group(1)
+            for condition in conditions
+            if (match := re.fullmatch(r"([a-z_][a-z0-9_]*) is defined", condition))
+        }
+        asserted_host_bindings = {
+            (match.group(1), match.group(2))
+            for condition in conditions
+            if (
+                match := re.fullmatch(
+                    r"([a-z_][a-z0-9_]*) == ([a-z_][a-z0-9_]*)",
+                    condition,
+                )
+            )
+        }
+        self.assertSetEqual(asserted_flags, drill_flags)
+        self.assertSetEqual(asserted_definitions, expected_targets)
+        self.assertSetEqual(asserted_host_bindings, host_bindings)
+        self.assertEqual(
+            len(conditions),
+            len(asserted_flags) + len(asserted_definitions) + len(asserted_host_bindings),
+        )
+
+        first_play = self.restore_play.split(
+            "\n- name: Provision and restore the clean recovery host", maxsplit=1
+        )[0]
+        task_names = re.findall(r"^    - name: (.+)$", first_play, re.MULTILINE)
+        self.assertEqual(
+            task_names[0], "Refuse restore outside the generated drill inventory"
+        )
+        self.assertIn("gather_facts: false", first_play)
+
+    def test_restore_droplet_guard_matches_metadata_and_remaining_target(self) -> None:
+        _, expected_targets, target_sources, host_bindings = (
+            self._restore_target_contract()
+        )
+        host_targets = {target for _, target in host_bindings}
+        output_blocks = dict(
+            re.findall(
+                r'output "([a-z_][a-z0-9_]*)" \{(.*?)\n\}',
+                self.inventory_output,
+                re.DOTALL,
+            )
+        )
+        declared_id_outputs = {
+            name
+            for name, body in output_blocks.items()
+            if re.search(r"digitalocean_droplet\.[^\n]+\.id : null", body)
+        }
+        output_reads = dict(
+            re.findall(
+                r'^\s+([a-z_][a-z0-9_]*)=\$\("[^"\n]*tofu\.sh" digitalocean '
+                r"output -raw ([a-z_][a-z0-9_]*)\)$",
+                self.restore_operator,
+                re.MULTILINE,
+            )
+        )
+        droplet_sources = {
+            variable
+            for variable, output in output_reads.items()
+            if output in declared_id_outputs
+        }
+        droplet_targets = {
+            target
+            for target, source in target_sources.items()
+            if source in droplet_sources
+        }
+        self.assertEqual(len(droplet_targets), 1)
+        self.assertSetEqual(expected_targets, host_targets | droplet_targets)
+
+        metadata = self.restore_play.split(
+            "    - name: Read the target DigitalOcean droplet identity", maxsplit=1
+        )[1].split("\n    - name:", maxsplit=1)[0]
+        metadata_result = re.search(
+            r"^\s+register:\s*([a-z_][a-z0-9_]*)$", metadata, re.MULTILINE
+        )
+        self.assertIsNotNone(metadata_result)
+
+        guard_name = "Bind restore to the planned ephemeral droplet"
+        guard = self.restore_play.split(f"    - name: {guard_name}", maxsplit=1)[
+            1
+        ].split("\n- name:", maxsplit=1)[0]
+        self.assertSetEqual(
+            set(re.findall(r"^      ([a-z_.]+):", guard, re.MULTILINE)),
+            {"ansible.builtin.assert"},
+        )
+        condition_block = guard.split("that:", maxsplit=1)[1].split(
+            "fail_msg:", maxsplit=1
+        )[0]
+        condition_lines = [
+            line.strip() for line in condition_block.splitlines() if line.strip()
+        ]
+        self.assertEqual(condition_lines[0], "- >-")
+        self.assertEqual(sum(line.startswith("- ") for line in condition_lines), 1)
+        condition = " ".join(condition_lines[1:])
+        asserted_binding = re.fullmatch(
+            r"([a-z_][a-z0-9_]*)\.content \| trim == "
+            r"\(([a-z_][a-z0-9_]*) \| string\)",
+            condition,
+        )
+        self.assertIsNotNone(asserted_binding)
+        self.assertEqual(asserted_binding.group(1), metadata_result.group(1))
+        self.assertSetEqual({asserted_binding.group(2)}, droplet_targets)
+
+        first_play = self.restore_play.split(
+            "\n- name: Provision and restore the clean recovery host", maxsplit=1
+        )[0]
+        task_names = re.findall(r"^    - name: (.+)$", first_play, re.MULTILINE)
+        metadata_index = task_names.index("Read the target DigitalOcean droplet identity")
+        self.assertEqual(task_names[metadata_index + 1], guard_name)
 
     def test_restore_probe_form_fields_match_login_form(self) -> None:
         form = re.search(r"struct LoginForm \{(.*?)\n\}", self.web, re.DOTALL)

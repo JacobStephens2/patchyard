@@ -7,8 +7,8 @@ readonly artifact_root='/var/lib/patchyard/artifacts'
 readonly runtime_root='/var/lib/patchyard/proposer-inbox'
 readonly socket_root='/run/patchyard-postgres'
 readonly database='patchyard'
-# Caddy requires the dashboard, so stop it first. Otherwise stopping the
-# dashboard implicitly stops Caddy before it can be recorded for restart.
+# Capture every prior-active service before stopping any of them. Systemd may
+# propagate a stop through dependencies, but that must not erase restart state.
 readonly services=(caddy.service factory-dashboard.service factory-supervisor.service)
 
 : "${FACTORY_BACKUP_BUCKET:?missing backup bucket}"
@@ -126,19 +126,47 @@ recipient_file="$generation_root/recipient.txt"
 printf '%s\n' "$FACTORY_BACKUP_AGE_RECIPIENT" >"$recipient_file"
 
 active_services=()
+capture_prior_active_services() {
+  local service
+  active_services=()
+  for service in "${services[@]}"; do
+    if systemctl is-active --quiet "$service"; then
+      active_services+=("$service")
+    fi
+  done
+}
+stop_prior_active_services() {
+  local service
+  for service in "${active_services[@]}"; do
+    systemctl stop "$service"
+  done
+}
+restore_prior_active_services() {
+  local service restore_failed=0
+  for service in "${active_services[@]}"; do
+    if ! systemctl start "$service"; then
+      restore_failed=1
+    fi
+  done
+  for service in "${active_services[@]}"; do
+    if ! systemctl is-active --quiet "$service"; then
+      restore_failed=1
+    fi
+  done
+  (( restore_failed == 0 ))
+}
+quiesce_prior_active_services() {
+  capture_prior_active_services
+  stop_prior_active_services
+}
 cleanup_and_restart() {
-  local strict=${1:-false} service restart_failed=0
+  local strict=${1:-false}
   if [[ -d "$payload_root" && ! -L "$payload_root" ]]; then
     rm -r -- "$payload_root"
   fi
   rm -f -- "$generation_root/backup.tar"
-  for service in "${active_services[@]}"; do
-    if ! systemctl start "$service"; then
-      restart_failed=1
-    fi
-  done
-  if (( restart_failed != 0 )); then
-    echo 'service_resume_failed: one or more writers did not restart' >&2
+  if ! restore_prior_active_services; then
+    echo 'service_resume_failed: one or more prior-active services are down' >&2
     if [[ "$strict" == true ]]; then
       return 28
     fi
@@ -153,12 +181,7 @@ cleanup_on_exit() {
 }
 trap cleanup_on_exit EXIT
 
-for service in "${services[@]}"; do
-  if systemctl is-active --quiet "$service"; then
-    active_services+=("$service")
-    systemctl stop "$service"
-  fi
-done
+quiesce_prior_active_services
 
 active_work=$(active_work_count)
 [[ "$active_work" =~ ^[0-9]+$ ]] || {

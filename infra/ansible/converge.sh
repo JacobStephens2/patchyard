@@ -41,6 +41,15 @@ jq --exit-status '
   exit 1
 }
 
+if [[ "${1:-}" == --check-inputs ]]; then
+  [[ $# -eq 1 ]] || {
+    echo "--check-inputs accepts no additional arguments" >&2
+    exit 2
+  }
+  echo "converge_inputs_valid"
+  exit 0
+fi
+
 if [[ -n "$(git -C "$REPO_ROOT" status --porcelain)" ]]; then
   echo "converge requires a committed, clean desired-state revision" >&2
   exit 1

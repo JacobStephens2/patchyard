@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -70,11 +71,6 @@ class Session16CutoverContract(unittest.TestCase):
         ).read_text()
 
     def test_backup_quiesces_writers_and_captures_all_durable_state(self) -> None:
-        self.assertIn(
-            "readonly services=(caddy.service factory-dashboard.service "
-            "factory-supervisor.service)",
-            self.backup,
-        )
         self.assertIn("systemctl stop", self.backup)
         self.assertIn("pg_dump", self.backup)
         self.assertIn("--exclude-table-data=public._sqlx_migrations", self.backup)
@@ -87,6 +83,111 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("cleanup_and_restart true || exit 28", self.backup)
         self.assertIn('>"$payload_root/database.dump"', self.backup)
         self.assertNotIn('--file="$payload_root/database.dump"', self.backup)
+
+    def test_backup_service_lifecycle_binds_dependency_propagation(self) -> None:
+        lifecycle_start = self.backup.index("active_services=()")
+        lifecycle_end = self.backup.index("\ncleanup_on_exit()", lifecycle_start)
+        lifecycle = self.backup[lifecycle_start:lifecycle_end]
+        self.assertIn(
+            "\nquiesce_prior_active_services\n", self.backup[lifecycle_end:]
+        )
+
+        dependency_fixture = r'''
+set -euo pipefail
+declare -A state=(
+  [factory-dashboard.service]=1
+  [caddy.service]=1
+  [factory-supervisor.service]=1
+)
+events=()
+systemctl() {
+  case "$1" in
+    is-active)
+      events+=("is-active:$3")
+      [[ "${state[$3]}" == 1 ]]
+      ;;
+    stop)
+      events+=("stop:$2")
+      state["$2"]=0
+      if [[ "$2" == factory-dashboard.service ]]; then
+        state[caddy.service]=0
+      fi
+      ;;
+    *) return 2 ;;
+  esac
+}
+''' + lifecycle + r'''
+services=(factory-dashboard.service caddy.service factory-supervisor.service)
+quiesce_prior_active_services
+printf '%s\n' "${events[@]}"
+printf 'prior-active:%s\n' "${active_services[*]}"
+'''
+        dependency = subprocess.run(
+            ["bash", "-c", dependency_fixture],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(dependency.returncode, 0, dependency.stderr)
+        self.assertEqual(
+            dependency.stdout.splitlines(),
+            [
+                "is-active:factory-dashboard.service",
+                "is-active:caddy.service",
+                "is-active:factory-supervisor.service",
+                "stop:factory-dashboard.service",
+                "stop:caddy.service",
+                "stop:factory-supervisor.service",
+                "prior-active:factory-dashboard.service caddy.service "
+                "factory-supervisor.service",
+            ],
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            silent_start_fixture = r'''
+set -uo pipefail
+declare -A state=(
+  [factory-dashboard.service]=0
+  [caddy.service]=0
+  [factory-supervisor.service]=0
+)
+events=()
+systemctl() {
+  case "$1" in
+    start)
+      events+=("start:$2")
+      if [[ "$2" != caddy.service ]]; then
+        state["$2"]=1
+      fi
+      return 0
+      ;;
+    is-active)
+      events+=("is-active:$3")
+      [[ "${state[$3]}" == 1 ]]
+      ;;
+    *) return 2 ;;
+  esac
+}
+''' + lifecycle + r'''
+services=(caddy.service factory-dashboard.service factory-supervisor.service)
+active_services=(caddy.service factory-dashboard.service factory-supervisor.service)
+generation_root="$1"
+payload_root="$1/missing-payload"
+cleanup_and_restart true
+rc=$?
+printf '%s\n' "${events[@]}"
+exit "$rc"
+'''
+            silent_start = subprocess.run(
+                ["bash", "-c", silent_start_fixture, "backup-test", temporary],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(silent_start.returncode, 28, silent_start.stdout)
+        self.assertIn("start:caddy.service", silent_start.stdout)
+        self.assertIn("is-active:caddy.service", silent_start.stdout)
+        self.assertIn("service_resume_failed", silent_start.stderr)
 
     def test_rollback_boundary_inventory_resolves_only_the_reviewed_host(self) -> None:
         operator = ROOT / "infra" / "rollback-control.sh"
@@ -556,6 +657,14 @@ fi
             '--manifest-path "$REPO_ROOT/Cargo.toml"',
             self.converge_operator,
         )
+        input_check = (
+            '"$REPO_ROOT/infra/ansible/converge.sh" --check-inputs'
+        )
+        self.assertIn(input_check, self.rollback_operator)
+        self.assertLess(
+            self.rollback_operator.index(input_check),
+            self.rollback_operator.index("set_rollback_boundary enter"),
+        )
         self.assertIn("qualification_migration_count", self.rollback_operator)
         self.assertIn("schema_version:2", self.rollback_operator)
         self.assertIn("control_address", self.rollback_operator)
@@ -579,6 +688,75 @@ fi
             "rollback evidence did not verify; public boundary and reboot-durable backup exclusion remain in force for explicit release",
             self.rollback_operator,
         )
+
+    def test_converge_input_check_refuses_absent_secret_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            private_key = root / "github-app.pem"
+            accounts = root / "dashboard-accounts.json"
+            private_key.write_text("test-key\n")
+            accounts.write_text(
+                json.dumps(
+                    [
+                        {
+                            "username": "admin-one@example.com",
+                            "display_name": "Admin One",
+                            "role": "factory_admin",
+                            "password": "test-password-one",
+                        },
+                        {
+                            "username": "admin-two@example.com",
+                            "display_name": "Admin Two",
+                            "role": "factory_admin",
+                            "password": "test-password-two",
+                        },
+                        {
+                            "username": "submit@example.com",
+                            "display_name": "Submit",
+                            "role": "factory_submit",
+                            "password": "test-password-three",
+                        },
+                    ]
+                )
+            )
+            private_key.chmod(0o600)
+            accounts.chmod(0o600)
+            env = os.environ | {
+                "GH_PATCHYARD_APP_ID": "123",
+                "GH_PATCHYARD_APP_INSTALLATION_ID": "456",
+                "GH_PATCHYARD_APP_PRIVATE_KEY_FILE": str(private_key),
+                "FACTORY_DASHBOARD_ACCOUNTS_FILE": str(accounts),
+            }
+            command = [
+                str(ROOT / "infra" / "ansible" / "converge.sh"),
+                "--check-inputs",
+            ]
+            self.assertEqual(
+                subprocess.run(
+                    command,
+                    env=env,
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                ).returncode,
+                0,
+            )
+            for variable in (
+                "GH_PATCHYARD_APP_PRIVATE_KEY_FILE",
+                "FACTORY_DASHBOARD_ACCOUNTS_FILE",
+            ):
+                missing = env.copy()
+                missing.pop(variable)
+                self.assertNotEqual(
+                    subprocess.run(
+                        command,
+                        env=missing,
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    ).returncode,
+                    0,
+                )
 
     def test_spaces_authorities_are_split(self) -> None:
         self.assertIn('name = "patchyard-backup-management"', self.spaces)

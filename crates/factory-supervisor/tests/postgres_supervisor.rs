@@ -240,6 +240,74 @@ async fn durable_sweep_claims_recovery_limits_and_control_rows() -> Result<(), B
 }
 
 #[tokio::test]
+async fn kill_preserves_an_existing_terminal_request_outcome() -> Result<(), Box<dyn Error>> {
+    let Some((runtime_url, admin_url)) = urls() else {
+        eprintln!("skipped: disposable PostgreSQL URLs are not set");
+        return Ok(());
+    };
+    let admin = PostgresRepository::connect(&admin_url).await?;
+    let store = PgPipelineStore::connect(&runtime_url).await?;
+    let fixture = request(&format!("closed-request-kill-{}", Uuid::new_v4()));
+    admin.create_request(&fixture).await?;
+    admin
+        .claim_request(
+            fixture.id,
+            "closed-request-kill-fixture",
+            Duration::from_secs(60),
+        )
+        .await?;
+    let run = fixture_run(fixture.id);
+    let run_id = run.record().id;
+    store.append_run(&run).await?;
+    sqlx::query("UPDATE factory.runs SET state='reviewing' WHERE id=$1")
+        .bind(run_id)
+        .execute(admin.pool())
+        .await?;
+    assert!(
+        admin
+            .close_request(fixture.id, Duration::from_secs(90 * 86_400))
+            .await?
+    );
+    let closed_at: time::OffsetDateTime =
+        sqlx::query_scalar("SELECT closed_at FROM factory.requests WHERE id=$1")
+            .bind(fixture.id)
+            .fetch_one(admin.pool())
+            .await?;
+
+    let kill_id = store
+        .enqueue_control(
+            ControlKind::Kill,
+            Some(run_id),
+            "integration-test",
+            "close orphan run",
+        )
+        .await?;
+    assert!(store.claim_control(kill_id).await?);
+    assert_eq!(
+        store.kill_run(run_id, kill_id, "close orphan run").await?,
+        Some(fixture.id)
+    );
+    store
+        .complete_control(kill_id, true, serde_json::json!({"closed_orphan": true}))
+        .await?;
+
+    let (request_state, preserved_closed_at): (String, time::OffsetDateTime) =
+        sqlx::query_as("SELECT status::text,closed_at FROM factory.requests WHERE id=$1")
+            .bind(fixture.id)
+            .fetch_one(admin.pool())
+            .await?;
+    assert_eq!(request_state, "closed");
+    assert_eq!(preserved_closed_at, closed_at);
+    let run_state: String = sqlx::query_scalar("SELECT state::text FROM factory.runs WHERE id=$1")
+        .bind(run_id)
+        .fetch_one(store.pool())
+        .await?;
+    assert_eq!(run_state, "killed");
+    store.close().await;
+    Ok(())
+}
+
+#[tokio::test]
 async fn reconcile_queue_recovers_with_a_fenced_claim() -> Result<(), Box<dyn Error>> {
     let Some((runtime_url, admin_url)) = urls() else {
         eprintln!("skipped: disposable PostgreSQL URLs are not set");

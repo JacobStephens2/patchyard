@@ -1554,19 +1554,28 @@ impl PipelineStore for PgPipelineStore {
             state if crate::lifecycle::FAIL_CLOSED_STATES.contains(&state) => "failed",
             _ => "claimed",
         };
-        if request_state == "closed" {
-            sqlx::query("UPDATE factory.requests SET status='closed',closed_at=clock_timestamp() WHERE id=$1")
+        let current_request_state: String = row.try_get("request_status")?;
+        // A terminal request may outlive nonterminal run state from an earlier
+        // operator close. Preserve that accepted request outcome while
+        // terminalizing the orphan run and releasing its lease.
+        if !matches!(
+            current_request_state.as_str(),
+            "closed" | "failed" | "killed"
+        ) {
+            if request_state == "closed" {
+                sqlx::query("UPDATE factory.requests SET status='closed',closed_at=clock_timestamp() WHERE id=$1")
+                    .bind(request_id)
+                    .execute(&mut *transaction)
+                    .await?;
+            } else if request_state != "claimed" {
+                sqlx::query(
+                    "UPDATE factory.requests SET status=$2::factory.request_status WHERE id=$1",
+                )
                 .bind(request_id)
+                .bind(request_state)
                 .execute(&mut *transaction)
                 .await?;
-        } else if request_state != "claimed" {
-            sqlx::query(
-                "UPDATE factory.requests SET status=$2::factory.request_status WHERE id=$1",
-            )
-            .bind(request_id)
-            .bind(request_state)
-            .execute(&mut *transaction)
-            .await?;
+            }
         }
         append_event(
             &mut transaction,

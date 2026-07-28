@@ -623,5 +623,523 @@ fi
         self.assertIn('OsString::from("GH_CONFIG_DIR")', self.publisher)
 
 
+class Session16DuplicatedContractBindings(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.files = ROOT / "infra" / "ansible" / "roles" / "control_plane" / "files"
+        cls.probe = (cls.files / "patchyard-restore-evidence-probe").read_text()
+        cls.operator = (ROOT / "infra" / "rollback-control.sh").read_text()
+        cls.boundary = (ROOT / "infra" / "ansible" / "rollback-boundary.yml").read_text()
+        cls.tasks = (
+            ROOT / "infra" / "ansible" / "roles" / "control_plane" / "tasks" / "main.yml"
+        ).read_text()
+        cls.common_tasks = (
+            ROOT / "infra" / "ansible" / "roles" / "common" / "tasks" / "main.yml"
+        ).read_text()
+        cls.group_vars = (ROOT / "infra" / "ansible" / "group_vars" / "all.yml").read_text()
+        cls.web = (ROOT / "crates" / "factory-web" / "src" / "lib.rs").read_text()
+        cls.web_main = (ROOT / "crates" / "factory-web" / "src" / "main.rs").read_text()
+        cls.factoryctl = (ROOT / "crates" / "factoryctl" / "src" / "main.rs").read_text()
+        cls.digitalocean = (ROOT / "infra" / "digitalocean" / "main.tf").read_text()
+        cls.inventory_output = (
+            ROOT / "infra" / "digitalocean" / "outputs.tf"
+        ).read_text()
+        cls.migrations = "\n".join(
+            path.read_text() for path in sorted((ROOT / "migrations").glob("*.sql"))
+        )
+
+    def test_restore_probe_form_fields_match_login_form(self) -> None:
+        form = re.search(r"struct LoginForm \{(.*?)\n\}", self.web, re.DOTALL)
+        self.assertIsNotNone(form)
+        declared_fields = set(
+            re.findall(r"^\s+([a-z_][a-z0-9_]*): String,$", form.group(1), re.MULTILINE)
+        )
+        submitted = dict(
+            re.findall(
+                r'^data-urlencode = "([a-z_][a-z0-9_]*)=\$([a-z_][a-z0-9_]*)"$',
+                self.probe,
+                re.MULTILINE,
+            )
+        )
+        self.assertSetEqual(set(submitted), declared_fields)
+
+        login = self.web.split("async fn login(", maxsplit=1)[1].split(
+            "struct CsrfForm", maxsplit=1
+        )[0]
+        csrf_field = re.search(
+            r"login_challenge_valid\(.*?,\s*&form\.([a-z_][a-z0-9_]*)\)",
+            login,
+            re.DOTALL,
+        )
+        csrf_capture = re.search(
+            r'(?m)^([a-z_][a-z0-9_]*)=\$\(sed -n .*name=\"([a-z_][a-z0-9_]*)\" value=',
+            self.probe,
+        )
+        self.assertIsNotNone(csrf_field)
+        self.assertIsNotNone(csrf_capture)
+        self.assertEqual(csrf_capture.group(2), csrf_field.group(1))
+        self.assertEqual(submitted[csrf_field.group(1)], csrf_capture.group(1))
+
+        for local, field in re.findall(
+            r"let ([a-z_][a-z0-9_]*) = (?:normalize_username\(&)?form\.([a-z_][a-z0-9_]*)",
+            login,
+        ):
+            self.assertEqual(submitted[field], local)
+
+    def test_restore_probe_login_route_and_status_match_application(self) -> None:
+        from http import HTTPStatus
+
+        route = re.search(
+            r'\.route\("([^"]+)", get\(login_form\)\.post\(login\)\)', self.web
+        )
+        self.assertIsNotNone(route)
+        probe_urls = re.findall(r'http://localhost([^\s"]+)', self.probe)
+        self.assertSetEqual({url for url in probe_urls if "$" not in url}, {route.group(1)})
+
+        login = self.web.split("async fn login(", maxsplit=1)[1].split(
+            "struct CsrfForm", maxsplit=1
+        )[0]
+        redirect = re.search(r"let mut response = ([a-z_][a-z0-9_]*)\(", login)
+        self.assertIsNotNone(redirect)
+        redirect_body = self.web.split(
+            f"fn {redirect.group(1)}(", maxsplit=1
+        )[1].split("\n}", maxsplit=1)[0]
+        status_name = re.search(r"StatusCode::([A-Z_]+)", redirect_body)
+        probe_status = re.search(r'\[\[ "\$login_status" == ([0-9]{3}) \]\]', self.probe)
+        self.assertIsNotNone(status_name)
+        self.assertIsNotNone(probe_status)
+        self.assertEqual(int(probe_status.group(1)), HTTPStatus[status_name.group(1)].value)
+
+    def test_restore_probe_runtime_paths_match_declared_defaults(self) -> None:
+        declared = {}
+        for name, environment in (
+            ("socket", "FACTORY_DASHBOARD_SOCKET"),
+            ("artifact_root", "FACTORY_ARTIFACT_ROOT"),
+        ):
+            match = re.search(
+                rf'env = "{environment}",\s+default_value = "([^"]+)"',
+                self.web_main,
+            )
+            self.assertIsNotNone(match)
+            declared[name] = match.group(1)
+        socket = re.search(
+            r"^postgresql_socket_directory:\s*(\S+)$", self.group_vars, re.MULTILINE
+        )
+        self.assertIsNotNone(socket)
+        declared["database_socket"] = socket.group(1)
+        probe_paths = dict(
+            re.findall(r"^readonly ([a-z_][a-z0-9_]*)='([^']+)'$", self.probe, re.MULTILINE)
+        )
+        for name, value in declared.items():
+            self.assertEqual(probe_paths[name], value)
+
+        database_task = self.tasks.split(
+            "- name: Create the factory database under the schema owner", maxsplit=1
+        )[1].split("\n- name:", maxsplit=1)[0]
+        database = re.findall(r"^\s+- ([a-z][a-z0-9_]*)$", database_task, re.MULTILINE)[-1]
+        self.assertSetEqual(
+            set(re.findall(r"--dbname=([a-z][a-z0-9_]*)", self.probe)), {database}
+        )
+
+    def test_restore_probe_artifact_query_matches_schema(self) -> None:
+        query = re.search(r'--command="\n(.*?)\n  "', self.probe, re.DOTALL)
+        self.assertIsNotNone(query)
+        table = re.search(r"\bFROM\s+([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)", query.group(1))
+        self.assertIsNotNone(table)
+        declared_table = re.search(
+            rf"CREATE TABLE {re.escape(table.group(1))} \((.*?)\n\);",
+            self.migrations,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(declared_table)
+        declared_columns = set(
+            re.findall(
+                r"^\s{4}([a-z_][a-z0-9_]*)\s+",
+                declared_table.group(1),
+                re.MULTILINE,
+            )
+        ) - {"constraint"}
+
+        select = re.search(r"\bSELECT\s+(.*?)\s+FROM\b", query.group(1), re.DOTALL)
+        self.assertIsNotNone(select)
+        expression = re.sub(r"'[^']*'|::[a-z_][a-z0-9_]*", "", select.group(1))
+        functions = set(re.findall(r"\b([a-z_][a-z0-9_]*)\s*\(", expression))
+        selected_columns = set(re.findall(r"\b[a-z_][a-z0-9_]*\b", expression)) - functions
+        predicate_columns = set(
+            re.findall(r"\b([a-z_][a-z0-9_]*)\s+IS\b", query.group(1))
+        )
+        predicate_columns.update(
+            re.findall(r"\bregexp_replace\(\s*([a-z_][a-z0-9_]*)", query.group(1))
+        )
+        predicate_columns.update(
+            re.findall(r"\bORDER BY\s+([a-z_][a-z0-9_]*)", query.group(1))
+        )
+        self.assertLessEqual(selected_columns | predicate_columns, declared_columns)
+
+    def test_restore_probe_evidence_route_and_name_policy_match_application(self) -> None:
+        route = re.search(r'\.route\("([^"]+)", get\(evidence\)\)', self.web)
+        self.assertIsNotNone(route)
+        dynamic_urls = {
+            re.sub(r"\$([a-z_][a-z0-9_]*)", r"{\1}", url)
+            for url in re.findall(r'http://localhost([^\s"]+)', self.probe)
+            if "$" in url
+        }
+        self.assertSetEqual(dynamic_urls, {route.group(1)})
+
+        policy = self.web.split("fn safe_evidence_name(", maxsplit=1)[1].split(
+            "\n}", maxsplit=1
+        )[0]
+        maximum = re.search(r"value\.len\(\) <= ([0-9]+)", policy)
+        allowed = re.search(r"matches!\(byte, ([^)]+)\)", policy)
+        probe_pattern = re.search(
+            r"regexp_replace\(path, '[^']+', ''\) ~ '\^\[A-Za-z0-9([^]]+)\]\{1,([0-9]+)\}\$'",
+            self.probe,
+        )
+        self.assertIsNotNone(maximum)
+        self.assertIsNotNone(allowed)
+        self.assertIsNotNone(probe_pattern)
+        self.assertSetEqual(
+            set(probe_pattern.group(1)), set(re.findall(r"b'(.)'", allowed.group(1)))
+        )
+        self.assertEqual(int(probe_pattern.group(2)), int(maximum.group(1)))
+
+        evidence = self.web.split("async fn evidence(", maxsplit=1)[1].split(
+            "\nasync fn ", maxsplit=1
+        )[0]
+        source_digest = re.search(r"([A-Za-z0-9_]+)::digest\(", evidence)
+        stored_digest = re.search(r"encode\(([a-z0-9_]+), 'hex'\)", self.probe)
+        probe_digest = re.search(r"\b([a-z0-9_]+)sum \"\$probe_root/evidence\"", self.probe)
+        self.assertIsNotNone(source_digest)
+        self.assertIsNotNone(stored_digest)
+        self.assertIsNotNone(probe_digest)
+        self.assertSetEqual(
+            {source_digest.group(1).lower()},
+            {stored_digest.group(1), probe_digest.group(1)},
+        )
+
+    def test_rollback_inventory_identity_matches_tofu_output(self) -> None:
+        group = re.search(
+            r"(?m)^    ([a-z_][a-z0-9_]*) = \{\n"
+            r"      hosts = \[digitalocean_droplet\.control_plane\.name\]",
+            self.inventory_output,
+        )
+        role = re.search(
+            r"\(digitalocean_droplet\.control_plane\.name\) = \{.*?"
+            r'factory_role\s*=\s*"([^"]+)"',
+            self.inventory_output,
+            re.DOTALL,
+        )
+        user = re.search(r'ansible_user\s*=\s*"([^"]+)"', self.inventory_output)
+        key = re.search(
+            r'ansible_ssh_private_key_file\s*=\s*"([^"]+)"', self.inventory_output
+        )
+        for match in (group, role, user, key):
+            self.assertIsNotNone(match)
+
+        consumer_groups = set(re.findall(r"\.([a-z_][a-z0-9_]*)\.hosts", self.operator))
+        consumer_groups.update(
+            re.findall(r"children:\{([a-z_][a-z0-9_]*):\{hosts", self.operator)
+        )
+        consumer_groups.update(
+            re.findall(
+                r"^\s+hosts:\s*([a-z_][a-z0-9_]*)$",
+                self.boundary,
+                re.MULTILINE,
+            )
+        )
+        self.assertSetEqual(consumer_groups, {group.group(1)})
+
+        consumer_roles = set(re.findall(r'factory_role:\s*"([^"]+)"', self.operator))
+        consumer_roles.update(re.findall(r'factory_role == "([^"]+)"', self.operator))
+        self.assertSetEqual(consumer_roles, {role.group(1)})
+        consumer_users = set(re.findall(r'ansible_user:"([^"]+)"', self.operator))
+        consumer_users.update(re.findall(r'"([a-z][a-z0-9_-]*)@\$address"', self.operator))
+        self.assertSetEqual(consumer_users, {user.group(1)})
+        consumer_keys = set(re.findall(r"SSH_ARGS=\(-i (\S+)", self.operator))
+        consumer_keys.update(
+            re.findall(r'ansible_ssh_private_key_file:"([^"]+)"', self.operator)
+        )
+        self.assertSetEqual(consumer_keys, {key.group(1)})
+        common_args = re.search(r'ansible_ssh_common_args:"([^"]+)"', self.operator)
+        ssh_args = re.search(r"^SSH_ARGS=\(([^)]+)\)$", self.operator, re.MULTILINE)
+        self.assertIsNotNone(common_args)
+        self.assertIsNotNone(ssh_args)
+        self.assertSetEqual(
+            set(re.findall(r"-o ([^ )]+)", ssh_args.group(1))),
+            set(re.findall(r"-o ([^ ]+)", common_args.group(1))),
+        )
+
+    def test_rollback_boundary_transitions_match_operator(self) -> None:
+        declaration = re.search(
+            r"([a-z_][a-z0-9_]*) in \[([^]]+)\]", self.boundary
+        )
+        self.assertIsNotNone(declaration)
+        declared_states = set(re.findall(r"'([^']+)'", declaration.group(2)))
+        condition_states = set(
+            re.findall(
+                rf"{re.escape(declaration.group(1))} == '([^']+)'", self.boundary
+            )
+        )
+        operator_states = set(
+            re.findall(r"^\s+set_rollback_boundary ([a-z-]+)$", self.operator, re.MULTILINE)
+        )
+        self.assertSetEqual(condition_states, declared_states)
+        self.assertSetEqual(operator_states, declared_states)
+        passed_variable = re.search(r'-e "([a-z_][a-z0-9_]*)=\$state"', self.operator)
+        self.assertIsNotNone(passed_variable)
+        self.assertEqual(passed_variable.group(1), declaration.group(1))
+
+    def test_rollback_firewall_ports_match_public_edge(self) -> None:
+        firewall = self.digitalocean.split(
+            'resource "digitalocean_firewall" "control_plane" {', maxsplit=1
+        )[1].split('\nresource "digitalocean_firewall"', maxsplit=1)[0]
+        public_blocks = []
+        for block in re.findall(r"inbound_rule \{(.*?)^  \}", firewall, re.DOTALL | re.MULTILINE):
+            addresses = re.search(r"source_addresses\s*=\s*\[([^]]+)\]", block)
+            if addresses is None:
+                continue
+            networks = re.findall(r'"([^"]+)"', addresses.group(1))
+            if networks and all(network.endswith("/0") for network in networks):
+                public_blocks.append(block)
+        source_ports = {
+            re.search(r'port_range\s*=\s*"([^"]+)"', block).group(1)
+            for block in public_blocks
+        }
+        source_protocols = {
+            re.search(r'protocol\s*=\s*"([^"]+)"', block).group(1)
+            for block in public_blocks
+        }
+        boundary_port_loops = re.findall(
+            r"(?m)^\s+loop:\n((?:\s+- \"[0-9]+\"\n)+)", self.boundary
+        )
+        self.assertGreater(len(boundary_port_loops), 0)
+        for loop in boundary_port_loops:
+            self.assertSetEqual(set(re.findall(r'"([0-9]+)"', loop)), source_ports)
+        self.assertSetEqual(
+            set(re.findall(r'protocol=\"([^\"]+)\"', self.boundary)),
+            source_protocols,
+        )
+        public_zone_task = self.common_tasks.split(
+            "- name: Make the public zone fail closed", maxsplit=1
+        )[1].split("\n- name:", maxsplit=1)[0]
+        source_zone = re.search(r"^\s+zone:\s*(\S+)$", public_zone_task, re.MULTILINE)
+        self.assertIsNotNone(source_zone)
+        self.assertSetEqual(
+            set(re.findall(r"^\s+zone:\s*(\S+)$", self.boundary, re.MULTILINE)),
+            {source_zone.group(1)},
+        )
+
+    def test_rollback_boundary_sentinel_and_dropin_paths_are_consistent(self) -> None:
+        sentinel_task = self.boundary.split(
+            "- name: Create the persistent rollback-boundary sentinel", maxsplit=1
+        )[1].split("\n        - name:", maxsplit=1)[0]
+        sentinel = re.search(r"^\s+path:\s*(\S+)$", sentinel_task, re.MULTILINE)
+        dropin_task = self.boundary.split(
+            "- name: Install the reboot-durable rollback backup exclusion", maxsplit=1
+        )[1].split("\n        - name:", maxsplit=1)[0]
+        dropin = re.search(r"^\s+dest:\s*(\S+)$", dropin_task, re.MULTILINE)
+        self.assertIsNotNone(sentinel)
+        self.assertIsNotNone(dropin)
+        condition = re.search(r"ConditionPathExists=!(\S+)", self.boundary)
+        self.assertIsNotNone(condition)
+        self.assertEqual(condition.group(1), sentinel.group(1))
+        for task_name in (
+            "Remove any partial reboot-durable backup exclusion",
+            "Remove the reboot-durable rollback backup exclusion",
+        ):
+            cleanup = self.boundary.split(f"- name: {task_name}", maxsplit=1)[1].split(
+                "\n    - name:" if task_name.startswith("Remove the") else "\n        - name:",
+                maxsplit=1,
+            )[0]
+            self.assertSetEqual(
+                set(re.findall(r"^\s+- (/\S+)$", cleanup, re.MULTILINE)),
+                {sentinel.group(1), dropin.group(1)},
+            )
+
+    def test_rollback_service_names_are_declared_on_control_plane(self) -> None:
+        declared_units = {
+            path.name
+            for path in self.files.iterdir()
+            if path.suffix in {".service", ".socket", ".timer"}
+        }
+        for block in re.findall(
+            r"(?m)^  ansible\.builtin\.systemd:\n((?:^    .*\n)+)", self.tasks
+        ):
+            if "enabled: true" in block:
+                unit = re.search(r"^\s+name:\s*([A-Za-z0-9@_.-]+)$", block, re.MULTILINE)
+                if unit is not None:
+                    declared_units.add(unit.group(1))
+
+        consumers = self.operator + self.boundary
+        consumed_units = set(
+            re.findall(r"\b[a-z][a-z0-9@-]*\.(?:service|socket|timer)\b", consumers)
+        )
+        for arguments in re.findall(
+            r"systemctl (?:stop|is-active --quiet) ([^&'\n]+)", self.operator
+        ):
+            for unit in arguments.split():
+                consumed_units.add(unit if "." in unit else f"{unit}.service")
+        self.assertGreater(len(consumed_units), 0)
+        self.assertLessEqual(consumed_units, declared_units)
+
+    def test_rollback_runtime_paths_match_declared_sources(self) -> None:
+        socket = re.search(
+            r"^postgresql_socket_directory:\s*(\S+)$", self.group_vars, re.MULTILINE
+        )
+        dashboard_socket = re.search(
+            r'env = "FACTORY_DASHBOARD_SOCKET",\s+default_value = "([^"]+)"',
+            self.web_main,
+        )
+        checkout = re.search(
+            r'env = "FACTORY_INSTALL_ROOT", default_value = "([^"]+)"', self.web_main
+        )
+        manager = re.search(
+            r"^factory_manager_user:\s*(\S+)$", self.group_vars, re.MULTILINE
+        )
+        for match in (socket, dashboard_socket, checkout, manager):
+            self.assertIsNotNone(match)
+        scoped = self.operator + self.boundary
+        self.assertSetEqual(
+            set(
+                re.findall(
+                    r"(?:^socket=|--host=)(/[A-Za-z0-9_./-]+)",
+                    scoped,
+                    re.MULTILINE,
+                )
+            ),
+            {socket.group(1)},
+        )
+        self.assertSetEqual(
+            set(re.findall(r"--unix-socket (/[A-Za-z0-9_./-]+)", self.operator)),
+            {dashboard_socket.group(1)},
+        )
+        self.assertSetEqual(
+            set(re.findall(r"git -C (/[A-Za-z0-9_./-]+)", self.operator)),
+            {checkout.group(1)},
+        )
+        self.assertSetEqual(
+            set(
+                re.findall(
+                    r"runuser -u ([a-z][a-z0-9_-]*) -- git -C", self.operator
+                )
+            ),
+            {manager.group(1)},
+        )
+
+        health_route = re.search(r'\.route\("([^"]+)", get\(health\)\)', self.web)
+        self.assertIsNotNone(health_route)
+        self.assertSetEqual(
+            set(re.findall(r"http://localhost([^\s']+)", self.operator)),
+            {health_route.group(1)},
+        )
+
+        database_task = self.tasks.split(
+            "- name: Create the factory database under the schema owner", maxsplit=1
+        )[1].split("\n- name:", maxsplit=1)[0]
+        database = re.findall(r"^\s+- ([a-z][a-z0-9_]*)$", database_task, re.MULTILINE)[-1]
+        database_literals = set(re.findall(r"--dbname=([a-z][a-z0-9_]*)", scoped))
+        database_literals.update(
+            re.findall(
+                r"^database=([a-z][a-z0-9_]*)$", self.operator, re.MULTILINE
+            )
+        )
+        self.assertSetEqual(database_literals, {database})
+
+        source_roots = set()
+        for task_name in (
+            "Create the dashboard-readable artifact root",
+            "Create the traversable manager-owned proposer runtime root",
+        ):
+            task = self.tasks.split(f"- name: {task_name}", maxsplit=1)[1].split(
+                "\n- name:", maxsplit=1
+            )[0]
+            path = re.search(r"^\s+path:\s*(\S+)$", task, re.MULTILINE)
+            self.assertIsNotNone(path)
+            source_roots.add(path.group(1))
+        root_loop = re.search(
+            r"for root in ([^;]+); do.*?find \"([^\"]+)/\$root\"",
+            self.operator,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(root_loop)
+        self.assertSetEqual(
+            {f"{root_loop.group(2)}/{name}" for name in root_loop.group(1).split()},
+            source_roots,
+        )
+
+    def test_rollback_active_state_sets_match_declared_contracts(self) -> None:
+        terminal = re.search(
+            r"const TERMINAL_STATES:.*?= &\[(.*?)\];", self.web, re.DOTALL
+        )
+        boundary_terminal = re.search(
+            r"factory\.runs WHERE state NOT IN\s*\((.*?)\)\s*\+", self.boundary, re.DOTALL
+        )
+        proposer_constraint = re.search(
+            r"CONSTRAINT proposer_runs_terminal_shape CHECK \(\s*"
+            r"\(state IN \((.*?)\)\s*AND finished_at IS NULL",
+            self.migrations,
+            re.DOTALL,
+        )
+        boundary_proposer = re.search(
+            r"factory\.proposer_runs WHERE state IN\s*\((.*?)\)\)",
+            self.boundary,
+            re.DOTALL,
+        )
+        for match in (terminal, boundary_terminal, proposer_constraint, boundary_proposer):
+            self.assertIsNotNone(match)
+        self.assertSetEqual(
+            set(re.findall(r'"([^"]+)"', terminal.group(1))),
+            set(re.findall(r"'([^']+)'", boundary_terminal.group(1))),
+        )
+        self.assertSetEqual(
+            set(re.findall(r"'([^']+)'", proposer_constraint.group(1))),
+            set(re.findall(r"'([^']+)'", boundary_proposer.group(1))),
+        )
+        self.assertLessEqual(
+            set(
+                re.findall(
+                    r"\bFROM\s+(factory\.[a-z_][a-z0-9_]*)", self.boundary
+                )
+            ),
+            set(re.findall(r"CREATE TABLE (factory\.[a-z_][a-z0-9_]*)", self.migrations)),
+        )
+
+    def test_rollback_special_tables_and_audit_allowance_match_sources(self) -> None:
+        special_tables = set(
+            re.findall(
+                r'\[\[ "\$schema\.\$table" == ([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*) \]\]',
+                self.operator,
+            )
+        )
+        excluded_tables = set(
+            re.findall(
+                r'\$2 == "([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)"',
+                self.operator,
+            )
+        )
+        declared_tables = set(
+            re.findall(
+                r"CREATE TABLE ([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)",
+                self.migrations,
+            )
+        )
+        self.assertSetEqual(special_tables, excluded_tables)
+        self.assertLessEqual(special_tables, declared_tables)
+
+        source_allowance = re.search(
+            r"INSERT INTO ([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*) .*?"
+            r"VALUES \(\$1,'([^']+)',\$2,'([^']+)'\)",
+            self.factoryctl,
+        )
+        consumer_allowance = re.search(
+            r"FROM ([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*) WHERE .*?"
+            r"action <> '([^']+)' OR client_key <> '([^']+)'",
+            self.operator,
+        )
+        self.assertIsNotNone(source_allowance)
+        self.assertIsNotNone(consumer_allowance)
+        self.assertEqual(consumer_allowance.groups(), source_allowance.groups())
+
+
 if __name__ == "__main__":
     unittest.main()

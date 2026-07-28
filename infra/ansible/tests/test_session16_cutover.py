@@ -57,7 +57,11 @@ class Session16CutoverContract(unittest.TestCase):
         ).read_text()
 
     def test_backup_quiesces_writers_and_captures_all_durable_state(self) -> None:
-        self.assertIn("readonly services=(factory-dashboard.service factory-supervisor.service)", self.backup)
+        self.assertIn(
+            "readonly services=(caddy.service factory-dashboard.service "
+            "factory-supervisor.service)",
+            self.backup,
+        )
         self.assertIn("systemctl stop", self.backup)
         self.assertIn("pg_dump", self.backup)
         self.assertIn("--exclude-table-data=public._sqlx_migrations", self.backup)

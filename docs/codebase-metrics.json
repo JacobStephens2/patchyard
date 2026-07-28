@@ -72,17 +72,17 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 16382,
-      "comments": 488,
-      "blanks": 1510,
-      "files": 143,
+      "code": 16738,
+      "comments": 491,
+      "blanks": 1531,
+      "files": 144,
       "languages": [
         {
           "language": "BASH",
-          "code": 4781,
-          "comments": 111,
-          "blanks": 351,
-          "files": 39
+          "code": 4435,
+          "comments": 108,
+          "blanks": 331,
+          "files": 38
         },
         {
           "language": "Forge Config",
@@ -100,10 +100,10 @@
         },
         {
           "language": "Jinja2",
-          "code": 474,
+          "code": 883,
           "comments": 0,
-          "blanks": 27,
-          "files": 16
+          "blanks": 53,
+          "files": 18
         },
         {
           "language": "jq",
@@ -135,16 +135,16 @@
         },
         {
           "language": "Python",
-          "code": 5077,
+          "code": 5238,
           "comments": 39,
-          "blanks": 462,
+          "blanks": 469,
           "files": 19
         },
         {
           "language": "Shell",
-          "code": 1315,
-          "comments": 21,
-          "blanks": 118,
+          "code": 1391,
+          "comments": 25,
+          "blanks": 121,
           "files": 18
         },
         {
@@ -163,9 +163,9 @@
         },
         {
           "language": "YAML",
-          "code": 3323,
-          "comments": 15,
-          "blanks": 341,
+          "code": 3379,
+          "comments": 17,
+          "blanks": 346,
           "files": 22
         }
       ]
@@ -173,10 +173,10 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 5314,
-      "comments": 244,
+      "code": 5432,
+      "comments": 245,
       "blanks": 579,
-      "files": 86,
+      "files": 88,
       "languages": [
         {
           "language": "BASH",
@@ -186,11 +186,25 @@
           "files": 5
         },
         {
-          "language": "JSON",
-          "code": 1385,
+          "language": "CSS",
+          "code": 54,
           "comments": 0,
           "blanks": 0,
-          "files": 16
+          "files": 1
+        },
+        {
+          "language": "HTML",
+          "code": 37,
+          "comments": 0,
+          "blanks": 0,
+          "files": 1
+        },
+        {
+          "language": "JSON",
+          "code": 1410,
+          "comments": 0,
+          "blanks": 0,
+          "files": 17
         },
         {
           "language": "Markdown",
@@ -243,8 +257,8 @@
         },
         {
           "language": "YAML",
-          "code": 118,
-          "comments": 0,
+          "code": 120,
+          "comments": 1,
           "blanks": 23,
           "files": 2
         }
@@ -254,8 +268,8 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8268,
-      "comments": 10180,
-      "blanks": 2921,
+      "comments": 10208,
+      "blanks": 2925,
       "files": 111,
       "languages": [
         {
@@ -275,8 +289,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 10160,
-          "blanks": 2868,
+          "comments": 10188,
+          "blanks": 2872,
           "files": 87
         },
         {

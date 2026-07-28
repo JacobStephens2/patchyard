@@ -16,7 +16,16 @@ systemctl is-active --quiet patchyard-snapshot-metric.timer
 systemctl is-active --quiet factory-supervisor.service
 systemctl is-active --quiet factory-dashboard.service
 systemctl is-active --quiet caddy.service
-test "$(rpm -q chromium)" = chromium-150.0.7871.181-1.el9.x86_64
+test "$(rpm -q chromium)" = {{ chromium_nevra | quote }}
+test "$(rpm -q chromium-common)" = {{ chromium_common_nevra | quote }}
+test -x /usr/local/sbin/patchyard-sync-rpm-mirror
+{% for rpm in chromium_rpm_mirror %}
+test "$(stat -c '%s' {{ (chromium_rpm_mirror_directory ~ '/' ~ rpm.filename) | quote }})" = {{ rpm.size }}
+printf '%s  %s\n' \
+  {{ rpm.sha256 | quote }} \
+  {{ (chromium_rpm_mirror_directory ~ '/' ~ rpm.filename) | quote }} \
+  | sha256sum --check --status
+{% endfor %}
 ss -lntH | grep -Fq "$PRIVATE_IP:9100"
 ss -lntH | grep -Fq "$PRIVATE_IP:9187"
 ss -lntH | grep -Fq "$PRIVATE_IP:5432"
@@ -200,7 +209,7 @@ test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \
   --dbname=patchyard --tuples-only --no-align --command='SHOW ssl')" = on
 test "$(runuser -u postgres -- psql --host=/run/patchyard-postgres \
   --dbname=patchyard --tuples-only --no-align \
-  --command='SELECT count(*) FROM public._sqlx_migrations WHERE success')" = 11
+  --command='SELECT count(*) FROM public._sqlx_migrations WHERE success')" = {{ factory_migration_count }}
 
 test "$(stat -c '%U:%G:%a' /etc/patchyard/backup.env)" = root:root:600
 test "$(stat -c '%U:%G:%a' /var/lib/patchyard/backups)" = root:root:700
@@ -339,7 +348,7 @@ assert_role_denied grafana_ro 'SELECT path FROM factory.artifacts LIMIT 1'
 test "$("${PSQL[@]}" --tuples-only --no-align \
   --command="SELECT count(*) FROM information_schema.role_table_grants WHERE table_schema = 'factory' AND grantee = 'grafana_ro'")" = 0
 test "$("${PSQL[@]}" --tuples-only --no-align \
-  --command="SELECT count(*) FROM information_schema.column_privileges WHERE table_schema = 'factory' AND grantee = 'grafana_ro'")" = 20
+  --command="SELECT count(*) FROM information_schema.column_privileges WHERE table_schema = 'factory' AND grantee = 'grafana_ro'")" = {{ factory_grafana_column_privilege_count }}
 
 grep -Eq '^patchyard_postgresql_tls_certificate_remaining_seconds [0-9]+$' \
   /var/lib/node_exporter/textfile_collector/patchyard_postgresql_tls.prom

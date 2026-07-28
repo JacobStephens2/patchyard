@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+CACHE_DIRECTORY={{ chromium_rpm_mirror_directory | quote }}
+BUCKET={{ factory_backup_bucket | quote }}
+ENDPOINT={{ factory_backup_endpoint | quote }}
+TEMP_FILE=
+trap 'test -z "$TEMP_FILE" || rm -f -- "$TEMP_FILE"' EXIT
+
+sync_rpm() {
+  local filename=$1 object_key=$2 version_id=$3 expected_sha=$4 expected_size=$5
+  local destination remote remote_size remote_sha remote_version actual_size
+  destination="$CACHE_DIRECTORY/$filename"
+
+  remote=$(aws s3api head-object \
+    --bucket "$BUCKET" \
+    --key "$object_key" \
+    --version-id "$version_id" \
+    --endpoint-url "$ENDPOINT" \
+    --query '[ContentLength,Metadata.sha256,VersionId]' \
+    --output text)
+  read -r remote_size remote_sha remote_version <<<"$remote"
+  test "$remote_size" = "$expected_size"
+  test "$remote_sha" = "$expected_sha"
+  test "$remote_version" = "$version_id"
+
+  if [[ -f "$destination" ]]; then
+    actual_size=$(stat -c '%s' "$destination")
+    if [[ "$actual_size" = "$expected_size" ]] \
+      && printf '%s  %s\n' "$expected_sha" "$destination" \
+        | sha256sum --check --status; then
+      printf 'present=%s\n' "$filename"
+      return
+    fi
+  fi
+
+  TEMP_FILE=$(mktemp "$CACHE_DIRECTORY/.${filename}.XXXXXX")
+  aws s3api get-object \
+    --bucket "$BUCKET" \
+    --key "$object_key" \
+    --version-id "$version_id" \
+    --endpoint-url "$ENDPOINT" \
+    "$TEMP_FILE" >/dev/null
+  actual_size=$(stat -c '%s' "$TEMP_FILE")
+  test "$actual_size" = "$expected_size"
+  printf '%s  %s\n' "$expected_sha" "$TEMP_FILE" \
+    | sha256sum --check --status
+  chmod 0644 "$TEMP_FILE"
+  mv -f -- "$TEMP_FILE" "$destination"
+  TEMP_FILE=
+  printf 'changed=%s\n' "$filename"
+}
+
+{% for rpm in chromium_rpm_mirror %}
+sync_rpm {{ rpm.filename | quote }} {{ rpm.object_key | quote }} {{ rpm.version_id | quote }} {{ rpm.sha256 | quote }} {{ rpm.size | string | quote }}
+{% endfor %}

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Patchyard Factory evidence baseline</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 100%; min-height: 100%; }
+    body {
+      background: #eef2f7;
+      color: #172033;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 16px;
+      line-height: 1.4;
+      padding: 48px;
+    }
+    main {
+      background: #ffffff;
+      border: 2px solid #243b64;
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(23, 32, 51, 0.14);
+      max-width: 960px;
+      padding: 36px;
+    }
+    h1 { font-size: 32px; letter-spacing: -0.5px; margin: 0 0 8px; }
+    p { margin: 0 0 24px; }
+    .badge {
+      background: #dff5e8;
+      border: 1px solid #287a4b;
+      border-radius: 999px;
+      color: #185733;
+      display: inline-block;
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      padding: 6px 12px;
+    }
+    .grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(3, 1fr);
+      margin: 24px 0;
+    }
+    .metric {
+      background: #f7f9fc;
+      border: 1px solid #aab6c8;
+      border-radius: 8px;
+      min-height: 96px;
+      padding: 16px;
+    }
+    .metric strong { display: block; font-size: 26px; margin-top: 8px; }
+    label { display: block; font-weight: 700; margin-top: 24px; }
+    select {
+      display: block;
+      font: inherit;
+      margin-top: 8px;
+      padding: 10px 12px;
+      width: 360px;
+    }
+    svg { display: block; height: 120px; margin-top: 28px; width: 100%; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="badge">RENDERER QUALIFICATION</div>
+    <h1>Patchyard Factory evidence baseline</h1>
+    <p>A fixed page exercises text, native controls, borders, shadows, grid, and SVG.</p>
+    <section class="grid" aria-label="Qualification metrics">
+      <div class="metric">DOM extracts<strong>12</strong></div>
+      <div class="metric">Screenshot pairs<strong>2</strong></div>
+      <div class="metric">Residue entries<strong>0</strong></div>
+    </section>
+    <label for="sales_person_id">Sales person
+      <select id="sales_person_id">
+        <option value="3">Avery Chen</option>
+        <option value="1" selected>Jordan Brooks</option>
+        <option value="4">Morgan Diaz</option>
+        <option value="2">Riley Ellis</option>
+      </select>
+    </label>
+    <svg viewBox="0 0 800 120" role="img" aria-label="Deterministic visual scale">
+      <rect x="0" y="12" width="800" height="96" rx="10" fill="#243b64"/>
+      <circle cx="80" cy="60" r="28" fill="#71d6a1"/>
+      <path d="M150 82 L210 34 L270 82 Z" fill="#f4bd50"/>
+      <rect x="330" y="32" width="180" height="56" rx="6" fill="#ec6d71"/>
+      <path d="M585 34 H748 V86 H585 Z M605 50 H728 V70 H605 Z" fill="#8cb8ff" fill-rule="evenodd"/>
+    </svg>
+  </main>
+</body>
+</html>

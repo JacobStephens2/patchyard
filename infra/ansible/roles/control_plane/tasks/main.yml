@@ -4,10 +4,9 @@
     name: epel-release
     state: present
 
-- name: Install control-plane packages
+- name: Install control-plane bootstrap packages
   ansible.builtin.dnf:
     name:
-      - "{{ chromium_nevra }}"
       - "{{ age_nevra }}"
       - "{{ awscli_nevra }}"
       - bubblewrap
@@ -20,6 +19,70 @@
       - polkit
       - python3-pip
     state: present
+  tags: [session13]
+
+- name: Require the encrypted off-host backup bootstrap inputs
+  ansible.builtin.assert:
+    that:
+      - factory_backup_bucket is defined
+      - factory_backup_bucket == 'patchyard-backups'
+      - factory_backup_endpoint is defined
+      - factory_backup_endpoint is match('^https://[a-z0-9.-]+$')
+      - factory_backup_runtime_access_key is defined
+      - factory_backup_runtime_access_key | length > 0
+      - factory_backup_runtime_secret_key is defined
+      - factory_backup_runtime_secret_key | length > 0
+      - factory_backup_age_recipient is defined
+      - factory_backup_age_recipient is match('^ssh-ed25519 ')
+    fail_msg: "Use converge.sh after applying the reviewed backup storage plan."
+  no_log: true
+
+- name: Bind mirrored Chromium filenames to the declared NEVRAs
+  ansible.builtin.assert:
+    that:
+      - >-
+        chromium_rpm_mirror | map(attribute='filename') | list | sort
+        ==
+        [chromium_nevra ~ '.rpm', chromium_common_nevra ~ '.rpm'] | sort
+    fail_msg: >-
+      The immutable Chromium mirror filenames must exactly match the declared
+      chromium_nevra and chromium_common_nevra package pins.
+
+- name: Create the immutable RPM mirror cache
+  ansible.builtin.file:
+    path: "{{ chromium_rpm_mirror_directory }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the immutable RPM mirror synchronizer
+  ansible.builtin.template:
+    src: patchyard-sync-rpm-mirror.j2
+    dest: /usr/local/sbin/patchyard-sync-rpm-mirror
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Synchronize the exact Chromium RPM object versions
+  ansible.builtin.command:
+    argv:
+      - /usr/local/sbin/patchyard-sync-rpm-mirror
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ factory_backup_runtime_access_key }}"
+    AWS_SECRET_ACCESS_KEY: "{{ factory_backup_runtime_secret_key }}"
+    AWS_DEFAULT_REGION: us-east-1
+    AWS_EC2_METADATA_DISABLED: "true"
+  register: factory_chromium_rpm_sync
+  changed_when: "'changed=' in factory_chromium_rpm_sync.stdout"
+  no_log: true
+
+- name: Install Chromium from the immutable RPM mirror
+  ansible.builtin.dnf:
+    name: "{{ chromium_rpm_mirror | map(attribute='filename') | map('regex_replace', '^', chromium_rpm_mirror_directory ~ '/') | list }}"
+    state: present
+    allow_downgrade: true
+    disable_gpg_check: false
   tags: [session13]
 
 - name: Keep the factory control plane in its non-router baseline
@@ -514,22 +577,6 @@
     owner: root
     group: root
     mode: "0755"
-
-- name: Require the encrypted off-host backup bootstrap inputs
-  ansible.builtin.assert:
-    that:
-      - factory_backup_bucket is defined
-      - factory_backup_bucket == 'patchyard-backups'
-      - factory_backup_endpoint is defined
-      - factory_backup_endpoint is match('^https://[a-z0-9.-]+$')
-      - factory_backup_runtime_access_key is defined
-      - factory_backup_runtime_access_key | length > 0
-      - factory_backup_runtime_secret_key is defined
-      - factory_backup_runtime_secret_key | length > 0
-      - factory_backup_age_recipient is defined
-      - factory_backup_age_recipient is match('^ssh-ed25519 ')
-    fail_msg: "Use converge.sh after applying the reviewed backup storage plan."
-  no_log: true
 
 - name: Create the root-private backup state
   ansible.builtin.file:
@@ -1141,8 +1188,8 @@
     group: root
 
 - name: Install control-plane qualification probe
-  ansible.builtin.copy:
-    src: qualify-factory-control
+  ansible.builtin.template:
+    src: qualify-factory-control.j2
     dest: /usr/local/sbin/qualify-factory-control
     owner: root
     group: root

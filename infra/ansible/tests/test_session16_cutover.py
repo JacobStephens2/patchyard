@@ -10,6 +10,9 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
 FILES = ROOT / "infra" / "ansible" / "roles" / "control_plane" / "files"
+TEMPLATES = (
+    ROOT / "infra" / "ansible" / "roles" / "control_plane" / "templates"
+)
 
 
 class Session16CutoverContract(unittest.TestCase):
@@ -29,10 +32,13 @@ class Session16CutoverContract(unittest.TestCase):
         cls.tofu_operator = (ROOT / "infra" / "tofu.sh").read_text()
         cls.converge_operator = (ROOT / "infra" / "ansible" / "converge.sh").read_text()
         cls.rollback_operator = (ROOT / "infra" / "rollback-control.sh").read_text()
+        cls.rollback_function_prelude = cls.rollback_operator.split(
+            "\ncontrol_target() {", maxsplit=1
+        )[0]
         cls.rollback_boundary = (
             ROOT / "infra" / "ansible" / "rollback-boundary.yml"
         ).read_text()
-        cls.qualifier = (FILES / "qualify-factory-control").read_text()
+        cls.qualifier = (TEMPLATES / "qualify-factory-control.j2").read_text()
         cls.tasks = (
             ROOT
             / "infra"
@@ -54,6 +60,18 @@ class Session16CutoverContract(unittest.TestCase):
         cls.group_vars = (
             ROOT / "infra" / "ansible" / "group_vars" / "all.yml"
         ).read_text()
+        cls.rpm_mirror_sync = (
+            ROOT
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "control_plane"
+            / "templates"
+            / "patchyard-sync-rpm-mirror.j2"
+        ).read_text()
+        cls.chromium_visual_baseline = json.loads(
+            (ROOT / "fixtures" / "visual" / "chromium-baseline.json").read_text()
+        )
         cls.github = (ROOT / "infra" / "github" / "main.tf").read_text()
         cls.digitalocean = (ROOT / "infra" / "digitalocean" / "main.tf").read_text()
         cls.spaces = (ROOT / "infra" / "digitalocean" / "backup.tf").read_text()
@@ -305,9 +323,16 @@ fi
         self.assertEqual(set(blocks), {"grafana_request_summary", "grafana_run_metrics"})
         self.assertIn("run_class", blocks["grafana_run_metrics"])
         expected_total = sum(len(columns) for columns in blocks.values())
-        self.assertEqual(expected_total, 20)
+        declared_total = re.search(
+            r"^factory_grafana_column_privilege_count:\s*(\d+)$",
+            self.group_vars,
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(declared_total)
+        self.assertEqual(int(declared_total.group(1)), expected_total)
         self.assertIn(
-            f"grantee = 'grafana_ro'\")\" = {expected_total}",
+            "grantee = 'grafana_ro'\")\" = "
+            "{{ factory_grafana_column_privilege_count }}",
             self.qualifier,
         )
 
@@ -331,9 +356,85 @@ fi
         )
         self.assertIsNotNone(chromium_nevra)
         self.assertIn(
-            f'test "$(rpm -q chromium)" = {chromium_nevra.group(1)}',
+            'test "$(rpm -q chromium)" = {{ chromium_nevra | quote }}',
             self.qualifier,
         )
+        self.assertNotIn(chromium_nevra.group(1), self.qualifier)
+
+    def test_qualification_environment_constants_have_one_declared_source(self) -> None:
+        self.assertIn("ansible.builtin.template:", self.tasks)
+        self.assertIn("src: qualify-factory-control.j2", self.tasks)
+        self.assertIn("{{ factory_migration_count }}", self.qualifier)
+        self.assertIn(
+            "{{ factory_grafana_column_privilege_count }}", self.qualifier
+        )
+        self.assertNotRegex(
+            self.qualifier,
+            r"SELECT count\(\*\) FROM public\._sqlx_migrations[^\n]*\)\" = 11$",
+        )
+
+    def test_chromium_pin_uses_immutable_mirrored_object_versions(self) -> None:
+        declared_nevras = dict(
+            re.findall(
+                r"^(chromium(?:_common)?_nevra):\s*(\S+)$",
+                self.group_vars,
+                re.MULTILINE,
+            )
+        )
+        mirror_block = self.group_vars.split(
+            "chromium_rpm_mirror:\n", maxsplit=1
+        )[1].split("\nage_nevra:", maxsplit=1)[0]
+        mirror_filenames = re.findall(
+            r"^\s+- filename:\s*(\S+)$", mirror_block, re.MULTILINE
+        )
+        expected_filenames = {
+            f"{declared_nevras[name]}.rpm"
+            for name in ("chromium_nevra", "chromium_common_nevra")
+        }
+        self.assertEqual(len(mirror_filenames), len(expected_filenames))
+        self.assertSetEqual(set(mirror_filenames), expected_filenames)
+
+        for required in (
+            "chromium_common_nevra: chromium-common-150.0.7871.181-1.el9.x86_64",
+            "version_id: 9k88XXeRJzRUTRwYOFcTu2ICMqWR3iJ",
+            "version_id: Gfh5nef193tTyupbpfhjGMofEJmg0-v",
+            "05bda830ab035517ee6388c1a0d963d6de67eadb03c68cdd6ff90e8f888fd086",
+            "b2f46d0d00cb47e4fd6a5b73b7edc02e196feb7d683fbfa5007e0a34cfb45202",
+        ):
+            self.assertIn(required, self.group_vars)
+        self.assertNotIn('- "{{ chromium_nevra }}"', self.tasks)
+        filename_binding = self.tasks.split(
+            "- name: Bind mirrored Chromium filenames to the declared NEVRAs",
+            maxsplit=1,
+        )[1].split("\n- name:", maxsplit=1)[0]
+        self.assertIn("chromium_nevra ~ '.rpm'", filename_binding)
+        self.assertIn("chromium_common_nevra ~ '.rpm'", filename_binding)
+        self.assertIn("chromium_rpm_mirror | map(attribute='filename')", filename_binding)
+        self.assertIn("Synchronize the exact Chromium RPM object versions", self.tasks)
+        package_task = self.tasks.split(
+            "- name: Install Chromium from the immutable RPM mirror", maxsplit=1
+        )[1].split("\n- name:", maxsplit=1)[0]
+        self.assertIn("disable_gpg_check: false", package_task)
+        self.assertNotIn("disable_gpg_check: true", package_task)
+        self.assertIn("s3api head-object", self.rpm_mirror_sync)
+        self.assertIn("--version-id", self.rpm_mirror_sync)
+        self.assertIn("Metadata.sha256", self.rpm_mirror_sync)
+        self.assertIn("s3api get-object", self.rpm_mirror_sync)
+        self.assertIn("sha256sum --check --status", self.rpm_mirror_sync)
+        self.assertIn('mv -f -- "$TEMP_FILE" "$destination"', self.rpm_mirror_sync)
+        self.assertIn("patchyard-sync-rpm-mirror", self.qualifier)
+        self.assertIn("{% for rpm in chromium_rpm_mirror %}", self.qualifier)
+        self.assertIn("{{ rpm.sha256 | quote }}", self.qualifier)
+        self.assertIn("sha256sum --check --status", self.qualifier)
+        self.assertEqual(
+            self.chromium_visual_baseline["before"]["dom_sha256"],
+            self.chromium_visual_baseline["after"]["dom_sha256"],
+        )
+        self.assertEqual(
+            self.chromium_visual_baseline["before"]["screenshot_sha256"],
+            self.chromium_visual_baseline["after"]["screenshot_sha256"],
+        )
+        self.assertEqual(self.chromium_visual_baseline["result"], "byte-identical")
 
     def test_restore_verifies_ciphertext_payload_rows_and_files(self) -> None:
         for required in (
@@ -638,6 +739,14 @@ fi
             self.rollback_operator,
         )
         self.assertIn("rollback-emergency-recovery", self.rollback_operator)
+        self.assertIn("qualification_environment_inventory", self.rollback_operator)
+        self.assertIn("schema_version:3", self.rollback_operator)
+        self.assertIn("chromium_nevra", self.rollback_operator)
+        self.assertIn("factory_grafana_column_privilege_count", self.rollback_operator)
+        self.assertIn(
+            "A112 application-under-current-contract rollback is not implemented",
+            self.rollback_operator,
+        )
         deploy = self.rollback_operator[
             self.rollback_operator.index("deploy_and_qualify_revision()") :
             self.rollback_operator.index("stable_durable_state()")
@@ -666,7 +775,6 @@ fi
             self.rollback_operator.index("set_rollback_boundary enter"),
         )
         self.assertIn("qualification_migration_count", self.rollback_operator)
-        self.assertIn("schema_version:2", self.rollback_operator)
         self.assertIn("control_address", self.rollback_operator)
         self.assertIn("release-boundary", self.rollback_operator)
         self.assertIn("PATCHYARD_ROLLBACK_RELEASE_APPROVED", self.rollback_operator)
@@ -688,6 +796,63 @@ fi
             "rollback evidence did not verify; public boundary and reboot-durable backup exclusion remain in force for explicit release",
             self.rollback_operator,
         )
+
+    def test_rollback_preflight_compares_the_complete_qualification_environment(
+        self,
+    ) -> None:
+        def inventory(revision: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    self.rollback_function_prelude
+                    + '\nqualification_environment_inventory "$1"',
+                    "qualification-environment-test",
+                    revision,
+                ],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        interim_target = inventory(
+            "02c9e2da1f2ebdd877a5e867351da1f500eeaa45"
+        )
+        interim_return = inventory(
+            "9941eb233a2ddf61dc4e0dd8c2c76e6482c48bc3"
+        )
+        stale_environment = inventory(
+            "7b032c7c7ceb7c427cf5e73c43e2116acaf5614a"
+        )
+        inconsistent_migrations = inventory(
+            "84708ba8a1e0c6786a9b934f110a5f6b8adfde3b"
+        )
+        declared_inventory = inventory("HEAD")
+
+        for result in (
+            interim_target,
+            interim_return,
+            stale_environment,
+            declared_inventory,
+        ):
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(interim_target.stdout, interim_return.stdout)
+        self.assertNotEqual(stale_environment.stdout, interim_return.stdout)
+        self.assertNotEqual(inconsistent_migrations.returncode, 0)
+
+        interim = json.loads(interim_return.stdout)
+        stale = json.loads(stale_environment.stdout)
+        self.assertNotEqual(stale["chromium_nevra"], interim["chromium_nevra"])
+        self.assertNotEqual(
+            stale["grafana_column_privilege_count"],
+            interim["grafana_column_privilege_count"],
+        )
+        current = json.loads(declared_inventory.stdout)
+        self.assertEqual(current["grafana_column_privilege_count"], 20)
+        self.assertEqual(current["migration_count"], 11)
+        self.assertEqual(current["qualification_migration_count"], 11)
+        self.assertRegex(current["mirror_sha256"], r"^[0-9a-f]{64}$")
 
     def test_converge_input_check_refuses_absent_secret_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -822,7 +987,15 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
         cls.inventory_output = (
             ROOT / "infra" / "digitalocean" / "outputs.tf"
         ).read_text()
-        cls.qualifier = (cls.files / "qualify-factory-control").read_text()
+        cls.qualifier = (
+            ROOT
+            / "infra"
+            / "ansible"
+            / "roles"
+            / "control_plane"
+            / "templates"
+            / "qualify-factory-control.j2"
+        ).read_text()
         cls.migrations = "\n".join(
             path.read_text() for path in sorted((ROOT / "migrations").glob("*.sql"))
         )
@@ -1301,27 +1474,22 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
             source_roots,
         )
 
-    def test_rollback_qualifier_query_matches_its_source(self) -> None:
-        consumer_pattern = re.search(
-            r'\| sed -n "/([^/]+)/s/', self.operator
-        )
-        self.assertIsNotNone(consumer_pattern)
-        consumer_literal = consumer_pattern.group(1).replace(r"\*", "*").replace(
-            r"\.", "."
-        )
-        migration_count = re.search(
-            r"^factory_migration_count:\s*([0-9]+)$",
+    def test_rollback_inventory_qualifier_reads_declared_migration_source(
+        self,
+    ) -> None:
+        inventory_branch = self.operator.split(
+            'if revision_uses_inventory_qualifier "$revision"; then', maxsplit=1
+        )[1].split("\n  else", maxsplit=1)[0]
+        self.assertIn("qualified_migrations=$migration_count", inventory_branch)
+        self.assertRegex(
             self.group_vars,
-            re.MULTILINE,
+            r"(?m)^factory_migration_count:\s*[0-9]+$",
         )
-        self.assertIsNotNone(migration_count)
-        source_query = re.search(
-            rf"--command='([^']+)'\)\" = {migration_count.group(1)}$",
+        self.assertRegex(
             self.qualifier,
-            re.MULTILINE,
+            r"(?m)--command='SELECT count\(\*\) FROM public\._sqlx_migrations "
+            r"WHERE success'\)\" = \{\{ factory_migration_count \}\}$",
         )
-        self.assertIsNotNone(source_query)
-        self.assertTrue(source_query.group(1).startswith(consumer_literal))
 
     def test_rollback_active_state_sets_match_declared_contracts(self) -> None:
         terminal = re.search(

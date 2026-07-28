@@ -541,11 +541,15 @@ fi
             self.rollback_operator.index("deploy_and_qualify_revision()") :
             self.rollback_operator.index("stable_durable_state()")
         ]
-        self.assertIn('cd "$rollback_root"', deploy)
+        self.assertGreaterEqual(deploy.count('cd "$rollback_root" &&'), 2)
+        self.assertIn(
+            'cd "$REPO_ROOT/infra/ansible" &&',
+            self.rollback_operator,
+        )
         self.assertIn("./infra/ansible/converge.sh", deploy)
         self.assertIn("./infra/ansible/qualify.sh", deploy)
         self.assertLess(
-            deploy.index('cd "$rollback_root"'),
+            deploy.index('cd "$rollback_root" &&'),
             deploy.index("./infra/ansible/converge.sh"),
         )
         self.assertIn(

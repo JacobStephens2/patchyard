@@ -148,7 +148,7 @@ set_rollback_boundary() {
   [[ -x "$ansible_playbook" ]] || ansible_playbook=ansible-playbook
   validate_boundary_inventory "$boundary_inventory" "$control_host" "$address"
   (
-    cd "$REPO_ROOT/infra/ansible"
+    cd "$REPO_ROOT/infra/ansible" &&
     "$ansible_playbook" -i "$boundary_inventory" rollback-boundary.yml \
       -e "factory_rollback_boundary=$state"
   )
@@ -159,8 +159,8 @@ deploy_and_qualify_revision() {
   rollback_root=$(mktemp -d "/tmp/patchyard-${label}.XXXXXX") || return
   git -C "$REPO_ROOT" worktree add --detach "$rollback_root" "$revision" || return
   (
-    cd "$rollback_root"
-    ./infra/tofu.sh digitalocean init -reconfigure
+    cd "$rollback_root" &&
+    ./infra/tofu.sh digitalocean init -reconfigure &&
     ./infra/ansible/converge.sh -e factory_rollback_boundary=true
   ) || return
   [[ "$(installed_revision "$address")" == "$revision" ]] || {
@@ -168,7 +168,7 @@ deploy_and_qualify_revision() {
     return 3
   }
   (
-    cd "$rollback_root"
+    cd "$rollback_root" &&
     ./infra/ansible/qualify.sh
   ) || return
   ssh "${SSH_ARGS[@]}" "conductor@$address" \

@@ -94,7 +94,7 @@ jq -n '{
 chmod 0600 "$BACKUP_VARS_FILE"
 unset FACTORY_BACKUP_RUNTIME_ACCESS_KEY FACTORY_BACKUP_RUNTIME_SECRET_KEY
 
-"$CARGO_BIN" build --locked --release \
+"$CARGO_BIN" build --manifest-path "$REPO_ROOT/Cargo.toml" --locked --release \
   --package factoryctl --package factory-verify --package factory-supervisor \
   --package factory-web
 FACTORYCTL_BINARY="$REPO_ROOT/target/release/factoryctl"

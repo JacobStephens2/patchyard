@@ -148,7 +148,7 @@ set_rollback_boundary() {
   [[ -x "$ansible_playbook" ]] || ansible_playbook=ansible-playbook
   validate_boundary_inventory "$boundary_inventory" "$control_host" "$address"
   (
-    cd "$REPO_ROOT/infra/ansible"
+    cd "$REPO_ROOT/infra/ansible" &&
     "$ansible_playbook" -i "$boundary_inventory" rollback-boundary.yml \
       -e "factory_rollback_boundary=$state"
   )
@@ -158,14 +158,19 @@ deploy_and_qualify_revision() {
   local revision=$1 label=$2
   rollback_root=$(mktemp -d "/tmp/patchyard-${label}.XXXXXX") || return
   git -C "$REPO_ROOT" worktree add --detach "$rollback_root" "$revision" || return
-  "$rollback_root/infra/tofu.sh" digitalocean init -reconfigure || return
-  "$rollback_root/infra/ansible/converge.sh" \
-    -e factory_rollback_boundary=true || return
+  (
+    cd "$rollback_root" &&
+    ./infra/tofu.sh digitalocean init -reconfigure &&
+    ./infra/ansible/converge.sh -e factory_rollback_boundary=true
+  ) || return
   [[ "$(installed_revision "$address")" == "$revision" ]] || {
     echo "$label installed an unexpected revision" >&2
     return 3
   }
-  "$rollback_root/infra/ansible/qualify.sh" || return
+  (
+    cd "$rollback_root" &&
+    ./infra/ansible/qualify.sh
+  ) || return
   ssh "${SSH_ARGS[@]}" "conductor@$address" \
     'sudo systemctl stop patchyard-backup.timer && sudo systemctl is-active --quiet postgresql factory-dashboard factory-supervisor caddy && ! sudo systemctl is-active --quiet patchyard-backup.timer && sudo curl --fail --silent --unix-socket /run/patchyard-dashboard/dashboard.sock http://localhost/healthz' \
     || return

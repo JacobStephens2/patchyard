@@ -26,6 +26,7 @@ class Session16CutoverContract(unittest.TestCase):
         cls.plan_operator = (ROOT / "infra" / "plan.sh").read_text()
         cls.replace_operator = (ROOT / "infra" / "replace-worker.sh").read_text()
         cls.tofu_operator = (ROOT / "infra" / "tofu.sh").read_text()
+        cls.converge_operator = (ROOT / "infra" / "ansible" / "converge.sh").read_text()
         cls.rollback_operator = (ROOT / "infra" / "rollback-control.sh").read_text()
         cls.rollback_boundary = (
             ROOT / "infra" / "ansible" / "rollback-boundary.yml"
@@ -536,6 +537,25 @@ fi
             self.rollback_operator,
         )
         self.assertIn("rollback-emergency-recovery", self.rollback_operator)
+        deploy = self.rollback_operator[
+            self.rollback_operator.index("deploy_and_qualify_revision()") :
+            self.rollback_operator.index("stable_durable_state()")
+        ]
+        self.assertGreaterEqual(deploy.count('cd "$rollback_root" &&'), 2)
+        self.assertIn(
+            'cd "$REPO_ROOT/infra/ansible" &&',
+            self.rollback_operator,
+        )
+        self.assertIn("./infra/ansible/converge.sh", deploy)
+        self.assertIn("./infra/ansible/qualify.sh", deploy)
+        self.assertLess(
+            deploy.index('cd "$rollback_root" &&'),
+            deploy.index("./infra/ansible/converge.sh"),
+        )
+        self.assertIn(
+            '--manifest-path "$REPO_ROOT/Cargo.toml"',
+            self.converge_operator,
+        )
         self.assertIn("qualification_migration_count", self.rollback_operator)
         self.assertIn("schema_version:2", self.rollback_operator)
         self.assertIn("control_address", self.rollback_operator)

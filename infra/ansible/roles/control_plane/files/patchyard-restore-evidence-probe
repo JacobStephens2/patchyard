@@ -14,7 +14,20 @@ readonly password
 probe_root=$(mktemp -d /var/tmp/patchyard-evidence-probe.XXXXXX)
 trap 'rm -r -- "$probe_root"' EXIT
 
-artifact_row=$(runuser -u postgres -- psql --no-psqlrc \
+select_artifact_row() {
+  local rows_file=$1 root=$2 selected=''
+  local run_id path sha256
+  while IFS=$'\t' read -r run_id path sha256; do
+    [[ "$path" != /* && "$path" != *'..'* && -f "$root/$path" ]] || continue
+    selected=$(printf '%s\t%s\t%s' "$run_id" "$path" "$sha256")
+    break
+  done <"$rows_file"
+  [[ -n "$selected" ]] || return 1
+  printf '%s\n' "$selected"
+}
+
+artifact_rows="$probe_root/artifact-rows.tsv"
+runuser -u postgres -- psql --no-psqlrc \
   --host="$database_socket" --dbname=patchyard --tuples-only --no-align \
   --field-separator=$'\t' --command="
     SELECT run_id::text, path, encode(sha256, 'hex')
@@ -22,12 +35,8 @@ artifact_row=$(runuser -u postgres -- psql --no-psqlrc \
     WHERE run_id IS NOT NULL
       AND regexp_replace(path, '^.*/', '') ~ '^[A-Za-z0-9._-]{1,128}$'
     ORDER BY created_at DESC
-  " | while IFS=$'\t' read -r run_id path sha256; do
-    [[ "$path" != /* && "$path" != *'..'* && -f "$artifact_root/$path" ]] || continue
-    printf '%s\t%s\t%s\n' "$run_id" "$path" "$sha256"
-    break
-  done)
-[[ -n "$artifact_row" ]] || {
+  " >"$artifact_rows"
+artifact_row=$(select_artifact_row "$artifact_rows" "$artifact_root") || {
   echo 'restored backup has no openable historical run evidence' >&2
   exit 40
 }

@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 import unittest
 
 
@@ -15,6 +16,9 @@ class Session16CutoverContract(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.backup = (FILES / "patchyard-backup").read_text()
         cls.restore = (FILES / "patchyard-restore").read_text()
+        cls.restore_evidence_probe = (
+            FILES / "patchyard-restore-evidence-probe"
+        ).read_text()
         cls.deployed = (FILES / "patchyard-deployed-version").read_text()
         cls.postgresql_grants = (FILES / "postgresql-grants.sql").read_text()
         cls.restore_play = (ROOT / "infra" / "ansible" / "restore.yml").read_text()
@@ -239,6 +243,44 @@ class Session16CutoverContract(unittest.TestCase):
             destructive,
         )
         self.assertLess(destructive, self.restore.index("TRUNCATE TABLE"))
+
+    def test_restore_evidence_selector_drains_query_output_before_selection(
+        self,
+    ) -> None:
+        function_body = self.restore_evidence_probe.split(
+            "select_artifact_row() {", maxsplit=1
+        )[1].split("\n}", maxsplit=1)[0]
+        selector = (
+            "set -euo pipefail\nselect_artifact_row() {"
+            + function_body
+            + '\n}\nselect_artifact_row "$1" "$2"'
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "artifacts"
+            real_artifact = root / "run" / "evidence.json"
+            real_artifact.parent.mkdir(parents=True)
+            real_artifact.write_text("evidence")
+            rows = Path(temporary) / "rows.tsv"
+            valid = "00000000-0000-4000-8000-000000000002\trun/evidence.json\tbbb"
+            rows.write_text(
+                "00000000-0000-4000-8000-000000000001\tmissing.json\taaa\n"
+                + valid
+                + "\n"
+                + "\n".join(
+                    f"00000000-0000-4000-8000-{index:012d}\tmissing-{index}.json\tccc"
+                    for index in range(3, 1003)
+                )
+                + "\n"
+            )
+            result = subprocess.run(
+                ["bash", "-c", selector, "selector-test", str(rows), str(root)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), valid)
+        self.assertNotIn("| while", self.restore_evidence_probe)
 
     def test_clean_host_drill_has_reviewed_create_and_destroy_plans(self) -> None:
         self.assertIn("digitalocean_droplet.restore_drill[0]", self.restore_operator)

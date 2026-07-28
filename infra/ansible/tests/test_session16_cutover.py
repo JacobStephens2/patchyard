@@ -26,6 +26,9 @@ class Session16CutoverContract(unittest.TestCase):
         cls.replace_operator = (ROOT / "infra" / "replace-worker.sh").read_text()
         cls.tofu_operator = (ROOT / "infra" / "tofu.sh").read_text()
         cls.rollback_operator = (ROOT / "infra" / "rollback-control.sh").read_text()
+        cls.rollback_function_prelude = cls.rollback_operator.split(
+            "\ncontrol_target() {", maxsplit=1
+        )[0]
         cls.rollback_boundary = (
             ROOT / "infra" / "ansible" / "rollback-boundary.yml"
         ).read_text()
@@ -250,8 +253,11 @@ class Session16CutoverContract(unittest.TestCase):
             self.assertIn(required, self.group_vars)
         self.assertNotIn('- "{{ chromium_nevra }}"', self.tasks)
         self.assertIn("Synchronize the exact Chromium RPM object versions", self.tasks)
-        self.assertIn("Install Chromium from the immutable RPM mirror", self.tasks)
-        self.assertIn("disable_gpg_check: false", self.tasks)
+        package_task = self.tasks.split(
+            "- name: Install Chromium from the immutable RPM mirror", maxsplit=1
+        )[1].split("\n- name:", maxsplit=1)[0]
+        self.assertIn("disable_gpg_check: false", package_task)
+        self.assertNotIn("disable_gpg_check: true", package_task)
         self.assertIn("s3api head-object", self.rpm_mirror_sync)
         self.assertIn("--version-id", self.rpm_mirror_sync)
         self.assertIn("Metadata.sha256", self.rpm_mirror_sync)
@@ -483,8 +489,14 @@ class Session16CutoverContract(unittest.TestCase):
             self.rollback_operator,
         )
         self.assertIn("rollback-emergency-recovery", self.rollback_operator)
-        self.assertIn("qualification_migration_count", self.rollback_operator)
-        self.assertIn("schema_version:2", self.rollback_operator)
+        self.assertIn("qualification_environment_inventory", self.rollback_operator)
+        self.assertIn("schema_version:3", self.rollback_operator)
+        self.assertIn("chromium_nevra", self.rollback_operator)
+        self.assertIn("factory_grafana_column_privilege_count", self.rollback_operator)
+        self.assertIn(
+            "A112 application-under-current-contract rollback is not implemented",
+            self.rollback_operator,
+        )
         self.assertIn("control_address", self.rollback_operator)
         self.assertIn("release-boundary", self.rollback_operator)
         self.assertIn("PATCHYARD_ROLLBACK_RELEASE_APPROVED", self.rollback_operator)
@@ -506,6 +518,61 @@ class Session16CutoverContract(unittest.TestCase):
             "rollback evidence did not verify; public boundary and reboot-durable backup exclusion remain in force for explicit release",
             self.rollback_operator,
         )
+
+    def test_rollback_preflight_compares_the_complete_qualification_environment(
+        self,
+    ) -> None:
+        def inventory(revision: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    self.rollback_function_prelude
+                    + '\nqualification_environment_inventory "$1"',
+                    "qualification-environment-test",
+                    revision,
+                ],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        interim_target = inventory(
+            "02c9e2da1f2ebdd877a5e867351da1f500eeaa45"
+        )
+        interim_return = inventory(
+            "9941eb233a2ddf61dc4e0dd8c2c76e6482c48bc3"
+        )
+        stale_environment = inventory(
+            "7b032c7c7ceb7c427cf5e73c43e2116acaf5614a"
+        )
+        inconsistent_migrations = inventory("84708ba")
+        declared_inventory = inventory("HEAD")
+
+        for result in (
+            interim_target,
+            interim_return,
+            stale_environment,
+            declared_inventory,
+        ):
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(interim_target.stdout, interim_return.stdout)
+        self.assertNotEqual(stale_environment.stdout, interim_return.stdout)
+        self.assertNotEqual(inconsistent_migrations.returncode, 0)
+
+        interim = json.loads(interim_return.stdout)
+        stale = json.loads(stale_environment.stdout)
+        self.assertNotEqual(stale["chromium_nevra"], interim["chromium_nevra"])
+        self.assertNotEqual(
+            stale["grafana_column_privilege_count"],
+            interim["grafana_column_privilege_count"],
+        )
+        current = json.loads(declared_inventory.stdout)
+        self.assertEqual(current["grafana_column_privilege_count"], 20)
+        self.assertEqual(current["migration_count"], 11)
+        self.assertEqual(current["qualification_migration_count"], 11)
+        self.assertRegex(current["mirror_sha256"], r"^[0-9a-f]{64}$")
 
     def test_spaces_authorities_are_split(self) -> None:
         self.assertIn('name = "patchyard-backup-management"', self.spaces)

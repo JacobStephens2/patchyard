@@ -25,30 +25,89 @@ resolve_reviewed_revision() {
   printf '%s\n' "$resolved"
 }
 
-qualification_migration_count() {
-  local revision=$1 count
-  if git -C "$REPO_ROOT" cat-file -e \
-    "$revision:infra/ansible/roles/control_plane/templates/qualify-factory-control.j2" \
-    2>/dev/null; then
-    git -C "$REPO_ROOT" show \
-      "$revision:infra/ansible/roles/control_plane/templates/qualify-factory-control.j2" \
-      | grep -Fq '{{ factory_migration_count }}' || {
-        echo "revision $revision qualifier does not read the declared migration pin" >&2
+revision_uses_inventory_qualifier() {
+  git -C "$REPO_ROOT" cat-file -e \
+    "$1:infra/ansible/roles/control_plane/templates/qualify-factory-control.j2" \
+    2>/dev/null
+}
+
+qualification_environment_inventory() {
+  local revision=$1 group_vars qualifier declared_chromium qualifier_chromium
+  local chromium_common='' grafana_grants migration_count qualified_migrations
+  local mirror_block='' mirror_sha256=''
+  group_vars=$(git -C "$REPO_ROOT" show \
+    "$revision:infra/ansible/group_vars/all.yml") || exit 2
+  declared_chromium=$(sed -n 's/^chromium_nevra:[[:space:]]*//p' \
+    <<<"$group_vars")
+  migration_count=$(sed -n 's/^factory_migration_count:[[:space:]]*//p' \
+    <<<"$group_vars")
+
+  if revision_uses_inventory_qualifier "$revision"; then
+    qualifier=$(git -C "$REPO_ROOT" show \
+      "$revision:infra/ansible/roles/control_plane/templates/qualify-factory-control.j2")
+    for reference in \
+      '{{ chromium_nevra | quote }}' \
+      '{{ chromium_common_nevra | quote }}' \
+      '{{ factory_grafana_column_privilege_count }}' \
+      '{{ factory_migration_count }}' \
+      '{% for rpm in chromium_rpm_mirror %}' \
+      'chromium_rpm_mirror_directory'; do
+      grep -Fq "$reference" <<<"$qualifier" || {
+        echo "revision $revision qualifier does not read the complete declared environment inventory" >&2
         exit 2
       }
-    count=$(git -C "$REPO_ROOT" show \
-      "$revision:infra/ansible/group_vars/all.yml" \
-      | sed -n 's/^factory_migration_count:[[:space:]]*//p')
+    done
+    qualifier_chromium=$declared_chromium
+    chromium_common=$(sed -n \
+      's/^chromium_common_nevra:[[:space:]]*//p' <<<"$group_vars")
+    grafana_grants=$(sed -n \
+      's/^factory_grafana_column_privilege_count:[[:space:]]*//p' \
+      <<<"$group_vars")
+    qualified_migrations=$migration_count
+    mirror_block=$(awk '
+      /^chromium_rpm_mirror_directory:/ { capture = 1 }
+      capture && /^age_nevra:/ { exit }
+      capture { print }
+    ' <<<"$group_vars")
+    mirror_sha256=$(sha256sum <<<"$mirror_block" | cut -d' ' -f1)
   else
-    count=$(git -C "$REPO_ROOT" show \
-      "$revision:infra/ansible/roles/control_plane/files/qualify-factory-control" \
-      | sed -n "/SELECT count(\*) FROM public\._sqlx_migrations/s/.*= \([0-9][0-9]*\)$/\1/p")
+    qualifier=$(git -C "$REPO_ROOT" show \
+      "$revision:infra/ansible/roles/control_plane/files/qualify-factory-control")
+    # These sed programs deliberately match literal command substitutions in
+    # the legacy qualifier; expanding them would execute the local rpm query.
+    # shellcheck disable=SC2016
+    qualifier_chromium=$(sed -n \
+      's/^test "$(rpm -q chromium)" = //p' <<<"$qualifier")
+    # shellcheck disable=SC2016
+    chromium_common=$(sed -n \
+      's/^test "$(rpm -q chromium-common)" = //p' <<<"$qualifier")
+    grafana_grants=$(sed -n \
+      "/information_schema.column_privileges/s/.*= \([0-9][0-9]*\)$/\1/p" \
+      <<<"$qualifier")
+    qualified_migrations=$(sed -n \
+      "/SELECT count(\*) FROM public\._sqlx_migrations/s/.*= \([0-9][0-9]*\)$/\1/p" \
+      <<<"$qualifier")
   fi
-  [[ "$count" =~ ^[0-9]+$ ]] || {
-    echo "revision $revision has no exact migration qualification pin" >&2
+
+  [[ -n "$declared_chromium" \
+    && "$declared_chromium" == "$qualifier_chromium" \
+    && "$migration_count" =~ ^[0-9]+$ \
+    && "$qualified_migrations" =~ ^[0-9]+$ \
+    && "$migration_count" == "$qualified_migrations" \
+    && "$grafana_grants" =~ ^[0-9]+$ \
+    && ( -z "$chromium_common" || "$chromium_common" != *[[:space:]]* ) \
+    && ( -z "$mirror_sha256" || "$mirror_sha256" =~ ^[0-9a-f]{64}$ ) ]] || {
+    echo "revision $revision has an incomplete or internally inconsistent qualification environment" >&2
     exit 2
   }
-  printf '%s\n' "$count"
+  jq -cn \
+    --arg chromium_nevra "$declared_chromium" \
+    --arg chromium_common_nevra "$chromium_common" \
+    --argjson grafana_column_privilege_count "$grafana_grants" \
+    --argjson migration_count "$migration_count" \
+    --argjson qualification_migration_count "$qualified_migrations" \
+    --arg mirror_sha256 "$mirror_sha256" \
+    '{chromium_nevra:$chromium_nevra,chromium_common_nevra:$chromium_common_nevra,grafana_column_privilege_count:$grafana_column_privilege_count,migration_count:$migration_count,qualification_migration_count:$qualification_migration_count,mirror_sha256:$mirror_sha256}'
 }
 
 control_target() {
@@ -195,19 +254,21 @@ case "$MODE" in
     target=$(resolve_reviewed_revision "$target")
     IFS=$'\t' read -r control_host address < <(control_target)
     current=$(resolve_reviewed_revision "$(installed_revision "$address")")
-    target_migrations=$(git -C "$REPO_ROOT" show "$target:infra/ansible/group_vars/all.yml" \
-      | sed -n 's/^factory_migration_count:[[:space:]]*//p')
-    current_migrations=$(git -C "$REPO_ROOT" show "$current:infra/ansible/group_vars/all.yml" \
-      | sed -n 's/^factory_migration_count:[[:space:]]*//p')
-    target_qualification_migrations=$(qualification_migration_count "$target")
-    current_qualification_migrations=$(qualification_migration_count "$current")
-    [[ "$target_migrations" =~ ^[0-9]+$ \
-      && "$target_migrations" == "$current_migrations" \
-      && "$target_qualification_migrations" == "$current_qualification_migrations" \
-      && "$target_qualification_migrations" == "$current_migrations" ]] || {
-      echo 'automatic rollback requires equal desired and qualified migration counts' >&2
+    if revision_uses_inventory_qualifier "$current"; then
+      echo 'A112 application-under-current-contract rollback is not implemented; whole-revision rollback is disabled' >&2
+      exit 2
+    fi
+    target_qualification_environment=$(qualification_environment_inventory "$target")
+    current_qualification_environment=$(qualification_environment_inventory "$current")
+    [[ "$target_qualification_environment" == \
+      "$current_qualification_environment" ]] || {
+      echo 'automatic whole-revision rollback requires an exact qualification-environment match' >&2
       exit 2
     }
+    current_migrations=$(jq -r .migration_count \
+      <<<"$current_qualification_environment")
+    current_qualification_migrations=$(jq -r .qualification_migration_count \
+      <<<"$current_qualification_environment")
     install -d -m 0700 "$output_dir"
     manifest="$output_dir/control-rollback.json"
     jq -n --arg target_revision "$target" --arg return_revision "$current" \
@@ -216,8 +277,9 @@ case "$MODE" in
       --arg return_tree "$(git -C "$REPO_ROOT" rev-parse "$current^{tree}")" \
       --argjson migration_count "$current_migrations" \
       --argjson qualification_migration_count "$current_qualification_migrations" \
+      --argjson qualification_environment "$current_qualification_environment" \
       --arg created_at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-      '{schema_version:2,target_revision:$target_revision,target_tree:$target_tree,return_revision:$return_revision,return_tree:$return_tree,control_host:$control_host,control_address:$control_address,migration_count:$migration_count,qualification_migration_count:$qualification_migration_count,created_at:$created_at,scope:"application-binaries-config-and-checkout",durable_state:"must-preserve-with-declared-account-audits"}' \
+      '{schema_version:3,target_revision:$target_revision,target_tree:$target_tree,return_revision:$return_revision,return_tree:$return_tree,control_host:$control_host,control_address:$control_address,migration_count:$migration_count,qualification_migration_count:$qualification_migration_count,qualification_environment:$qualification_environment,created_at:$created_at,scope:"application-binaries-config-and-checkout",durable_state:"must-preserve-with-declared-account-audits"}' \
       >"$manifest"
     sha256sum "$manifest" >"$manifest.sha256"
     echo "review $manifest and $manifest.sha256, then run apply"
@@ -229,7 +291,7 @@ case "$MODE" in
     : "${PATCHYARD_ROLLBACK_APPROVED:?set PATCHYARD_ROLLBACK_APPROVED=yes after manifest review}"
     [[ "$PATCHYARD_ROLLBACK_APPROVED" == yes ]] || exit 2
     (cd "$(dirname "$manifest")" && sha256sum --check "$(basename "$manifest").sha256")
-    jq -e '.schema_version == 2 and .scope == "application-binaries-config-and-checkout" and .durable_state == "must-preserve-with-declared-account-audits" and (.migration_count | type == "number") and (.qualification_migration_count | type == "number") and (.target_revision | test("^[0-9a-f]{40}$")) and (.return_revision | test("^[0-9a-f]{40}$")) and (.control_host | test("^[A-Za-z0-9.-]+$")) and (.control_address | test("^([0-9]{1,3}\\.){3}[0-9]{1,3}$"))' \
+    jq -e '.schema_version == 3 and .scope == "application-binaries-config-and-checkout" and .durable_state == "must-preserve-with-declared-account-audits" and (.migration_count | type == "number") and (.qualification_migration_count | type == "number") and (.qualification_environment | type == "object") and (.target_revision | test("^[0-9a-f]{40}$")) and (.return_revision | test("^[0-9a-f]{40}$")) and (.control_host | test("^[A-Za-z0-9.-]+$")) and (.control_address | test("^([0-9]{1,3}\\.){3}[0-9]{1,3}$"))' \
       "$manifest" >/dev/null
     target=$(jq -r .target_revision "$manifest")
     target=$(resolve_reviewed_revision "$target")
@@ -237,18 +299,25 @@ case "$MODE" in
     [[ "$target" == "$(jq -r .target_revision "$manifest")" ]] || exit 2
     [[ "$(git -C "$REPO_ROOT" rev-parse "$target^{tree}")" == "$(jq -r .target_tree "$manifest")" ]] || exit 2
     [[ "$(git -C "$REPO_ROOT" rev-parse "$return_revision^{tree}")" == "$(jq -r .return_tree "$manifest")" ]] || exit 2
-    target_migrations=$(git -C "$REPO_ROOT" show "$target:infra/ansible/group_vars/all.yml" \
-      | sed -n 's/^factory_migration_count:[[:space:]]*//p')
-    return_migrations=$(git -C "$REPO_ROOT" show "$return_revision:infra/ansible/group_vars/all.yml" \
-      | sed -n 's/^factory_migration_count:[[:space:]]*//p')
-    target_qualification_migrations=$(qualification_migration_count "$target")
-    return_qualification_migrations=$(qualification_migration_count "$return_revision")
-    [[ "$target_migrations" == "$(jq -r .migration_count "$manifest")" \
-      && "$return_migrations" == "$target_migrations" \
-      && "$target_qualification_migrations" == \
-        "$(jq -r .qualification_migration_count "$manifest")" \
-      && "$return_qualification_migrations" == "$target_qualification_migrations" ]] || {
-      echo 'rollback migration or qualification pins changed after plan review' >&2
+    if revision_uses_inventory_qualifier "$return_revision"; then
+      echo 'A112 application-under-current-contract rollback is not implemented; whole-revision rollback is disabled' >&2
+      exit 2
+    fi
+    target_qualification_environment=$(qualification_environment_inventory "$target")
+    return_qualification_environment=$(qualification_environment_inventory \
+      "$return_revision")
+    manifest_qualification_environment=$(jq -c .qualification_environment \
+      "$manifest")
+    [[ "$target_qualification_environment" == \
+      "$manifest_qualification_environment" \
+      && "$return_qualification_environment" == \
+        "$manifest_qualification_environment" \
+      && "$(jq -r .migration_count <<<"$return_qualification_environment")" == \
+        "$(jq -r .migration_count "$manifest")" \
+      && "$(jq -r .qualification_migration_count \
+        <<<"$return_qualification_environment")" == \
+        "$(jq -r .qualification_migration_count "$manifest")" ]] || {
+      echo 'rollback qualification environment changed after plan review' >&2
       exit 2
     }
 

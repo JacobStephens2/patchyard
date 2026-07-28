@@ -133,6 +133,14 @@ retention never expires them. Ansible requests the recorded object version,
 checks remote metadata and local byte count/SHA-256, and then installs with RPM
 signature verification still enabled.
 
+The current controlled copy shares the versioned `patchyard-backups` bucket
+and its bucket-scoped runtime credential with backup/restore. That replaces
+EPEL retention risk with a declared coupling: loss of this bucket, its runtime
+credential, or Spaces reachability blocks both backup recovery and clean-host
+Chromium acquisition. A separate dependency bucket and credential would be the
+stronger independence boundary; this PR records rather than conceals the
+current trade.
+
 The A-14 installed-environment declarations in `group_vars/all.yml` are the
 single source for the Chromium NEVRAs, desired migration count, and exact
 Grafana column-grant count. Ansible renders the installed qualifier from those
@@ -353,12 +361,18 @@ reads, not hard-coded per revision in `qualify-factory-control`. Compatible
 qualifier ranges are rejected: a range on a grant count would accept an
 over-grant and defeat the least-privilege check it exists to make.
 
-Before PR #63 is merged and installed, Session 16 continues to use the
-whole-revision target above for its already-declared drill. PR #63 makes the
-qualifier read those constants from the inventory; any rollback begun after
-that installed transition must use A112's earlier-application/current-contract
-model. A target failing the compatibility predicate ends as
-`rollback_target_refused` before the public boundary or any host mutation.
+Session 16 may continue to use the whole-revision target above for its
+already-declared drill only while the installed return revision predates PR
+#63. Its interim preflight compares the exact Chromium pin, Grafana grant
+count, desired migration count, and qualifier migration count before any
+boundary or host mutation. PR #63 makes the qualifier read those constants
+from the inventory, which is a necessary A112 prerequisite but does not itself
+provide an application-under-current-contract deployment path. Once an
+inventory-backed qualifier is installed, the whole-revision operator refuses
+fail closed until that application-only path is separately implemented and
+reviewed. It never substitutes compatible ranges. A target failing the interim
+compatibility predicate ends as `rollback_target_refused` before the public
+boundary or any host mutation.
 
 PR #51 must be merged with a merge commit (the repository's established
 practice) or a manual fast-forward that preserves the exact commits, never

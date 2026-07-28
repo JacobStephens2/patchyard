@@ -1,0 +1,270 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+CONFIG=/etc/patchyard/anthropic-wif.json
+SIGNING_KEY=/etc/patchyard/anthropic-wif-signing.pem
+ACTION=${1:-}
+
+b64url() {
+  openssl base64 -A | tr '+/' '-_' | tr -d '='
+}
+
+public_jwks() {
+  local modulus_hex modulus kid
+  modulus_hex=$(openssl rsa -in "$SIGNING_KEY" -noout -modulus | cut -d= -f2)
+  [[ "$modulus_hex" =~ ^[0-9A-F]{768}$ ]]
+  modulus=$(python3 - "$modulus_hex" <<'PY'
+import base64
+import sys
+
+value = bytes.fromhex(sys.argv[1])
+print(base64.urlsafe_b64encode(value).decode().rstrip("="))
+PY
+)
+  kid="patchyard-$(openssl pkey -in "$SIGNING_KEY" -pubout -outform DER 2>/dev/null \
+    | sha256sum | cut -c1-16)"
+  jq -n --arg kid "$kid" --arg modulus "$modulus" '{
+    keys: [{kty:"RSA", use:"sig", alg:"RS256", $kid, n:$modulus, e:"AQAB"}]
+  }'
+}
+
+[[ -f "$CONFIG" && ! -L "$CONFIG" && -f "$SIGNING_KEY" && ! -L "$SIGNING_KEY" ]]
+[[ "$(stat -c '%U:%G:%a' "$SIGNING_KEY")" == root:root:400 ]]
+jq -e '
+  .schema_version == 1 and .provider == "anthropic"
+  and .organization.id == "aaadc747-869a-42d2-af51-58a5be8e3b7f"
+  and .organization.name == "Example Company"
+  and .workspace.id == "wrkspc_000000000000000000000000"
+  and .workspace.name == "Patchyard Factory"
+  and .issuer.issuer_url == "https://factory.example.com/workload-identity"
+  and .issuer.check_jti == true
+  and .issuer.max_jwt_lifetime_seconds == 300
+  and .rule.subject == "patchyard-control-plane"
+  and .rule.audience == "https://api.anthropic.com"
+  and .rule.claims == {factory_environment:"production"}
+  and .rule.oauth_scope == "workspace:inference"
+  and .rule.token_lifetime_seconds == 300
+' "$CONFIG" >/dev/null
+
+if [[ "$ACTION" == jwks ]]; then
+  [[ $# -eq 1 ]]
+  public_jwks
+  exit 0
+fi
+
+[[ "$ACTION" == run && $# -eq 3 ]] || {
+  echo "usage: $0 jwks | run SNAPSHOT_DIR OUTPUT_DIR" >&2
+  exit 2
+}
+SNAPSHOT_DIR=$(readlink -f -- "$2")
+OUTPUT_DIR=$3
+[[ "$SNAPSHOT_DIR" == /* && "$OUTPUT_DIR" == /* ]]
+[[ -f "$SNAPSHOT_DIR/snapshot.sql.gz" && -f "$SNAPSHOT_DIR/snapshot.json" ]]
+[[ ! -e "$OUTPUT_DIR" ]]
+
+jq -e '
+  (.service_account.id | test("^svac_[A-Za-z0-9]+$"))
+  and (.issuer.id | test("^fdis_[A-Za-z0-9]+$"))
+  and (.rule.id | test("^fdrl_[A-Za-z0-9]+$"))
+' "$CONFIG" >/dev/null
+
+# The quoted value is rendered by Ansible before this becomes an executable.
+WORKER_IP="{{ hostvars[groups['worker'][0]].private_ip }}"
+SSH_ARGS=(
+  -i /var/lib/patchyard-manager/.ssh/id_ed25519
+  -o BatchMode=yes
+  -o IdentitiesOnly=yes
+  -o StrictHostKeyChecking=yes
+  -o UserKnownHostsFile=/var/lib/patchyard-manager/.ssh/known_hosts
+  -o ConnectTimeout=10
+)
+RUN_ID="anthropic-i1-$(date -u +%Y%m%d)-$(openssl rand -hex 5)"
+REMOTE_ROOT="/var/tmp/patchyard-incoming/$RUN_ID"
+RUN_TEMP=$(mktemp -d /run/patchyard-anthropic/issuance.XXXXXX)
+FIXTURE_REPO="$RUN_TEMP/repo"
+REMOTE_CREATED=false
+ACCESS_TOKEN=
+ASSERTION=
+
+remote_ssh() {
+  # Every caller passes only locally generated, path-safe arguments.
+  # shellcheck disable=SC2029
+  ssh "${SSH_ARGS[@]}" factory-manager@"$WORKER_IP" "$@"
+}
+
+cleanup() {
+  local rc=$?
+  if $REMOTE_CREATED; then
+    remote_ssh rm -r -- "$REMOTE_ROOT" >/dev/null 2>&1 || true
+  fi
+  unset ACCESS_TOKEN ASSERTION
+  rm -r -- "$RUN_TEMP"
+  exit "$rc"
+}
+trap cleanup EXIT
+
+JWKS="$RUN_TEMP/jwks.json"
+public_jwks >"$JWKS"
+KID=$(jq -r '.keys[0].kid' "$JWKS")
+NOW=$(date -u +%s)
+ASSERTION_IAT=$((NOW - 5))
+ASSERTION_EXP=$((NOW + 295))
+JTI="factory-$RUN_ID-$(openssl rand -hex 8)"
+HEADER=$(jq -nc --arg kid "$KID" '{alg:"RS256",typ:"JWT",$kid}' | b64url)
+PAYLOAD=$(jq -nc \
+  --arg iss "$(jq -r .issuer.issuer_url "$CONFIG")" \
+  --arg sub "$(jq -r .rule.subject "$CONFIG")" \
+  --arg aud "$(jq -r .rule.audience "$CONFIG")" \
+  --arg environment "$(jq -r .rule.claims.factory_environment "$CONFIG")" \
+  --arg jti "$JTI" --argjson iat "$ASSERTION_IAT" --argjson exp "$ASSERTION_EXP" \
+  '{iss:$iss,sub:$sub,aud:$aud,iat:$iat,exp:$exp,jti:$jti,
+    factory_environment:$environment}' | b64url)
+SIGNING_INPUT="$HEADER.$PAYLOAD"
+SIGNATURE=$(printf '%s' "$SIGNING_INPUT" \
+  | openssl dgst -sha256 -sign "$SIGNING_KEY" | b64url)
+ASSERTION="$SIGNING_INPUT.$SIGNATURE"
+printf '%s' "$ASSERTION" >"$RUN_TEMP/assertion.jwt"
+
+jq -n \
+  --rawfile assertion "$RUN_TEMP/assertion.jwt" \
+  --arg rule_id "$(jq -r .rule.id "$CONFIG")" \
+  --arg organization_id "$(jq -r .organization.id "$CONFIG")" \
+  --arg service_account_id "$(jq -r .service_account.id "$CONFIG")" \
+  --arg workspace_id "$(jq -r .workspace.id "$CONFIG")" \
+  '{grant_type:"urn:ietf:params:oauth:grant-type:jwt-bearer",$assertion,
+    federation_rule_id:$rule_id,organization_id:$organization_id,
+    service_account_id:$service_account_id,workspace_id:$workspace_id}' \
+  >"$RUN_TEMP/exchange-request.json"
+
+EXCHANGE_STATUS=$(curl --silent --show-error \
+  --request POST --header 'content-type: application/json' \
+  --dump-header "$RUN_TEMP/exchange-headers" \
+  --output "$RUN_TEMP/exchange-response.json" --write-out '%{http_code}' \
+  --data-binary "@$RUN_TEMP/exchange-request.json" \
+  https://api.anthropic.com/v1/oauth/token)
+EXCHANGE_REQUEST_ID=$(awk 'tolower($1) == "request-id:" {gsub("\r", "", $2); print $2; exit}' \
+  "$RUN_TEMP/exchange-headers")
+[[ "$EXCHANGE_STATUS" == 200 && "$EXCHANGE_REQUEST_ID" =~ ^req_[A-Za-z0-9]+$ ]]
+jq -e '
+  (.access_token | type == "string" and startswith("sk-ant-oat01-") and length <= 8192)
+  and .token_type == "Bearer"
+  and .scope == "workspace:inference"
+  and (.expires_in | type == "number" and . >= 60 and . <= 300)
+' "$RUN_TEMP/exchange-response.json" >/dev/null
+ACCESS_TOKEN=$(jq -r .access_token "$RUN_TEMP/exchange-response.json")
+EXPIRES_IN=$(jq -r .expires_in "$RUN_TEMP/exchange-response.json")
+SERVER_DATE=$(awk 'tolower($1) == "date:" {sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' \
+  "$RUN_TEMP/exchange-headers")
+ISSUED_EPOCH=$(date -u -d "$SERVER_DATE" +%s)
+EXPIRES_EPOCH=$((ISSUED_EPOCH + EXPIRES_IN))
+ISSUED_AT=$(date -u -d "@$ISSUED_EPOCH" +%Y-%m-%dT%H:%M:%SZ)
+EXPIRES_AT=$(date -u -d "@$EXPIRES_EPOCH" +%Y-%m-%dT%H:%M:%SZ)
+
+jq -n \
+  --slurpfile exchange "$RUN_TEMP/exchange-response.json" \
+  --arg issued_at "$ISSUED_AT" --arg expires_at "$EXPIRES_AT" \
+  --arg exchange_request_id "$EXCHANGE_REQUEST_ID" \
+  --arg capability_id "$JTI" \
+  --arg service_account_id "$(jq -r .service_account.id "$CONFIG")" \
+  --arg rule_id "$(jq -r .rule.id "$CONFIG")" \
+  --arg workspace_id "$(jq -r .workspace.id "$CONFIG")" \
+  '{schema_version:1,provider:"anthropic",qualification_requirement:"issuance-delivery",
+    $capability_id,secret:$exchange[0].access_token,spend_cap_cents:0,$issued_at,$expires_at,
+    token_type:$exchange[0].token_type,scope:$exchange[0].scope,
+    expires_in:$exchange[0].expires_in,$exchange_request_id,
+    $service_account_id,$rule_id,$workspace_id}' >"$RUN_TEMP/capability.json"
+
+install -d -m 0700 "$FIXTURE_REPO"
+printf 'anthropic-issuance-delivery-base\n' >"$FIXTURE_REPO/base.txt"
+git -C "$FIXTURE_REPO" init --quiet
+git -C "$FIXTURE_REPO" config user.name 'Patchyard Factory Anthropic fixture'
+git -C "$FIXTURE_REPO" config user.email 'factory@example.invalid'
+git -C "$FIXTURE_REPO" add base.txt
+GIT_AUTHOR_DATE=2000-01-01T00:00:00Z GIT_COMMITTER_DATE=2000-01-01T00:00:00Z \
+  git -C "$FIXTURE_REPO" commit --quiet -m 'Anthropic issuance fixture'
+BASE_SHA=$(git -C "$FIXTURE_REPO" rev-parse HEAD)
+printf 'Anthropic issuance and delivery qualification.\n' >"$RUN_TEMP/request.md"
+git -C "$FIXTURE_REPO" archive --format=tar "$BASE_SHA" \
+  | gzip -n -9 >"$RUN_TEMP/source.tar.gz"
+
+SOURCE_SHA256=$(sha256sum "$RUN_TEMP/source.tar.gz" | cut -d' ' -f1)
+REQUEST_SHA256=$(sha256sum "$RUN_TEMP/request.md" | cut -d' ' -f1)
+SNAPSHOT_SQL_SHA256=$(sha256sum "$SNAPSHOT_DIR/snapshot.sql.gz" | cut -d' ' -f1)
+SNAPSHOT_MANIFEST_SHA256=$(sha256sum "$SNAPSHOT_DIR/snapshot.json" | cut -d' ' -f1)
+CAPABILITY_SHA256=$(sha256sum "$RUN_TEMP/capability.json" | cut -d' ' -f1)
+
+jq -n \
+  --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
+  --arg source_archive_sha256 "$SOURCE_SHA256" --arg request_sha256 "$REQUEST_SHA256" \
+  --arg snapshot_sql_sha256 "$SNAPSHOT_SQL_SHA256" \
+  --arg snapshot_manifest_sha256 "$SNAPSHOT_MANIFEST_SHA256" \
+  --arg capability_sha256 "$CAPABILITY_SHA256" \
+  '{schema_version:1,$run_id,$base_sha,$source_archive_sha256,$request_sha256,
+    $snapshot_sql_sha256,$snapshot_manifest_sha256,provider:"anthropic",
+    mode:"provider-qualification",qualification_requirement:"issuance-delivery",
+    credential_required:true,$capability_sha256,spend_cap_cents:0}' \
+  >"$RUN_TEMP/run.json"
+
+remote_ssh install -d -m 0700 "$REMOTE_ROOT/snapshot"
+REMOTE_CREATED=true
+scp "${SSH_ARGS[@]}" \
+  "$RUN_TEMP/run.json" "$RUN_TEMP/source.tar.gz" "$RUN_TEMP/request.md" \
+  factory-manager@"$WORKER_IP:$REMOTE_ROOT/"
+scp "${SSH_ARGS[@]}" \
+  "$SNAPSHOT_DIR/snapshot.sql.gz" "$SNAPSHOT_DIR/snapshot.json" \
+  factory-manager@"$WORKER_IP:$REMOTE_ROOT/snapshot/"
+
+remote_ssh sudo /usr/local/sbin/patchyard-firecracker-run \
+  "$REMOTE_ROOT/run.json" "$REMOTE_ROOT/source.tar.gz" \
+  "$REMOTE_ROOT/request.md" "$REMOTE_ROOT/snapshot" "$REMOTE_ROOT/output" \
+  <"$RUN_TEMP/capability.json" \
+  >"$RUN_TEMP/launcher.stdout" 2>"$RUN_TEMP/launcher.stderr"
+
+install -d -m 0700 "$RUN_TEMP/result"
+for name in change.patch rationale.txt evidence.json; do
+  scp "${SSH_ARGS[@]}" \
+    factory-manager@"$WORKER_IP:$REMOTE_ROOT/output/$name" "$RUN_TEMP/result/$name"
+done
+[[ "$(find "$RUN_TEMP/result" -mindepth 1 -maxdepth 1 -type f | wc -l)" -eq 3 ]]
+
+if grep -R -F -q -- "$ACCESS_TOKEN" \
+  "$RUN_TEMP/launcher.stdout" "$RUN_TEMP/launcher.stderr" "$RUN_TEMP/result"; then
+  echo "Anthropic bearer crossed the accepted evidence boundary" >&2
+  exit 1
+fi
+if grep -R -F -q -- "$ASSERTION" \
+  "$RUN_TEMP/launcher.stdout" "$RUN_TEMP/launcher.stderr" "$RUN_TEMP/result"; then
+  echo "OIDC assertion crossed the control-plane boundary" >&2
+  exit 1
+fi
+
+jq -e \
+  --arg run_id "$RUN_ID" --arg issued_at "$ISSUED_AT" --arg expires_at "$EXPIRES_AT" \
+  --arg exchange_request_id "$EXCHANGE_REQUEST_ID" '
+  .schema_version == 1 and .run_id == $run_id and .provider == "anthropic"
+  and .qualification_requirement == "issuance-delivery"
+  and .issuance.issued_at == $issued_at and .issuance.expires_at == $expires_at
+  and .issuance.exchange_request_id == $exchange_request_id
+  and .delivery.capability_drive_read_only == true
+  and .delivery.capability_drive_unmounted_before_provider_call == true
+  and .delivery.credential_removed_before_output == true
+  and .provider_call.endpoint == "/v1/models?limit=1"
+  and .provider_call.http_status == 200
+  and (.provider_call.request_id | test("^req_[A-Za-z0-9]+$"))
+  and .host_teardown == {processes:0,taps:0,nftables_tables:0,run_directories:0,credential_files:0}
+  and (has("secret") | not) and (has("access_token") | not)
+' "$RUN_TEMP/result/evidence.json" >/dev/null
+
+remote_ssh rm -r -- "$REMOTE_ROOT"
+REMOTE_CREATED=false
+[[ -z "$(remote_ssh sudo find /run/patchyard-worker -mindepth 1 -print -quit)" ]]
+[[ -z "$(remote_ssh sudo find /var/tmp/patchyard-worker -mindepth 1 -print -quit)" ]]
+remote_ssh sudo test ! -e /var/lib/patchyard-worker/BOUNDARY_TAINTED
+
+chown -R factory-web:factory "$RUN_TEMP/result"
+find "$RUN_TEMP/result" -type d -exec chmod 0750 {} +
+find "$RUN_TEMP/result" -type f -exec chmod 0640 {} +
+mv -- "$RUN_TEMP/result" "$OUTPUT_DIR"
+unset ACCESS_TOKEN ASSERTION
+echo "anthropic_issuance_result=$OUTPUT_DIR run_id=$RUN_ID"

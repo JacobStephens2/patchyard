@@ -110,11 +110,18 @@ fi
 
 CREDENTIAL_REQUIRED=$(jq -r .credential_required "$MANIFEST")
 CAPABILITY_FILE=
+CREDENTIAL_DRIVE_READ_ONLY=false
 if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
   [[ -e /dev/disk/by-label/ETA_CREDENTIAL ]]
   install -d -m 0700 /credential /run/patchyard-capability
   mount -o ro,nosuid,nodev,noexec /dev/disk/by-label/ETA_CREDENTIAL /credential
   CREDENTIAL_MOUNTED=true
+  findmnt -n -o OPTIONS /credential | tr ',' '\n' | grep -Fxq ro
+  if touch /credential/write-probe 2>/dev/null; then
+    FAILURE=credential-drive-writable
+    exit 1
+  fi
+  CREDENTIAL_DRIVE_READ_ONLY=true
   install -m 0400 -o factory-agent -g factory-agent \
     /credential/capability.json /run/patchyard-capability/capability.json
   umount /credential
@@ -189,6 +196,99 @@ if [[ "$MODE" == adversarial-qualification ]]; then
       qualification_manifest_sha256: $qualification_manifest_sha256,
       session5_guest_results: $session5_guest_results
     }' >/result/evidence.json
+  printf 'success\n' >/result/status
+  STATUS=success
+  FAILURE=
+  exit 0
+fi
+
+if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then
+  [[ "$CREDENTIAL_REQUIRED" == true && -n "$CAPABILITY_FILE" ]]
+  [[ -f /work/base.txt ]]
+  [[ "$CREDENTIAL_DRIVE_READ_ONLY" == true ]]
+  if mountpoint -q /credential; then
+    FAILURE=credential-drive-still-mounted
+    exit 1
+  fi
+  jq -e '
+    (keys | sort) == ["capability_id","exchange_request_id","expires_at","expires_in",
+      "issued_at","provider","qualification_requirement","rule_id","schema_version",
+      "scope","secret","service_account_id","spend_cap_cents","token_type","workspace_id"]
+    and .schema_version == 1 and .provider == "anthropic"
+    and .qualification_requirement == "issuance-delivery"
+    and (.secret | test("^sk-ant-oat01-[A-Za-z0-9_-]+$") and length <= 8192)
+    and .spend_cap_cents == 0 and .token_type == "Bearer"
+    and .scope == "workspace:inference"
+    and (.expires_in >= 60 and .expires_in <= 300)
+  ' "$CAPABILITY_FILE" >/dev/null
+
+  ISSUED_AT=$(jq -r .issued_at "$CAPABILITY_FILE")
+  EXPIRES_AT=$(jq -r .expires_at "$CAPABILITY_FILE")
+  EXPIRES_IN=$(jq -r .expires_in "$CAPABILITY_FILE")
+  EXCHANGE_REQUEST_ID=$(jq -r .exchange_request_id "$CAPABILITY_FILE")
+  SERVICE_ACCOUNT_ID=$(jq -r .service_account_id "$CAPABILITY_FILE")
+  RULE_ID=$(jq -r .rule_id "$CAPABILITY_FILE")
+  WORKSPACE_ID=$(jq -r .workspace_id "$CAPABILITY_FILE")
+  AUTH_CONFIG=/run/patchyard-capability/anthropic-curl.conf
+  {
+    printf 'header = "Authorization: Bearer %s"\n' "$(jq -r .secret "$CAPABILITY_FILE")"
+    printf 'header = "anthropic-version: 2023-06-01"\n'
+  } >"$AUTH_CONFIG"
+  chown factory-agent:factory-agent "$AUTH_CONFIG"
+  chmod 0400 "$AUTH_CONFIG"
+
+  FAILURE=anthropic-provider-call-failed
+  PROVIDER_STATUS=$(runuser -u factory-agent -- curl \
+    --config "$AUTH_CONFIG" --silent --show-error \
+    --dump-header /run/anthropic-models.headers \
+    --output /run/anthropic-models.json --write-out '%{http_code}' \
+    'https://api.anthropic.com/v1/models?limit=1')
+  rm -f -- "$AUTH_CONFIG" "$CAPABILITY_FILE"
+  CAPABILITY_FILE=
+  rmdir /run/patchyard-capability
+  [[ "$PROVIDER_STATUS" == 200 ]]
+  jq -e '.data | type == "array" and length == 1 and (.[0].id | type == "string")' \
+    /run/anthropic-models.json >/dev/null
+  PROVIDER_REQUEST_ID=$(awk 'tolower($1) == "request-id:" {gsub("\r", "", $2); print $2; exit}' \
+    /run/anthropic-models.headers)
+  [[ "$PROVIDER_REQUEST_ID" =~ ^req_[A-Za-z0-9]+$ ]]
+  MODEL_ID=$(jq -r '.data[0].id' /run/anthropic-models.json)
+
+  FAILURE=anthropic-qualification-patch-failed
+  printf 'anthropic-issuance-delivery-qualified\n' >/work/anthropic-qualified.txt
+  chown factory-agent:factory-agent /work/anthropic-qualified.txt
+  runuser -u factory-agent -- git -C /work add -N .
+  runuser -u factory-agent -- git -C /work diff --binary --full-index \
+    >/result/change.patch
+  [[ -s /result/change.patch ]]
+  printf '%s\n' \
+    'Exchanged a control-plane assertion for a five-minute Anthropic bearer, delivered only that capability through the read-only drive, unmounted it, and completed a live inference-scope Models call.' \
+    >/result/rationale.txt
+
+  FAILURE=anthropic-qualification-evidence-failed
+  PATCH_SHA=$(sha256sum /result/change.patch | cut -d' ' -f1)
+  jq -n \
+    --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
+    --arg request_sha256 "$REQUEST_SHA" --arg patch_sha256 "$PATCH_SHA" \
+    --arg rootfs_sha256 "$ROOTFS_SHA" --arg image_recipe_sha256 "$IMAGE_RECIPE_SHA" \
+    --arg production_parity_sha256 "$PRODUCTION_PARITY_SHA" \
+    --arg issued_at "$ISSUED_AT" --arg expires_at "$EXPIRES_AT" \
+    --arg exchange_request_id "$EXCHANGE_REQUEST_ID" \
+    --arg service_account_id "$SERVICE_ACCOUNT_ID" --arg rule_id "$RULE_ID" \
+    --arg workspace_id "$WORKSPACE_ID" --arg provider_request_id "$PROVIDER_REQUEST_ID" \
+    --arg model_id "$MODEL_ID" --argjson expires_in "$EXPIRES_IN" \
+    '{schema_version:1,$run_id,$base_sha,$request_sha256,provider:"anthropic",
+      qualification_requirement:"issuance-delivery",$patch_sha256,$rootfs_sha256,
+      $image_recipe_sha256,$production_parity_sha256,git_remote_count:0,
+      credential_removed_before_output:true,
+      issuance:{$issued_at,$expires_at,$expires_in,$exchange_request_id,
+        token_type:"Bearer",scope:"workspace:inference",$service_account_id,$rule_id,$workspace_id},
+      delivery:{capability_drive_read_only:true,
+        capability_drive_unmounted_before_provider_call:true,
+        credential_removed_before_output:true,assertion_delivered:false,
+        signing_key_delivered:false,admin_credential_delivered:false},
+      provider_call:{endpoint:"/v1/models?limit=1",http_status:200,
+        request_id:$provider_request_id,$model_id}}' >/result/evidence.json
   printf 'success\n' >/result/status
   STATUS=success
   FAILURE=

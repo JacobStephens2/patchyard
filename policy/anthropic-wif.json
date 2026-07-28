@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "provider": "anthropic",
+  "organization": {
+    "id": "aaadc747-869a-42d2-af51-58a5be8e3b7f",
+    "name": "Example Company"
+  },
+  "workspace": {
+    "id": "wrkspc_000000000000000000000000",
+    "name": "Patchyard Factory"
+  },
+  "service_account": {
+    "id": null,
+    "name": "patchyard-worker",
+    "description": "Patchyard Factory short-lived inference bearer for isolated worker runs.",
+    "organization_role": "developer",
+    "workspace_role": "workspace_restricted_developer"
+  },
+  "issuer": {
+    "id": null,
+    "name": "patchyard-control-plane",
+    "issuer_url": "https://factory.example.com/workload-identity",
+    "check_jti": true,
+    "max_jwt_lifetime_seconds": 300
+  },
+  "rule": {
+    "id": null,
+    "name": "patchyard-inference",
+    "description": "Mint five-minute inference-only bearers for the Patchyard Factory worker.",
+    "subject": "patchyard-control-plane",
+    "audience": "https://api.anthropic.com",
+    "claims": {
+      "factory_environment": "production"
+    },
+    "oauth_scope": "workspace:inference",
+    "token_lifetime_seconds": 300
+  }
+}

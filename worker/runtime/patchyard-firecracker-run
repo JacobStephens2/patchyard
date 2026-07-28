@@ -56,6 +56,12 @@ jq -e '
   and (.mode == "fixture" or .mode == "provider-qualification" or .mode == "adversarial-qualification")
   and (.credential_required | type == "boolean")
   and (.spend_cap_cents | type == "number" and . >= 0 and . <= 5000)
+  and (if .credential_required then
+    .mode == "provider-qualification"
+    and .provider == "anthropic"
+    and .qualification_requirement == "issuance-delivery"
+    and .spend_cap_cents == 0
+  else true end)
   and (if .mode == "adversarial-qualification" then
     (.qualification_manifest_sha256 | test("^[0-9a-f]{64}$"))
     and (.canary_sha256 | test("^[0-9a-f]{64}$"))
@@ -108,6 +114,7 @@ INPUT_STAGE="$RUNTIME_ROOT/input-$RUN_ID"
 RUN_TMPFS="$TMPFS_ROOT/$RUN_ID"
 RESULT_EXTRACT="$RUNTIME_ROOT/result-extract-$RUN_ID"
 ACCEPT_TEMP=
+CAPABILITY_SECRET=
 JAILER_PID=
 VMM_PID=
 BASE_FORWARD=$(sysctl -n net.ipv4.ip_forward)
@@ -259,16 +266,30 @@ if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
   CAPABILITY_SHA=$(sha256sum "$CAPABILITY" | cut -d' ' -f1)
   [[ "$CAPABILITY_SHA" == "$(jq -r .capability_sha256 "$MANIFEST")" ]]
   NOW=$(date -u +%s)
+  ISSUED=$(jq -r '.issued_at | fromdateiso8601' "$CAPABILITY")
   EXPIRES=$(jq -r '.expires_at | fromdateiso8601' "$CAPABILITY")
-  jq -e --arg provider "$PROVIDER" --argjson cap "$(jq -r .spend_cap_cents "$MANIFEST")" '
-    .schema_version == 1
-    and .provider == $provider
+  EXPIRES_IN=$(jq -r .expires_in "$CAPABILITY")
+  jq -e --arg provider "$PROVIDER" '
+    (keys | sort) == ["capability_id","exchange_request_id","expires_at","expires_in",
+      "issued_at","provider","qualification_requirement","rule_id","schema_version",
+      "scope","secret","service_account_id","spend_cap_cents","token_type","workspace_id"]
+    and .schema_version == 1 and .provider == $provider
+    and .qualification_requirement == "issuance-delivery"
     and (.capability_id | test("^[a-zA-Z0-9_-]{8,128}$"))
-    and (.secret | type == "string" and length >= 16 and length <= 8192)
-    and (.spend_cap_cents | type == "number" and . > 0 and . <= $cap)
-    and (.expires_at | type == "string")
+    and (.secret | type == "string" and test("^sk-ant-oat01-[A-Za-z0-9_-]+$") and length <= 8192)
+    and .spend_cap_cents == 0
+    and .token_type == "Bearer" and .scope == "workspace:inference"
+    and (.expires_in | type == "number" and . >= 60 and . <= 300)
+    and (.issued_at | fromdateiso8601 | type == "number")
+    and (.expires_at | fromdateiso8601 | type == "number")
+    and (.exchange_request_id | test("^req_[A-Za-z0-9]+$"))
+    and (.service_account_id | test("^svac_[A-Za-z0-9]+$"))
+    and (.rule_id | test("^fdrl_[A-Za-z0-9]+$"))
+    and (.workspace_id | test("^wrkspc_[A-Za-z0-9]+$"))
   ' "$CAPABILITY" >/dev/null
-  [[ "$EXPIRES" -gt "$NOW" && "$EXPIRES" -le $((NOW + 3600)) ]]
+  [[ "$EXPIRES" -gt "$NOW" && "$EXPIRES" -le $((NOW + 300)) ]]
+  [[ "$EXPIRES" -eq $((ISSUED + EXPIRES_IN)) ]]
+  CAPABILITY_SECRET=$(jq -r .secret "$CAPABILITY")
 fi
 
 truncate -s 256M "$JAIL_ROOT/input.ext4"
@@ -407,6 +428,11 @@ VMM_PID=
 FAILURE_STAGE=result-filesystem-validation
 /usr/local/libexec/patchyard-extract-result-image \
   "$JAIL_ROOT/result.ext4" "$RESULT_EXTRACT"
+if [[ -n "$CAPABILITY_SECRET" ]] \
+  && grep -R -F -q -- "$CAPABILITY_SECRET" "$RESULT_EXTRACT"; then
+  echo "provider credential entered the guest result boundary" >&2
+  false
+fi
 FAILURE_STAGE=guest-result-status
 RESULT_STATUS=$(<"$RESULT_EXTRACT/status")
 [[ "$RESULT_STATUS" =~ ^[a-z0-9,-]{1,128}$ ]]

@@ -91,12 +91,16 @@ assert_path /var/lib/pgsql/patchyard-tls/server.crt postgres postgres 644
 assert_path /etc/patchyard/postgresql-server-ca.crt root root 644
 assert_path /etc/patchyard/management-inventory.yml root factory-manager 640
 assert_path /etc/patchyard/deployed-version.env root factory-manager 640
+assert_path /etc/patchyard/anthropic-wif.json root root 644
+assert_path /etc/patchyard/anthropic-wif-signing.pem root root 400
+assert_path /run/patchyard-anthropic root root 700
 assert_path /var/lib/patchyard/snapshots factory-manager factory 700
 test -x /usr/local/sbin/build-redacted-snapshot
 test -x /usr/local/sbin/check-snapshot-eligibility
 test -x /usr/local/sbin/patchyard-run-fixture
 test -x /usr/local/sbin/patchyard-run-isolation-probe
 test -x /usr/local/sbin/patchyard-run-hostile-qualification
+test -x /usr/local/sbin/patchyard-run-anthropic-issuance
 test -x /usr/local/bin/factory-supervisor
 test -x /usr/local/bin/factory-web
 test -x /bin/curl
@@ -116,6 +120,17 @@ test -x /usr/local/bin/factory-evidence-qualify
 test -x /usr/local/sbin/patchyard-stage-evidence-qualification
 test -x /usr/local/libexec/patchyard-deployed-version
 test ! -e /usr/local/libexec/patchyard-deployed-version-unconfigured
+/usr/local/sbin/patchyard-run-anthropic-issuance jwks \
+  | jq -e '
+    (keys | sort) == ["keys"]
+    and (.keys | length) == 1
+    and (.keys[0] | keys | sort) == ["alg","e","kid","kty","n","use"]
+    and .keys[0].alg == "RS256" and .keys[0].kty == "RSA"
+    and .keys[0].use == "sig" and .keys[0].e == "AQAB"
+    and (.keys[0].kid | test("^patchyard-[0-9a-f]{16}$"))
+    and (.keys[0].n | test("^[A-Za-z0-9_-]{512}$"))
+    and (.keys[0] | has("d") | not)
+  ' >/dev/null
 checkout_runtime_state=$(runuser -u factory-manager -- \
   git -C /opt/patchyard status --porcelain --untracked-files=all --ignored)
 test -z "$checkout_runtime_state" || {

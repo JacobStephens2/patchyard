@@ -16,6 +16,9 @@ test "$FACTORY_WORKER_SHELL" = /bin/bash
 passwd -S factory-worker | grep -Eq '^factory-worker (L|LK) '
 test "$(stat -c '%U:%G:%a' /var/lib/patchyard-worker)" = factory-worker:factory-worker:700
 test ! -e /var/lib/patchyard-worker/.ssh
+test ! -e /etc/patchyard/anthropic-wif.json
+test ! -e /etc/patchyard/anthropic-wif-signing.pem
+test ! -e /usr/local/sbin/patchyard-run-anthropic-issuance
 test "$(getent passwd conductor | cut -d: -f5)" = 'Patchyard orchestration bootstrap and break-glass identity'
 test "$(getent passwd factory-manager | cut -d: -f6)" = /var/lib/patchyard-manager
 test "$(getent passwd factory-manager | cut -d: -f7)" = /bin/bash

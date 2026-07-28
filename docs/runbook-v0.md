@@ -212,6 +212,7 @@ RESTORE_DIR=$(mktemp -d /tmp/patchyard-restore.XXXXXX)
 infra/restore-drill.sh plan-create "$RESTORE_DIR"
 # Review restore-drill-create.tfplan.txt.
 PATCHYARD_RESTORE_APPROVED=yes \
+PATCHYARD_RESTORE_APPROVED_SHA256=REPLACE_WITH_REVIEWED_SHA256 \
   infra/restore-drill.sh apply-restore \
     "$RESTORE_DIR/restore-drill-create.tfplan" latest
 
@@ -321,6 +322,14 @@ safe Session 16 rollback anchor is merged, installed, and fully qualified PR
 #61 revision `02c9e2da1f2ebdd877a5e867351da1f500eeaa45`. Use it or a later
 compatible merged revision. A target rejected by this preflight ends as
 `rollback_target_refused` before the public boundary or any host mutation.
+
+This exact whole-revision target is the reviewed Session 16 drill contract,
+not a permanent incident-rollback design. Two invalidated anchors show that a
+qualifier which advances environment constants can make every earlier whole
+revision ineligible. Before declaring another rollback anchor, Jacob must rule
+whether rollback qualifiers accept reviewed compatible ranges for those facts,
+or whether rollback installs an earlier application revision under the current
+infrastructure/qualification contract. Neither model is adopted implicitly.
 
 PR #51 must be merged with a merge commit (the repository's established
 practice) or a manual fast-forward that preserves the exact commits, never

@@ -189,6 +189,16 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("^factory_supervisor_up 1(\\.0)?$", self.qualifier)
         self.assertNotIn("# HELP factory_runs_total", self.qualifier)
 
+    def test_qualification_tracks_the_exact_chromium_package_pin(self) -> None:
+        chromium_nevra = re.search(
+            r"^chromium_nevra:\s*(\S+)$", self.group_vars, re.MULTILINE
+        )
+        self.assertIsNotNone(chromium_nevra)
+        self.assertIn(
+            f'test "$(rpm -q chromium)" = {chromium_nevra.group(1)}',
+            self.qualifier,
+        )
+
     def test_restore_verifies_ciphertext_payload_rows_and_files(self) -> None:
         for required in (
             "encrypted backup hash mismatch",

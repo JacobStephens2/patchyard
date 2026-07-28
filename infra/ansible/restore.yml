@@ -200,6 +200,23 @@
       changed_when: true
       no_log: true
 
+    - name: Set the drill-only admin password for this probe attempt
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/factoryctl
+          - account
+          - reset-password
+          - --username=restore-drill@example.com
+        stdin: "{{ factory_restore_probe_password }}"
+        stdin_add_newline: false
+      become: true
+      become_user: "{{ factory_manager_user }}"
+      environment:
+        DATABASE_URL: >-
+          postgresql:///patchyard?host={{ postgresql_socket_directory }}&user=patchyard_migrator&sslmode=disable
+      changed_when: true
+      no_log: true
+
     - name: Install the historical evidence recovery probe
       ansible.builtin.copy:
         src: "{{ playbook_dir }}/roles/control_plane/files/patchyard-restore-evidence-probe"

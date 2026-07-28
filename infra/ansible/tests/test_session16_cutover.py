@@ -297,6 +297,23 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertNotIn("__Host-factory_login", self.restore_evidence_probe)
         self.assertNotIn("__Host-factory_session", self.restore_evidence_probe)
 
+    def test_restore_probe_refreshes_the_password_on_every_attempt(self) -> None:
+        provision = self.restore_play.index(
+            "- name: Create a drill-only admin after count verification"
+        )
+        reset = self.restore_play.index(
+            "- name: Set the drill-only admin password for this probe attempt"
+        )
+        probe = self.restore_play.index(
+            "- name: Install the historical evidence recovery probe"
+        )
+        self.assertLess(provision, reset)
+        self.assertLess(reset, probe)
+        reset_task = self.restore_play[reset:probe]
+        self.assertIn("- reset-password", reset_task)
+        self.assertIn("stdin: \"{{ factory_restore_probe_password }}\"", reset_task)
+        self.assertIn("no_log: true", reset_task)
+
     def test_clean_host_drill_has_reviewed_create_and_destroy_plans(self) -> None:
         self.assertIn("digitalocean_droplet.restore_drill[0]", self.restore_operator)
         self.assertIn("PATCHYARD_RESTORE_APPROVED", self.restore_operator)

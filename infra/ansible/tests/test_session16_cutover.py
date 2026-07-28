@@ -64,6 +64,9 @@ class Session16CutoverContract(unittest.TestCase):
         cls.observability = (
             ROOT / "crates" / "factory-supervisor" / "src" / "observability.rs"
         ).read_text()
+        cls.auth = (
+            ROOT / "crates" / "factory-web" / "src" / "auth.rs"
+        ).read_text()
 
     def test_backup_quiesces_writers_and_captures_all_durable_state(self) -> None:
         self.assertIn(
@@ -281,6 +284,18 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), valid)
         self.assertNotIn("| while", self.restore_evidence_probe)
+
+    def test_restore_evidence_probe_uses_application_cookie_contract(self) -> None:
+        for constant in ("LOGIN_COOKIE", "SESSION_COOKIE"):
+            match = re.search(
+                rf'^pub const {constant}: &str = "([^"]+)";$',
+                self.auth,
+                re.MULTILINE,
+            )
+            self.assertIsNotNone(match)
+            self.assertIn(match.group(1), self.restore_evidence_probe)
+        self.assertNotIn("__Host-factory_login", self.restore_evidence_probe)
+        self.assertNotIn("__Host-factory_session", self.restore_evidence_probe)
 
     def test_clean_host_drill_has_reviewed_create_and_destroy_plans(self) -> None:
         self.assertIn("digitalocean_droplet.restore_drill[0]", self.restore_operator)

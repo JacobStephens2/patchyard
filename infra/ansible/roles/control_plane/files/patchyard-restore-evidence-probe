@@ -46,14 +46,14 @@ name=${path##*/}
 curl --fail --silent --show-error --dump-header "$probe_root/login.headers" \
   --output "$probe_root/login.html" --unix-socket "$socket" http://localhost/login
 login_cookie=$(tr -d '\r' <"$probe_root/login.headers" \
-  | sed -n 's/^set-cookie: __Host-factory_login=\([^;]*\).*/\1/ip' | head -n 1)
+  | sed -n 's/^set-cookie: __Host-patchyard_login=\([^;]*\).*/\1/ip' | head -n 1)
 csrf=$(sed -n 's/.*name="csrf_token" value="\([^"]*\)".*/\1/p' \
   "$probe_root/login.html" | head -n 1)
 [[ -n "$login_cookie" && -n "$csrf" ]] || exit 41
 
 login_status=$(curl --silent --show-error --dump-header "$probe_root/session.headers" \
   --output /dev/null --write-out '%{http_code}' --request POST \
-  --cookie "__Host-factory_login=$login_cookie" \
+  --cookie "__Host-patchyard_login=$login_cookie" \
   --unix-socket "$socket" --config - http://localhost/login <<CURL_CONFIG
 data-urlencode = "csrf_token=$csrf"
 data-urlencode = "username=$username"
@@ -65,11 +65,11 @@ CURL_CONFIG
   exit 41
 }
 session_cookie=$(tr -d '\r' <"$probe_root/session.headers" \
-  | sed -n 's/^set-cookie: __Host-factory_session=\([^;]*\).*/\1/ip' | head -n 1)
+  | sed -n 's/^set-cookie: __Host-patchyard_session=\([^;]*\).*/\1/ip' | head -n 1)
 [[ -n "$session_cookie" ]] || exit 41
 
 evidence_status=$(curl --silent --show-error --output "$probe_root/evidence" \
-  --write-out '%{http_code}' --cookie "__Host-factory_session=$session_cookie" \
+  --write-out '%{http_code}' --cookie "__Host-patchyard_session=$session_cookie" \
   --unix-socket "$socket" "http://localhost/evidence/$run_id/$name")
 [[ "$evidence_status" == 200 ]] || {
   echo "historical evidence route returned HTTP $evidence_status" >&2

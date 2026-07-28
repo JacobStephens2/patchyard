@@ -653,7 +653,7 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
         form = re.search(r"struct LoginForm \{(.*?)\n\}", self.web, re.DOTALL)
         self.assertIsNotNone(form)
         declared_fields = set(
-            re.findall(r"^\s+([a-z_][a-z0-9_]*): .+,$", form.group(1), re.MULTILINE)
+            re.findall(r"^\s+([a-z_][a-z0-9_]*): .+$", form.group(1), re.MULTILINE)
         )
         submitted = dict(
             re.findall(
@@ -1280,9 +1280,7 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
         capture = self.operator.split("capture_durable_state() {", maxsplit=1)[1].split(
             "\nstable_durable_state() {", maxsplit=1
         )[0]
-        consumers = self.operator.split("stable_durable_state() {", maxsplit=1)[1].split(
-            '\ncase "$MODE" in', maxsplit=1
-        )[0]
+        consumers = self.operator.split("stable_durable_state() {", maxsplit=1)[1]
         emitted = set(
             re.findall(r"printf '([a-z][a-z0-9-]*)\\t", capture)
         )

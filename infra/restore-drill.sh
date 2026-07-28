@@ -51,7 +51,8 @@ case "$MODE" in
     verify_plan_addresses "$plan_file" create
     "$REPO_ROOT/infra/tofu.sh" digitalocean show -no-color "$plan_file" \
       >"$plan_file.txt"
-    echo "review $plan_file.txt, then run apply-restore"
+    sha256sum "$plan_file" "$plan_file.txt"
+    echo "review $plan_file.txt and both SHA-256 values, then run apply-restore"
     ;;
   apply-restore)
     require_clean_revision
@@ -59,9 +60,23 @@ case "$MODE" in
     generation=${3:-latest}
     [[ "$plan_file" == /* && -f "$plan_file" ]] || exit 2
     : "${PATCHYARD_RESTORE_APPROVED:?set PATCHYARD_RESTORE_APPROVED=yes after human plan review}"
+    : "${PATCHYARD_RESTORE_APPROVED_SHA256:?set PATCHYARD_RESTORE_APPROVED_SHA256 to the reviewed plan SHA-256}"
     [[ "$PATCHYARD_RESTORE_APPROVED" == yes ]] || exit 2
+    [[ "$PATCHYARD_RESTORE_APPROVED_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 2
     verify_plan_addresses "$plan_file" create
-    "$REPO_ROOT/infra/tofu.sh" digitalocean apply "$plan_file"
+    plan_change_count=$("$REPO_ROOT/infra/tofu.sh" digitalocean show -json "$plan_file" \
+      | jq -er -f "$REPO_ROOT/infra/restore-plan-change-count.jq")
+    [[ "$plan_change_count" =~ ^[0-9]+$ ]] || exit 2
+    read -r actual_plan_sha256 _ < <(sha256sum -- "$plan_file")
+    [[ "$actual_plan_sha256" == "$PATCHYARD_RESTORE_APPROVED_SHA256" ]] || {
+      echo 'restore drill plan SHA-256 differs from the human-reviewed value' >&2
+      exit 2
+    }
+    if [[ "$plan_change_count" == 0 ]]; then
+      echo 'reviewed restore drill plan is entirely no-op; skipping apply'
+    else
+      "$REPO_ROOT/infra/tofu.sh" digitalocean apply "$plan_file"
+    fi
 
     restore_ip=$("$REPO_ROOT/infra/tofu.sh" digitalocean output -raw restore_drill_ipv4)
     restore_private_ip=$("$REPO_ROOT/infra/tofu.sh" digitalocean output -raw restore_drill_private_ipv4)

@@ -87,6 +87,28 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn('>"$payload_root/database.dump"', self.backup)
         self.assertNotIn('--file="$payload_root/database.dump"', self.backup)
 
+    def test_rollback_boundary_inventory_resolves_only_the_reviewed_host(self) -> None:
+        operator = ROOT / "infra" / "rollback-control.sh"
+        with tempfile.TemporaryDirectory() as directory:
+            inventory = Path(directory) / "boundary.json"
+            command = r'''
+source <(sed '/^case "$MODE" in/,$d' "$0")
+write_boundary_inventory factory-control.example.com 209.97.148.52 "$1"
+validate_boundary_inventory \
+  "$1" factory-control.example.com 209.97.148.52
+if validate_boundary_inventory \
+  "$1" factory-control.example.com 192.0.2.1 >/dev/null 2>&1; then
+  exit 1
+fi
+'''
+            subprocess.run(
+                ["bash", "-c", command, str(operator), str(inventory)],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
     def test_backup_is_client_encrypted_before_atomic_off_host_publication(self) -> None:
         encrypt = self.backup.index("age --encrypt")
         upload = self.backup.index("put-object")
@@ -286,6 +308,7 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertNotIn("| while", self.restore_evidence_probe)
 
     def test_restore_evidence_probe_uses_application_cookie_contract(self) -> None:
+        declared_cookies = set()
         for constant in ("LOGIN_COOKIE", "SESSION_COOKIE"):
             match = re.search(
                 rf'^pub const {constant}: &str = "([^"]+)";$',
@@ -293,9 +316,12 @@ class Session16CutoverContract(unittest.TestCase):
                 re.MULTILINE,
             )
             self.assertIsNotNone(match)
+            declared_cookies.add(match.group(1))
             self.assertIn(match.group(1), self.restore_evidence_probe)
-        self.assertNotIn("__Host-factory_login", self.restore_evidence_probe)
-        self.assertNotIn("__Host-factory_session", self.restore_evidence_probe)
+        probe_cookies = set(
+            re.findall(r"__Host-[A-Za-z0-9_-]+", self.restore_evidence_probe)
+        )
+        self.assertSetEqual(probe_cookies, declared_cookies)
 
     def test_restore_probe_refreshes_the_password_on_every_attempt(self) -> None:
         provision = self.restore_play.index(
@@ -311,6 +337,8 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertLess(reset, probe)
         reset_task = self.restore_play[reset:probe]
         self.assertIn("- reset-password", reset_task)
+        self.assertIn("--username=restore-drill@example.com", reset_task)
+        self.assertNotIn("--password", reset_task)
         self.assertIn("stdin: \"{{ factory_restore_probe_password }}\"", reset_task)
         self.assertIn("no_log: true", reset_task)
 
@@ -464,6 +492,25 @@ class Session16CutoverContract(unittest.TestCase):
         self.assertIn("sudo -n runuser -u factory-manager -- git", self.rollback_operator)
         self.assertIn("set_rollback_boundary enter", self.rollback_operator)
         self.assertIn("set_rollback_boundary exit", self.rollback_operator)
+        self.assertEqual(
+            self.rollback_operator.count(
+                "mktemp --suffix=.json /tmp/patchyard-rollback-boundary.XXXXXX"
+            ),
+            2,
+        )
+        self.assertIn("ansible-inventory", self.rollback_operator)
+        self.assertIn(
+            'validate_boundary_inventory "$boundary_inventory" "$control_host" "$address"',
+            self.rollback_operator,
+        )
+        self.assertIn(
+            "rollback boundary inventory did not resolve the reviewed control host",
+            self.rollback_operator,
+        )
+        self.assertIn(
+            "(.control_plane.hosts // []) == [$host]",
+            self.rollback_operator,
+        )
         self.assertIn("dashboard Full stop", self.rollback_boundary)
         self.assertIn("factory.proposer_runs", self.rollback_boundary)
         self.assertIn('port="{{ item }}" protocol="tcp" reject', self.rollback_boundary)

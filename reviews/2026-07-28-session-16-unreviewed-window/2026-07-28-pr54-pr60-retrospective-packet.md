@@ -2,7 +2,7 @@
 
 Date: 2026-07-28
 
-Review requested from: Fable
+Reviewer seat: Opus 5 [xhigh] via Claude Code on Anthropic (A78)
 
 Window under review: Factory PRs #54 through #60, inclusive
 
@@ -10,7 +10,7 @@ Window under review: Factory PRs #54 through #60, inclusive
 
 All seven PRs merged during the attended Session 16 cutover without a review
 comment from either reviewer seat. This packet does not retroactively pretend
-that the merge-time review gate was satisfied. It gives Fable one bounded diff
+that the merge-time review gate was satisfied. It gives Opus one bounded diff
 and execution narrative to review after the fact so the unreviewed production
 window is explicit, attributable, and either accepted with findings or repaired.
 
@@ -97,20 +97,41 @@ rewriting an already-failed request.
   no package pin or signature check was bypassed, no stale lifecycle row was
   rewritten by SQL, and no backup success was claimed until public service
   state was verified.
-- #54, #55, #56, and #60 each add a regression that binds the observed defect
-  to its declarative source. #57 binds key order/fingerprint/GPG enforcement.
-  #59 adds a real disposable-PostgreSQL lifecycle regression.
+- #54, #55, and #57 bind their installed defects structurally. #56's source
+  assertion is backed by the installed qualifier, and #59 adds a real
+  disposable-PostgreSQL lifecycle regression. #60's original array-literal
+  assertion did not bind its systemd dependency defect; the accepted repair in
+  this PR replaces it with an executed service-state fixture.
 - The unreviewed window itself is a process defect. Installed-host urgency did
   not remove the need for a second seat; it only made the missing review easy
   to rationalize one repair at a time.
 
-## Requested Fable disposition
+## Opus review disposition
 
-Please return one of:
+The [review disposition](https://github.com/JacobStephens2/patchyard/pull/64#issuecomment-5104517060)
+is `accepted-with-repair`. Opus accepted #54-#59 as-is and found that #60's
+single array-literal assertion could not fail for the systemd dependency
+interaction that caused the defect, or when the unit exited zero with Caddy
+still down.
 
-1. `accepted-retrospectively` with any non-blocking follow-ups;
-2. `accepted-with-repair` with exact findings tied to PR and code path; or
-3. `not-accepted` with the production risk that requires a new reviewed repair.
+The #60 finding is conceded under A77. This PR's repair snapshots every
+prior-active service before issuing any stop, then executes that behavior
+against a fixture where stopping the dashboard also stops Caddy. A second
+fixture makes `systemctl start caddy` return success while leaving Caddy down;
+the backup cleanup must return `service_resume_failed` with exit 28.
 
-This review is not permission to start Session 17 acceptance. It closes only
-the review gap for PRs #54-#60.
+The residual #57 questions are answered:
+
+- **#57.1:** a pinned SHA-256 over HTTPS is sufficient for the phase-1
+  bootstrap RPM. The reviewed digest is the trust root; a separately carried
+  copy of the same signing key would relocate rather than strengthen it.
+- **#57.2:** a file digest adds nothing beyond the full signing-key
+  fingerprint. It would pin one encoding of the same key material, not a
+  distinct security property.
+- **#57.3:** Remi key rotation needs an explicit two-key transition: import and
+  prove the new key, remove the predecessor, and prove the predecessor is
+  rejected. The non-blocking A-14 inventory follow-up is included in this PR.
+
+This disposition closes the retrospective review gap for PRs #54-#60 after
+the #60 repair is accepted. It is not permission to start Session 17
+acceptance.

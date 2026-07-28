@@ -283,6 +283,7 @@ case "$MODE" in
       echo 'rollback evidence files already exist' >&2
       exit 2
     }
+    "$REPO_ROOT/infra/ansible/converge.sh" --check-inputs
     boundary_inventory=$(mktemp --suffix=.json /tmp/patchyard-rollback-boundary.XXXXXX)
     write_boundary_inventory "$control_host" "$address" "$boundary_inventory"
     set_rollback_boundary enter

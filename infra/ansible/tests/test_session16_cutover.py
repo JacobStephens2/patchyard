@@ -743,7 +743,13 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
         database_task = self.tasks.split(
             "- name: Create the factory database under the schema owner", maxsplit=1
         )[1].split("\n- name:", maxsplit=1)[0]
-        database = re.findall(r"^\s+- ([a-z][a-z0-9_]*)$", database_task, re.MULTILINE)[-1]
+        createdb_argv = re.findall(r'^\s+- "?([^"\n]+)"?$', database_task, re.MULTILINE)
+        createdb_index = createdb_argv.index("createdb")
+        database = next(
+            argument
+            for argument in createdb_argv[createdb_index + 1 :]
+            if not argument.startswith("-")
+        )
         self.assertSetEqual(
             set(re.findall(r"--dbname=([a-z][a-z0-9_]*)", self.probe)), {database}
         )
@@ -765,7 +771,7 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
                 declared_table.group(1),
                 re.MULTILINE,
             )
-        ) - {"constraint"}
+        )
 
         select = re.search(r"\bSELECT\s+(.*?)\s+FROM\b", query.group(1), re.DOTALL)
         self.assertIsNotNone(select)
@@ -884,8 +890,11 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
         )
 
     def test_rollback_boundary_transitions_match_operator(self) -> None:
+        transition_task = self.boundary.split(
+            "- name: Require an explicit rollback-boundary transition", maxsplit=1
+        )[1].split("\n    - name:", maxsplit=1)[0]
         declaration = re.search(
-            r"([a-z_][a-z0-9_]*) in \[([^]]+)\]", self.boundary
+            r"([a-z_][a-z0-9_]*) in \[([^]]+)\]", transition_task
         )
         self.assertIsNotNone(declaration)
         declared_states = set(re.findall(r"'([^']+)'", declaration.group(2)))
@@ -904,11 +913,15 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
         self.assertEqual(passed_variable.group(1), declaration.group(1))
 
     def test_rollback_firewall_ports_match_public_edge(self) -> None:
-        firewall = self.digitalocean.split(
-            'resource "digitalocean_firewall" "control_plane" {', maxsplit=1
-        )[1].split('\nresource "digitalocean_firewall"', maxsplit=1)[0]
+        firewall = re.search(
+            r'(?ms)^resource "digitalocean_firewall" "control_plane" \{\n(.*?)^\}$',
+            self.digitalocean,
+        )
+        self.assertIsNotNone(firewall)
         public_blocks = []
-        for block in re.findall(r"inbound_rule \{(.*?)^  \}", firewall, re.DOTALL | re.MULTILINE):
+        for block in re.findall(
+            r"inbound_rule \{(.*?)^  \}", firewall.group(1), re.DOTALL | re.MULTILINE
+        ):
             addresses = re.search(r"source_addresses\s*=\s*\[([^]]+)\]", block)
             if addresses is None:
                 continue
@@ -1004,8 +1017,13 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
             r'env = "FACTORY_DASHBOARD_SOCKET",\s+default_value = "([^"]+)"',
             self.web_main,
         )
+        checkout_task = self.tasks.split(
+            "- name: Read the installed desired-state revision", maxsplit=1
+        )[1].split("\n- name:", maxsplit=1)[0]
         checkout = re.search(
-            r'env = "FACTORY_INSTALL_ROOT", default_value = "([^"]+)"', self.web_main
+            r"^\s+- -C\n\s+- (/\S+)\n\s+- rev-parse\n\s+- HEAD$",
+            checkout_task,
+            re.MULTILINE,
         )
         manager = re.search(
             r"^factory_manager_user:\s*(\S+)$", self.group_vars, re.MULTILINE
@@ -1063,7 +1081,13 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
         database_task = self.tasks.split(
             "- name: Create the factory database under the schema owner", maxsplit=1
         )[1].split("\n- name:", maxsplit=1)[0]
-        database = re.findall(r"^\s+- ([a-z][a-z0-9_]*)$", database_task, re.MULTILINE)[-1]
+        createdb_argv = re.findall(r'^\s+- "?([^"\n]+)"?$', database_task, re.MULTILINE)
+        createdb_index = createdb_argv.index("createdb")
+        database = next(
+            argument
+            for argument in createdb_argv[createdb_index + 1 :]
+            if not argument.startswith("-")
+        )
         database_literals = set(re.findall(r"--dbname=([a-z][a-z0-9_]*)", scoped))
         database_literals.update(
             re.findall(
@@ -1088,7 +1112,12 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
             self.operator,
             re.DOTALL,
         )
+        stripped_root = re.search(
+            r'relative=\$\{path#"([^"]+)/\$root/"\}', self.operator
+        )
         self.assertIsNotNone(root_loop)
+        self.assertIsNotNone(stripped_root)
+        self.assertEqual(stripped_root.group(1), root_loop.group(2))
         self.assertSetEqual(
             {f"{root_loop.group(2)}/{name}" for name in root_loop.group(1).split()},
             source_roots,
@@ -1152,6 +1181,42 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
             ),
             set(re.findall(r"CREATE TABLE (factory\.[a-z_][a-z0-9_]*)", self.migrations)),
         )
+        declared_columns = set()
+        for table, body in re.findall(
+            r"CREATE TABLE (factory\.[a-z_][a-z0-9_]*) \((.*?)\n\);",
+            self.migrations,
+            re.DOTALL,
+        ):
+            declared_columns.update(
+                (table, column)
+                for column in re.findall(
+                    r"^\s{4}([a-z_][a-z0-9_]*)\s+", body, re.MULTILINE
+                )
+            )
+        boundary_command = re.search(
+            r"--command=SELECT concat\((.*?)\n\s+become_user:",
+            self.boundary,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(boundary_command)
+        boundary_columns = set(
+            re.findall(
+                r"FROM (factory\.[a-z_][a-z0-9_]*) WHERE "
+                r"([a-z_][a-z0-9_]*)",
+                boundary_command.group(1),
+            )
+        )
+        supervisor_table = re.findall(
+            r"FROM (factory\.[a-z_][a-z0-9_]*) WHERE",
+            boundary_command.group(1),
+        )
+        selected_column = re.search(
+            r"CASE WHEN ([a-z_][a-z0-9_]*) THEN", boundary_command.group(1)
+        )
+        self.assertTrue(supervisor_table)
+        self.assertIsNotNone(selected_column)
+        boundary_columns.add((supervisor_table[-1], selected_column.group(1)))
+        self.assertLessEqual(boundary_columns, declared_columns)
 
     def test_rollback_special_tables_and_audit_allowance_match_sources(self) -> None:
         special_tables = set(

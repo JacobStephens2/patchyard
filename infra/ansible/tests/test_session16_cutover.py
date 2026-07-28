@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -556,6 +557,14 @@ fi
             '--manifest-path "$REPO_ROOT/Cargo.toml"',
             self.converge_operator,
         )
+        input_check = (
+            '"$REPO_ROOT/infra/ansible/converge.sh" --check-inputs'
+        )
+        self.assertIn(input_check, self.rollback_operator)
+        self.assertLess(
+            self.rollback_operator.index(input_check),
+            self.rollback_operator.index("set_rollback_boundary enter"),
+        )
         self.assertIn("qualification_migration_count", self.rollback_operator)
         self.assertIn("schema_version:2", self.rollback_operator)
         self.assertIn("control_address", self.rollback_operator)
@@ -579,6 +588,75 @@ fi
             "rollback evidence did not verify; public boundary and reboot-durable backup exclusion remain in force for explicit release",
             self.rollback_operator,
         )
+
+    def test_converge_input_check_refuses_absent_secret_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            private_key = root / "github-app.pem"
+            accounts = root / "dashboard-accounts.json"
+            private_key.write_text("test-key\n")
+            accounts.write_text(
+                json.dumps(
+                    [
+                        {
+                            "username": "admin-one@example.com",
+                            "display_name": "Admin One",
+                            "role": "factory_admin",
+                            "password": "test-password-one",
+                        },
+                        {
+                            "username": "admin-two@example.com",
+                            "display_name": "Admin Two",
+                            "role": "factory_admin",
+                            "password": "test-password-two",
+                        },
+                        {
+                            "username": "submit@example.com",
+                            "display_name": "Submit",
+                            "role": "factory_submit",
+                            "password": "test-password-three",
+                        },
+                    ]
+                )
+            )
+            private_key.chmod(0o600)
+            accounts.chmod(0o600)
+            env = os.environ | {
+                "GH_PATCHYARD_APP_ID": "123",
+                "GH_PATCHYARD_APP_INSTALLATION_ID": "456",
+                "GH_PATCHYARD_APP_PRIVATE_KEY_FILE": str(private_key),
+                "FACTORY_DASHBOARD_ACCOUNTS_FILE": str(accounts),
+            }
+            command = [
+                str(ROOT / "infra" / "ansible" / "converge.sh"),
+                "--check-inputs",
+            ]
+            self.assertEqual(
+                subprocess.run(
+                    command,
+                    env=env,
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                ).returncode,
+                0,
+            )
+            for variable in (
+                "GH_PATCHYARD_APP_PRIVATE_KEY_FILE",
+                "FACTORY_DASHBOARD_ACCOUNTS_FILE",
+            ):
+                missing = env.copy()
+                missing.pop(variable)
+                self.assertNotEqual(
+                    subprocess.run(
+                        command,
+                        env=missing,
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    ).returncode,
+                    0,
+                )
 
     def test_spaces_authorities_are_split(self) -> None:
         self.assertIn('name = "patchyard-backup-management"', self.spaces)

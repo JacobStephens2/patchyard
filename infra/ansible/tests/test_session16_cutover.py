@@ -653,7 +653,7 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
         form = re.search(r"struct LoginForm \{(.*?)\n\}", self.web, re.DOTALL)
         self.assertIsNotNone(form)
         declared_fields = set(
-            re.findall(r"^\s+([a-z_][a-z0-9_]*): String,$", form.group(1), re.MULTILINE)
+            re.findall(r"^\s+([a-z_][a-z0-9_]*): .+,$", form.group(1), re.MULTILINE)
         )
         submitted = dict(
             re.findall(
@@ -904,7 +904,7 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
             )
         )
         operator_states = set(
-            re.findall(r"^\s+set_rollback_boundary ([a-z-]+)$", self.operator, re.MULTILINE)
+            re.findall(r"\bset_rollback_boundary\s+([a-z-]+)\b", self.operator)
         )
         self.assertSetEqual(condition_states, declared_states)
         self.assertSetEqual(operator_states, declared_states)

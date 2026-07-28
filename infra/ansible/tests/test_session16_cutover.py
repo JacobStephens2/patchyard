@@ -644,6 +644,7 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
         cls.inventory_output = (
             ROOT / "infra" / "digitalocean" / "outputs.tf"
         ).read_text()
+        cls.qualifier = (cls.files / "qualify-factory-control").read_text()
         cls.migrations = "\n".join(
             path.read_text() for path in sorted((ROOT / "migrations").glob("*.sql"))
         )
@@ -727,9 +728,15 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
         )
         self.assertIsNotNone(socket)
         declared["database_socket"] = socket.group(1)
-        probe_paths = dict(
-            re.findall(r"^readonly ([a-z_][a-z0-9_]*)='([^']+)'$", self.probe, re.MULTILINE)
-        )
+        probe_paths = {
+            name: quoted or unquoted
+            for name, quoted, unquoted in re.findall(
+                r"^readonly ([a-z_][a-z0-9_]*)=(?:'([^']+)'|(/\S+))$",
+                self.probe,
+                re.MULTILINE,
+            )
+        }
+        self.assertSetEqual(set(probe_paths), set(declared))
         for name, value in declared.items():
             self.assertEqual(probe_paths[name], value)
 
@@ -792,16 +799,23 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
         maximum = re.search(r"value\.len\(\) <= ([0-9]+)", policy)
         allowed = re.search(r"matches!\(byte, ([^)]+)\)", policy)
         probe_pattern = re.search(
-            r"regexp_replace\(path, '[^']+', ''\) ~ '\^\[A-Za-z0-9([^]]+)\]\{1,([0-9]+)\}\$'",
+            r"regexp_replace\(path, '[^']+', ''\) ~ '\^\[([^]]+)\]"
+            r"\{([0-9]+),([0-9]+)\}\$'",
             self.probe,
         )
         self.assertIsNotNone(maximum)
         self.assertIsNotNone(allowed)
         self.assertIsNotNone(probe_pattern)
+        alphanumeric_class = "A-Za-z0-9"
+        source_is_alphanumeric = "byte.is_ascii_alphanumeric()" in policy
+        probe_is_alphanumeric = alphanumeric_class in probe_pattern.group(1)
+        self.assertEqual(probe_is_alphanumeric, source_is_alphanumeric)
+        probe_literals = probe_pattern.group(1).replace(alphanumeric_class, "")
         self.assertSetEqual(
-            set(probe_pattern.group(1)), set(re.findall(r"b'(.)'", allowed.group(1)))
+            set(probe_literals), set(re.findall(r"b'(.)'", allowed.group(1)))
         )
-        self.assertEqual(int(probe_pattern.group(2)), int(maximum.group(1)))
+        self.assertEqual(int(probe_pattern.group(2)), int("!value.is_empty()" in policy))
+        self.assertEqual(int(probe_pattern.group(3)), int(maximum.group(1)))
 
         evidence = self.web.split("async fn evidence(", maxsplit=1)[1].split(
             "\nasync fn ", maxsplit=1
@@ -1025,6 +1039,19 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
             ),
             {manager.group(1)},
         )
+        sentinel_task = self.boundary.split(
+            "- name: Create the persistent rollback-boundary sentinel", maxsplit=1
+        )[1].split("\n        - name:", maxsplit=1)[0]
+        self.assertSetEqual(
+            set(
+                re.findall(
+                    r"^\s+(?:owner|group):\s*([^\s]+)$",
+                    sentinel_task,
+                    re.MULTILINE,
+                )
+            ),
+            {manager.group(1)},
+        )
 
         health_route = re.search(r'\.route\("([^"]+)", get\(health\)\)', self.web)
         self.assertIsNotNone(health_route)
@@ -1066,6 +1093,28 @@ class Session16DuplicatedContractBindings(unittest.TestCase):
             {f"{root_loop.group(2)}/{name}" for name in root_loop.group(1).split()},
             source_roots,
         )
+
+    def test_rollback_qualifier_query_matches_its_source(self) -> None:
+        consumer_pattern = re.search(
+            r'\| sed -n "/([^/]+)/s/', self.operator
+        )
+        self.assertIsNotNone(consumer_pattern)
+        consumer_literal = consumer_pattern.group(1).replace(r"\*", "*").replace(
+            r"\.", "."
+        )
+        migration_count = re.search(
+            r"^factory_migration_count:\s*([0-9]+)$",
+            self.group_vars,
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(migration_count)
+        source_query = re.search(
+            rf"--command='([^']+)'\)\" = {migration_count.group(1)}$",
+            self.qualifier,
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(source_query)
+        self.assertTrue(source_query.group(1).startswith(consumer_literal))
 
     def test_rollback_active_state_sets_match_declared_contracts(self) -> None:
         terminal = re.search(

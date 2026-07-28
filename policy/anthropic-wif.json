@@ -10,21 +10,21 @@
     "name": "Patchyard Factory"
   },
   "service_account": {
-    "id": null,
+    "id": "svac_01BqCdjSqFsWTvfDyCucThZy",
     "name": "patchyard-worker",
     "description": "Patchyard Factory short-lived inference bearer for isolated worker runs.",
     "organization_role": "developer",
     "workspace_role": "workspace_restricted_developer"
   },
   "issuer": {
-    "id": null,
+    "id": "fdis_01A8wjwFPKfutAGtFN3oqF8J",
     "name": "patchyard-control-plane",
     "issuer_url": "https://factory.example.com/workload-identity",
     "check_jti": true,
     "max_jwt_lifetime_seconds": 300
   },
   "rule": {
-    "id": null,
+    "id": "fdrl_000000000000000000000000",
     "name": "patchyard-inference",
     "description": "Mint five-minute inference-only bearers for the Patchyard Factory worker.",
     "subject": "patchyard-control-plane",

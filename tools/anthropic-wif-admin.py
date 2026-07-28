@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 from typing import Any
 import urllib.error
 import urllib.parse
@@ -21,7 +22,9 @@ BASE_URL = "https://api.anthropic.com"
 
 
 class ApiError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class AnthropicAdmin:
@@ -67,7 +70,10 @@ class AnthropicAdmin:
                 message = (parsed.get("error") or {}).get("message", "unknown error")
             except (json.JSONDecodeError, AttributeError):
                 message = "non-JSON error"
-            raise ApiError(f"{method} {path}: HTTP {error.code}: {message}") from error
+            raise ApiError(
+                f"{method} {path}: HTTP {error.code}: {message}",
+                status_code=error.code,
+            ) from error
         return json.loads(payload)
 
     def list_all(self, path: str) -> list[dict[str, Any]]:
@@ -114,6 +120,22 @@ def load_jwks(path: Path) -> list[dict[str, Any]]:
     return keys
 
 
+def list_memberships(
+    api: AnthropicAdmin, path: str, *, retry_not_found: bool
+) -> list[dict[str, Any]]:
+    """Allow a newly created service account to reach membership endpoints."""
+    delays = (0, 1, 2, 4, 8, 15, 30) if retry_not_found else (0,)
+    for attempt, delay in enumerate(delays):
+        if delay:
+            time.sleep(delay)
+        try:
+            return api.list_all(path + "?limit=100")
+        except ApiError as error:
+            if error.status_code != 404 or attempt == len(delays) - 1:
+                raise
+    raise AssertionError("membership propagation retry exhausted without an error")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--profile", default="patchyard-admin")
@@ -141,6 +163,7 @@ def main() -> int:
         "/v1/organizations/service_accounts?limit=100&include_archived=false"
     )
     account = unique_named(accounts, account_spec["name"], "service account")
+    account_created = False
     if account is None:
         changes.append("create-service-account")
         if args.apply:
@@ -153,6 +176,7 @@ def main() -> int:
                     "organization_role": account_spec["organization_role"],
                 },
             )
+            account_created = True
     if account is not None:
         require_equal(
             account.get("description"),
@@ -169,7 +193,9 @@ def main() -> int:
 
     if account is not None:
         membership_path = f"/v1/organizations/service_accounts/{account['id']}/workspaces"
-        memberships = api.list_all(membership_path + "?limit=100")
+        memberships = list_memberships(
+            api, membership_path, retry_not_found=account_created
+        )
         matching_memberships = [
             item for item in memberships if item.get("workspace_id") == workspace["id"]
         ]

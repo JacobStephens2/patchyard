@@ -105,7 +105,6 @@ REMOTE_ROOT="/var/tmp/patchyard-incoming/$RUN_ID"
 RUN_TEMP=$(mktemp -d /run/patchyard-anthropic/issuance.XXXXXX)
 FIXTURE_REPO="$RUN_TEMP/repo"
 REMOTE_CREATED=false
-ACCESS_TOKEN=
 ASSERTION=
 
 remote_ssh() {
@@ -119,7 +118,7 @@ cleanup() {
   if $REMOTE_CREATED; then
     remote_ssh rm -r -- "$REMOTE_ROOT" >/dev/null 2>&1 || true
   fi
-  unset ACCESS_TOKEN ASSERTION
+  unset ASSERTION
   rm -r -- "$RUN_TEMP"
   exit "$rc"
 }
@@ -173,6 +172,7 @@ SIGNATURE=$(printf '%s' "$SIGNING_INPUT" \
   | openssl dgst -sha256 -sign "$SIGNING_KEY" | b64url)
 ASSERTION="$SIGNING_INPUT.$SIGNATURE"
 printf '%s' "$ASSERTION" >"$RUN_TEMP/assertion.jwt"
+[[ "$(stat -c '%U:%G:%a' "$RUN_TEMP/assertion.jwt")" == root:root:600 ]]
 
 jq -n \
   --rawfile assertion "$RUN_TEMP/assertion.jwt" \
@@ -219,7 +219,9 @@ if ! jq -e '
   echo 'anthropic_exchange_invalid response_contract=rejected' >&2
   exit 1
 fi
-ACCESS_TOKEN=$(jq -r .access_token "$RUN_TEMP/exchange-response.json")
+ACCESS_TOKEN_NEEDLE="$RUN_TEMP/access-token.needle"
+jq -jr .access_token "$RUN_TEMP/exchange-response.json" >"$ACCESS_TOKEN_NEEDLE"
+[[ "$(stat -c '%U:%G:%a' "$ACCESS_TOKEN_NEEDLE")" == root:root:600 ]]
 EXPIRES_IN=$(jq -r .expires_in "$RUN_TEMP/exchange-response.json")
 SERVER_DATE=$(awk 'tolower($1) == "date:" {sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' \
   "$RUN_TEMP/exchange-headers")
@@ -306,16 +308,18 @@ for name in change.patch rationale.txt evidence.json; do
 done
 [[ "$(find "$RUN_TEMP/result" -mindepth 1 -maxdepth 1 -type f | wc -l)" -eq 3 ]]
 
-if grep -R -F -q -- "$ACCESS_TOKEN" \
+if grep -R -F -q -f "$ACCESS_TOKEN_NEEDLE" -- \
   "$RUN_TEMP/launcher.stdout" "$RUN_TEMP/launcher.stderr" "$RUN_TEMP/result"; then
   echo "Anthropic bearer crossed the accepted evidence boundary" >&2
   exit 1
 fi
-if grep -R -F -q -- "$ASSERTION" \
+if grep -R -F -q -f "$RUN_TEMP/assertion.jwt" -- \
   "$RUN_TEMP/launcher.stdout" "$RUN_TEMP/launcher.stderr" "$RUN_TEMP/result"; then
   echo "OIDC assertion crossed the control-plane boundary" >&2
   exit 1
 fi
+rm -f -- "$ACCESS_TOKEN_NEEDLE" "$RUN_TEMP/assertion.jwt"
+unset ACCESS_TOKEN_NEEDLE ASSERTION
 
 jq -e \
   --arg run_id "$RUN_ID" --arg issued_at "$ISSUED_AT" --arg expires_at "$EXPIRES_AT" \
@@ -372,5 +376,4 @@ chown -R factory-web:factory "$RUN_TEMP/result"
 find "$RUN_TEMP/result" -type d -exec chmod 0750 {} +
 find "$RUN_TEMP/result" -type f -exec chmod 0640 {} +
 mv -- "$RUN_TEMP/result" "$OUTPUT_DIR"
-unset ACCESS_TOKEN ASSERTION
 echo "anthropic_issuance_result=$OUTPUT_DIR run_id=$RUN_ID"

@@ -30,6 +30,27 @@ class AnthropicIssuanceContract(unittest.TestCase):
         cls.launcher = (ROOT / "worker/runtime/patchyard-firecracker-run").read_text()
         cls.guest = (ROOT / "worker/image/patchyard-guest-run").read_text()
 
+    def assert_private_needle_scans(self, runner: str, launcher: str) -> None:
+        runner_scan = runner.split(
+            '[[ "$(find "$RUN_TEMP/result"', 1
+        )[1].split("\njq -e \\", 1)[0]
+        self.assertIn(
+            'grep -R -F -q -f "$ACCESS_TOKEN_NEEDLE" --', runner_scan
+        )
+        self.assertIn(
+            'grep -R -F -q -f "$RUN_TEMP/assertion.jwt" --', runner_scan
+        )
+        self.assertNotIn('$ACCESS_TOKEN"', runner_scan)
+        self.assertNotIn('-- "$ASSERTION"', runner_scan)
+
+        launcher_scan = launcher.split(
+            "FAILURE_STAGE=result-filesystem-validation", 1
+        )[1].split("FAILURE_STAGE=guest-result-status", 1)[0]
+        self.assertIn(
+            'grep -R -F -q -f "$CAPABILITY_NEEDLE" --', launcher_scan
+        )
+        self.assertNotIn("CAPABILITY_SECRET", launcher_scan)
+
     def test_signing_key_exists_only_on_the_control_plane(self) -> None:
         self.assertIn("rsa_keygen_bits:3072", self.control_tasks)
         self.assertIn('mode: "0400"', self.control_tasks)
@@ -61,6 +82,46 @@ class AnthropicIssuanceContract(unittest.TestCase):
         )
         self.assertIn('mount --bind "$RUN_TMPFS/credential.ext4"', self.launcher)
         self.assertIn("is_read_only:true", self.launcher)
+
+    def test_residue_scans_keep_credentials_out_of_process_argv(self) -> None:
+        self.assert_private_needle_scans(self.runner, self.launcher)
+        self.assertIn(
+            "stat -c '%U:%G:%a' \"$ACCESS_TOKEN_NEEDLE\"", self.runner
+        )
+        self.assertIn(
+            "stat -c '%U:%G:%a' \"$RUN_TEMP/assertion.jwt\"", self.runner
+        )
+        self.assertIn(
+            "stat -c '%U:%G:%a' \"$CAPABILITY_NEEDLE\"", self.launcher
+        )
+        self.assertNotIn("ACCESS_TOKEN=", self.runner)
+        self.assertNotIn("CAPABILITY_SECRET", self.launcher)
+
+    def test_argv_secret_scan_mutations_are_rejected(self) -> None:
+        mutations = (
+            (
+                self.runner.replace(
+                    '-f "$ACCESS_TOKEN_NEEDLE" --', '-- "$ACCESS_TOKEN"', 1
+                ),
+                self.launcher,
+            ),
+            (
+                self.runner.replace(
+                    '-f "$RUN_TEMP/assertion.jwt" --', '-- "$ASSERTION"', 1
+                ),
+                self.launcher,
+            ),
+            (
+                self.runner,
+                self.launcher.replace(
+                    '-f "$CAPABILITY_NEEDLE" --', '-- "$CAPABILITY_SECRET"', 1
+                ),
+            ),
+        )
+        for runner, launcher in mutations:
+            with self.subTest():
+                with self.assertRaises(AssertionError):
+                    self.assert_private_needle_scans(runner, launcher)
 
     def test_guest_proves_the_credential_block_device_is_read_only(self) -> None:
         block_probe = self.guest.index('blockdev --getro "$CREDENTIAL_DEVICE"')

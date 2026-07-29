@@ -116,7 +116,7 @@ INPUT_STAGE="$RUNTIME_ROOT/input-$RUN_ID"
 RUN_TMPFS="$TMPFS_ROOT/$RUN_ID"
 RESULT_EXTRACT="$RUNTIME_ROOT/result-extract-$RUN_ID"
 ACCEPT_TEMP=
-CAPABILITY_SECRET=
+CAPABILITY_NEEDLE=
 JAILER_PID=
 VMM_PID=
 BASE_FORWARD=$(sysctl -n net.ipv4.ip_forward)
@@ -323,7 +323,9 @@ if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
   ' "$CAPABILITY" >/dev/null
   [[ "$EXPIRES" -gt "$NOW" && "$EXPIRES" -le $((NOW + 300)) ]]
   [[ "$EXPIRES" -eq $((ISSUED + EXPIRES_IN)) ]]
-  CAPABILITY_SECRET=$(jq -r .secret "$CAPABILITY")
+  CAPABILITY_NEEDLE="$RUN_TMPFS/capability-secret.needle"
+  jq -jr .secret "$CAPABILITY" >"$CAPABILITY_NEEDLE"
+  [[ "$(stat -c '%U:%G:%a' "$CAPABILITY_NEEDLE")" == root:root:600 ]]
 fi
 
 truncate -s 256M "$JAIL_ROOT/input.ext4"
@@ -462,10 +464,13 @@ VMM_PID=
 FAILURE_STAGE=result-filesystem-validation
 /usr/local/libexec/patchyard-extract-result-image \
   "$JAIL_ROOT/result.ext4" "$RESULT_EXTRACT"
-if [[ -n "$CAPABILITY_SECRET" ]] \
-  && grep -R -F -q -- "$CAPABILITY_SECRET" "$RESULT_EXTRACT"; then
-  echo "provider credential entered the guest result boundary" >&2
-  false
+if [[ -n "$CAPABILITY_NEEDLE" ]]; then
+  if grep -R -F -q -f "$CAPABILITY_NEEDLE" -- "$RESULT_EXTRACT"; then
+    echo "provider credential entered the guest result boundary" >&2
+    false
+  fi
+  rm -f -- "$CAPABILITY_NEEDLE"
+  CAPABILITY_NEEDLE=
 fi
 FAILURE_STAGE=guest-result-status
 RESULT_STATUS=$(<"$RESULT_EXTRACT/status")

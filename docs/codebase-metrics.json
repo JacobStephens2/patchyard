@@ -72,16 +72,16 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 17732,
-      "comments": 495,
-      "blanks": 1613,
+      "code": 17801,
+      "comments": 498,
+      "blanks": 1601,
       "files": 147,
       "languages": [
         {
           "language": "BASH",
-          "code": 4911,
-          "comments": 112,
-          "blanks": 361,
+          "code": 4959,
+          "comments": 115,
+          "blanks": 348,
           "files": 39
         },
         {
@@ -135,9 +135,9 @@
         },
         {
           "language": "Python",
-          "code": 5677,
+          "code": 5698,
           "comments": 39,
-          "blanks": 514,
+          "blanks": 515,
           "files": 21
         },
         {
@@ -173,9 +173,9 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 6074,
+      "code": 6092,
       "comments": 247,
-      "blanks": 633,
+      "blanks": 635,
       "files": 90,
       "languages": [
         {
@@ -229,9 +229,9 @@
         },
         {
           "language": "Python",
-          "code": 3468,
+          "code": 3486,
           "comments": 33,
-          "blanks": 463,
+          "blanks": 465,
           "files": 22
         },
         {
@@ -267,8 +267,8 @@
     {
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
-      "code": 8355,
-      "comments": 10283,
+      "code": 8356,
+      "comments": 10288,
       "blanks": 2939,
       "files": 114,
       "languages": [
@@ -281,7 +281,7 @@
         },
         {
           "language": "JSON",
-          "code": 7760,
+          "code": 7761,
           "comments": 0,
           "blanks": 1,
           "files": 30
@@ -289,7 +289,7 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 10263,
+          "comments": 10268,
           "blanks": 2886,
           "files": 88
         },

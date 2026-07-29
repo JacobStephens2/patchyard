@@ -64,6 +64,15 @@ path_contract() {
   [[ "$actual" == "$owner:$mode" ]]
 }
 
+final_exit_status() {
+  local child_status=$1
+  if [[ "$TEARDOWN_COMPLETE" != true && "$child_status" -eq 0 ]]; then
+    printf '1\n'
+  else
+    printf '%s\n' "$child_status"
+  fi
+}
+
 count_child_processes() {
   local cgroup pid count=0
   cgroup=$(/usr/bin/systemctl show \
@@ -323,6 +332,7 @@ finish() {
   if [[ -n "$NETWORK_LOCK" ]]; then
     flock -u "$NETWORK_LOCK" >/dev/null 2>&1 || true
   fi
+  rc=$(final_exit_status "$rc")
   exit "$rc"
 }
 

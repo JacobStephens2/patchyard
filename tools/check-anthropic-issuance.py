@@ -65,6 +65,12 @@ expected_policy = {
         "id": "wrkspc_000000000000000000000000",
         "name": "Patchyard Factory",
     },
+    "spend_enforcement": {
+        "currency": "USD",
+        "model": "claude-opus-5",
+        "operational_cap_cents": 5000,
+        "qualification_cap_cents": 100,
+    },
     "service_account": {
         "id": policy.get("service_account", {}).get("id"),
         "name": "patchyard-worker",
@@ -148,7 +154,7 @@ for required in (
     "--connect-timeout 10 --max-time 30",
     "assertion.jwt",
     "capability.json",
-    "spend_cap_cents:0",
+    "SPEND_CAP_CENTS=0",
     "remote_ssh sudo /usr/local/sbin/patchyard-firecracker-run",
     "if remote_ssh sudo pgrep",
     "worker_links=$(remote_ssh sudo ip -o link show)",
@@ -204,7 +210,7 @@ for required in (
         errors.append(f"guest issuance fixture is missing: {required}")
 credential_branch = guest.index('if [[ "$CREDENTIAL_REQUIRED" == true ]]')
 provider_branch = guest.index(
-    'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]'
+    'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then'
 )
 credential_unmount = guest.index("  umount /credential", credential_branch)
 block_read_only = guest.index(

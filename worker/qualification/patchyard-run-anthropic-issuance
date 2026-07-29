@@ -39,6 +39,10 @@ jq -e '
   and .organization.name == "Example Company"
   and .workspace.id == "wrkspc_000000000000000000000000"
   and .workspace.name == "Patchyard Factory"
+  and .spend_enforcement.currency == "USD"
+  and .spend_enforcement.model == "claude-opus-5"
+  and .spend_enforcement.operational_cap_cents == 5000
+  and .spend_enforcement.qualification_cap_cents == 100
   and .issuer.issuer_url == "https://factory.example.com/workload-identity"
   and .issuer.check_jti == true
   and .issuer.max_jwt_lifetime_seconds == 300
@@ -55,10 +59,24 @@ if [[ "$ACTION" == jwks ]]; then
   exit 0
 fi
 
-[[ "$ACTION" == run && $# -eq 3 ]] || {
-  echo "usage: $0 jwks | run SNAPSHOT_DIR OUTPUT_DIR" >&2
-  exit 2
-}
+case "$ACTION" in
+  run)
+    [[ $# -eq 3 ]]
+    QUALIFICATION_REQUIREMENT=issuance-delivery
+    SPEND_CAP_CENTS=0
+    RUN_PREFIX=anthropic-i1
+    ;;
+  run-spend)
+    [[ $# -eq 3 ]]
+    QUALIFICATION_REQUIREMENT=provider-spend-enforcement
+    SPEND_CAP_CENTS=$(jq -r .spend_enforcement.qualification_cap_cents "$CONFIG")
+    RUN_PREFIX=anthropic-s2
+    ;;
+  *)
+    echo "usage: $0 jwks | run SNAPSHOT_DIR OUTPUT_DIR | run-spend SNAPSHOT_DIR OUTPUT_DIR" >&2
+    exit 2
+    ;;
+esac
 SNAPSHOT_DIR=$(readlink -f -- "$2")
 OUTPUT_DIR=$3
 [[ "$SNAPSHOT_DIR" == /* && "$OUTPUT_DIR" == /* ]]
@@ -100,7 +118,7 @@ SSH_ARGS=(
   -o UserKnownHostsFile=/var/lib/patchyard-manager/.ssh/known_hosts
   -o ConnectTimeout=10
 )
-RUN_ID="anthropic-i1-$(date -u +%Y%m%d)-$(openssl rand -hex 5)"
+RUN_ID="$RUN_PREFIX-$(date -u +%Y%m%d)-$(openssl rand -hex 5)"
 REMOTE_ROOT="/var/tmp/patchyard-incoming/$RUN_ID"
 RUN_TEMP=$(mktemp -d /run/patchyard-anthropic/issuance.XXXXXX)
 FIXTURE_REPO="$RUN_TEMP/repo"
@@ -238,14 +256,22 @@ jq -n \
   --arg service_account_id "$(jq -r .service_account.id "$CONFIG")" \
   --arg rule_id "$(jq -r .rule.id "$CONFIG")" \
   --arg workspace_id "$(jq -r .workspace.id "$CONFIG")" \
-  '{schema_version:1,provider:"anthropic",qualification_requirement:"issuance-delivery",
-    $capability_id,secret:$exchange[0].access_token,spend_cap_cents:0,$issued_at,$expires_at,
+  --arg qualification_requirement "$QUALIFICATION_REQUIREMENT" \
+  --argjson spend_cap_cents "$SPEND_CAP_CENTS" \
+  '{schema_version:1,provider:"anthropic",$qualification_requirement,
+    $capability_id,secret:$exchange[0].access_token,$spend_cap_cents,$issued_at,$expires_at,
     token_type:$exchange[0].token_type,scope:$exchange[0].scope,
     expires_in:$exchange[0].expires_in,$exchange_request_id,
     $service_account_id,$rule_id,$workspace_id}' >"$RUN_TEMP/capability.json"
 
 install -d -m 0700 "$FIXTURE_REPO"
-printf 'anthropic-issuance-delivery-base\n' >"$FIXTURE_REPO/base.txt"
+if [[ "$QUALIFICATION_REQUIREMENT" == issuance-delivery ]]; then
+  printf 'anthropic-issuance-delivery-base\n' >"$FIXTURE_REPO/base.txt"
+  printf 'Anthropic issuance and delivery qualification.\n' >"$RUN_TEMP/request.md"
+else
+  printf 'anthropic-provider-spend-enforcement-base\n' >"$FIXTURE_REPO/base.txt"
+  printf 'Anthropic provider-side spend enforcement qualification.\n' >"$RUN_TEMP/request.md"
+fi
 git -C "$FIXTURE_REPO" init --quiet
 git -C "$FIXTURE_REPO" config user.name 'Patchyard Factory Anthropic fixture'
 git -C "$FIXTURE_REPO" config user.email 'factory@example.invalid'
@@ -253,7 +279,6 @@ git -C "$FIXTURE_REPO" add base.txt
 GIT_AUTHOR_DATE=2000-01-01T00:00:00Z GIT_COMMITTER_DATE=2000-01-01T00:00:00Z \
   git -C "$FIXTURE_REPO" commit --quiet -m 'Anthropic issuance fixture'
 BASE_SHA=$(git -C "$FIXTURE_REPO" rev-parse HEAD)
-printf 'Anthropic issuance and delivery qualification.\n' >"$RUN_TEMP/request.md"
 git -C "$FIXTURE_REPO" archive --format=tar "$BASE_SHA" \
   | gzip -n -9 >"$RUN_TEMP/source.tar.gz"
 
@@ -270,10 +295,12 @@ jq -n \
   --arg snapshot_manifest_sha256 "$SNAPSHOT_MANIFEST_SHA256" \
   --arg capability_sha256 "$CAPABILITY_SHA256" \
   --arg host_contract_sha256 "$HOST_CONTRACT_SHA256" \
+  --arg qualification_requirement "$QUALIFICATION_REQUIREMENT" \
+  --argjson spend_cap_cents "$SPEND_CAP_CENTS" \
   '{schema_version:1,$run_id,$base_sha,$source_archive_sha256,$request_sha256,
     $snapshot_sql_sha256,$snapshot_manifest_sha256,provider:"anthropic",
-    mode:"provider-qualification",qualification_requirement:"issuance-delivery",
-    credential_required:true,$capability_sha256,$host_contract_sha256,spend_cap_cents:0}' \
+    mode:"provider-qualification",$qualification_requirement,
+    credential_required:true,$capability_sha256,$host_contract_sha256,$spend_cap_cents}' \
   >"$RUN_TEMP/run.json"
 
 remote_ssh install -d -m 0700 "$REMOTE_ROOT/snapshot"
@@ -324,9 +351,11 @@ unset ACCESS_TOKEN_NEEDLE ASSERTION
 jq -e \
   --arg run_id "$RUN_ID" --arg issued_at "$ISSUED_AT" --arg expires_at "$EXPIRES_AT" \
   --arg exchange_request_id "$EXCHANGE_REQUEST_ID" \
-  --arg host_contract_sha256 "$HOST_CONTRACT_SHA256" '
+  --arg host_contract_sha256 "$HOST_CONTRACT_SHA256" \
+  --arg qualification_requirement "$QUALIFICATION_REQUIREMENT" \
+  --argjson spend_cap_cents "$SPEND_CAP_CENTS" '
   .schema_version == 1 and .run_id == $run_id and .provider == "anthropic"
-  and .qualification_requirement == "issuance-delivery"
+  and .qualification_requirement == $qualification_requirement
   and (.observed_rootfs_sha256 | test("^[0-9a-f]{64}$"))
   and (has("rootfs_sha256") | not)
   and .host_contract_sha256 == $host_contract_sha256
@@ -335,9 +364,20 @@ jq -e \
   and .delivery.capability_drive_read_only == true
   and .delivery.capability_drive_unmounted_before_provider_call == true
   and .delivery.credential_removed_before_output == true
-  and .provider_call.endpoint == "/v1/models?limit=1"
-  and .provider_call.http_status == 200
-  and (.provider_call.request_id | test("^req_[A-Za-z0-9]+$"))
+  and (if $qualification_requirement == "issuance-delivery" then
+    .provider_call.endpoint == "/v1/models?limit=1"
+    and .provider_call.http_status == 200
+    and (.provider_call.request_id | test("^req_[A-Za-z0-9]+$"))
+  else
+    .spend_enforcement.cap_cents == $spend_cap_cents
+    and (.spend_enforcement.successful_requests | type == "array" and length > 0)
+    and .spend_enforcement.denial.endpoint == "/v1/messages"
+    and (.spend_enforcement.denial.http_status == 400
+      or .spend_enforcement.denial.http_status == 403
+      or .spend_enforcement.denial.http_status == 429)
+    and (.spend_enforcement.denial.provider_error.request_id
+      | test("^req_[A-Za-z0-9]+$"))
+  end)
   and .host_teardown == {processes:0,taps:0,nftables_tables:0,run_directories:0,credential_files:0}
   and (has("secret") | not) and (has("access_token") | not)
 ' "$RUN_TEMP/result/evidence.json" >/dev/null
@@ -378,4 +418,4 @@ chown -R factory-web:factory "$RUN_TEMP/result"
 find "$RUN_TEMP/result" -type d -exec chmod 0750 {} +
 find "$RUN_TEMP/result" -type f -exec chmod 0640 {} +
 mv -- "$RUN_TEMP/result" "$OUTPUT_DIR"
-echo "anthropic_issuance_result=$OUTPUT_DIR run_id=$RUN_ID"
+echo "anthropic_qualification_result=$OUTPUT_DIR run_id=$RUN_ID requirement=$QUALIFICATION_REQUIREMENT"

@@ -59,9 +59,11 @@ jq -e '
   and (if .credential_required then
     .mode == "provider-qualification"
     and .provider == "anthropic"
-    and .qualification_requirement == "issuance-delivery"
     and (.host_contract_sha256 | test("^[0-9a-f]{64}$"))
-    and .spend_cap_cents == 0
+    and ((.qualification_requirement == "issuance-delivery"
+      and .spend_cap_cents == 0)
+      or (.qualification_requirement == "provider-spend-enforcement"
+      and .spend_cap_cents == 100))
   else true end)
   and (if .mode == "adversarial-qualification" then
     (.qualification_manifest_sha256 | test("^[0-9a-f]{64}$"))
@@ -308,10 +310,12 @@ if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
       "issued_at","provider","qualification_requirement","rule_id","schema_version",
       "scope","secret","service_account_id","spend_cap_cents","token_type","workspace_id"]
     and .schema_version == 1 and .provider == $provider
-    and .qualification_requirement == "issuance-delivery"
+    and ((.qualification_requirement == "issuance-delivery"
+      and .spend_cap_cents == 0)
+      or (.qualification_requirement == "provider-spend-enforcement"
+      and .spend_cap_cents == 100))
     and (.capability_id | test("^[a-zA-Z0-9_-]{8,128}$"))
     and (.secret | type == "string" and test("^sk-ant-oat01-[A-Za-z0-9_-]+$") and length <= 8192)
-    and .spend_cap_cents == 0
     and .token_type == "Bearer" and .scope == "workspace:inference"
     and (.expires_in | type == "number" and . >= 60 and . <= 300)
     and (.issued_at | fromdateiso8601 | type == "number")
@@ -489,7 +493,8 @@ jq -e --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
     and .run_id == $run_id
     and .base_sha == $base_sha
     and (if .provider == "anthropic"
-      and .qualification_requirement == "issuance-delivery" then
+      and (.qualification_requirement == "issuance-delivery"
+        or .qualification_requirement == "provider-spend-enforcement") then
         .observed_rootfs_sha256 == $rootfs_sha256
         and (has("rootfs_sha256") | not)
       else .rootfs_sha256 == $rootfs_sha256 end)

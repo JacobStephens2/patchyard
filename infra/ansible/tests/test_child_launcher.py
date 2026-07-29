@@ -144,6 +144,38 @@ class ChildLauncherContract(unittest.TestCase):
         ):
             self.assertIn(command, self.reaper)
 
+    def test_teardown_failure_forces_a_nonzero_exit(self) -> None:
+        helper = self.launcher.split("final_exit_status() {", 1)[1].split("\n}", 1)[0]
+        finish = self.launcher.split("finish() {", 1)[1].split("\n}\n\ntrap finish", 1)[0]
+        self.assertIn('[[ "$TEARDOWN_COMPLETE" != true', helper)
+        self.assertIn('rc=$(final_exit_status "$rc")', finish)
+        self.assertIn("STATE=teardown_failed", finish)
+
+        probe = subprocess.run(
+            [
+                "bash",
+                "-c",
+                "\n".join(
+                    [
+                        "set -euo pipefail",
+                        "final_exit_status() {",
+                        helper,
+                        "}",
+                        "TEARDOWN_COMPLETE=true",
+                        '[[ "$(final_exit_status 0)" == 0 ]]',
+                        '[[ "$(final_exit_status 7)" == 7 ]]',
+                        "TEARDOWN_COMPLETE=false",
+                        '[[ "$(final_exit_status 0)" -ne 0 ]]',
+                        '[[ "$(final_exit_status 7)" == 7 ]]',
+                    ]
+                ),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(probe.returncode, 0, probe.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -245,7 +245,7 @@ class AnthropicIssuanceContract(unittest.TestCase):
         self.assertNotIn("rootfs_sha256", evidence)
 
         branch = self.guest.split(
-            'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]',
+            'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then',
             1,
         )[1].split('\nif [[ "$MODE" == provider-qualification ]]', 1)[0]
         self.assertIn('--arg observed_rootfs_sha256 "$ROOTFS_SHA"', branch)
@@ -318,7 +318,7 @@ class AnthropicIssuanceContract(unittest.TestCase):
         credential_start = self.guest.index('if [[ "$CREDENTIAL_REQUIRED" == true ]]')
         credential_unmount = self.guest.index("  umount /credential", credential_start)
         branch = self.guest.split(
-            'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]',
+            'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then',
             1,
         )[1].split('\nif [[ "$MODE" == provider-qualification ]]', 1)[0]
         self.assertLess(
@@ -352,11 +352,19 @@ class AnthropicIssuanceContract(unittest.TestCase):
         )
 
     def test_live_positive_call_is_non_generative(self) -> None:
-        self.assertIn("https://api.anthropic.com/v1/models?limit=1", self.guest)
-        self.assertNotIn("/v1/messages", self.guest)
+        branch = self.guest.split(
+            'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then',
+            1,
+        )[1].split('\nif [[ "$MODE" == provider-qualification ]]', 1)[0]
+        self.assertIn("https://api.anthropic.com/v1/models?limit=1", branch)
+        self.assertNotIn("/v1/messages", branch)
 
     def test_provider_denial_diagnostic_is_bounded_and_credential_free(self) -> None:
-        diagnostic = self.guest.split("PROVIDER_CURL_EXIT=0", 1)[1].split(
+        issuance = self.guest.split(
+            'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then',
+            1,
+        )[1].split('\nif [[ "$MODE" == provider-qualification ]]', 1)[0]
+        diagnostic = issuance.split("PROVIDER_CURL_EXIT=0", 1)[1].split(
             "jq -e '.data | type", 1
         )[0]
         self.assertIn(".error.type", diagnostic)
@@ -378,7 +386,7 @@ class AnthropicIssuanceContract(unittest.TestCase):
 
     def test_unprivileged_provider_call_has_a_private_writable_directory(self) -> None:
         branch = self.guest.split(
-            'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]',
+            'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then',
             1,
         )[1].split('\nif [[ "$MODE" == provider-qualification ]]', 1)[0]
         self.assertIn(

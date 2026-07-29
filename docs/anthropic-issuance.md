@@ -26,8 +26,16 @@ result.
 
 The committed fixture records provider request IDs, issuance and expiry times,
 the exact object IDs and scope, read-only delivery and unmounting, credential
-removal, and host teardown. Its host-contract digest binds that proof to the
-exact reviewed control-plane issuance runner and worker Firecracker launcher;
+removal, and host teardown. Five digests are enforced bindings: the checker
+recomputes the deterministic request and patch, the production-parity manifest,
+the complete image recipe, and the host contract. The ext4 rootfs bytes are not
+reproducible because the image build creates filesystem identity and metadata;
+`observed_rootfs_sha256` is therefore explicitly a runtime observation. The
+worker verifies that observation against the exact rootfs bytes before launch
+and again before publishing evidence, but the repository checker does not
+misrepresent it as a reproducible source binding. The host-contract digest
+binds the proof to the exact reviewed control-plane issuance runner and worker
+Firecracker launcher;
 before exchanging the assertion, the runner compares its installed bytes and
 the remote launcher digest with the exact sources in the deployed
 credential-free checkout. The worker address is not executable template text:

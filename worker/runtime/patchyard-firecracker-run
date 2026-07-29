@@ -488,7 +488,11 @@ jq -e --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
   '.schema_version == 1
     and .run_id == $run_id
     and .base_sha == $base_sha
-    and .rootfs_sha256 == $rootfs_sha256
+    and (if .provider == "anthropic"
+      and .qualification_requirement == "issuance-delivery" then
+        .observed_rootfs_sha256 == $rootfs_sha256
+        and (has("rootfs_sha256") | not)
+      else .rootfs_sha256 == $rootfs_sha256 end)
     and .image_recipe_sha256 == $image_recipe_sha256
     and .production_parity_sha256 == $production_parity_sha256
     and (if $host_contract_sha256 == "" then true

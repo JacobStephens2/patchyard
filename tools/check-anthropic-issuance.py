@@ -18,9 +18,21 @@ RESULT_PATH = (
     REPO / "research" / "isolation" / "results" / "anthropic-issuance-delivery.json"
 )
 IMAGE_PATH = REPO / "worker" / "image"
+PRODUCTION_PARITY_PATH = IMAGE_PATH / "production-parity.json"
 HOST_CONTRACT_PATHS = (
     REPO / "worker" / "qualification" / "patchyard-run-anthropic-issuance",
     REPO / "worker" / "runtime" / "patchyard-firecracker-run",
+)
+ANTHROPIC_REQUEST = b"Anthropic issuance and delivery qualification.\n"
+ANTHROPIC_PATCH = (
+    b"diff --git a/anthropic-qualified.txt b/anthropic-qualified.txt\n"
+    b"new file mode 100644\n"
+    b"index 0000000000000000000000000000000000000000.."
+    b"2f27dfcaa039397a95cb44d6e0fc4dcdb53e85cf\n"
+    b"--- /dev/null\n"
+    b"+++ b/anthropic-qualified.txt\n"
+    b"@@ -0,0 +1 @@\n"
+    b"+anthropic-issuance-delivery-qualified\n"
 )
 
 
@@ -286,13 +298,13 @@ else:
         "host_contract_sha256",
         "image_recipe_sha256",
         "issuance",
+        "observed_rootfs_sha256",
         "patch_sha256",
         "production_parity_sha256",
         "provider",
         "provider_call",
         "qualification_requirement",
         "request_sha256",
-        "rootfs_sha256",
         "run_id",
         "schema_version",
     }
@@ -302,7 +314,7 @@ else:
         "base_sha",
         "request_sha256",
         "patch_sha256",
-        "rootfs_sha256",
+        "observed_rootfs_sha256",
         "image_recipe_sha256",
         "production_parity_sha256",
         "host_contract_sha256",
@@ -310,6 +322,18 @@ else:
         length = 40 if field == "base_sha" else 64
         if not re.fullmatch(rf"[0-9a-f]{{{length}}}", str(result.get(field, ""))):
             errors.append(f"live result {field} is malformed")
+    expected_reproducible_bindings = {
+        "request_sha256": hashlib.sha256(ANTHROPIC_REQUEST).hexdigest(),
+        "patch_sha256": hashlib.sha256(ANTHROPIC_PATCH).hexdigest(),
+        "production_parity_sha256": hashlib.sha256(
+            PRODUCTION_PARITY_PATH.read_bytes()
+        ).hexdigest(),
+    }
+    for field, expected in expected_reproducible_bindings.items():
+        if result.get(field) != expected:
+            errors.append(
+                f"live result {field} differs from its reproducible fixture binding"
+            )
     expected_image_recipe = image_recipe_sha256()
     if result.get("image_recipe_sha256") != expected_image_recipe:
         errors.append(

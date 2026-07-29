@@ -214,6 +214,46 @@ class AnthropicIssuanceContract(unittest.TestCase):
             self.runner.index("https://api.anthropic.com/v1/oauth/token"),
         )
 
+    def test_durable_digests_are_bound_or_explicitly_observed(self) -> None:
+        evidence = json.loads(
+            (
+                ROOT / "research/isolation/results/anthropic-issuance-delivery.json"
+            ).read_text()
+        )
+        request = b"Anthropic issuance and delivery qualification.\n"
+        patch = (
+            b"diff --git a/anthropic-qualified.txt b/anthropic-qualified.txt\n"
+            b"new file mode 100644\n"
+            b"index 0000000000000000000000000000000000000000.."
+            b"2f27dfcaa039397a95cb44d6e0fc4dcdb53e85cf\n"
+            b"--- /dev/null\n"
+            b"+++ b/anthropic-qualified.txt\n"
+            b"@@ -0,0 +1 @@\n"
+            b"+anthropic-issuance-delivery-qualified\n"
+        )
+        self.assertEqual(
+            evidence["request_sha256"], hashlib.sha256(request).hexdigest()
+        )
+        self.assertEqual(evidence["patch_sha256"], hashlib.sha256(patch).hexdigest())
+        self.assertEqual(
+            evidence["production_parity_sha256"],
+            hashlib.sha256(
+                (ROOT / "worker/image/production-parity.json").read_bytes()
+            ).hexdigest(),
+        )
+        self.assertRegex(evidence["observed_rootfs_sha256"], r"^[0-9a-f]{64}$")
+        self.assertNotIn("rootfs_sha256", evidence)
+
+        branch = self.guest.split(
+            'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]',
+            1,
+        )[1].split('\nif [[ "$MODE" == provider-qualification ]]', 1)[0]
+        self.assertIn('--arg observed_rootfs_sha256 "$ROOTFS_SHA"', branch)
+        self.assertNotIn('--arg rootfs_sha256 "$ROOTFS_SHA"', branch)
+        self.assertIn(
+            ".observed_rootfs_sha256 == $rootfs_sha256", self.launcher
+        )
+
     def test_worker_address_is_root_only_non_executable_data(self) -> None:
         address_task = self.control_tasks.split(
             "- name: Install the Anthropic qualification worker address", 1

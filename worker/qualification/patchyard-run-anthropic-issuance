@@ -327,6 +327,8 @@ jq -e \
   --arg host_contract_sha256 "$HOST_CONTRACT_SHA256" '
   .schema_version == 1 and .run_id == $run_id and .provider == "anthropic"
   and .qualification_requirement == "issuance-delivery"
+  and (.observed_rootfs_sha256 | test("^[0-9a-f]{64}$"))
+  and (has("rootfs_sha256") | not)
   and .host_contract_sha256 == $host_contract_sha256
   and .issuance.issued_at == $issued_at and .issuance.expires_at == $expires_at
   and .issuance.exchange_request_id == $exchange_request_id

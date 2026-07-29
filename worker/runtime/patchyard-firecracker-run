@@ -60,6 +60,7 @@ jq -e '
     .mode == "provider-qualification"
     and .provider == "anthropic"
     and .qualification_requirement == "issuance-delivery"
+    and (.host_contract_sha256 | test("^[0-9a-f]{64}$"))
     and .spend_cap_cents == 0
   else true end)
   and (if .mode == "adversarial-qualification" then
@@ -77,6 +78,7 @@ SOURCE_EXPECTED=$(jq -r .source_archive_sha256 "$MANIFEST")
 REQUEST_EXPECTED=$(jq -r .request_sha256 "$MANIFEST")
 SNAPSHOT_SQL_EXPECTED=$(jq -r .snapshot_sql_sha256 "$MANIFEST")
 SNAPSHOT_MANIFEST_EXPECTED=$(jq -r .snapshot_manifest_sha256 "$MANIFEST")
+HOST_CONTRACT_SHA256=$(jq -r '.host_contract_sha256 // empty' "$MANIFEST")
 
 [[ "$(sha256sum "$SOURCE_ARCHIVE" | cut -d' ' -f1)" == "$SOURCE_EXPECTED" ]]
 [[ "$(sha256sum "$REQUEST" | cut -d' ' -f1)" == "$REQUEST_EXPECTED" ]]
@@ -477,12 +479,15 @@ jq -e --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
   --arg rootfs_sha256 "$ROOTFS_SHA256" \
   --arg image_recipe_sha256 "$IMAGE_RECIPE_SHA256" \
   --arg production_parity_sha256 "$PARITY_MANIFEST_SHA256" \
+  --arg host_contract_sha256 "$HOST_CONTRACT_SHA256" \
   '.schema_version == 1
     and .run_id == $run_id
     and .base_sha == $base_sha
     and .rootfs_sha256 == $rootfs_sha256
     and .image_recipe_sha256 == $image_recipe_sha256
     and .production_parity_sha256 == $production_parity_sha256
+    and (if $host_contract_sha256 == "" then true
+      else .host_contract_sha256 == $host_contract_sha256 end)
     and .git_remote_count == 0
     and .credential_removed_before_output == true' \
   "$RESULT_EXTRACT/evidence.json" >/dev/null

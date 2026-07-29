@@ -64,6 +64,9 @@ jq -e '
   and (.request_sha256 | test("^[0-9a-f]{64}$"))
   and (.snapshot_sql_sha256 | test("^[0-9a-f]{64}$"))
   and (.snapshot_manifest_sha256 | test("^[0-9a-f]{64}$"))
+  and (if .credential_required then
+    (.host_contract_sha256 | test("^[0-9a-f]{64}$"))
+  else true end)
   and (.mode == "fixture" or .mode == "provider-qualification" or .mode == "adversarial-qualification")
   and (if .mode == "adversarial-qualification" then
     (.qualification_manifest_sha256 | test("^[0-9a-f]{64}$"))
@@ -78,6 +81,7 @@ SNAPSHOT_SQL_SHA=$(jq -r .snapshot_sql_sha256 "$MANIFEST")
 SNAPSHOT_MANIFEST_SHA=$(jq -r .snapshot_manifest_sha256 "$MANIFEST")
 PROVIDER=$(jq -r .provider "$MANIFEST")
 MODE=$(jq -r .mode "$MANIFEST")
+HOST_CONTRACT_SHA=$(jq -r '.host_contract_sha256 // empty' "$MANIFEST")
 IMAGE_MANIFEST=/input/image.json
 jq -e '
   .schema_version == 1
@@ -300,6 +304,7 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then
     --arg request_sha256 "$REQUEST_SHA" --arg patch_sha256 "$PATCH_SHA" \
     --arg rootfs_sha256 "$ROOTFS_SHA" --arg image_recipe_sha256 "$IMAGE_RECIPE_SHA" \
     --arg production_parity_sha256 "$PRODUCTION_PARITY_SHA" \
+    --arg host_contract_sha256 "$HOST_CONTRACT_SHA" \
     --arg issued_at "$ISSUED_AT" --arg expires_at "$EXPIRES_AT" \
     --arg exchange_request_id "$EXCHANGE_REQUEST_ID" \
     --arg service_account_id "$SERVICE_ACCOUNT_ID" --arg rule_id "$RULE_ID" \
@@ -308,6 +313,7 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then
     '{schema_version:1,$run_id,$base_sha,$request_sha256,provider:"anthropic",
       qualification_requirement:"issuance-delivery",$patch_sha256,$rootfs_sha256,
       $image_recipe_sha256,$production_parity_sha256,git_remote_count:0,
+      $host_contract_sha256,
       credential_removed_before_output:true,
       issuance:{$issued_at,$expires_at,$expires_in,$exchange_request_id,
         token_type:"Bearer",scope:"workspace:inference",$service_account_id,$rule_id,$workspace_id},

@@ -104,6 +104,30 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Bind this live proof to the two host-side programs that create and deliver
+# the bearer. Normalize only the inventory-rendered worker address so the
+# runner digest remains comparable to the reviewed source template.
+RUNNER_EXECUTABLE=$(readlink -f -- "$0")
+[[ -f "$RUNNER_EXECUTABLE" && ! -L "$RUNNER_EXECUTABLE" ]]
+[[ "$(grep -Ec '^WORKER_IP="[^"]+"$' "$RUNNER_EXECUTABLE")" -eq 1 ]]
+OPEN_JINJA=$(printf '\173\173')
+CLOSE_JINJA=$(printf '\175\175')
+RUNNER_TEMPLATE_LINE="WORKER_IP=\"$OPEN_JINJA hostvars[groups['worker'][0]].private_ip $CLOSE_JINJA\""
+RUNNER_SOURCE_SHA256=$(sed \
+  "s|^WORKER_IP=.*$|$RUNNER_TEMPLATE_LINE|" "$RUNNER_EXECUTABLE" \
+  | sha256sum | cut -d' ' -f1)
+LAUNCHER_HASH_RECORD=$(remote_ssh sudo sha256sum -- \
+  /usr/local/sbin/patchyard-firecracker-run)
+[[ "$LAUNCHER_HASH_RECORD" =~ ^([0-9a-f]{64})[[:space:]]{2}/usr/local/sbin/patchyard-firecracker-run$ ]]
+LAUNCHER_SOURCE_SHA256=${BASH_REMATCH[1]}
+HOST_CONTRACT_SHA256=$(
+  printf '%s  %s\n%s  %s\n' \
+    "$RUNNER_SOURCE_SHA256" worker/qualification/patchyard-run-anthropic-issuance \
+    "$LAUNCHER_SOURCE_SHA256" worker/runtime/patchyard-firecracker-run \
+    | sha256sum | cut -d' ' -f1
+)
+unset OPEN_JINJA CLOSE_JINJA RUNNER_TEMPLATE_LINE LAUNCHER_HASH_RECORD
+
 JWKS="$RUN_TEMP/jwks.json"
 public_jwks >"$JWKS"
 KID=$(jq -r '.keys[0].kid' "$JWKS")
@@ -219,10 +243,11 @@ jq -n \
   --arg snapshot_sql_sha256 "$SNAPSHOT_SQL_SHA256" \
   --arg snapshot_manifest_sha256 "$SNAPSHOT_MANIFEST_SHA256" \
   --arg capability_sha256 "$CAPABILITY_SHA256" \
+  --arg host_contract_sha256 "$HOST_CONTRACT_SHA256" \
   '{schema_version:1,$run_id,$base_sha,$source_archive_sha256,$request_sha256,
     $snapshot_sql_sha256,$snapshot_manifest_sha256,provider:"anthropic",
     mode:"provider-qualification",qualification_requirement:"issuance-delivery",
-    credential_required:true,$capability_sha256,spend_cap_cents:0}' \
+    credential_required:true,$capability_sha256,$host_contract_sha256,spend_cap_cents:0}' \
   >"$RUN_TEMP/run.json"
 
 remote_ssh install -d -m 0700 "$REMOTE_ROOT/snapshot"
@@ -270,9 +295,11 @@ fi
 
 jq -e \
   --arg run_id "$RUN_ID" --arg issued_at "$ISSUED_AT" --arg expires_at "$EXPIRES_AT" \
-  --arg exchange_request_id "$EXCHANGE_REQUEST_ID" '
+  --arg exchange_request_id "$EXCHANGE_REQUEST_ID" \
+  --arg host_contract_sha256 "$HOST_CONTRACT_SHA256" '
   .schema_version == 1 and .run_id == $run_id and .provider == "anthropic"
   and .qualification_requirement == "issuance-delivery"
+  and .host_contract_sha256 == $host_contract_sha256
   and .issuance.issued_at == $issued_at and .issuance.expires_at == $expires_at
   and .issuance.exchange_request_id == $exchange_request_id
   and .delivery.capability_drive_read_only == true

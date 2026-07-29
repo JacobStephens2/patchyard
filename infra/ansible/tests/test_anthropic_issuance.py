@@ -116,6 +116,28 @@ class AnthropicIssuanceContract(unittest.TestCase):
         )
         self.assertEqual(evidence["image_recipe_sha256"], expected)
 
+    def test_live_evidence_binds_current_host_contract(self) -> None:
+        paths = (
+            ROOT / "worker/qualification/patchyard-run-anthropic-issuance",
+            ROOT / "worker/runtime/patchyard-firecracker-run",
+        )
+        records = []
+        for path in paths:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            records.append(f"{digest}  {path.relative_to(ROOT)}\n")
+        expected = hashlib.sha256("".join(records).encode()).hexdigest()
+        evidence = json.loads(
+            (
+                ROOT / "research/isolation/results/anthropic-issuance-delivery.json"
+            ).read_text()
+        )
+        self.assertEqual(evidence["host_contract_sha256"], expected)
+        self.assertIn("LAUNCHER_HASH_RECORD=$(remote_ssh sudo sha256sum", self.runner)
+        self.assertLess(
+            self.runner.index("LAUNCHER_HASH_RECORD=$(remote_ssh sudo sha256sum"),
+            self.runner.index("https://api.anthropic.com/v1/oauth/token"),
+        )
+
     def test_guest_removes_bearer_before_writing_results(self) -> None:
         credential_start = self.guest.index('if [[ "$CREDENTIAL_REQUIRED" == true ]]')
         credential_unmount = self.guest.index("  umount /credential", credential_start)

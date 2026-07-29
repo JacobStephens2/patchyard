@@ -18,6 +18,10 @@ RESULT_PATH = (
     REPO / "research" / "isolation" / "results" / "anthropic-issuance-delivery.json"
 )
 IMAGE_PATH = REPO / "worker" / "image"
+HOST_CONTRACT_PATHS = (
+    REPO / "worker" / "qualification" / "patchyard-run-anthropic-issuance",
+    REPO / "worker" / "runtime" / "patchyard-firecracker-run",
+)
 
 
 def image_recipe_sha256() -> str:
@@ -25,6 +29,14 @@ def image_recipe_sha256() -> str:
     for path in sorted(path for path in IMAGE_PATH.rglob("*") if path.is_file()):
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         records.append(f"{digest}  {path.relative_to(IMAGE_PATH)}\n")
+    return hashlib.sha256("".join(records).encode()).hexdigest()
+
+
+def host_contract_sha256() -> str:
+    records = []
+    for path in HOST_CONTRACT_PATHS:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        records.append(f"{digest}  {path.relative_to(REPO)}\n")
     return hashlib.sha256("".join(records).encode()).hexdigest()
 
 
@@ -246,6 +258,7 @@ else:
         "delivery",
         "git_remote_count",
         "host_teardown",
+        "host_contract_sha256",
         "image_recipe_sha256",
         "issuance",
         "patch_sha256",
@@ -267,6 +280,7 @@ else:
         "rootfs_sha256",
         "image_recipe_sha256",
         "production_parity_sha256",
+        "host_contract_sha256",
     ):
         length = 40 if field == "base_sha" else 64
         if not re.fullmatch(rf"[0-9a-f]{{{length}}}", str(result.get(field, ""))):
@@ -275,6 +289,12 @@ else:
     if result.get("image_recipe_sha256") != expected_image_recipe:
         errors.append(
             "live result is stale for the current worker image recipe; "
+            "rerun the Anthropic issuance fixture"
+        )
+    expected_host_contract = host_contract_sha256()
+    if result.get("host_contract_sha256") != expected_host_contract:
+        errors.append(
+            "live result is stale for the current Anthropic host contract; "
             "rerun the Anthropic issuance fixture"
         )
     if result.get("schema_version") != 1:

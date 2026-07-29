@@ -113,8 +113,11 @@ CAPABILITY_FILE=
 CREDENTIAL_DRIVE_READ_ONLY=false
 if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
   [[ -e /dev/disk/by-label/ETA_CREDENTIAL ]]
+  CREDENTIAL_DEVICE=$(readlink -f -- /dev/disk/by-label/ETA_CREDENTIAL)
+  [[ "$CREDENTIAL_DEVICE" == /dev/* ]]
+  [[ "$(blockdev --getro "$CREDENTIAL_DEVICE")" == 1 ]]
   install -d -m 0700 /credential /run/patchyard-capability
-  mount -o ro,nosuid,nodev,noexec /dev/disk/by-label/ETA_CREDENTIAL /credential
+  mount -o ro,nosuid,nodev,noexec "$CREDENTIAL_DEVICE" /credential
   CREDENTIAL_MOUNTED=true
   findmnt -n -o OPTIONS /credential | tr ',' '\n' | grep -Fxq ro
   if touch /credential/write-probe 2>/dev/null; then

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -14,12 +15,17 @@ from typing import Any
 REPO = Path(__file__).resolve().parent.parent
 POLICY_PATH = REPO / "policy" / "anthropic-wif.json"
 RESULT_PATH = (
-    REPO
-    / "research"
-    / "isolation"
-    / "results"
-    / "anthropic-issuance-delivery.json"
+    REPO / "research" / "isolation" / "results" / "anthropic-issuance-delivery.json"
 )
+IMAGE_PATH = REPO / "worker" / "image"
+
+
+def image_recipe_sha256() -> str:
+    records = []
+    for path in sorted(path for path in IMAGE_PATH.rglob("*") if path.is_file()):
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        records.append(f"{digest}  {path.relative_to(IMAGE_PATH)}\n")
+    return hashlib.sha256("".join(records).encode()).hexdigest()
 
 
 errors: list[str] = []
@@ -89,23 +95,12 @@ if any(item.get("credential_qualified") is not False for item in providers.value
     errors.append("a provider became credential-qualified before its six live fixtures")
 
 runner = (
-    REPO
-    / "worker"
-    / "qualification"
-    / "patchyard-run-anthropic-issuance"
+    REPO / "worker" / "qualification" / "patchyard-run-anthropic-issuance"
 ).read_text()
-launcher = (
-    REPO / "worker" / "runtime" / "patchyard-firecracker-run"
-).read_text()
+launcher = (REPO / "worker" / "runtime" / "patchyard-firecracker-run").read_text()
 guest = (REPO / "worker" / "image" / "patchyard-guest-run").read_text()
 control_tasks = (
-    REPO
-    / "infra"
-    / "ansible"
-    / "roles"
-    / "control_plane"
-    / "tasks"
-    / "main.yml"
+    REPO / "infra" / "ansible" / "roles" / "control_plane" / "tasks" / "main.yml"
 ).read_text()
 control_qualifier = (
     REPO
@@ -117,34 +112,25 @@ control_qualifier = (
     / "qualify-factory-control.j2"
 ).read_text()
 worker_tasks = (
-    REPO
-    / "infra"
-    / "ansible"
-    / "roles"
-    / "worker"
-    / "tasks"
-    / "main.yml"
+    REPO / "infra" / "ansible" / "roles" / "worker" / "tasks" / "main.yml"
 ).read_text()
 worker_qualifier = (
-    REPO
-    / "infra"
-    / "ansible"
-    / "roles"
-    / "worker"
-    / "files"
-    / "qualify-factory-worker"
+    REPO / "infra" / "ansible" / "roles" / "worker" / "files" / "qualify-factory-worker"
 ).read_text()
 
 for required in (
-    "openssl dgst -sha256 -sign \"$SIGNING_KEY\"",
+    'openssl dgst -sha256 -sign "$SIGNING_KEY"',
     "https://api.anthropic.com/v1/oauth/token",
     "--connect-timeout 10 --max-time 30",
     "assertion.jwt",
     "capability.json",
-    'spend_cap_cents:0',
-    'remote_ssh sudo /usr/local/sbin/patchyard-firecracker-run',
-    'grep -R -F -q -- \"$ACCESS_TOKEN\"',
-    'grep -R -F -q -- \"$ASSERTION\"',
+    "spend_cap_cents:0",
+    "remote_ssh sudo /usr/local/sbin/patchyard-firecracker-run",
+    "if remote_ssh sudo pgrep",
+    "worker_links=$(remote_ssh sudo ip -o link show)",
+    "worker_nft_tables=$(remote_ssh sudo nft list tables)",
+    'grep -R -F -q -- "$ACCESS_TOKEN"',
+    'grep -R -F -q -- "$ASSERTION"',
 ):
     if required not in runner:
         errors.append(f"control-plane issuance runner is missing: {required}")
@@ -153,16 +139,19 @@ for required in (
     'dd if=/dev/stdin of="$CAPABILITY" bs=65536 count=1 iflag=fullblock',
     'mount --bind "$RUN_TMPFS/credential.ext4"',
     'drive_id:"credential"',
-    'is_read_only:true',
+    "is_read_only:true",
+    "remove_runtime() {\n  local -\n  set +e",
+    "assert_runtime_removed",
     'grep -R -F -q -- "$CAPABILITY_SECRET"',
 ):
     if required not in launcher:
         errors.append(f"worker capability boundary is missing: {required}")
 
 for required in (
+    'blockdev --getro "$CREDENTIAL_DEVICE"',
     "touch /credential/write-probe",
     "umount /credential",
-    'header = \"Authorization: Bearer %s\"',
+    'header = "Authorization: Bearer %s"',
     "https://api.anthropic.com/v1/models?limit=1",
     'rm -f -- "$AUTH_CONFIG" "$CAPABILITY_FILE"',
     "assertion_delivered:false",
@@ -176,11 +165,32 @@ provider_branch = guest.index(
     'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]'
 )
 credential_unmount = guest.index("  umount /credential", credential_branch)
-provider_call = guest.index("https://api.anthropic.com/v1/models?limit=1", provider_branch)
+block_read_only = guest.index(
+    'blockdev --getro "$CREDENTIAL_DEVICE"', credential_branch
+)
+credential_mount = guest.index("  mount -o ro,nosuid,nodev,noexec", credential_branch)
+provider_call = guest.index(
+    "https://api.anthropic.com/v1/models?limit=1", provider_branch
+)
 provider_output = guest.index("/result/change.patch", provider_branch)
 mount_guard = guest.index("if mountpoint -q /credential", provider_branch)
-if not credential_unmount < provider_branch <= mount_guard < provider_call < provider_output:
+if not (
+    credential_branch
+    < block_read_only
+    < credential_mount
+    < credential_unmount
+    < provider_branch
+    <= mount_guard
+    < provider_call
+    < provider_output
+):
     errors.append("credential drive is not unmounted before the live provider proof")
+teardown_branch = launcher.index("FAILURE_STAGE=teardown")
+teardown_assertion = launcher.index("assert_runtime_removed", teardown_branch)
+teardown_trap_clear = launcher.index("trap - EXIT", teardown_branch)
+teardown_publish = launcher.index("FAILURE_STAGE=publish", teardown_branch)
+if not teardown_branch < teardown_assertion < teardown_trap_clear < teardown_publish:
+    errors.append("worker teardown can publish before residue assertions complete")
 
 for required in (
     "rsa_keygen_bits:3072",
@@ -261,6 +271,12 @@ else:
         length = 40 if field == "base_sha" else 64
         if not re.fullmatch(rf"[0-9a-f]{{{length}}}", str(result.get(field, ""))):
             errors.append(f"live result {field} is malformed")
+    expected_image_recipe = image_recipe_sha256()
+    if result.get("image_recipe_sha256") != expected_image_recipe:
+        errors.append(
+            "live result is stale for the current worker image recipe; "
+            "rerun the Anthropic issuance fixture"
+        )
     if result.get("schema_version") != 1:
         errors.append("live result schema version is not one")
     if result.get("provider") != "anthropic":
@@ -337,7 +353,10 @@ else:
         errors.append("live provider proof was not accepted")
     if not re.fullmatch(r"req_[A-Za-z0-9]+", str(provider_call.get("request_id", ""))):
         errors.append("live provider request ID is malformed")
-    if not isinstance(provider_call.get("model_id"), str) or not provider_call["model_id"]:
+    if (
+        not isinstance(provider_call.get("model_id"), str)
+        or not provider_call["model_id"]
+    ):
         errors.append("live Models response did not identify a model")
 
     forbidden_key = secret_named_key(result)

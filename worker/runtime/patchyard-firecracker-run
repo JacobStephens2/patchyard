@@ -120,6 +120,7 @@ VMM_PID=
 BASE_FORWARD=$(sysctl -n net.ipv4.ip_forward)
 
 remove_runtime() {
+  local -
   set +e
   if [[ -n "$VMM_PID" ]]; then
     kill -KILL -- "-$VMM_PID" >/dev/null 2>&1 || true
@@ -140,6 +141,37 @@ remove_runtime() {
     "$RUN_TMPFS" "$RESULT_EXTRACT" "$RUNTIME_ROOT/console-$RUN_ID.log"
   rmdir "$JAIL_BASE/$FIRECRACKER_JAIL_NAME" "$JAIL_BASE" \
     >/dev/null 2>&1 || true
+}
+
+assert_runtime_removed() {
+  local process_status nft_tables
+  if pgrep -u factory-worker -f -- "--id[ =]$RUN_ID" >/dev/null 2>&1; then
+    echo "factory worker teardown residue: process" >&2
+    return 1
+  else
+    process_status=$?
+    if [[ "$process_status" -ne 1 ]]; then
+      echo "factory worker teardown check failed: process" >&2
+      return 1
+    fi
+  fi
+  if [[ -e "/sys/class/net/$TAP" ]]; then
+    echo "factory worker teardown residue: tap" >&2
+    return 1
+  fi
+  if ! nft_tables=$(nft list tables 2>/dev/null); then
+    echo "factory worker teardown check failed: nftables" >&2
+    return 1
+  fi
+  if grep -Fxq "table inet $NFT_TABLE" <<<"$nft_tables"; then
+    echo "factory worker teardown residue: nftables" >&2
+    return 1
+  fi
+  if [[ -e "$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID" \
+    || -e "$RUN_TMPFS" || -e "$RUNTIME_ROOT/console-$RUN_ID.log" ]]; then
+    echo "factory worker teardown residue: runtime path" >&2
+    return 1
+  fi
 }
 
 cleanup_and_taint() {
@@ -466,11 +498,7 @@ install -m 0600 "$RESULT_EXTRACT/evidence.json" "$ACCEPT_TEMP/evidence.json"
 
 FAILURE_STAGE=teardown
 remove_runtime
-
-[[ "$(pgrep -u factory-worker -f -- "--id[ =]$RUN_ID" | wc -l)" -eq 0 ]]
-[[ "$(ip -o link show "$TAP" 2>/dev/null | wc -l)" -eq 0 ]]
-[[ "$(nft list table inet "$NFT_TABLE" 2>/dev/null | wc -l)" -eq 0 ]]
-[[ ! -e "$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID" && ! -e "$RUN_TMPFS" ]]
+assert_runtime_removed
 trap - EXIT
 trap - ERR
 

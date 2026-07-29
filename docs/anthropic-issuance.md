@@ -14,8 +14,9 @@ admin credential remains only on the orchestration operator host during
 bootstrap and never enters either Factory host. Only the resulting bearer and
 non-authority metadata cross to the worker, over standard input into host
 tmpfs. The existing capability path
-places that JSON on a Firecracker read-only drive. The guest proves the drive
-rejects a write, copies the capability to guest tmpfs, unmounts the drive, and
+places that JSON on a Firecracker read-only drive. The guest proves the kernel
+block device is read-only and that the mounted filesystem rejects a write,
+copies the capability to guest tmpfs, unmounts the drive, and
 uses a mode-0400 curl config owned by the unprivileged `factory-agent` identity
 inside its mode-0700 runtime directory, so only the calling identity can read
 the bearer and the bearer does not enter a process argument.
@@ -65,23 +66,23 @@ Copy only the sanitized `evidence.json` to
 copy the JWKS staging directory, assertion, exchange response, or capability
 from runtime tmpfs into the repository.
 
-## Control-plane replacement and key rotation
+## Control-plane replacement before key rotation is qualified
 
 The signing key is deliberately absent from backups. A replacement control
 plane therefore generates a new key whose public JWK does not match the
-existing Anthropic issuer until the provider binding is updated. Treat that as
-a planned rotation, not as a healthy host followed by an unexplained exchange
-failure:
+existing Anthropic issuer. Requirement 1 does not implement that rotation:
+`tools/anthropic-wif-admin.py` intentionally rejects an existing issuer whose
+JWKS differs and cannot plan or apply an issuer update.
 
-1. Keep acceptance paused and do not run the issuance fixture with the new key.
-2. Read the new public JWK with
-   `/usr/local/sbin/patchyard-run-anthropic-issuance jwks`.
-3. Run `tools/anthropic-wif-admin.py` without `--apply`, review its exact issuer
-   update, and obtain any required operator approval before applying it.
-4. Apply the reviewed provider update, prove one positive exchange and Models
-   call with the new key, then prove an assertion signed by the retired key is
-   rejected before declaring rotation complete.
+The provider-update procedure and retired-key denial proof are deferred to the
+Anthropic revocation requirement, not dropped. Until that requirement lands,
+a replacement control plane with a new key is not qualified for Anthropic
+issuance. Keep acceptance paused, do not attempt an issuer change under this
+procedure, and expect the admin tool and token exchange to fail closed on the
+key mismatch.
 
 The host qualifier proves key ownership, mode, and public-JWK derivation. It
 cannot prove that Anthropic currently trusts that JWK; only the provider
-exchange supplies that proof.
+exchange supplies that proof. Rotation is complete only after the deferred
+revocation work proves a positive exchange with the replacement key and a
+provider denial for an assertion signed by the retired key.

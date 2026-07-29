@@ -287,13 +287,35 @@ jq -e \
 
 remote_ssh rm -r -- "$REMOTE_ROOT"
 REMOTE_CREATED=false
-for runtime_root in /run/patchyard-worker /var/tmp/patchyard-worker; do
+for runtime_root in \
+  /run/patchyard-worker \
+  /var/tmp/patchyard-worker \
+  /var/tmp/patchyard-incoming; do
   remote_ssh sudo test -d "$runtime_root"
   runtime_residue=$(remote_ssh sudo find "$runtime_root" -mindepth 1 -print -quit)
   [[ -z "$runtime_residue" ]]
 done
 unset runtime_root runtime_residue
 remote_ssh sudo test ! -e /var/lib/patchyard-worker/BOUNDARY_TAINTED
+if remote_ssh sudo pgrep -u factory-worker -f -- firecracker >/dev/null; then
+  echo "Firecracker process residue remains" >&2
+  exit 1
+else
+  process_status=$?
+  [[ "$process_status" -eq 1 ]]
+fi
+worker_links=$(remote_ssh sudo ip -o link show)
+if grep -Eq '(^|[[:space:]])ef[0-9a-f]{8}:' <<<"$worker_links"; then
+  echo "Firecracker TAP residue remains" >&2
+  exit 1
+fi
+worker_nft_tables=$(remote_ssh sudo nft list tables)
+if grep -Eq '(^|[[:space:]])table inet eta_fc_[0-9a-f]{10}($|[[:space:]])' \
+  <<<"$worker_nft_tables"; then
+  echo "Firecracker nftables residue remains" >&2
+  exit 1
+fi
+unset process_status worker_links worker_nft_tables
 
 chown -R factory-web:factory "$RUN_TEMP/result"
 find "$RUN_TEMP/result" -type d -exec chmod 0750 {} +

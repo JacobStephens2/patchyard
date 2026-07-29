@@ -138,6 +138,7 @@ jq -n \
   >"$RUN_TEMP/exchange-request.json"
 
 EXCHANGE_STATUS=$(curl --silent --show-error \
+  --connect-timeout 10 --max-time 30 \
   --request POST --header 'content-type: application/json' \
   --dump-header "$RUN_TEMP/exchange-headers" \
   --output "$RUN_TEMP/exchange-response.json" --write-out '%{http_code}' \
@@ -286,8 +287,12 @@ jq -e \
 
 remote_ssh rm -r -- "$REMOTE_ROOT"
 REMOTE_CREATED=false
-[[ -z "$(remote_ssh sudo find /run/patchyard-worker -mindepth 1 -print -quit)" ]]
-[[ -z "$(remote_ssh sudo find /var/tmp/patchyard-worker -mindepth 1 -print -quit)" ]]
+for runtime_root in /run/patchyard-worker /var/tmp/patchyard-worker; do
+  remote_ssh sudo test -d "$runtime_root"
+  runtime_residue=$(remote_ssh sudo find "$runtime_root" -mindepth 1 -print -quit)
+  [[ -z "$runtime_residue" ]]
+done
+unset runtime_root runtime_residue
 remote_ssh sudo test ! -e /var/lib/patchyard-worker/BOUNDARY_TAINTED
 
 chown -R factory-web:factory "$RUN_TEMP/result"

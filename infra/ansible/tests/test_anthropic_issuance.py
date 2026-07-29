@@ -48,11 +48,16 @@ class AnthropicIssuanceContract(unittest.TestCase):
         self.assertIn('remote_ssh sudo /usr/local/sbin/patchyard-firecracker-run', self.runner)
         self.assertIn('<"$RUN_TEMP/capability.json"', self.runner)
         self.assertNotIn('scp "$RUN_TEMP/assertion.jwt"', self.runner)
-        self.assertIn('dd if=/dev/stdin of="$CAPABILITY"', self.launcher)
+        self.assertIn(
+            'dd if=/dev/stdin of="$CAPABILITY" bs=65536 count=1 iflag=fullblock',
+            self.launcher,
+        )
         self.assertIn('mount --bind "$RUN_TMPFS/credential.ext4"', self.launcher)
         self.assertIn('is_read_only:true', self.launcher)
 
     def test_guest_removes_bearer_before_writing_results(self) -> None:
+        credential_start = self.guest.index('if [[ "$CREDENTIAL_REQUIRED" == true ]]')
+        credential_unmount = self.guest.index("  umount /credential", credential_start)
         branch = self.guest.split(
             'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]',
             1,
@@ -62,8 +67,24 @@ class AnthropicIssuanceContract(unittest.TestCase):
             branch.index('/result/change.patch'),
         )
         self.assertIn("touch /credential/write-probe", self.guest)
-        self.assertIn("umount /credential", self.guest)
+        self.assertLess(
+            credential_unmount,
+            self.guest.index("https://api.anthropic.com/v1/models?limit=1"),
+        )
+        self.assertLess(
+            branch.index("if mountpoint -q /credential"),
+            branch.index("https://api.anthropic.com/v1/models?limit=1"),
+        )
         self.assertIn("credential_removed_before_output:true", branch)
+
+    def test_exchange_and_worker_ingress_are_bounded(self) -> None:
+        self.assertIn("--connect-timeout 10 --max-time 30", self.runner)
+        self.assertIn("count=1 iflag=fullblock", self.launcher)
+
+    def test_worker_residue_checks_fail_closed(self) -> None:
+        self.assertIn('remote_ssh sudo test -d "$runtime_root"', self.runner)
+        self.assertIn("runtime_residue=$(remote_ssh sudo find", self.runner)
+        self.assertNotIn('[[ -z "$(remote_ssh sudo find', self.runner)
 
     def test_live_positive_call_is_non_generative(self) -> None:
         self.assertIn("https://api.anthropic.com/v1/models?limit=1", self.guest)

@@ -16,7 +16,9 @@ non-authority metadata cross to the worker, over standard input into host
 tmpfs. The existing capability path
 places that JSON on a Firecracker read-only drive. The guest proves the drive
 rejects a write, copies the capability to guest tmpfs, unmounts the drive, and
-uses a root-private curl config so the bearer does not enter a process argument.
+uses a mode-0400 curl config owned by the unprivileged `factory-agent` identity
+inside its mode-0700 runtime directory, so only the calling identity can read
+the bearer and the bearer does not enter a process argument.
 It then performs `GET /v1/models?limit=1`, an inference-scope provider call
 that does not generate tokens, and deletes the credential before writing any
 result.
@@ -62,3 +64,24 @@ Copy only the sanitized `evidence.json` to
 `tools/check-anthropic-issuance.py` and the complete repository checks. Never
 copy the JWKS staging directory, assertion, exchange response, or capability
 from runtime tmpfs into the repository.
+
+## Control-plane replacement and key rotation
+
+The signing key is deliberately absent from backups. A replacement control
+plane therefore generates a new key whose public JWK does not match the
+existing Anthropic issuer until the provider binding is updated. Treat that as
+a planned rotation, not as a healthy host followed by an unexplained exchange
+failure:
+
+1. Keep acceptance paused and do not run the issuance fixture with the new key.
+2. Read the new public JWK with
+   `/usr/local/sbin/patchyard-run-anthropic-issuance jwks`.
+3. Run `tools/anthropic-wif-admin.py` without `--apply`, review its exact issuer
+   update, and obtain any required operator approval before applying it.
+4. Apply the reviewed provider update, prove one positive exchange and Models
+   call with the new key, then prove an assertion signed by the retired key is
+   rejected before declaring rotation complete.
+
+The host qualifier proves key ownership, mode, and public-JWK derivation. It
+cannot prove that Anthropic currently trusts that JWK; only the provider
+exchange supplies that proof.

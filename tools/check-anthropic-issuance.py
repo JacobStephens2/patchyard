@@ -138,6 +138,7 @@ worker_qualifier = (
 for required in (
     "openssl dgst -sha256 -sign \"$SIGNING_KEY\"",
     "https://api.anthropic.com/v1/oauth/token",
+    "--connect-timeout 10 --max-time 30",
     "assertion.jwt",
     "capability.json",
     'spend_cap_cents:0',
@@ -149,7 +150,7 @@ for required in (
         errors.append(f"control-plane issuance runner is missing: {required}")
 
 for required in (
-    'dd if=/dev/stdin of="$CAPABILITY"',
+    'dd if=/dev/stdin of="$CAPABILITY" bs=65536 count=1 iflag=fullblock',
     'mount --bind "$RUN_TMPFS/credential.ext4"',
     'drive_id:"credential"',
     'is_read_only:true',
@@ -170,11 +171,15 @@ for required in (
 ):
     if required not in guest:
         errors.append(f"guest issuance fixture is missing: {required}")
-if not (
-    guest.index("umount /credential")
-    < guest.index("https://api.anthropic.com/v1/models?limit=1")
-    < guest.index("/result/change.patch", guest.index("provider-qualification &&"))
-):
+credential_branch = guest.index('if [[ "$CREDENTIAL_REQUIRED" == true ]]')
+provider_branch = guest.index(
+    'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]'
+)
+credential_unmount = guest.index("  umount /credential", credential_branch)
+provider_call = guest.index("https://api.anthropic.com/v1/models?limit=1", provider_branch)
+provider_output = guest.index("/result/change.patch", provider_branch)
+mount_guard = guest.index("if mountpoint -q /credential", provider_branch)
+if not credential_unmount < provider_branch <= mount_guard < provider_call < provider_output:
     errors.append("credential drive is not unmounted before the live provider proof")
 
 for required in (

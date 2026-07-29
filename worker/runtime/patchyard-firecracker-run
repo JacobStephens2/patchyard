@@ -261,7 +261,7 @@ fi
 
 if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
   CAPABILITY="$RUN_TMPFS/capability.json"
-  dd if=/dev/stdin of="$CAPABILITY" bs=65536 count=1 status=none
+  dd if=/dev/stdin of="$CAPABILITY" bs=65536 count=1 iflag=fullblock status=none
   [[ -s "$CAPABILITY" && "$(stat -c %s "$CAPABILITY")" -le 65536 ]]
   CAPABILITY_SHA=$(sha256sum "$CAPABILITY" | cut -d' ' -f1)
   [[ "$CAPABILITY_SHA" == "$(jq -r .capability_sha256 "$MANIFEST")" ]]

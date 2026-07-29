@@ -6,11 +6,11 @@ The hard limit belongs to the dedicated `Patchyard Factory` workspace
 (`wrkspc_000000000000000000000000`), not to a guest-side counter and not to the
 Patchyard Anthropic organization as a whole. The reviewed operational workspace cap
 is $50.00 per month. The attended qualification temporarily replaces it with a
-$1.00 `notify_and_pause` cap, makes synthetic paid `claude-opus-5` requests
-through the same five-minute WIF and read-only Firecracker delivery path as
-requirement 1, and stops only when Anthropic rejects `/v1/messages` with a
-spend-, credit-, or billing-attributable error. It then restores $50.00 before
-collecting the final cost report.
+$1.00 `notify_and_pause` cap and makes one minimal `claude-opus-5` probe through
+the same five-minute WIF and read-only Firecracker delivery path as requirement
+1. Qualification succeeds only when Anthropic rejects `/v1/messages` with a
+spend-, credit-, or billing-attributable error. The operator then restores
+$50.00 before collecting the final cost report.
 
 The first-party [rate-limit documentation](https://platform.claude.com/docs/en/api/rate-limits)
 states that all applicable organization and workspace limits are evaluated.
@@ -24,14 +24,33 @@ therefore binds independently as the narrower ceiling while the unchanged
 organization ceiling continues to apply alongside it. This satisfies A113
 clause 2 without changing or endangering Patchyard's organization limit.
 
+The Console dialog displays only the dollar amount; it has no enforcement-mode
+selector. The `notify_and_pause` value above comes from the first-party Console
+implementation, which posts that exact action when it saves the displayed
+workspace limit. It is not represented as a user-selected UI observation.
+
 The provider denial is the qualification event. The Anthropic
 [Cost Report API](https://platform.claude.com/docs/en/api/usage-cost-api)
 does not substitute for that denial; it measures the dedicated workspace's
-month-to-date cost after the denial, when no later calls have occurred. The
-fixture records `measured_overshoot_usd` as the amount above the exact $1.00
-provider cap, or zero when Anthropic refuses the next estimated request before
-recorded spend crosses the cap. There is deliberately no accepted overshoot ceiling.
-The first live run establishes the baseline required by A113.
+month-to-date cost after the denial, when no later calls have occurred. Cost
+Report `amount` values are USD minor units and are converted from cents before
+the fixture records `observed_spend_at_denial_usd` and
+`measured_overshoot_usd`. The latter is the amount above the exact $1.00
+provider cap. There is deliberately no accepted overshoot ceiling. This first
+qualification establishes the observed baseline required by A113.
+
+The initial 2026-07-29 attempt used eight large requests separated by five
+seconds. Anthropic accepted all eight even though their eventual usage exceeded
+the temporary cap, and the fixture failed closed because it observed no denial.
+Its sanitized failure record preserves the exact usage, exact billed cost once
+reported, cap history, and failure diagnostic. That attempt established that a
+short request-count ramp is not a safe bound for delayed provider enforcement.
+The record is
+`research/isolation/results/anthropic-spend-enforcement-initial-failure.json`.
+The one permitted repair does not generate another ramp: after Anthropic's Cost
+Report records the already-incurred workspace spend above $1.00, it lowers the
+workspace cap again and submits exactly one tiny request. Acceptance of that
+request is terminal failure; only a provider refusal qualifies.
 
 The committed fixture binds the deterministic request, deterministic patch,
 production-parity manifest, complete image recipe, and exact two-file host
@@ -107,8 +126,9 @@ In particular, never introduce a bare `ANTHROPIC_API_KEY`.
    }
    ```
 
-5. Wait for the Cost Report API to include all successful request IDs, capture
-   an after snapshot, and finalize the worker evidence:
+5. Wait for the Cost Report API to include all Factory workspace usage, capture
+   an after snapshot, and finalize the worker evidence. The helper converts the
+   API's USD-cent amounts to USD:
 
    ```bash
    tools/anthropic-spend-evidence.py snapshot \
@@ -127,6 +147,7 @@ In particular, never introduce a bare `ANTHROPIC_API_KEY`.
    temporary snapshots and readbacks after the committed sanitized fixture is
    verified.
 
-The eight-call maximum is a qualification cost bound, not an overshoot
-acceptance ceiling. A run that does not receive a provider-attributable denial
-within that bound fails closed and is not qualification evidence.
+The deployed repair makes exactly one provider probe. If that probe is accepted
+or returns an error that cannot be attributed to spend, credit, or billing, the
+repair fails closed and A9 requires escalation with the failure log rather than
+another implementation or paid attempt.

@@ -73,6 +73,12 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
         self.assertEqual(Decimal(measurement["measured_overshoot_usd"]), Decimal("0.1375"))
         self.assertNotIn("ceiling", measurement)
 
+    def test_cost_report_minor_units_are_converted_to_usd(self) -> None:
+        self.assertEqual(
+            EVIDENCE.minor_units_to_usd(Decimal("768.168")),
+            Decimal("7.68168"),
+        )
+
     def test_finalizer_records_zero_if_denial_prevents_crossing(self) -> None:
         self.after["cost_usd"] = "0.6400"
         result = EVIDENCE.finalize(
@@ -80,9 +86,9 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
         )
         self.assertEqual(result["cost_measurement"]["measured_overshoot_usd"], "0")
 
-    def test_finalizer_rejects_cost_without_the_successful_paid_calls(self) -> None:
+    def test_finalizer_rejects_cost_without_recorded_factory_spend(self) -> None:
         self.after["cost_usd"] = "0"
-        with self.assertRaisesRegex(ValueError, "successful paid calls"):
+        with self.assertRaisesRegex(ValueError, "recorded Factory spend"):
             EVIDENCE.finalize(
                 self.worker, self.before, self.after, self.caps, self.policy
             )

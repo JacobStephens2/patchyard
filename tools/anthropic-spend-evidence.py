@@ -34,6 +34,11 @@ def decimal_text(value: Decimal) -> str:
     return format(value, "f")
 
 
+def minor_units_to_usd(value: Decimal) -> Decimal:
+    """Convert Anthropic Cost Report amounts (USD cents) to USD."""
+    return value / Decimal(100)
+
+
 def admin_token(profile: str) -> str:
     env = os.environ.copy()
     env.pop("ANTHROPIC_API_KEY", None)
@@ -62,7 +67,7 @@ def fetch_workspace_cost(profile: str, workspace_id: str) -> dict[str, Any]:
         "ending_at": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "group_by[]": "workspace_id",
     }
-    amount = Decimal(0)
+    amount_minor_units = Decimal(0)
     page: str | None = None
     while True:
         query = dict(params)
@@ -86,7 +91,7 @@ def fetch_workspace_cost(profile: str, workspace_id: str) -> dict[str, Any]:
                     continue
                 if result.get("currency") != "USD":
                     raise ValueError("Anthropic returned a non-USD Factory cost")
-                amount += Decimal(result["amount"])
+                amount_minor_units += Decimal(result["amount"])
         page = payload.get("next_page")
         if not payload.get("has_more"):
             break
@@ -102,7 +107,7 @@ def fetch_workspace_cost(profile: str, workspace_id: str) -> dict[str, Any]:
             "ending_at": params["ending_at"],
         },
         "currency": "USD",
-        "cost_usd": decimal_text(amount),
+        "cost_usd": decimal_text(minor_units_to_usd(amount_minor_units)),
     }
 
 
@@ -218,7 +223,7 @@ def finalize(
     if before_amount >= cap:
         raise ValueError("Factory workspace was already at the qualification cap")
     if after_amount <= before_amount:
-        raise ValueError("cost report does not yet show the successful paid calls")
+        raise ValueError("cost report does not yet show recorded Factory spend")
     overshoot = max(after_amount - cap, Decimal(0))
     result = dict(worker)
     result["cost_measurement"] = {

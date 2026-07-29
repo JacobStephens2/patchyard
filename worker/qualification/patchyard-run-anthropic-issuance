@@ -370,7 +370,7 @@ jq -e \
     and (.provider_call.request_id | test("^req_[A-Za-z0-9]+$"))
   else
     .spend_enforcement.cap_cents == $spend_cap_cents
-    and (.spend_enforcement.successful_requests | type == "array" and length > 0)
+    and .spend_enforcement.probe_attempts == 1
     and .spend_enforcement.denial.endpoint == "/v1/messages"
     and (.spend_enforcement.denial.http_status == 400
       or .spend_enforcement.denial.http_status == 403

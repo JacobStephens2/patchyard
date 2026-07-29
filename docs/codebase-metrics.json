@@ -72,14 +72,14 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 17895,
+      "code": 17960,
       "comments": 498,
-      "blanks": 1619,
+      "blanks": 1623,
       "files": 147,
       "languages": [
         {
           "language": "BASH",
-          "code": 4968,
+          "code": 4976,
           "comments": 115,
           "blanks": 363,
           "files": 39
@@ -135,9 +135,9 @@
         },
         {
           "language": "Python",
-          "code": 5771,
+          "code": 5828,
           "comments": 39,
-          "blanks": 517,
+          "blanks": 521,
           "files": 21
         },
         {
@@ -173,7 +173,7 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 6105,
+      "code": 6117,
       "comments": 247,
       "blanks": 635,
       "files": 90,
@@ -229,7 +229,7 @@
         },
         {
           "language": "Python",
-          "code": 3499,
+          "code": 3511,
           "comments": 33,
           "blanks": 465,
           "files": 22

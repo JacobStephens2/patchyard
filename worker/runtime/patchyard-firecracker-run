@@ -56,6 +56,13 @@ jq -e '
   and (.mode == "fixture" or .mode == "provider-qualification" or .mode == "adversarial-qualification")
   and (.credential_required | type == "boolean")
   and (.spend_cap_cents | type == "number" and . >= 0 and . <= 5000)
+  and (if .credential_required then
+    .mode == "provider-qualification"
+    and .provider == "anthropic"
+    and .qualification_requirement == "issuance-delivery"
+    and (.host_contract_sha256 | test("^[0-9a-f]{64}$"))
+    and .spend_cap_cents == 0
+  else true end)
   and (if .mode == "adversarial-qualification" then
     (.qualification_manifest_sha256 | test("^[0-9a-f]{64}$"))
     and (.canary_sha256 | test("^[0-9a-f]{64}$"))
@@ -71,6 +78,7 @@ SOURCE_EXPECTED=$(jq -r .source_archive_sha256 "$MANIFEST")
 REQUEST_EXPECTED=$(jq -r .request_sha256 "$MANIFEST")
 SNAPSHOT_SQL_EXPECTED=$(jq -r .snapshot_sql_sha256 "$MANIFEST")
 SNAPSHOT_MANIFEST_EXPECTED=$(jq -r .snapshot_manifest_sha256 "$MANIFEST")
+HOST_CONTRACT_SHA256=$(jq -r '.host_contract_sha256 // empty' "$MANIFEST")
 
 [[ "$(sha256sum "$SOURCE_ARCHIVE" | cut -d' ' -f1)" == "$SOURCE_EXPECTED" ]]
 [[ "$(sha256sum "$REQUEST" | cut -d' ' -f1)" == "$REQUEST_EXPECTED" ]]
@@ -108,11 +116,13 @@ INPUT_STAGE="$RUNTIME_ROOT/input-$RUN_ID"
 RUN_TMPFS="$TMPFS_ROOT/$RUN_ID"
 RESULT_EXTRACT="$RUNTIME_ROOT/result-extract-$RUN_ID"
 ACCEPT_TEMP=
+CAPABILITY_NEEDLE=
 JAILER_PID=
 VMM_PID=
 BASE_FORWARD=$(sysctl -n net.ipv4.ip_forward)
 
 remove_runtime() {
+  local -
   set +e
   if [[ -n "$VMM_PID" ]]; then
     kill -KILL -- "-$VMM_PID" >/dev/null 2>&1 || true
@@ -133,6 +143,37 @@ remove_runtime() {
     "$RUN_TMPFS" "$RESULT_EXTRACT" "$RUNTIME_ROOT/console-$RUN_ID.log"
   rmdir "$JAIL_BASE/$FIRECRACKER_JAIL_NAME" "$JAIL_BASE" \
     >/dev/null 2>&1 || true
+}
+
+assert_runtime_removed() {
+  local process_status nft_tables
+  if pgrep -u factory-worker -f -- "--id[ =]$RUN_ID" >/dev/null 2>&1; then
+    echo "factory worker teardown residue: process" >&2
+    return 1
+  else
+    process_status=$?
+    if [[ "$process_status" -ne 1 ]]; then
+      echo "factory worker teardown check failed: process" >&2
+      return 1
+    fi
+  fi
+  if [[ -e "/sys/class/net/$TAP" ]]; then
+    echo "factory worker teardown residue: tap" >&2
+    return 1
+  fi
+  if ! nft_tables=$(nft list tables 2>/dev/null); then
+    echo "factory worker teardown check failed: nftables" >&2
+    return 1
+  fi
+  if grep -Fxq "table inet $NFT_TABLE" <<<"$nft_tables"; then
+    echo "factory worker teardown residue: nftables" >&2
+    return 1
+  fi
+  if [[ -e "$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID" \
+    || -e "$RUN_TMPFS" || -e "$RUNTIME_ROOT/console-$RUN_ID.log" ]]; then
+    echo "factory worker teardown residue: runtime path" >&2
+    return 1
+  fi
 }
 
 cleanup_and_taint() {
@@ -254,21 +295,37 @@ fi
 
 if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
   CAPABILITY="$RUN_TMPFS/capability.json"
-  dd if=/dev/stdin of="$CAPABILITY" bs=65536 count=1 status=none
+  dd if=/dev/stdin of="$CAPABILITY" bs=65536 count=1 iflag=fullblock status=none
   [[ -s "$CAPABILITY" && "$(stat -c %s "$CAPABILITY")" -le 65536 ]]
   CAPABILITY_SHA=$(sha256sum "$CAPABILITY" | cut -d' ' -f1)
   [[ "$CAPABILITY_SHA" == "$(jq -r .capability_sha256 "$MANIFEST")" ]]
   NOW=$(date -u +%s)
+  ISSUED=$(jq -r '.issued_at | fromdateiso8601' "$CAPABILITY")
   EXPIRES=$(jq -r '.expires_at | fromdateiso8601' "$CAPABILITY")
-  jq -e --arg provider "$PROVIDER" --argjson cap "$(jq -r .spend_cap_cents "$MANIFEST")" '
-    .schema_version == 1
-    and .provider == $provider
+  EXPIRES_IN=$(jq -r .expires_in "$CAPABILITY")
+  jq -e --arg provider "$PROVIDER" '
+    (keys | sort) == ["capability_id","exchange_request_id","expires_at","expires_in",
+      "issued_at","provider","qualification_requirement","rule_id","schema_version",
+      "scope","secret","service_account_id","spend_cap_cents","token_type","workspace_id"]
+    and .schema_version == 1 and .provider == $provider
+    and .qualification_requirement == "issuance-delivery"
     and (.capability_id | test("^[a-zA-Z0-9_-]{8,128}$"))
-    and (.secret | type == "string" and length >= 16 and length <= 8192)
-    and (.spend_cap_cents | type == "number" and . > 0 and . <= $cap)
-    and (.expires_at | type == "string")
+    and (.secret | type == "string" and test("^sk-ant-oat01-[A-Za-z0-9_-]+$") and length <= 8192)
+    and .spend_cap_cents == 0
+    and .token_type == "Bearer" and .scope == "workspace:inference"
+    and (.expires_in | type == "number" and . >= 60 and . <= 300)
+    and (.issued_at | fromdateiso8601 | type == "number")
+    and (.expires_at | fromdateiso8601 | type == "number")
+    and (.exchange_request_id | test("^req_[A-Za-z0-9]+$"))
+    and (.service_account_id | test("^svac_[A-Za-z0-9]+$"))
+    and (.rule_id | test("^fdrl_[A-Za-z0-9]+$"))
+    and (.workspace_id | test("^wrkspc_[A-Za-z0-9]+$"))
   ' "$CAPABILITY" >/dev/null
-  [[ "$EXPIRES" -gt "$NOW" && "$EXPIRES" -le $((NOW + 3600)) ]]
+  [[ "$EXPIRES" -gt "$NOW" && "$EXPIRES" -le $((NOW + 300)) ]]
+  [[ "$EXPIRES" -eq $((ISSUED + EXPIRES_IN)) ]]
+  CAPABILITY_NEEDLE="$RUN_TMPFS/capability-secret.needle"
+  jq -jr .secret "$CAPABILITY" >"$CAPABILITY_NEEDLE"
+  [[ "$(stat -c '%U:%G:%a' "$CAPABILITY_NEEDLE")" == root:root:600 ]]
 fi
 
 truncate -s 256M "$JAIL_ROOT/input.ext4"
@@ -407,6 +464,14 @@ VMM_PID=
 FAILURE_STAGE=result-filesystem-validation
 /usr/local/libexec/patchyard-extract-result-image \
   "$JAIL_ROOT/result.ext4" "$RESULT_EXTRACT"
+if [[ -n "$CAPABILITY_NEEDLE" ]]; then
+  if grep -R -F -q -f "$CAPABILITY_NEEDLE" -- "$RESULT_EXTRACT"; then
+    echo "provider credential entered the guest result boundary" >&2
+    false
+  fi
+  rm -f -- "$CAPABILITY_NEEDLE"
+  CAPABILITY_NEEDLE=
+fi
 FAILURE_STAGE=guest-result-status
 RESULT_STATUS=$(<"$RESULT_EXTRACT/status")
 [[ "$RESULT_STATUS" =~ ^[a-z0-9,-]{1,128}$ ]]
@@ -419,12 +484,19 @@ jq -e --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
   --arg rootfs_sha256 "$ROOTFS_SHA256" \
   --arg image_recipe_sha256 "$IMAGE_RECIPE_SHA256" \
   --arg production_parity_sha256 "$PARITY_MANIFEST_SHA256" \
+  --arg host_contract_sha256 "$HOST_CONTRACT_SHA256" \
   '.schema_version == 1
     and .run_id == $run_id
     and .base_sha == $base_sha
-    and .rootfs_sha256 == $rootfs_sha256
+    and (if .provider == "anthropic"
+      and .qualification_requirement == "issuance-delivery" then
+        .observed_rootfs_sha256 == $rootfs_sha256
+        and (has("rootfs_sha256") | not)
+      else .rootfs_sha256 == $rootfs_sha256 end)
     and .image_recipe_sha256 == $image_recipe_sha256
     and .production_parity_sha256 == $production_parity_sha256
+    and (if $host_contract_sha256 == "" then true
+      else .host_contract_sha256 == $host_contract_sha256 end)
     and .git_remote_count == 0
     and .credential_removed_before_output == true' \
   "$RESULT_EXTRACT/evidence.json" >/dev/null
@@ -440,11 +512,7 @@ install -m 0600 "$RESULT_EXTRACT/evidence.json" "$ACCEPT_TEMP/evidence.json"
 
 FAILURE_STAGE=teardown
 remove_runtime
-
-[[ "$(pgrep -u factory-worker -f -- "--id[ =]$RUN_ID" | wc -l)" -eq 0 ]]
-[[ "$(ip -o link show "$TAP" 2>/dev/null | wc -l)" -eq 0 ]]
-[[ "$(nft list table inet "$NFT_TABLE" 2>/dev/null | wc -l)" -eq 0 ]]
-[[ ! -e "$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID" && ! -e "$RUN_TMPFS" ]]
+assert_runtime_removed
 trap - EXIT
 trap - ERR
 

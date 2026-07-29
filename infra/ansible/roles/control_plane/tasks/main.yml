@@ -578,6 +578,69 @@
     group: root
     mode: "0755"
 
+- name: Install the Anthropic WIF binding
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../policy/anthropic-wif.json"
+    dest: /etc/patchyard/anthropic-wif.json
+    owner: root
+    group: root
+    mode: "0644"
+  when: not (factory_restore_drill | default(false) | bool)
+
+- name: Create the control-plane Anthropic assertion signing key
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - genpkey
+      - -algorithm
+      - RSA
+      - -pkeyopt
+      - rsa_keygen_bits:3072
+      - -out
+      - /etc/patchyard/anthropic-wif-signing.pem
+    creates: /etc/patchyard/anthropic-wif-signing.pem
+  no_log: true
+  when: not (factory_restore_drill | default(false) | bool)
+
+- name: Enforce the Anthropic assertion signing-key boundary
+  ansible.builtin.file:
+    path: /etc/patchyard/anthropic-wif-signing.pem
+    state: file
+    owner: root
+    group: root
+    mode: "0400"
+  when: not (factory_restore_drill | default(false) | bool)
+
+- name: Keep the live Anthropic signing identity off restore drills
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/patchyard/anthropic-wif.json
+    - /etc/patchyard/anthropic-wif-signing.pem
+    - /etc/patchyard/anthropic-worker-ip
+    - /etc/tmpfiles.d/patchyard-anthropic.conf
+    - /usr/local/sbin/patchyard-run-anthropic-issuance
+  when: factory_restore_drill | default(false) | bool
+
+- name: Create the root-only Anthropic qualification tmpfs root
+  ansible.builtin.file:
+    path: /run/patchyard-anthropic
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when: not (factory_restore_drill | default(false) | bool)
+
+- name: Recreate the Anthropic qualification tmpfs root after boot
+  ansible.builtin.copy:
+    dest: /etc/tmpfiles.d/patchyard-anthropic.conf
+    content: "d /run/patchyard-anthropic 0700 root root -\n"
+    owner: root
+    group: root
+    mode: "0644"
+  when: not (factory_restore_drill | default(false) | bool)
+
 - name: Create the root-private backup state
   ansible.builtin.file:
     path: "{{ item }}"
@@ -1402,6 +1465,24 @@
     owner: "{{ factory_manager_user }}"
     group: "{{ factory_manager_user }}"
     mode: "0750"
+
+- name: Install the Anthropic qualification worker address
+  ansible.builtin.copy:
+    content: "{{ hostvars[groups['worker'][0]].private_ip }}\n"
+    dest: /etc/patchyard/anthropic-worker-ip
+    owner: root
+    group: root
+    mode: "0400"
+  when: not (factory_restore_drill | default(false) | bool)
+
+- name: Install the Anthropic issuance-and-delivery qualification runner
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../worker/qualification/patchyard-run-anthropic-issuance"
+    dest: /usr/local/sbin/patchyard-run-anthropic-issuance
+    owner: root
+    group: root
+    mode: "0750"
+  when: not (factory_restore_drill | default(false) | bool)
 
 - name: Install the Session 7 verifier runner
   ansible.builtin.template:

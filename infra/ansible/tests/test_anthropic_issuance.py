@@ -79,12 +79,30 @@ class AnthropicIssuanceContract(unittest.TestCase):
             'FAILURE="anthropic-provider-denied-$PROVIDER_STATUS-$PROVIDER_ERROR_TYPE"',
             diagnostic,
         )
+        self.assertIn(
+            'FAILURE="anthropic-provider-transport-failed-$PROVIDER_CURL_EXIT"',
+            diagnostic,
+        )
         self.assertLess(
             diagnostic.index('rm -f -- "$AUTH_CONFIG" "$CAPABILITY_FILE"'),
             diagnostic.index("PROVIDER_ERROR_TYPE=$(jq -r"),
         )
         self.assertNotIn("secret", diagnostic)
         self.assertNotIn("Authorization", diagnostic)
+
+    def test_unprivileged_provider_call_has_a_private_writable_directory(self) -> None:
+        branch = self.guest.split(
+            'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]',
+            1,
+        )[1].split('\nif [[ "$MODE" == provider-qualification ]]', 1)[0]
+        self.assertIn(
+            'install -d -m 0700 -o factory-agent -g factory-agent "$PROVIDER_TEMP"',
+            branch,
+        )
+        self.assertIn('--dump-header "$PROVIDER_HEADERS"', branch)
+        self.assertIn('--output "$PROVIDER_RESPONSE"', branch)
+        self.assertNotIn("--dump-header /run/", branch)
+        self.assertNotIn("--output /run/", branch)
 
     def test_exchange_failure_diagnostic_cannot_emit_credentials(self) -> None:
         diagnostic = self.runner.split(

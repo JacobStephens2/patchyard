@@ -28,12 +28,14 @@ The committed fixture records provider request IDs, issuance and expiry times,
 the exact object IDs and scope, read-only delivery and unmounting, credential
 removal, and host teardown. Its host-contract digest binds that proof to the
 exact reviewed control-plane issuance runner and worker Firecracker launcher;
-the runner verifies the installed launcher before exchanging the assertion.
-The inventory-rendered worker address is normalized back to its source-template
-form before hashing. The checker rejects stale evidence after either host-side
-program changes. It also rejects any credential or assertion in accepted
-stdout, stderr, or evidence. The live private signing identity is deliberately
-absent from restore drills and from the worker.
+before exchanging the assertion, the runner compares its installed bytes and
+the remote launcher digest with the exact sources in the deployed
+credential-free checkout. The worker address is not executable template text:
+Ansible writes it to a separate root-only file, and the runner accepts exactly
+one canonical RFC1918 IPv4 line from that file. The checker rejects stale
+evidence after either host-side program changes. It also rejects any credential
+or assertion in accepted stdout, stderr, or evidence. The live private signing
+identity is deliberately absent from restore drills and from the worker.
 
 This proves only requirement 1. It does not prove provider-side spend
 enforcement, expiry denial, federation-rule revocation, or crash cleanup.

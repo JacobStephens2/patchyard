@@ -143,9 +143,15 @@ for required in (
     "worker_nft_tables=$(remote_ssh sudo nft list tables)",
     'grep -R -F -q -- "$ACCESS_TOKEN"',
     'grep -R -F -q -- "$ASSERTION"',
+    'mapfile -t WORKER_IP_LINES <"$WORKER_IP_FILE"',
+    '[[ "${#WORKER_IP_LINES[@]}" -eq 1 ]]',
+    'cmp --silent -- "$RUNNER_EXECUTABLE" "$EXPECTED_RUNNER_SOURCE"',
+    '[[ "$LAUNCHER_SOURCE_SHA256" == "$EXPECTED_LAUNCHER_SHA256" ]]',
 ):
     if required not in runner:
         errors.append(f"control-plane issuance runner is missing: {required}")
+if "{{" in runner or "RUNNER_TEMPLATE_LINE" in runner:
+    errors.append("control-plane issuance runner still normalizes executable template data")
 
 for required in (
     'dd if=/dev/stdin of="$CAPABILITY" bs=65536 count=1 iflag=fullblock',
@@ -209,17 +215,24 @@ for required in (
     "owner: root",
     'mode: "0400"',
     "/etc/tmpfiles.d/patchyard-anthropic.conf",
+    "/etc/patchyard/anthropic-worker-ip",
     "/usr/local/sbin/patchyard-run-anthropic-issuance",
 ):
     if required not in control_tasks:
         errors.append(f"control-plane desired state is missing: {required}")
 for required in (
     "anthropic-wif-signing.pem root root 400",
+    "anthropic-worker-ip root root 400",
     "patchyard-run-anthropic-issuance jwks",
     'has("d") | not',
 ):
     if required not in control_qualifier:
         errors.append(f"control-plane qualifier is missing: {required}")
+runner_install = control_tasks.split(
+    "- name: Install the Anthropic issuance-and-delivery qualification runner", 1
+)[1].split("\n- name:", 1)[0]
+if "ansible.builtin.copy" not in runner_install or "ansible.builtin.template" in runner_install:
+    errors.append("Anthropic issuance runner is not installed byte-for-byte")
 if "anthropic-wif-signing.pem" in worker_tasks:
     errors.append("worker desired state references the control-plane signing key")
 for required in (

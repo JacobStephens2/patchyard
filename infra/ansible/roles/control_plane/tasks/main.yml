@@ -618,6 +618,7 @@
   loop:
     - /etc/patchyard/anthropic-wif.json
     - /etc/patchyard/anthropic-wif-signing.pem
+    - /etc/patchyard/anthropic-worker-ip
     - /etc/tmpfiles.d/patchyard-anthropic.conf
     - /usr/local/sbin/patchyard-run-anthropic-issuance
   when: factory_restore_drill | default(false) | bool
@@ -1465,8 +1466,17 @@
     group: "{{ factory_manager_user }}"
     mode: "0750"
 
+- name: Install the Anthropic qualification worker address
+  ansible.builtin.copy:
+    content: "{{ hostvars[groups['worker'][0]].private_ip }}\n"
+    dest: /etc/patchyard/anthropic-worker-ip
+    owner: root
+    group: root
+    mode: "0400"
+  when: not (factory_restore_drill | default(false) | bool)
+
 - name: Install the Anthropic issuance-and-delivery qualification runner
-  ansible.builtin.template:
+  ansible.builtin.copy:
     src: "{{ playbook_dir }}/../../worker/qualification/patchyard-run-anthropic-issuance"
     dest: /usr/local/sbin/patchyard-run-anthropic-issuance
     owner: root

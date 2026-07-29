@@ -93,6 +93,7 @@ assert_path /etc/patchyard/management-inventory.yml root factory-manager 640
 assert_path /etc/patchyard/deployed-version.env root factory-manager 640
 assert_path /etc/patchyard/anthropic-wif.json root root 644
 assert_path /etc/patchyard/anthropic-wif-signing.pem root root 400
+assert_path /etc/patchyard/anthropic-worker-ip root root 400
 assert_path /run/patchyard-anthropic root root 700
 assert_path /var/lib/patchyard/snapshots factory-manager factory 700
 test -x /usr/local/sbin/build-redacted-snapshot
@@ -101,6 +102,8 @@ test -x /usr/local/sbin/patchyard-run-fixture
 test -x /usr/local/sbin/patchyard-run-isolation-probe
 test -x /usr/local/sbin/patchyard-run-hostile-qualification
 test -x /usr/local/sbin/patchyard-run-anthropic-issuance
+grep -Fxq -- '{{ hostvars[groups['worker'][0]].private_ip }}' \
+  /etc/patchyard/anthropic-worker-ip
 test -x /usr/local/bin/factory-supervisor
 test -x /usr/local/bin/factory-web
 test -x /bin/curl

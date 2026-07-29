@@ -20,6 +20,10 @@ class AnthropicIssuanceContract(unittest.TestCase):
         cls.worker_qualifier = (
             ROOT / "infra/ansible/roles/worker/files/qualify-factory-worker"
         ).read_text()
+        cls.control_qualifier = (
+            ROOT
+            / "infra/ansible/roles/control_plane/templates/qualify-factory-control.j2"
+        ).read_text()
         cls.runner = (
             ROOT / "worker/qualification/patchyard-run-anthropic-issuance"
         ).read_text()
@@ -41,6 +45,7 @@ class AnthropicIssuanceContract(unittest.TestCase):
         )[1].split("\n- name:", 1)[0]
         self.assertIn("anthropic-wif-signing.pem", task)
         self.assertIn("anthropic-wif.json", task)
+        self.assertIn("anthropic-worker-ip", task)
         self.assertIn("patchyard-run-anthropic-issuance", task)
         self.assertIn("factory_restore_drill", task)
 
@@ -132,11 +137,81 @@ class AnthropicIssuanceContract(unittest.TestCase):
             ).read_text()
         )
         self.assertEqual(evidence["host_contract_sha256"], expected)
+        self.assertIn(
+            'cmp --silent -- "$RUNNER_EXECUTABLE" "$EXPECTED_RUNNER_SOURCE"',
+            self.runner,
+        )
         self.assertIn("LAUNCHER_HASH_RECORD=$(remote_ssh sudo sha256sum", self.runner)
+        self.assertIn(
+            '[[ "$LAUNCHER_SOURCE_SHA256" == "$EXPECTED_LAUNCHER_SHA256" ]]',
+            self.runner,
+        )
         self.assertLess(
-            self.runner.index("LAUNCHER_HASH_RECORD=$(remote_ssh sudo sha256sum"),
+            self.runner.index(
+                '[[ "$LAUNCHER_SOURCE_SHA256" == "$EXPECTED_LAUNCHER_SHA256" ]]'
+            ),
             self.runner.index("https://api.anthropic.com/v1/oauth/token"),
         )
+
+    def test_worker_address_is_root_only_non_executable_data(self) -> None:
+        address_task = self.control_tasks.split(
+            "- name: Install the Anthropic qualification worker address", 1
+        )[1].split("\n- name:", 1)[0]
+        runner_task = self.control_tasks.split(
+            "- name: Install the Anthropic issuance-and-delivery qualification runner",
+            1,
+        )[1].split("\n- name:", 1)[0]
+        self.assertIn("ansible.builtin.copy", address_task)
+        self.assertIn("hostvars[groups['worker'][0]].private_ip", address_task)
+        self.assertIn("dest: /etc/patchyard/anthropic-worker-ip", address_task)
+        self.assertIn('mode: "0400"', address_task)
+        self.assertIn("ansible.builtin.copy", runner_task)
+        self.assertNotIn("ansible.builtin.template", runner_task)
+        self.assertNotIn("{{", self.runner)
+        self.assertIn(
+            '[[ "$(stat -c \'%U:%G:%a\' "$WORKER_IP_FILE")" == root:root:400 ]]',
+            self.runner,
+        )
+        self.assertIn('mapfile -t WORKER_IP_LINES <"$WORKER_IP_FILE"', self.runner)
+        self.assertIn('[[ "${#WORKER_IP_LINES[@]}" -eq 1 ]]', self.runner)
+        self.assertIn('WORKER_IP=${WORKER_IP_LINES[0]}', self.runner)
+        self.assertIn('IPv4Network("10.0.0.0/8")', self.runner)
+        self.assertIn(
+            "assert_path /etc/patchyard/anthropic-worker-ip root root 400",
+            self.control_qualifier,
+        )
+        self.assertLess(
+            self.runner.index('mapfile -t WORKER_IP_LINES <"$WORKER_IP_FILE"'),
+            self.runner.index("https://api.anthropic.com/v1/oauth/token"),
+        )
+
+        validator = self.runner.split(
+            'python3 - "$WORKER_IP" <<\'PY\'\n', 1
+        )[1].split("\nPY", 1)[0]
+        valid = subprocess.run(
+            ["python3", "-", "10.124.0.3"],
+            input=validator,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        injected = subprocess.run(
+            ["python3", "-", "$(printf reviewer-controlled)"],
+            input=validator,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        public = subprocess.run(
+            ["python3", "-", "8.8.8.8"],
+            input=validator,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(valid.returncode, 0)
+        self.assertNotEqual(injected.returncode, 0)
+        self.assertNotEqual(public.returncode, 0)
 
     def test_guest_removes_bearer_before_writing_results(self) -> None:
         credential_start = self.guest.index('if [[ "$CREDENTIAL_REQUIRED" == true ]]')

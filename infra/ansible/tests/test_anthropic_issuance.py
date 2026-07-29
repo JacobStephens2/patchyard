@@ -79,6 +79,20 @@ class AnthropicIssuanceContract(unittest.TestCase):
         self.assertNotIn("ASSERTION", diagnostic)
         self.assertNotIn("access_token", diagnostic)
 
+    def test_worker_failure_diagnostic_is_allowlisted(self) -> None:
+        diagnostic = self.runner.split(
+            'if ! remote_ssh sudo /usr/local/sbin/patchyard-firecracker-run', 1
+        )[1].split('; then\n', 1)[1].split(
+            'install -d -m 0700 "$RUN_TEMP/result"', 1
+        )[0]
+        self.assertIn("SANITIZED_WORKER_DIAGNOSTIC", diagnostic)
+        self.assertIn("grep -E", diagnostic)
+        self.assertIn("result filesystem integrity check failed", diagnostic)
+        self.assertIn("factory worker run failed: stage=", diagnostic)
+        self.assertNotIn("launcher.stdout", diagnostic)
+        self.assertNotIn("ACCESS_TOKEN", diagnostic)
+        self.assertNotIn("ASSERTION", diagnostic)
+
 
 if __name__ == "__main__":
     unittest.main()

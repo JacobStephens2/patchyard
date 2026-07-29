@@ -233,11 +233,21 @@ scp "${SSH_ARGS[@]}" \
   "$SNAPSHOT_DIR/snapshot.sql.gz" "$SNAPSHOT_DIR/snapshot.json" \
   factory-manager@"$WORKER_IP:$REMOTE_ROOT/snapshot/"
 
-remote_ssh sudo /usr/local/sbin/patchyard-firecracker-run \
+if ! remote_ssh sudo /usr/local/sbin/patchyard-firecracker-run \
   "$REMOTE_ROOT/run.json" "$REMOTE_ROOT/source.tar.gz" \
   "$REMOTE_ROOT/request.md" "$REMOTE_ROOT/snapshot" "$REMOTE_ROOT/output" \
   <"$RUN_TEMP/capability.json" \
-  >"$RUN_TEMP/launcher.stdout" 2>"$RUN_TEMP/launcher.stderr"
+  >"$RUN_TEMP/launcher.stdout" 2>"$RUN_TEMP/launcher.stderr"; then
+  SANITIZED_WORKER_DIAGNOSTIC=$(LC_ALL=C grep -E \
+    '^(result filesystem integrity check failed|incomplete guest result: file_count=[0-9]{1,3} expected_mask=(none|[cers]{1,4})|guest returned incomplete status=[a-z0-9,-]{1,128}|result entry type rejected|guest returned failure status=[a-z0-9,-]{1,128}|factory worker run failed: stage=[a-z0-9-]{1,64} line=([0-9]{1,6}|unknown) status=[0-9]{1,3})$' \
+    "$RUN_TEMP/launcher.stderr" | head -20 || true)
+  if [[ -n "$SANITIZED_WORKER_DIAGNOSTIC" ]]; then
+    printf '%s\n' "$SANITIZED_WORKER_DIAGNOSTIC" >&2
+  else
+    echo 'factory worker run failed without an allowlisted diagnostic' >&2
+  fi
+  exit 1
+fi
 
 install -d -m 0700 "$RUN_TEMP/result"
 for name in change.patch rationale.txt evidence.json; do

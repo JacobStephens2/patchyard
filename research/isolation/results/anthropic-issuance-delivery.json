@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "run_id": "anthropic-i1-20260729-90d8596928",
+  "run_id": "anthropic-i1-20260729-aa26f9576e",
   "base_sha": "4ac93f188bb04b65fa1a6478368b79adc315aa60",
   "request_sha256": "481ae28de5fb7b5774c14cc05175788dd4c4b476e8ee678f2fbe14bf5a390a5a",
   "provider": "anthropic",
@@ -12,10 +12,10 @@
   "git_remote_count": 0,
   "credential_removed_before_output": true,
   "issuance": {
-    "issued_at": "2026-07-29T03:01:28Z",
-    "expires_at": "2026-07-29T03:06:28Z",
+    "issued_at": "2026-07-29T04:33:42Z",
+    "expires_at": "2026-07-29T04:38:42Z",
     "expires_in": 300,
-    "exchange_request_id": "req_011CdVbx7ziTv8XAYCL5vHcK",
+    "exchange_request_id": "req_011CdViz4QnK8bdBTQJRWhEZ",
     "token_type": "Bearer",
     "scope": "workspace:inference",
     "service_account_id": "svac_01BqCdjSqFsWTvfDyCucThZy",
@@ -33,7 +33,7 @@
   "provider_call": {
     "endpoint": "/v1/models?limit=1",
     "http_status": 200,
-    "request_id": "req_011CdVbyHJLKEqE8g8FcExW3",
+    "request_id": "req_011CdVizxnj6YCV4GUYzJLRY",
     "model_id": "claude-opus-5"
   },
   "host_teardown": {

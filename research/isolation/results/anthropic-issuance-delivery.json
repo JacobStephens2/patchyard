@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "run_id": "anthropic-i1-20260729-0cc925e2c1",
+  "run_id": "anthropic-i1-20260729-6fef42d129",
   "base_sha": "4ac93f188bb04b65fa1a6478368b79adc315aa60",
   "request_sha256": "481ae28de5fb7b5774c14cc05175788dd4c4b476e8ee678f2fbe14bf5a390a5a",
   "provider": "anthropic",
@@ -10,13 +10,13 @@
   "image_recipe_sha256": "a67cb7da4e059a31e3c68c7890e4198d4afe80048c4941e7f7fdb2591c809bbb",
   "production_parity_sha256": "108becf1fced5dbe28f7675a73fcbf2c1b1ac301baed8811eb23fc492cc01809",
   "git_remote_count": 0,
-  "host_contract_sha256": "2e98116d0cef5105d997c40b0158dbf39a46dc55b1d42a3dad9f07fec2e01087",
+  "host_contract_sha256": "e6d3013efd98385cb8aa2dc5ef599f871fa9b9537a64938fec36b5f58017129e",
   "credential_removed_before_output": true,
   "issuance": {
-    "issued_at": "2026-07-29T13:51:14Z",
-    "expires_at": "2026-07-29T13:56:14Z",
+    "issued_at": "2026-07-29T15:32:44Z",
+    "expires_at": "2026-07-29T15:37:44Z",
     "expires_in": 300,
-    "exchange_request_id": "req_011CdWTVz934BSK56KFRL8y8",
+    "exchange_request_id": "req_011CdWbEugABWkMAMrzdw2jj",
     "token_type": "Bearer",
     "scope": "workspace:inference",
     "service_account_id": "svac_01BqCdjSqFsWTvfDyCucThZy",
@@ -34,7 +34,7 @@
   "provider_call": {
     "endpoint": "/v1/models?limit=1",
     "http_status": 200,
-    "request_id": "req_011CdWTX4ENYXf73CdSgKc5p",
+    "request_id": "req_011CdWbFvqdoVqJtjsCo4zVg",
     "model_id": "claude-opus-5"
   },
   "host_teardown": {

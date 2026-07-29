@@ -141,8 +141,10 @@ for required in (
     "if remote_ssh sudo pgrep",
     "worker_links=$(remote_ssh sudo ip -o link show)",
     "worker_nft_tables=$(remote_ssh sudo nft list tables)",
-    'grep -R -F -q -- "$ACCESS_TOKEN"',
-    'grep -R -F -q -- "$ASSERTION"',
+    'grep -R -F -q -f "$ACCESS_TOKEN_NEEDLE" --',
+    'grep -R -F -q -f "$RUN_TEMP/assertion.jwt" --',
+    "stat -c '%U:%G:%a' \"$ACCESS_TOKEN_NEEDLE\"",
+    "stat -c '%U:%G:%a' \"$RUN_TEMP/assertion.jwt\"",
     'mapfile -t WORKER_IP_LINES <"$WORKER_IP_FILE"',
     '[[ "${#WORKER_IP_LINES[@]}" -eq 1 ]]',
     'cmp --silent -- "$RUNNER_EXECUTABLE" "$EXPECTED_RUNNER_SOURCE"',
@@ -152,6 +154,13 @@ for required in (
         errors.append(f"control-plane issuance runner is missing: {required}")
 if "{{" in runner or "RUNNER_TEMPLATE_LINE" in runner:
     errors.append("control-plane issuance runner still normalizes executable template data")
+for forbidden in (
+    'grep -R -F -q -- "$ACCESS_TOKEN"',
+    'grep -R -F -q -- "$ASSERTION"',
+    "ACCESS_TOKEN=",
+):
+    if forbidden in runner:
+        errors.append(f"control-plane issuance runner exposes a credential in argv: {forbidden}")
 
 for required in (
     'dd if=/dev/stdin of="$CAPABILITY" bs=65536 count=1 iflag=fullblock',
@@ -160,10 +169,13 @@ for required in (
     "is_read_only:true",
     "remove_runtime() {\n  local -\n  set +e",
     "assert_runtime_removed",
-    'grep -R -F -q -- "$CAPABILITY_SECRET"',
+    'grep -R -F -q -f "$CAPABILITY_NEEDLE" --',
+    "stat -c '%U:%G:%a' \"$CAPABILITY_NEEDLE\"",
 ):
     if required not in launcher:
         errors.append(f"worker capability boundary is missing: {required}")
+if "CAPABILITY_SECRET" in launcher:
+    errors.append("worker capability boundary exposes a credential in argv")
 
 for required in (
     'blockdev --getro "$CREDENTIAL_DEVICE"',

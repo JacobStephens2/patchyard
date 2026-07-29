@@ -9,7 +9,7 @@ firecracker_release_url: https://github.com/firecracker-microvm/firecracker/rele
 firecracker_release_sha256: d4a32ab2322d887ca1bc4a4e7afa9cc35393e6362dfc2b3becb389d362e4275a
 firecracker_guest_kernel_url: https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.15/x86_64/vmlinux-6.1.155
 firecracker_guest_kernel_sha256: e20e46d0c36c55c0d1014eb20576171b3f3d922260d9f792017aeff53af3d4f2
-worker_image_recipe_sha256: 89de9b718aa310cfd0e44201bf72b20aea52cfd55bf70b66dc75e5f3b4883f2b
+worker_image_recipe_sha256: e0445d5d1c13cc838b3290d9237dc11544f108bac8003ec713e6e349c3bd71eb
 worker_e2fsprogs_nevra: e2fsprogs-1.46.5-8.el9.x86_64
 worker_e2fsprogs_libs_nevra: e2fsprogs-libs-1.46.5-8.el9.x86_64
 worker_libcom_err_nevra: libcom_err-1.46.5-8.el9.x86_64

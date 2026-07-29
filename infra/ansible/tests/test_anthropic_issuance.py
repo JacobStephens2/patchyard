@@ -69,6 +69,23 @@ class AnthropicIssuanceContract(unittest.TestCase):
         self.assertIn("https://api.anthropic.com/v1/models?limit=1", self.guest)
         self.assertNotIn("/v1/messages", self.guest)
 
+    def test_provider_denial_diagnostic_is_bounded_and_credential_free(self) -> None:
+        diagnostic = self.guest.split(
+            "PROVIDER_CURL_EXIT=0", 1
+        )[1].split("jq -e '.data | type", 1)[0]
+        self.assertIn(".error.type", diagnostic)
+        self.assertNotIn(".error.message", diagnostic)
+        self.assertIn(
+            'FAILURE="anthropic-provider-denied-$PROVIDER_STATUS-$PROVIDER_ERROR_TYPE"',
+            diagnostic,
+        )
+        self.assertLess(
+            diagnostic.index('rm -f -- "$AUTH_CONFIG" "$CAPABILITY_FILE"'),
+            diagnostic.index("PROVIDER_ERROR_TYPE=$(jq -r"),
+        )
+        self.assertNotIn("secret", diagnostic)
+        self.assertNotIn("Authorization", diagnostic)
+
     def test_exchange_failure_diagnostic_cannot_emit_credentials(self) -> None:
         diagnostic = self.runner.split(
             'if [[ "$EXCHANGE_STATUS" != 200 ]]', 1

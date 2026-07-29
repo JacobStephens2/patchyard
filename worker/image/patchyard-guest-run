@@ -238,15 +238,29 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then
   chmod 0400 "$AUTH_CONFIG"
 
   FAILURE=anthropic-provider-call-failed
+  PROVIDER_CURL_EXIT=0
   PROVIDER_STATUS=$(runuser -u factory-agent -- curl \
     --config "$AUTH_CONFIG" --silent --show-error \
+    --connect-timeout 10 --max-time 30 \
     --dump-header /run/anthropic-models.headers \
     --output /run/anthropic-models.json --write-out '%{http_code}' \
-    'https://api.anthropic.com/v1/models?limit=1')
+    'https://api.anthropic.com/v1/models?limit=1') || PROVIDER_CURL_EXIT=$?
   rm -f -- "$AUTH_CONFIG" "$CAPABILITY_FILE"
   CAPABILITY_FILE=
   rmdir /run/patchyard-capability
-  [[ "$PROVIDER_STATUS" == 200 ]]
+  if [[ "$PROVIDER_CURL_EXIT" -ne 0 ]]; then
+    FAILURE=anthropic-provider-transport-failed
+    exit 1
+  fi
+  if [[ "$PROVIDER_STATUS" != 200 ]]; then
+    [[ "$PROVIDER_STATUS" =~ ^[0-9]{3}$ ]] || PROVIDER_STATUS=unknown
+    PROVIDER_ERROR_TYPE=$(jq -r '.error.type // "unknown"' \
+      /run/anthropic-models.json 2>/dev/null || printf unknown)
+    [[ "$PROVIDER_ERROR_TYPE" =~ ^[a-z_]{1,64}$ ]] || PROVIDER_ERROR_TYPE=unknown
+    PROVIDER_ERROR_TYPE=${PROVIDER_ERROR_TYPE//_/-}
+    FAILURE="anthropic-provider-denied-$PROVIDER_STATUS-$PROVIDER_ERROR_TYPE"
+    exit 1
+  fi
   jq -e '.data | type == "array" and length == 1 and (.[0].id | type == "string")' \
     /run/anthropic-models.json >/dev/null
   PROVIDER_REQUEST_ID=$(awk 'tolower($1) == "request-id:" {gsub("\r", "", $2); print $2; exit}' \

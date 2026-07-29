@@ -145,13 +145,31 @@ EXCHANGE_STATUS=$(curl --silent --show-error \
   https://api.anthropic.com/v1/oauth/token)
 EXCHANGE_REQUEST_ID=$(awk 'tolower($1) == "request-id:" {gsub("\r", "", $2); print $2; exit}' \
   "$RUN_TEMP/exchange-headers")
-[[ "$EXCHANGE_STATUS" == 200 && "$EXCHANGE_REQUEST_ID" =~ ^req_[A-Za-z0-9]+$ ]]
-jq -e '
+if [[ "$EXCHANGE_STATUS" != 200 ]]; then
+  EXCHANGE_ERROR_TYPE=$(jq -r '.error.type // "unknown"' \
+    "$RUN_TEMP/exchange-response.json" 2>/dev/null || printf unknown)
+  [[ "$EXCHANGE_ERROR_TYPE" =~ ^[a-z_]+$ ]] || EXCHANGE_ERROR_TYPE=unknown
+  EXCHANGE_DIAGNOSTIC_REQUEST_ID=absent
+  if [[ "$EXCHANGE_REQUEST_ID" =~ ^req_[A-Za-z0-9]+$ ]]; then
+    EXCHANGE_DIAGNOSTIC_REQUEST_ID=$EXCHANGE_REQUEST_ID
+  fi
+  printf 'anthropic_exchange_denied status=%s error_type=%s request_id=%s\n' \
+    "$EXCHANGE_STATUS" "$EXCHANGE_ERROR_TYPE" "$EXCHANGE_DIAGNOSTIC_REQUEST_ID" >&2
+  exit 1
+fi
+if [[ ! "$EXCHANGE_REQUEST_ID" =~ ^req_[A-Za-z0-9]+$ ]]; then
+  echo 'anthropic_exchange_invalid request_id=absent_or_malformed' >&2
+  exit 1
+fi
+if ! jq -e '
   (.access_token | type == "string" and startswith("sk-ant-oat01-") and length <= 8192)
   and .token_type == "Bearer"
   and .scope == "workspace:inference"
   and (.expires_in | type == "number" and . >= 60 and . <= 300)
-' "$RUN_TEMP/exchange-response.json" >/dev/null
+' "$RUN_TEMP/exchange-response.json" >/dev/null; then
+  echo 'anthropic_exchange_invalid response_contract=rejected' >&2
+  exit 1
+fi
 ACCESS_TOKEN=$(jq -r .access_token "$RUN_TEMP/exchange-response.json")
 EXPIRES_IN=$(jq -r .expires_in "$RUN_TEMP/exchange-response.json")
 SERVER_DATE=$(awk 'tolower($1) == "date:" {sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' \

@@ -69,6 +69,16 @@ class AnthropicIssuanceContract(unittest.TestCase):
         self.assertIn("https://api.anthropic.com/v1/models?limit=1", self.guest)
         self.assertNotIn("/v1/messages", self.guest)
 
+    def test_exchange_failure_diagnostic_cannot_emit_credentials(self) -> None:
+        diagnostic = self.runner.split(
+            'if [[ "$EXCHANGE_STATUS" != 200 ]]', 1
+        )[1].split('if [[ ! "$EXCHANGE_REQUEST_ID"', 1)[0]
+        self.assertIn("anthropic_exchange_denied", diagnostic)
+        self.assertIn(".error.type", diagnostic)
+        self.assertNotIn(".error.message", diagnostic)
+        self.assertNotIn("ASSERTION", diagnostic)
+        self.assertNotIn("access_token", diagnostic)
+
 
 if __name__ == "__main__":
     unittest.main()

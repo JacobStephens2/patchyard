@@ -152,3 +152,21 @@ to
 `3c7f374501448bb8df328b1822f51491fdc71de65dd113a5f44697a2e03b4879`.
 The focused contract test failed on that exact mismatch. The mutation was not
 retained.
+
+## Complete-launcher A78 result and stop
+
+A78 reviewed exact repair commit `36590dc` with Opus 5 at effort `max`. The
+complete-launcher digest closed all four findings in scope, including novel
+variants, and the controlled-diagnostic mutation behavior held. A78 found two
+adjacent material gaps outside that file boundary:
+
+1. the unbound issuance runner can skip its installed launcher and one-shot
+   comparisons, and Ansible permits a later writer to the executed path; and
+2. the spend guest's credential-absence and receipt assertions remain
+   substring-bound and can be moved into dead code or short-circuited.
+
+The build seat independently reproduced and conceded both under A77. This
+second operational post-A118 repair grant is exhausted. No further repair,
+clean-worker replacement, provider action, or live attempt follows without a
+new bounded authorization recorded in this work record. No new numbered ruling
+is to be created.

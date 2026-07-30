@@ -629,6 +629,41 @@ fi
         self.assertIn("digitalocean_droplet.worker", self.replace_operator)
         self.assertIn("digitalocean_firewall.worker", self.replace_operator)
         self.assertIn("changes an out-of-scope resource", self.replace_operator)
+        self.assertIn(
+            "PATCHYARD_REPLACE_APPROVED_SHA256", self.replace_operator
+        )
+        self.assertIn(
+            "PATCHYARD_REPLACE_APPROVED_REVISION", self.replace_operator
+        )
+        self.assertIn(
+            "PATCHYARD_REPLACE_A115_UNMERGED_APPROVED", self.replace_operator
+        )
+        self.assertIn("merge-base --is-ancestor", self.replace_operator)
+        self.assertEqual(
+            self.replace_operator.count(
+                'verify_approved_plan_sha256 "$PLAN_FILE"'
+            ),
+            2,
+        )
+        self.assertIn(
+            '"$REPO_ROOT/infra/ansible/converge.sh" --check-inputs',
+            self.replace_operator,
+        )
+        preflight = self.replace_operator.index(
+            '"$REPO_ROOT/infra/ansible/converge.sh" --check-inputs'
+        )
+        apply = self.replace_operator.index(
+            '"$REPO_ROOT/infra/tofu.sh" digitalocean apply "$PLAN_FILE"'
+        )
+        self.assertLess(preflight, apply)
+        self.assertIn(
+            '[[ "$worker_action" == \'[["create","delete"]]\' ]]',
+            self.replace_operator,
+        )
+        self.assertIn(
+            '[[ "$firewall_action" == \'[["update"]]\' ]]',
+            self.replace_operator,
+        )
         self.assertGreaterEqual(
             self.replace_operator.count('verify_worker_plan "$PLAN_FILE"'), 2
         )

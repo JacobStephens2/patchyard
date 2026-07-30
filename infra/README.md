@@ -107,10 +107,19 @@ then apply that exact encrypted plan:
 ```bash
 REPLACE_DIR=$(mktemp -d /tmp/patchyard-replace.XXXXXX)
 infra/replace-worker.sh plan "$REPLACE_DIR"
-# Human reviews $REPLACE_DIR/worker-replacement.tfplan.txt.
+# Human reviews the plaintext plan and records both printed SHA-256 values.
 PATCHYARD_REPLACE_APPROVED=yes \
+PATCHYARD_REPLACE_APPROVED_SHA256=<reviewed-encrypted-plan-sha256> \
+PATCHYARD_REPLACE_APPROVED_REVISION="$(git rev-parse HEAD)" \
   infra/replace-worker.sh apply "$REPLACE_DIR/worker-replacement.tfplan"
 ```
+
+Normal replacement remains restricted to a merged revision. A115's explicitly
+authorized pre-merge qualification may add
+`PATCHYARD_REPLACE_A115_UNMERGED_APPROVED=yes`; the exact reviewed revision
+and plan digest remain mandatory. Apply validates every converge secret input
+before changing the droplet, then rechecks the plan digest immediately before
+the cloud apply.
 
 The script replaces only `digitalocean_droplet.worker`, converges twice, and
 runs host qualification, the production Firecracker isolation probe, and

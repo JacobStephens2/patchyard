@@ -12,6 +12,40 @@ require_clean_revision() {
   }
 }
 
+require_approved_revision() {
+  local current_revision
+  : "${PATCHYARD_REPLACE_APPROVED_REVISION:?set PATCHYARD_REPLACE_APPROVED_REVISION to the reviewed source commit}"
+  [[ "$PATCHYARD_REPLACE_APPROVED_REVISION" =~ ^[0-9a-f]{40}$ ]] || {
+    echo 'worker replacement approved revision must be one full lowercase commit ID' >&2
+    exit 2
+  }
+  current_revision=$(git -C "$REPO_ROOT" rev-parse HEAD)
+  [[ "$current_revision" == "$PATCHYARD_REPLACE_APPROVED_REVISION" ]] || {
+    echo 'worker replacement source differs from the reviewed revision' >&2
+    exit 2
+  }
+  if ! git -C "$REPO_ROOT" merge-base --is-ancestor "$current_revision" origin/master; then
+    [[ "${PATCHYARD_REPLACE_A115_UNMERGED_APPROVED:-}" == yes ]] || {
+      echo 'worker replacement source is unmerged; the A115 exception was not approved' >&2
+      exit 2
+    }
+  fi
+}
+
+verify_approved_plan_sha256() {
+  local plan_file=$1 actual_plan_sha256
+  : "${PATCHYARD_REPLACE_APPROVED_SHA256:?set PATCHYARD_REPLACE_APPROVED_SHA256 to the reviewed plan SHA-256}"
+  [[ "$PATCHYARD_REPLACE_APPROVED_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+    echo 'worker replacement approved SHA-256 must be 64 lowercase hexadecimal characters' >&2
+    exit 2
+  }
+  read -r actual_plan_sha256 _ < <(sha256sum -- "$plan_file")
+  [[ "$actual_plan_sha256" == "$PATCHYARD_REPLACE_APPROVED_SHA256" ]] || {
+    echo 'worker replacement plan SHA-256 differs from the reviewed value' >&2
+    exit 2
+  }
+}
+
 verify_worker_plan() {
   local plan_file=$1 plan_json unexpected worker_action firewall_action
   plan_json=$("$REPO_ROOT/infra/tofu.sh" digitalocean show -json "$plan_file") || {
@@ -33,8 +67,7 @@ verify_worker_plan() {
      | select(.address == "digitalocean_droplet.worker")
      | .change.actions]
   ' <<<"$plan_json")
-  [[ "$worker_action" == '[["create","delete"]]' \
-    || "$worker_action" == '[["delete","create"]]' ]] || {
+  [[ "$worker_action" == '[["create","delete"]]' ]] || {
     echo "worker replacement plan lacks one exact worker replacement: $worker_action" >&2
     exit 2
   }
@@ -43,7 +76,7 @@ verify_worker_plan() {
      | select(.address == "digitalocean_firewall.worker")
      | .change.actions]
   ' <<<"$plan_json")
-  [[ "$firewall_action" == '[["no-op"]]' || "$firewall_action" == '[["update"]]' ]] || {
+  [[ "$firewall_action" == '[["update"]]' ]] || {
     echo "worker replacement plan has an unexpected worker-firewall action: $firewall_action" >&2
     exit 2
   }
@@ -67,6 +100,7 @@ case "$MODE" in
     verify_worker_plan "$PLAN_FILE"
     "$REPO_ROOT/infra/tofu.sh" digitalocean show -no-color "$PLAN_FILE" \
       >"$PLAN_FILE.txt"
+    sha256sum "$PLAN_FILE" "$PLAN_FILE.txt"
     echo "review $PLAN_FILE.txt, then run the apply mode with the encrypted plan"
     ;;
   apply)
@@ -81,8 +115,12 @@ case "$MODE" in
       echo "replacement approval must be the literal value yes" >&2
       exit 2
     fi
+    require_approved_revision
+    verify_approved_plan_sha256 "$PLAN_FILE"
     verify_worker_plan "$PLAN_FILE"
     "$REPO_ROOT/infra/tofu.sh" digitalocean show -no-color "$PLAN_FILE"
+    "$REPO_ROOT/infra/ansible/converge.sh" --check-inputs
+    verify_approved_plan_sha256 "$PLAN_FILE"
     "$REPO_ROOT/infra/tofu.sh" digitalocean apply "$PLAN_FILE"
     "$REPO_ROOT/infra/ansible/converge.sh"
     "$REPO_ROOT/infra/ansible/converge.sh"

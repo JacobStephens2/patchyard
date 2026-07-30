@@ -1,6 +1,7 @@
 # A115 immutable-bootstrap repair
 
-Status: **source repair passed A78 and A77; fresh plan pending**
+Status: **source repair proved live on a fresh worker; successor sequence later
+stopped at an apparent A101 firewall-propagation interval**
 
 ## Authorization and boundary
 
@@ -88,3 +89,22 @@ The build seat independently reproduced and conceded all four under A77. None
 changes or bypasses the repaired command in current source. No further source
 repair follows the PASS. The next authorized gate is a fresh worker-only plan
 whose human review must include the new worker's repaired user-data value.
+
+## Live proof and later stop
+
+A78 returned PASS on a fresh worker-only plan at source `673b89f`. OpenTofu
+created worker `588778422`, destroyed failed worker `588761785`, and changed
+only the matching worker firewall attachment. The fresh host completed the
+repaired cloud-init transaction and both converges passed; the second was
+fully idempotent with worker `changed=0,failed=0`. This closes the bootstrap
+repair's live proof.
+
+The ensuing complete qualifier stopped before any isolation or provider action
+because the first control-to-worker private-VPC SSH attempt timed out. The same
+installed probe succeeded without a change at `2026-07-30T18:02:24Z`, and
+DigitalOcean later reported the firewall `succeeded` with no pending changes.
+The provider-propagation explanation remains an inference because status was
+not sampled at the instant of timeout. The sequence remains failed and stopped
+rather than silently retried. Exact plan, adjudication, and live failure
+records are in the successor plan-review and worker-replacement-attempt
+documents.

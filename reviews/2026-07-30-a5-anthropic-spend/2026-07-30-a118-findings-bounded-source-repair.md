@@ -346,3 +346,29 @@ conceded under A77; none defeats current source. The records are
 `2026-07-30-a78-bootstrap-repair-review.md` and
 `2026-07-30-a77-bootstrap-repair-adjudication.md`. No additional source repair
 followed. The fresh exact worker-only plan is the next authorized gate.
+
+## Successor reviewed plan and sequence stop
+
+The fresh plan at exact source `673b89f` had saved SHA-256
+`944f8af406006cee8c92ec377e374fd697ba53d472290b42b565846f20dec550`
+and rendered SHA-256
+`2bf7b41af785b8e9eb40b159e01be0274c0f553993c3abcefb967b91c584ee66`.
+A78 returned PASS with no material finding. The build seat adjudicated all nine
+defense-in-depth observations under A77 and made no post-PASS repair.
+
+The exact apply created worker `588778422`, attached the worker firewall, and
+destroyed failed worker `588761785`. The repaired immutable bootstrap passed
+live. Both converges passed and the second was fully idempotent. The first
+complete qualifier then stopped at a timeout from control private IP
+`10.132.0.17` to worker `10.132.0.15:22`. No isolation or provider phase ran.
+The same installed probe succeeded without any change at
+`2026-07-30T18:02:24Z`; DigitalOcean subsequently showed the exact firewall
+attachment `succeeded` with no pending changes. The inference is attachment
+propagation, but the failed qualifier remains recorded as failed.
+
+No retry, cap action, provider request, or source/host repair followed. A new
+bounded authorization is required to restart qualification and continue the
+successor sequence. The exact records are
+`2026-07-30-a78-worker-replacement-plan2-review.md`,
+`2026-07-30-a77-worker-replacement-plan2-adjudication.md`, and
+`2026-07-30-a115-successor-worker-replacement-attempt.md`.

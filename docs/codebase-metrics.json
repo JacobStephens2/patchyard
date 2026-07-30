@@ -268,9 +268,9 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8561,
-      "comments": 13051,
-      "blanks": 3782,
-      "files": 145,
+      "comments": 13262,
+      "blanks": 3837,
+      "files": 148,
       "languages": [
         {
           "language": "BASH",
@@ -289,9 +289,9 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 13031,
-          "blanks": 3729,
-          "files": 117
+          "comments": 13242,
+          "blanks": 3784,
+          "files": 120
         },
         {
           "language": "Shell",

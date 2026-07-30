@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "provider": "anthropic",
+  "qualification_requirement": "provider-spend-enforcement",
+  "outcome": "repair_failed_unattributed_http_400",
+  "workspace_id": "wrkspc_000000000000000000000000",
+  "service_account_id": "svac_01BqCdjSqFsWTvfDyCucThZy",
+  "run_id": "anthropic-s2-20260730-4d80267abf",
+  "cap_control": {
+    "organization_monthly_limit_usd": "500.00",
+    "qualification": {
+      "displayed": "$7.68 of $1.00",
+      "operator_reported_observed_at": "2026-07-30T02:05Z"
+    },
+    "restored": {
+      "displayed": "$7.68 of $50.00",
+      "operator_reported_observed_at": "2026-07-30T02:07Z"
+    },
+    "timestamp_note": "The operator-reported readback times precede the worker's journaled execution interval and are not used as ordering evidence."
+  },
+  "fixture": {
+    "model": "claude-opus-5",
+    "endpoint": "/v1/messages",
+    "prompt": "Patchyard Factory spend-cap denial probe. Reply with one character.",
+    "request_attempts": 1,
+    "http_status": 400,
+    "provider_error_response_exported": false,
+    "spend_attribution_verified": false,
+    "qualification_satisfied": false,
+    "worker_started_at": "2026-07-30T02:21:34Z",
+    "failed_at": "2026-07-30T02:21:53Z",
+    "diagnostic": [
+      "incomplete guest result: file_count=1 expected_mask=s",
+      "guest returned incomplete status=anthropic-spend-unexpected-response-400",
+      "factory worker run failed: stage=result-filesystem-validation line=470 status=1"
+    ]
+  },
+  "cost_measurement": {
+    "source": "Anthropic Cost Report API",
+    "currency": "USD",
+    "before_repair_usd": "7.68168",
+    "before_repair_observed_at": "2026-07-30T01:17:29Z",
+    "after_repair_usd": "7.68168",
+    "after_repair_observed_at": "2026-07-30T02:26:10Z",
+    "incremental_repair_cost_usd": "0",
+    "measured_initial_attempt_overshoot_usd": "6.68168"
+  },
+  "containment": {
+    "boundary_tainted": true,
+    "marker": "run=anthropic-s2-20260730-4d80267abf reason=containment-qualification-failed stage=result-filesystem-validation line=470 detected_at=2026-07-30T02:21:53Z",
+    "worker_qualification_after_failure": "failed_closed_at_boundary_taint_check"
+  },
+  "repair_loop": {
+    "consumed": true,
+    "further_provider_requests_permitted": false,
+    "disposition": "escalate_under_A9"
+  }
+}

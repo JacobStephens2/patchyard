@@ -1,22 +1,22 @@
 {
   "schema_version": 1,
-  "run_id": "anthropic-i1-20260729-9cd85004b9",
+  "run_id": "anthropic-i1-20260730-9a41c5aa72",
   "base_sha": "4ac93f188bb04b65fa1a6478368b79adc315aa60",
   "request_sha256": "481ae28de5fb7b5774c14cc05175788dd4c4b476e8ee678f2fbe14bf5a390a5a",
   "provider": "anthropic",
   "qualification_requirement": "issuance-delivery",
   "patch_sha256": "9ad97cf0310918118c2094d26c5843e2bbeb1c2a4fbe9a8b3cc8c82a684c5cbc",
-  "observed_rootfs_sha256": "3ae20b20f5989e9ab1eb2944820e4ab63676c2019a9ac0087c5591ab36ad94ec",
-  "image_recipe_sha256": "04da410d80a8a43894dbc916678eb046c311efc0100f44a2d60c46dbb1014242",
+  "observed_rootfs_sha256": "5dfeb58e780da7ae31bcbb8206100dc565323d1209c28e037aa4849f4851ce22",
+  "image_recipe_sha256": "5ccd69062c904c75b58272a4759ff57ceb7fcff828838f300078c9bb4ac321f0",
   "production_parity_sha256": "108becf1fced5dbe28f7675a73fcbf2c1b1ac301baed8811eb23fc492cc01809",
   "git_remote_count": 0,
-  "host_contract_sha256": "b9809d04409e1b6052c2116688fb939118c8c2f67ff66e66e8547c33937c5400",
+  "host_contract_sha256": "0541aacebf3a01e42fdb2ca671c7ea8ab763902bab61760a196e667d3bd0c900",
   "credential_removed_before_output": true,
   "issuance": {
-    "issued_at": "2026-07-29T21:58:49Z",
-    "expires_at": "2026-07-29T22:03:49Z",
+    "issued_at": "2026-07-30T01:49:48Z",
+    "expires_at": "2026-07-30T01:54:48Z",
     "expires_in": 300,
-    "exchange_request_id": "req_011CdX6gUq2nJ5Su2Si8fpXF",
+    "exchange_request_id": "req_011CdXQJ83reFXnZ1KYjyYqb",
     "token_type": "Bearer",
     "scope": "workspace:inference",
     "service_account_id": "svac_01BqCdjSqFsWTvfDyCucThZy",
@@ -34,7 +34,7 @@
   "provider_call": {
     "endpoint": "/v1/models?limit=1",
     "http_status": 200,
-    "request_id": "req_011CdX6hUzV7RhwMDNBNmePe",
+    "request_id": "req_011CdXQKVNHn19XKX3yPSYTY",
     "model_id": "claude-opus-5"
   },
   "host_teardown": {

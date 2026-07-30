@@ -29,6 +29,13 @@ INITIAL_FAILURE_PATH = (
     / "results"
     / "anthropic-spend-enforcement-initial-failure.json"
 )
+REPAIR_FAILURE_PATH = (
+    REPO
+    / "research"
+    / "isolation"
+    / "results"
+    / "anthropic-spend-enforcement-repair-failure.json"
+)
 IMAGE_PATH = REPO / "worker" / "image"
 PRODUCTION_PARITY_PATH = IMAGE_PATH / "production-parity.json"
 HOST_CONTRACT_PATHS = (
@@ -289,8 +296,145 @@ if INITIAL_FAILURE_PATH.exists():
 elif RESULT_PATH.exists():
     errors.append("initial spend failure record is missing")
 
+repair_failure: dict[str, Any] | None = None
+if REPAIR_FAILURE_PATH.exists():
+    repair_failure = json.loads(REPAIR_FAILURE_PATH.read_text())
+    expected_repair_keys = {
+        "schema_version",
+        "provider",
+        "qualification_requirement",
+        "outcome",
+        "workspace_id",
+        "service_account_id",
+        "run_id",
+        "cap_control",
+        "fixture",
+        "cost_measurement",
+        "containment",
+        "repair_loop",
+    }
+    if set(repair_failure) != expected_repair_keys:
+        errors.append("repair failure record has an unexpected shape")
+    if (
+        repair_failure.get("schema_version") != 1
+        or repair_failure.get("provider") != "anthropic"
+        or repair_failure.get("qualification_requirement")
+        != "provider-spend-enforcement"
+        or repair_failure.get("outcome")
+        != "repair_failed_unattributed_http_400"
+        or repair_failure.get("workspace_id") != workspace_id
+        or repair_failure.get("service_account_id")
+        != policy.get("service_account", {}).get("id")
+        or repair_failure.get("run_id")
+        != "anthropic-s2-20260730-4d80267abf"
+    ):
+        errors.append("repair failure identity differs from the observed run")
+    if repair_failure.get("cap_control") != {
+        "organization_monthly_limit_usd": "500.00",
+        "qualification": {
+            "displayed": "$7.68 of $1.00",
+            "operator_reported_observed_at": "2026-07-30T02:05Z",
+        },
+        "restored": {
+            "displayed": "$7.68 of $50.00",
+            "operator_reported_observed_at": "2026-07-30T02:07Z",
+        },
+        "timestamp_note": (
+            "The operator-reported readback times precede the worker's journaled "
+            "execution interval and are not used as ordering evidence."
+        ),
+    }:
+        errors.append("repair failure cap readbacks differ from the operator report")
+    repair_fixture = repair_failure.get("fixture", {})
+    if repair_fixture != {
+        "model": "claude-opus-5",
+        "endpoint": "/v1/messages",
+        "prompt": "Patchyard Factory spend-cap denial probe. Reply with one character.",
+        "request_attempts": 1,
+        "http_status": 400,
+        "provider_error_response_exported": False,
+        "spend_attribution_verified": False,
+        "qualification_satisfied": False,
+        "worker_started_at": "2026-07-30T02:21:34Z",
+        "failed_at": "2026-07-30T02:21:53Z",
+        "diagnostic": [
+            "incomplete guest result: file_count=1 expected_mask=s",
+            "guest returned incomplete status=anthropic-spend-unexpected-response-400",
+            "factory worker run failed: stage=result-filesystem-validation line=470 status=1",
+        ],
+    }:
+        errors.append("repair failure fixture differs from the fail-closed log")
+    else:
+        try:
+            if parse_time(repair_fixture["worker_started_at"]) >= parse_time(
+                repair_fixture["failed_at"]
+            ):
+                raise ValueError("worker interval is reversed")
+        except (KeyError, TypeError, ValueError):
+            errors.append("repair failure worker interval is malformed")
+    repair_cost = repair_failure.get("cost_measurement", {})
+    try:
+        if set(repair_cost) != {
+            "source",
+            "currency",
+            "before_repair_usd",
+            "before_repair_observed_at",
+            "after_repair_usd",
+            "after_repair_observed_at",
+            "incremental_repair_cost_usd",
+            "measured_initial_attempt_overshoot_usd",
+        }:
+            raise ValueError("unexpected cost shape")
+        before_repair = decimal_value(repair_cost["before_repair_usd"])
+        after_repair = decimal_value(repair_cost["after_repair_usd"])
+        incremental = decimal_value(repair_cost["incremental_repair_cost_usd"])
+        overshoot = decimal_value(
+            repair_cost["measured_initial_attempt_overshoot_usd"]
+        )
+        before_repair_time = parse_time(repair_cost["before_repair_observed_at"])
+        after_repair_time = parse_time(repair_cost["after_repair_observed_at"])
+        if (
+            repair_cost["source"] != "Anthropic Cost Report API"
+            or repair_cost["currency"] != "USD"
+            or initial_failure_cost is None
+            or before_repair != initial_failure_cost
+            or after_repair != before_repair
+            or incremental != after_repair - before_repair
+            or overshoot != before_repair - Decimal(1)
+            or before_repair_time >= after_repair_time
+        ):
+            raise ValueError("cost figures do not reconcile")
+    except (KeyError, InvalidOperation, TypeError, ValueError):
+        errors.append("repair failure cost reconciliation is malformed")
+    if repair_failure.get("containment") != {
+        "boundary_tainted": True,
+        "marker": (
+            "run=anthropic-s2-20260730-4d80267abf "
+            "reason=containment-qualification-failed "
+            "stage=result-filesystem-validation line=470 "
+            "detected_at=2026-07-30T02:21:53Z"
+        ),
+        "worker_qualification_after_failure": "failed_closed_at_boundary_taint_check",
+    }:
+        errors.append("repair failure containment record differs from the live marker")
+    if repair_failure.get("repair_loop") != {
+        "consumed": True,
+        "further_provider_requests_permitted": False,
+        "disposition": "escalate_under_A9",
+    }:
+        errors.append("repair failure does not preserve the A9 stop condition")
+    serialized_repair_failure = json.dumps(repair_failure, sort_keys=True)
+    if secret_named_key(repair_failure) or re.search(
+        r"sk-ant-|eyJ[A-Za-z0-9_-]+\.eyJ", serialized_repair_failure
+    ):
+        errors.append("repair failure record contains a credential")
+    if RESULT_PATH.exists():
+        errors.append("successful result and terminal repair failure are mutually exclusive")
+elif initial_failure is not None and not allow_missing:
+    errors.append("terminal repair failure record is missing")
+
 if not RESULT_PATH.exists():
-    if not allow_missing:
+    if not allow_missing and repair_failure is None:
         errors.append("committed live Anthropic spend result is missing")
 else:
     result = json.loads(RESULT_PATH.read_text())
@@ -517,5 +661,10 @@ if errors:
         print(f"  {error}", file=sys.stderr)
     raise SystemExit(1)
 
-status = "with live result" if RESULT_PATH.exists() else "static preflight"
+if RESULT_PATH.exists():
+    status = "with live result"
+elif REPAIR_FAILURE_PATH.exists():
+    status = "with terminal A9 escalation evidence"
+else:
+    status = "static preflight"
 print(f"Anthropic spend check: pass ({status})")

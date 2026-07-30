@@ -1,14 +1,14 @@
 # Anthropic A-5 requirement 2: provider-side spend enforcement
 
-## Qualified contract
+## Built contract and live disposition
 
-The hard limit belongs to the dedicated `Patchyard Factory` workspace
+The intended hard limit belongs to the dedicated `Patchyard Factory` workspace
 (`wrkspc_000000000000000000000000`), not to a guest-side counter and not to the
 Patchyard Anthropic organization as a whole. The reviewed operational workspace cap
 is $50.00 per month. The attended qualification temporarily replaces it with a
 $1.00 `notify_and_pause` cap and makes one minimal `claude-opus-5` probe through
 the same five-minute WIF and read-only Firecracker delivery path as requirement
-1. Qualification succeeds only when Anthropic rejects `/v1/messages` with a
+1. The fixture succeeds only when Anthropic rejects `/v1/messages` with a
 spend-, credit-, or billing-attributable error. The operator then restores
 $50.00 before collecting the final cost report.
 
@@ -21,15 +21,17 @@ the workspace effective limit is the minimum of the organization enforced
 limit and every workspace `notify_and_pause` limit. The same interface refuses
 a workspace value above the organization value. A lower workspace limit
 therefore binds independently as the narrower ceiling while the unchanged
-organization ceiling continues to apply alongside it. This satisfies A113
-clause 2 without changing or endangering Patchyard's organization limit.
+organization ceiling continues to apply alongside it. This establishes the
+Factory-scoping precondition without changing or endangering Patchyard's organization
+limit; the failed provider proof below does not satisfy A113 clause 2.
 
 The Console dialog displays only the dollar amount; it has no enforcement-mode
 selector. The `notify_and_pause` value above comes from the first-party Console
 implementation, which posts that exact action when it saves the displayed
 workspace limit. It is not represented as a user-selected UI observation.
 
-The provider denial is the qualification event. The Anthropic
+The provider denial with an attributable error response is the qualification
+event. The Anthropic
 [Cost Report API](https://platform.claude.com/docs/en/api/usage-cost-api)
 does not substitute for that denial; it measures the dedicated workspace's
 month-to-date cost after the denial, when no later calls have occurred. Cost
@@ -37,7 +39,10 @@ Report `amount` values are USD minor units and are converted from cents before
 the fixture records `observed_spend_at_denial_usd` and
 `measured_overshoot_usd`. The latter is the amount above the exact $1.00
 provider cap. There is deliberately no accepted overshoot ceiling. This first
-qualification establishes the observed baseline required by A113.
+qualification was intended to establish the observed baseline required by
+A113; the unsuccessful attempts instead establish an escalation record.
+
+### Live attempts and A9 escalation
 
 The initial 2026-07-29 attempt used eight large requests separated by five
 seconds. Anthropic accepted all eight even though their eventual usage exceeded
@@ -50,23 +55,49 @@ The record is
 The one permitted repair does not generate another ramp: after Anthropic's Cost
 Report records the already-incurred workspace spend above $1.00, it lowers the
 workspace cap again and submits exactly one tiny request. Acceptance of that
-request is terminal failure; only a provider refusal qualifies.
+request is terminal failure; only an attributable provider refusal qualifies.
+
+The repaired fixture ran once as
+`anthropic-s2-20260730-4d80267abf`. Anthropic returned HTTP 400 to the one tiny
+Messages request, but the response did not satisfy the pre-bound error envelope
+and spend-attribution checks. The failed guest exported only the allowlisted
+status `anthropic-spend-unexpected-response-400`; by design it did not export
+the unaccepted provider body. A Cost Report snapshot after the repair remained
+exactly $7.68168, unchanged from the settled cost of the initial eight accepted
+calls, so the repaired request added $0. The measured initial-attempt overshoot
+against the temporary $1.00 workspace cap is **$6.68168**.
+
+The Console readback was `$7.68 of $1.00` before restoration and `$7.68 of
+$50.00` afterward; the organization limit remained $500.00. The operator
+reported 02:05Z and 02:07Z for those observations, but both times precede the
+worker's journaled 02:21:34Z-02:21:53Z execution interval. The committed failure
+record preserves that inconsistency explicitly and does not use those times as
+ordering evidence.
+
+Because the raw provider error is unavailable, the HTTP 400 cannot be bound to
+workspace spend enforcement and does not satisfy A113 clause 2. The runtime
+also set its fail-closed `BOUNDARY_TAINTED` marker at 02:21:53Z; subsequent
+worker qualification stops at that marker. A9's single repair loop is consumed:
+there will be no source repair, paid retry, marker removal, or worker
+replacement in this requirement. The terminal record is
+`research/isolation/results/anthropic-spend-enforcement-repair-failure.json`.
 
 The committed fixture binds the deterministic request, deterministic patch,
 production-parity manifest, complete image recipe, and exact two-file host
 contract to current source. The ext4 rootfs remains explicitly observational
 as `observed_rootfs_sha256`, for the reproducibility reason documented under
-requirement 1. Cap readbacks bind the before, temporary, and restored workspace
-values; the organization value must be identical in all three observations and
-safely above the workspace operational value. The fixture never records a
-bearer or assertion.
+requirement 1. A successful fixture would bind the before, temporary, and
+restored workspace values, require the organization value to remain identical,
+and require it to stay safely above the workspace operational value. Neither
+failure record contains a bearer or assertion.
 
-This proves only requirement 2 and includes the A114 teardown-status repair.
-It does not prove expiry, revocation, or credential-bearing crash cleanup.
+This builds the requirement 2 path and includes the A114 teardown-status
+repair, but the live fixture does **not** qualify requirement 2. It also does
+not prove expiry, revocation, or credential-bearing crash cleanup.
 Anthropic and every other provider therefore remain
 `credential_qualified: false`, and behavioral acceptance remains paused.
 
-## Attended live procedure
+## Attended live procedure (historical; do not rerun under A9)
 
 Use an authenticated Anthropic Console session only for cap readback and cap
 changes. The public Admin API currently exposes cost reports but no documented
@@ -150,4 +181,6 @@ In particular, never introduce a bare `ANTHROPIC_API_KEY`.
 The deployed repair makes exactly one provider probe. If that probe is accepted
 or returns an error that cannot be attributed to spend, credit, or billing, the
 repair fails closed and A9 requires escalation with the failure log rather than
-another implementation or paid attempt.
+another implementation or paid attempt. That stop condition occurred on
+2026-07-30; this procedure is retained for reviewability, not authorization to
+repeat it.

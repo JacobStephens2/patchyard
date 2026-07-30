@@ -28,8 +28,18 @@ remove_provider_credential() {
   return "$cleanup_failed"
 }
 
+anthropic_response_is_single_json_object() {
+  [[ -s "$PROVIDER_RESPONSE" ]] \
+    && jq -e --slurp 'length == 1 and (.[0] | type == "object")' \
+      "$PROVIDER_RESPONSE" >/dev/null 2>&1
+}
+
 classify_anthropic_error_shape() {
-  if ! jq -e 'type == "object"' "$PROVIDER_RESPONSE" >/dev/null 2>&1; then
+  if [[ ! -s "$PROVIDER_RESPONSE" ]]; then
+    printf 'empty-body\n'
+  elif ! jq -e --slurp 'length == 1' "$PROVIDER_RESPONSE" >/dev/null 2>&1; then
+    printf 'invalid-json-body\n'
+  elif ! jq -e 'type == "object"' "$PROVIDER_RESPONSE" >/dev/null 2>&1; then
     printf 'non-object\n'
   elif ! jq -e 'has("type")' "$PROVIDER_RESPONSE" >/dev/null; then
     printf 'missing-type\n'
@@ -66,6 +76,7 @@ classify_anthropic_error_shape() {
 }
 
 anthropic_error_envelope_is_compatible() {
+  anthropic_response_is_single_json_object || return 1
   jq -e '
     has("type") and .type == "error" and has("error") and (.error | type == "object")
     and (.error | has("type")) and (.error | has("message"))
@@ -375,7 +386,11 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
   fi
   FAILURE=anthropic-spend-provider-response-rejected
   if [[ "$PROVIDER_STATUS" == 200 ]]; then
-    if ! jq -e '
+    if ! anthropic_response_is_single_json_object; then
+      RESPONSE_SHAPE=$(classify_anthropic_error_shape)
+      FAILURE="anthropic-spend-provider-response-rejected-200-$RESPONSE_SHAPE"
+      exit 1
+    elif ! jq -e '
       .type == "message" and .model == "claude-opus-5"
       and (.usage.input_tokens | type == "number" and . >= 1)
       and (.usage.output_tokens | type == "number" and . >= 1)
@@ -532,12 +547,14 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then
 
   FAILURE=anthropic-provider-call-failed
   PROVIDER_CURL_EXIT=0
+  # ANTHROPIC_ISSUANCE_PROVIDER_REQUEST_BEGIN
   PROVIDER_STATUS=$(runuser -u factory-agent -- curl \
     --config "$AUTH_CONFIG" --silent --show-error \
     --connect-timeout 10 --max-time 30 \
     --dump-header "$PROVIDER_HEADERS" \
     --output "$PROVIDER_RESPONSE" --write-out '%{http_code}' \
     'https://api.anthropic.com/v1/models?limit=1') || PROVIDER_CURL_EXIT=$?
+  # ANTHROPIC_ISSUANCE_PROVIDER_REQUEST_END
   rm -f -- "$AUTH_CONFIG" "$CAPABILITY_FILE"
   CAPABILITY_FILE=
   rmdir /run/patchyard-capability

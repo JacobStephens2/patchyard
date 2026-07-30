@@ -47,6 +47,22 @@ EXPECTED_PROVIDER_REQUEST_BLOCK = """  # A115_PROVIDER_REQUEST_BEGIN
     --data-binary "@$PROVIDER_REQUEST" \\
     'https://api.anthropic.com/v1/messages') || PROVIDER_CURL_EXIT=$?
   # A115_PROVIDER_REQUEST_END"""
+EXPECTED_ISSUANCE_PROVIDER_REQUEST_BLOCK = """  # ANTHROPIC_ISSUANCE_PROVIDER_REQUEST_BEGIN
+  PROVIDER_STATUS=$(runuser -u factory-agent -- curl \\
+    --config "$AUTH_CONFIG" --silent --show-error \\
+    --connect-timeout 10 --max-time 30 \\
+    --dump-header "$PROVIDER_HEADERS" \\
+    --output "$PROVIDER_RESPONSE" --write-out '%{http_code}' \\
+    'https://api.anthropic.com/v1/models?limit=1') || PROVIDER_CURL_EXIT=$?
+  # ANTHROPIC_ISSUANCE_PROVIDER_REQUEST_END"""
+EXPECTED_LOCAL_WEB_HEALTH_BLOCK = """APP_STATUS=$(curl --silent --output /run/fieldbook-index.html \\
+  --write-out '%{http_code}' --max-time 20 http://127.0.0.1/index.php)"""
+EXPECTED_LOCAL_PARITY_PROBE_BLOCK = """PROBE_BODY=$(curl --fail --silent --max-time 20 \\
+  http://127.0.0.1/mfieldbook/patchyard_session4_probe.php)"""
+PROVIDER_CAPABLE_COMMAND = re.compile(
+    r"(?<![-A-Za-z0-9_.])(curl|wget|netcat|nc)(?=\s)|"
+    r"/dev/(?:tcp|udp)|openssl\s+s_client"
+)
 PHASES = (
     "operational_acceptance",
     "temporary_refusal",
@@ -191,6 +207,9 @@ required_sources = (
     (spend_branch, "anthropic-spend-provider-response-rejected"),
     (spend_branch, "anthropic-spend-temporary-cap-refusal-not-observed"),
     (spend_branch, "classify_anthropic_error_shape"),
+    (guest, "anthropic_response_is_single_json_object"),
+    (guest, "empty-body"),
+    (guest, "invalid-json-body"),
     (spend_branch, "missing-date"),
     (spend_branch, "invalid-date"),
 )
@@ -199,6 +218,19 @@ for source, required in required_sources:
         errors.append(f"Anthropic A115 source binding is missing: {required}")
 if "run-spend)" in runner:
     errors.append("superseded single-probe runner action remains callable")
+provider_free_guest = guest
+for label, request_block in (
+    ("A115 messages", EXPECTED_PROVIDER_REQUEST_BLOCK),
+    ("Anthropic issuance", EXPECTED_ISSUANCE_PROVIDER_REQUEST_BLOCK),
+    ("loopback web health", EXPECTED_LOCAL_WEB_HEALTH_BLOCK),
+    ("loopback parity probe", EXPECTED_LOCAL_PARITY_PROBE_BLOCK),
+):
+    if provider_free_guest.count(request_block) != 1:
+        errors.append(f"{label} request differs from its exact one-call binding")
+    else:
+        provider_free_guest = provider_free_guest.replace(request_block, "", 1)
+if PROVIDER_CAPABLE_COMMAND.search(provider_free_guest):
+    errors.append("guest contains a network-capable call outside its exact blocks")
 if spend_branch:
     if spend_branch.count(EXPECTED_PROVIDER_REQUEST_BLOCK) != 1:
         errors.append(
@@ -207,11 +239,7 @@ if spend_branch:
         non_request_source = spend_branch
     else:
         non_request_source = spend_branch.replace(EXPECTED_PROVIDER_REQUEST_BLOCK, "")
-    if re.search(
-        r"(?<![-A-Za-z0-9_.])(curl|wget|netcat|nc)(?=\s)|"
-        r"/dev/(?:tcp|udp)|openssl\s+s_client",
-        non_request_source,
-    ):
+    if PROVIDER_CAPABLE_COMMAND.search(non_request_source):
         errors.append(
             "spend branch contains a provider-capable call outside its exact block"
         )

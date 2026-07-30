@@ -99,14 +99,20 @@ The control-plane runner exposes three separate actions:
 The phase and expected workspace value are in the short-lived capability and
 run manifest. The guest constructs the same deterministic one-token Messages
 body in every phase and records its SHA-256. Shell source checks reject curl
-retry flags, loops, `xargs`, and `seq` in the provider branch.
+retry flags, loops, `xargs`, and `seq` in the provider branch. A116 additionally
+removes the two exact approved Anthropic call blocks from the source and rejects
+any provider-capable command left anywhere in the guest, so a helper defined
+outside the branch cannot hide a second request.
 
 The guest removes the copied capability, authorization configuration, request,
 headers, and provider response before publishing success or failure. If that
 cleanup cannot be proven, it purges the result filesystem and leaves no status
 for the host to accept. The host then taints the worker. A provider response
 that does not meet the bounded A115 phase contract fails with a response-stage
-diagnostic, not the obsolete `denial-not-observed` label.
+diagnostic, not the obsolete `denial-not-observed` label. Empty bodies fail as
+`empty-body`; whitespace, malformed JSON, multiple documents, and other
+non-single-object inputs fail before jq can treat an absent document as a
+successful predicate.
 
 The A114 child-launcher repair also treats output purge, ownership and mode
 normalization, network-lock release, and terminal publication failures as
@@ -226,8 +232,10 @@ selector that the Console does not expose.
    temporary snapshots and readbacks after the committed evidence passes.
 
 If any phase fails, preserve the sanitized failure log and use at most the one
-A9 repair loop authorized by A115. Then escalate rather than making another
-provider request.
+A9 live-attempt repair loop authorized by A115. A116 authorized only the
+additional pre-attempt source repair recorded in its re-review; it did not add
+a provider request or another live repair loop. Then escalate rather than
+making another provider request.
 
 Requirement 2 remains unqualified until the completed A115 result lands.
 Behavioral acceptance remains paused, all 13 `credential_qualified` flags stay

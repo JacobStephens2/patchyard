@@ -4,6 +4,7 @@ from decimal import Decimal
 import importlib.util
 import json
 import pathlib
+import re
 import subprocess
 import tempfile
 import unittest
@@ -256,21 +257,23 @@ class AnthropicGuestSpendContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.guest = (ROOT / "worker/image/patchyard-guest-run").read_text()
+        cls.checker = (ROOT / "tools/check-anthropic-spend.py").read_text()
 
     @classmethod
     def function(cls, name: str) -> str:
         body = cls.guest.split(f"{name}() {{", 1)[1].split("\n}", 1)[0]
         return f"{name}() {{{body}\n}}"
 
-    def run_envelope(
-        self, value: object, action: str
+    def run_raw_envelope(
+        self, value: str, action: str
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as handle:
-            json.dump(value, handle)
+            handle.write(value)
             handle.flush()
             script = "\n".join(
                 (
                     "set -euo pipefail",
+                    self.function("anthropic_response_is_single_json_object"),
                     self.function("classify_anthropic_error_shape"),
                     self.function("anthropic_error_envelope_is_compatible"),
                     'PROVIDER_RESPONSE="$1"',
@@ -283,6 +286,11 @@ class AnthropicGuestSpendContract(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
+
+    def run_envelope(
+        self, value: object, action: str
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run_raw_envelope(json.dumps(value), action)
 
     @staticmethod
     def envelope(**extra: object) -> dict[str, object]:
@@ -330,6 +338,29 @@ class AnthropicGuestSpendContract(unittest.TestCase):
         self.assertIn('ERROR_TYPE" == rate_limit_error', self.guest)
         self.assertIn('ERROR_TYPE" == overloaded_error', self.guest)
 
+    def test_guest_rejects_non_single_object_responses(self) -> None:
+        for value, descriptor in (
+            ("", "empty-body"),
+            (" \n\t", "invalid-json-body"),
+            ("{", "invalid-json-body"),
+            ("{}\n{}", "invalid-json-body"),
+            ("[]", "non-object"),
+        ):
+            with self.subTest(descriptor=descriptor):
+                compatible = self.run_raw_envelope(
+                    value, "anthropic_error_envelope_is_compatible"
+                )
+                self.assertNotEqual(compatible.returncode, 0)
+                classified = self.run_raw_envelope(
+                    value, "classify_anthropic_error_shape"
+                )
+                self.assertEqual(classified.returncode, 0, classified.stderr)
+                self.assertEqual(classified.stdout.strip(), descriptor)
+        success_branch = self.guest.split(
+            'if [[ "$PROVIDER_STATUS" == 200 ]]', 1
+        )[1].split("  elif [[", 1)[0]
+        self.assertIn("anthropic_response_is_single_json_object", success_branch)
+
     def test_guest_has_one_exact_provider_call_block_and_strict_date(self) -> None:
         begin = "  # A115_PROVIDER_REQUEST_BEGIN"
         end = "  # A115_PROVIDER_REQUEST_END"
@@ -338,8 +369,49 @@ class AnthropicGuestSpendContract(unittest.TestCase):
         request = self.guest.split(begin, 1)[1].split(end, 1)[0]
         self.assertEqual(request.count("runuser -u factory-agent -- curl"), 1)
         self.assertEqual(request.count("https://api.anthropic.com/v1/messages"), 1)
+        issuance_begin = "  # ANTHROPIC_ISSUANCE_PROVIDER_REQUEST_BEGIN"
+        issuance_end = "  # ANTHROPIC_ISSUANCE_PROVIDER_REQUEST_END"
+        self.assertEqual(self.guest.count(issuance_begin), 1)
+        self.assertEqual(self.guest.count(issuance_end), 1)
+        issuance = self.guest.split(issuance_begin, 1)[1].split(issuance_end, 1)[0]
+        self.assertEqual(issuance.count("runuser -u factory-agent -- curl"), 1)
+        self.assertEqual(
+            issuance.count("https://api.anthropic.com/v1/models?limit=1"), 1
+        )
+        without_calls = self.guest.replace(
+            f"{begin}{request}{end}", "", 1
+        ).replace(f"{issuance_begin}{issuance}{issuance_end}", "", 1)
+        local_health = """APP_STATUS=$(curl --silent --output /run/fieldbook-index.html \\
+  --write-out '%{http_code}' --max-time 20 http://127.0.0.1/index.php)"""
+        local_probe = """PROBE_BODY=$(curl --fail --silent --max-time 20 \\
+  http://127.0.0.1/mfieldbook/patchyard_session4_probe.php)"""
+        self.assertEqual(without_calls.count(local_health), 1)
+        self.assertEqual(without_calls.count(local_probe), 1)
+        without_calls = without_calls.replace(local_health, "", 1).replace(
+            local_probe, "", 1
+        )
+        self.assertIsNone(
+            re.search(
+                r"(?<![-A-Za-z0-9_.])(curl|wget|netcat|nc)(?=\s)|"
+                r"/dev/(?:tcp|udp)|openssl\s+s_client",
+                without_calls,
+            )
+        )
         self.assertIn('if [[ -z "$PROVIDER_SERVER_DATE" ]]', self.guest)
         self.assertIn("if ! OBSERVED_AT=$(date -u -d", self.guest)
+
+    def test_checker_scans_the_complete_guest_after_exact_network_blocks(self) -> None:
+        self.assertIn("provider_free_guest = guest", self.checker)
+        self.assertIn(
+            "if PROVIDER_CAPABLE_COMMAND.search(provider_free_guest):", self.checker
+        )
+        for label in (
+            '"A115 messages"',
+            '"Anthropic issuance"',
+            '"loopback web health"',
+            '"loopback parity probe"',
+        ):
+            self.assertIn(label, self.checker)
 
 
 if __name__ == "__main__":

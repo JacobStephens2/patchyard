@@ -269,7 +269,7 @@
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8562,
       "comments": 14180,
-      "blanks": 4046,
+      "blanks": 4045,
       "files": 154,
       "languages": [
         {
@@ -290,7 +290,7 @@
           "language": "Markdown",
           "code": 0,
           "comments": 14160,
-          "blanks": 3993,
+          "blanks": 3992,
           "files": 126
         },
         {

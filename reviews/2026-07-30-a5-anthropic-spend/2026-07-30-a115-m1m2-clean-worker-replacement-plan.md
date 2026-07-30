@@ -142,4 +142,3 @@ A78 must independently:
 6. return PASS or material findings without regenerating or applying the plan,
    accessing a host or provider Console, issuing a credential, or making a
    provider request.
-

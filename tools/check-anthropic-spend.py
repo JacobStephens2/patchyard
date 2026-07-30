@@ -51,7 +51,7 @@ EXPECTED_AUTH_CONFIG_BLOCK = '''{
   printf 'header = "content-type: application/json"\\n'
 } >"$AUTH_CONFIG"'''
 EXPECTED_LAUNCHER_SOURCE_SHA256 = (
-    "5e69e5f99389bbbcc7796d1623fc0cefa1912ae4050b14eb2c47cb3772b697d5"
+    "60b71fb24ce3c47b9b62bdece7166dd0c622a1830fb21d673db8830acf133e3f"
 )
 EXPECTED_RUNNER_SOURCE_SHA256 = (
     "45ff683fdd9c9226e6fa07c5ea1de52bb7581f77eb231c42ea6c05c256feaa87"
@@ -73,8 +73,11 @@ EXPECTED_RUN_ROOT_STAGING = '''if $SPEND_MODE; then
   # this exact run root without directory read or write access; the capability
   # itself remains root:root 0600 and the worker-owned raw directory is 0700.
   install -d -m 0710 -o root -g factory-worker "$RUN_TMPFS"
+  [[ "$(stat -c '%U:%G:%a' -- "$RUN_TMPFS")" == root:factory-worker:710 ]]
+  /usr/sbin/runuser -u factory-worker -- /usr/bin/test -x "$RUN_TMPFS"
 else
   install -d -m 0700 -o root -g root "$RUN_TMPFS"
+  [[ "$(stat -c '%U:%G:%a' -- "$RUN_TMPFS")" == root:root:700 ]]
 fi'''
 EXPECTED_IPV6_PREFLIGHT_COMPARISON = (
     'if [[ "$ipv6_all" != 1 || "$ipv6_default" != 1 || "$ipv6_eth0" != 1 ]]; then'
@@ -211,15 +214,20 @@ if launcher.count(EXPECTED_PROVIDER_CALL_SEQUENCE) != 1:
 if launcher.count(EXPECTED_RUN_ROOT_STAGING) != 1:
     errors.append("A115 spend run-root traversal differs from its exact binding")
 else:
-    staging_index = launcher.index(EXPECTED_RUN_ROOT_STAGING)
-    if not (
-        launcher.index('FAILURE_STAGE=runtime-staging') < staging_index
-        < launcher.index(
+    try:
+        runtime_staging_index = launcher.index('FAILURE_STAGE=runtime-staging')
+        result_extract_index = launcher.index(
             'install -d -m 0700 -o factory-worker -g factory-worker "$RESULT_EXTRACT"'
         )
-        < launcher.index('CAPABILITY="$RUN_TMPFS/capability.json"')
-    ):
+        capability_index = launcher.index('CAPABILITY="$RUN_TMPFS/capability.json"')
+    except ValueError:
         errors.append("A115 spend run-root traversal is outside runtime staging")
+    else:
+        staging_index = launcher.index(EXPECTED_RUN_ROOT_STAGING)
+        if not (
+            runtime_staging_index < staging_index < result_extract_index < capability_index
+        ):
+            errors.append("A115 spend run-root traversal is outside runtime staging")
 if launcher.count(EXPECTED_IPV6_PREFLIGHT_COMPARISON) != 1:
     errors.append("post-A118 exact IPv6 preflight comparison differs from its binding")
 

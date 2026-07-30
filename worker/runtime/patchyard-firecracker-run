@@ -381,8 +381,11 @@ if $SPEND_MODE; then
   # this exact run root without directory read or write access; the capability
   # itself remains root:root 0600 and the worker-owned raw directory is 0700.
   install -d -m 0710 -o root -g factory-worker "$RUN_TMPFS"
+  [[ "$(stat -c '%U:%G:%a' -- "$RUN_TMPFS")" == root:factory-worker:710 ]]
+  /usr/sbin/runuser -u factory-worker -- /usr/bin/test -x "$RUN_TMPFS"
 else
   install -d -m 0700 -o root -g root "$RUN_TMPFS"
+  [[ "$(stat -c '%U:%G:%a' -- "$RUN_TMPFS")" == root:root:700 ]]
 fi
 install -d -m 0700 -o factory-worker -g factory-worker "$RESULT_EXTRACT"
 # Jailer creates the path above its chroot as root. Keep those directories

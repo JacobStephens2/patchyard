@@ -174,3 +174,70 @@ No repaired source has been installed, no worker has been replaced, no taint
 marker has been cleared, and no further capability or provider request has
 been made. A clean-worker replacement is blocked. Behavioral acceptance,
 requirement 3, and all provider qualification flags remain untouched.
+
+## Further bounded M1/M2 authorization
+
+At `2026-07-30T19:45:20Z`, Jacob explicitly authorized the repair, its tests
+and source-mutation checks, and a new A78 review. This operational grant is
+recorded here under the standing A115 policy rather than minted as A119 or any
+new numbered decision. Its scope is only the two conceded findings above. It
+does not authorize a worker replacement, taint clearing, credential issuance,
+provider request, Console limit action, behavioral acceptance, requirement 3,
+or a qualification-flag change.
+
+## Further bounded repair
+
+The launcher now reads back the spend run root as exactly
+`root:factory-worker:710` and runs `/usr/bin/test -x` on that path through
+`/usr/sbin/runuser -u factory-worker` before capability creation. The
+non-spend branch independently reads back exactly `root:root:700`. Because the
+existing `ERR` trap records `FAILURE_STAGE=runtime-staging`, either a realized
+metadata mismatch or an identity-specific traversal failure stops before any
+bearer is read and produces the controlled launcher failure record.
+
+The spend checker now guards all three surrounding ordering anchors with
+`try`/`except ValueError`. A missing anchor and a misordered block both append
+`A115 spend run-root traversal is outside runtime staging`; neither can
+suppress the complete-source digest diagnostic or the checker's accumulated
+failure report.
+
+The focused test retains the exact block and ordering contract. Seven new
+real-checker mutations bring the permanent total from 29 to 36: spend readback
+mode broadening, substitution of root for the consuming identity, substitution
+of existence for traversal, non-spend readback broadening, and removal or
+rewriting of each of the three ordering anchors. Every mutation must begin
+with `Anthropic spend check: failed` and include its controlled M1/M2
+diagnostic. The 25 focused tests, all 36 mutations, the unmodified spend
+checker, Python compilation, Bash parsing, and ShellCheck pass.
+
+The further-repaired launcher SHA-256 is
+`60b71fb24ce3c47b9b62bdece7166dd0c622a1830fb21d673db8830acf133e3f`.
+The further-repaired checker SHA-256 is
+`d2d32fc90ec15acdefee8eb126f66f99fa85cf8bd82d71927548c4170b471e09`.
+The resulting requirement-1 host-contract SHA-256 is
+`eef6e16e54b6c0945f3874dae71063e8ef2248fea470f2fe4b2579ce22d52977`;
+the prior live fixture remains bound to
+`bd36018284041c4ed12f2bea19248ec5f855cfa06f9d4823670a6d87d86d8e2f`.
+
+The complete application wrapper passed with the pinned Rust tool directory:
+39 browser-control tests passed with one Docker-only integration skip; all
+Rust unit, integration, property, fixture, and database tests passed; the
+release binary reproduced byte-for-byte; dependency, advisory, model, and
+generated-projection checks passed. An initial invocation without the pinned
+Rust directory stopped after the browser suite because `cargo` was absent from
+the shell's default `PATH`; that environment-only stop is retained here rather
+than represented as a source failure.
+
+The infrastructure wrapper initialized and validated all three OpenTofu roots
+and passed its stack, independence, worker-runtime, and worker-qualification
+checks before stopping at the intentionally stale requirement-1 live fixture.
+Full Ansible discovery passed 139 of 140 tests; its sole failure was the same
+exact host-contract mismatch above. All four production Ansible lint profiles,
+all four playbook syntax checks, direct ShellCheck on the changed launcher, the
+spend checker, and the preview checker passed independently. The stale live
+fixture is not altered: requirement 1 must be rerun on the eventual reviewed
+clean replacement.
+
+A new A78 review of the exact committed repair remains required. No repaired
+source has been installed and the quarantined worker remains ineligible for
+reuse.

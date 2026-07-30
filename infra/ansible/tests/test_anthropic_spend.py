@@ -13,7 +13,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 EXPECTED_LAUNCHER_SOURCE_SHA256 = (
-    "5e69e5f99389bbbcc7796d1623fc0cefa1912ae4050b14eb2c47cb3772b697d5"
+    "60b71fb24ce3c47b9b62bdece7166dd0c622a1830fb21d673db8830acf133e3f"
 )
 EXPECTED_RUNNER_SOURCE_SHA256 = (
     "45ff683fdd9c9226e6fa07c5ea1de52bb7581f77eb231c42ea6c05c256feaa87"
@@ -25,7 +25,7 @@ EXPECTED_WORKER_TASKS_SOURCE_SHA256 = (
     "110cbffc6db188aafa1364e88901249290653134b7f0adc559152abf3f35df40"
 )
 EXPECTED_CHECKER_SOURCE_SHA256 = (
-    "d44c188a0113b8b4afbbe0ecd9ecee7f950a8815932d791672291d20c5ce3dbc"
+    "d2d32fc90ec15acdefee8eb126f66f99fa85cf8bd82d71927548c4170b471e09"
 )
 MODULE_PATH = ROOT / "tools/anthropic-spend-evidence.py"
 SPEC = importlib.util.spec_from_file_location("anthropic_spend_evidence", MODULE_PATH)
@@ -504,8 +504,11 @@ class AnthropicA117TransportContract(unittest.TestCase):
   # this exact run root without directory read or write access; the capability
   # itself remains root:root 0600 and the worker-owned raw directory is 0700.
   install -d -m 0710 -o root -g factory-worker "$RUN_TMPFS"
+  [[ "$(stat -c '%U:%G:%a' -- "$RUN_TMPFS")" == root:factory-worker:710 ]]
+  /usr/sbin/runuser -u factory-worker -- /usr/bin/test -x "$RUN_TMPFS"
 else
   install -d -m 0700 -o root -g root "$RUN_TMPFS"
+  [[ "$(stat -c '%U:%G:%a' -- "$RUN_TMPFS")" == root:root:700 ]]
 fi'''
         self.assertEqual(self.launcher.count(exact), 1)
         staging_index = self.launcher.index(exact)
@@ -658,6 +661,51 @@ fi'''
                 "worker/runtime/patchyard-firecracker-run",
                 '  install -d -m 0700 -o root -g root "$RUN_TMPFS"',
                 '  install -d -m 0710 -o root -g factory-worker "$RUN_TMPFS"',
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                '  [[ "$(stat -c \'%U:%G:%a\' -- "$RUN_TMPFS")" '
+                "== root:factory-worker:710 ]]",
+                '  [[ "$(stat -c \'%U:%G:%a\' -- "$RUN_TMPFS")" '
+                "== root:factory-worker:770 ]]",
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                "  /usr/sbin/runuser -u factory-worker -- /usr/bin/test -x "
+                '"$RUN_TMPFS"',
+                "  /usr/sbin/runuser -u root -- /usr/bin/test -x "
+                '"$RUN_TMPFS"',
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                "  /usr/sbin/runuser -u factory-worker -- /usr/bin/test -x "
+                '"$RUN_TMPFS"',
+                "  /usr/sbin/runuser -u factory-worker -- /usr/bin/test -e "
+                '"$RUN_TMPFS"',
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                '  [[ "$(stat -c \'%U:%G:%a\' -- "$RUN_TMPFS")" '
+                "== root:root:700 ]]",
+                '  [[ "$(stat -c \'%U:%G:%a\' -- "$RUN_TMPFS")" '
+                "== root:root:710 ]]",
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                "FAILURE_STAGE=runtime-staging",
+                "FAILURE_STAGE=runtime-preparation",
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                'install -d -m 0700 -o factory-worker -g factory-worker '
+                '"$RESULT_EXTRACT"',
+                'install -d -m 0700 -o factory-worker -g factory-worker '
+                '-- "$RESULT_EXTRACT"',
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                'CAPABILITY="$RUN_TMPFS/capability.json"',
+                'CAPABILITY="${RUN_TMPFS}/capability.json"',
             ),
             (
                 "worker/runtime/patchyard-firecracker-run",
@@ -882,6 +930,34 @@ fi'''
                 "worker/runtime/patchyard-firecracker-run",
                 '  install -d -m 0700 -o root -g root "$RUN_TMPFS"',
             ): "  A115 spend run-root traversal differs from its exact binding",
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                '  [[ "$(stat -c \'%U:%G:%a\' -- "$RUN_TMPFS")" '
+                "== root:factory-worker:710 ]]",
+            ): "  A115 spend run-root traversal differs from its exact binding",
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                "  /usr/sbin/runuser -u factory-worker -- /usr/bin/test -x "
+                '"$RUN_TMPFS"',
+            ): "  A115 spend run-root traversal differs from its exact binding",
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                '  [[ "$(stat -c \'%U:%G:%a\' -- "$RUN_TMPFS")" '
+                "== root:root:700 ]]",
+            ): "  A115 spend run-root traversal differs from its exact binding",
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                "FAILURE_STAGE=runtime-staging",
+            ): "  A115 spend run-root traversal is outside runtime staging",
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                'install -d -m 0700 -o factory-worker -g factory-worker '
+                '"$RESULT_EXTRACT"',
+            ): "  A115 spend run-root traversal is outside runtime staging",
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                'CAPABILITY="$RUN_TMPFS/capability.json"',
+            ): "  A115 spend run-root traversal is outside runtime staging",
             (
                 "worker/qualification/patchyard-run-anthropic-issuance",
                 "LAUNCHER_SOURCE_SHA256=${BASH_REMATCH[1]}\n"

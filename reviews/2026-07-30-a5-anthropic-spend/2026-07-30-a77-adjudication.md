@@ -73,4 +73,8 @@ The finding's defect classification is refuted. Neither intermediate commit was 
 
 No requirement 3 work begins. No additional Anthropic inference request, source repair, `BOUNDARY_TAINTED` removal, worker replacement, provider qualification flag, or behavioral acceptance case is authorized by this adjudication.
 
-The unresolved decision belongs to Jacob: amend A113 or authorize a future clean requirement 2 attempt with a new repair budget and independently timestamped cap evidence, or close the Anthropic requirement 2 path as unsatisfied. The current worker remains quarantined and requires a separately reviewed replacement before any future Factory worker run.
+At adjudication time, the unresolved decision belonged to Jacob: amend A113 or authorize a future clean requirement 2 attempt with a new repair budget and independently timestamped cap evidence, or close the Anthropic requirement 2 path as unsatisfied. The current worker remained quarantined and required a separately reviewed replacement before any future Factory worker run. A115 below resolves that decision without changing the historical dispositions.
+
+## A115 disposition - 2026-07-30
+
+Jacob accepted the Anthropic causal-proof amendment and one-time reauthorization as A115. The historical A77 dispositions above are unchanged. A115 now authorizes successor requirement-2 work only after every conceded source and evidence defect is repaired and a clean-worker replacement is separately reviewed. The July 29-30 records remain unqualified, and the current worker remains quarantined and ineligible for reuse.

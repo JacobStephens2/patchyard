@@ -2,11 +2,17 @@
 
 Date: 2026-07-30
 
-Status: proposed for Jacob's decision; not an accepted ruling
+Status: option 1 accepted by Jacob as A115 on 2026-07-30
+
+Canonical ruling: `docs/decision-log.md`, A115
 
 Related implementation: PR #78, `a5-anthropic-spend-enforcement`
 
-## Decision requested
+## Accepted decision
+
+**Disposition:** Jacob accepted the requested Anthropic causal-proof amendment
+and its separate one-time reauthorization as A115. The text below is the full
+proposal A115 resolved; the decision log is the canonical operative ruling.
 
 Amend A113 clause 2 for Anthropic so a controlled
 acceptance-refusal-acceptance sequence can prove that Anthropic enforces the
@@ -277,9 +283,9 @@ source defect before a provider call, adds explicit ruling lineage to the
 checker and evidence schema, runs the controlled sequence once, receives A78
 review, and stops again under A9 if the amended proof does not qualify.
 
-## Decision options
+## Decision options presented
 
-Jacob can rule one of three outcomes:
+Jacob was presented with three outcomes:
 
 1. **Accept the proposed Anthropic causal-proof amendment and one-time
    reauthorization.** This preserves provider refusal and Factory scope while
@@ -293,3 +299,16 @@ Jacob can rule one of three outcomes:
 
 No option treats the existing July 29-30 record as a qualification, changes a
 provider flag, starts requirement 3, or resumes behavioral acceptance.
+
+## A115 disposition
+
+Jacob accepted option 1 on 2026-07-30. A115 amends A113 clause 2 for Anthropic
+and grants the proposed one-time requirement-2 reauthorization. The July 29-30
+attempts remain unqualified historical failures. Before another provider
+request, successor work must repair every conceded A78 defect and receive
+separate review of a clean-worker replacement. The current worker remains
+quarantined and cannot be reused.
+
+Acceptance of the ruling does not itself perform those repairs, replace a
+worker, make a provider request, start requirement 3, change a qualification
+flag, or resume behavioral acceptance.

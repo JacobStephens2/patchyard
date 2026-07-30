@@ -2,36 +2,43 @@
 
 ## Built contract and live disposition
 
-The intended hard limit belongs to the dedicated `Patchyard Factory` workspace
-(`wrkspc_000000000000000000000000`), not to a guest-side counter and not to the
-Patchyard Anthropic organization as a whole. The reviewed operational workspace cap
-is $50.00 per month. The attended qualification temporarily replaces it with a
-$1.00 `notify_and_pause` cap and makes one minimal `claude-opus-5` probe through
-the same five-minute WIF and read-only Firecracker delivery path as requirement
-1. The fixture succeeds only when Anthropic rejects `/v1/messages` with a
-spend-, credit-, or billing-attributable error. The operator then restores
-$50.00 before collecting the final cost report.
+The PR #78 contract placed the intended limit on the dedicated `Patchyard Factory`
+workspace (`wrkspc_000000000000000000000000`), not to a guest-side counter and
+not to the Patchyard Anthropic organization as a whole. The reviewed operational
+workspace cap is $50.00 per month. The attended qualification temporarily
+replaces it with a $1.00 `notify_and_pause` cap and makes one minimal
+`claude-opus-5` probe through the same five-minute WIF and read-only Firecracker
+delivery path as requirement 1. That fixture succeeds only when Anthropic
+rejects `/v1/messages` with a spend-, credit-, or billing-attributable error.
+The operator then restores $50.00 before collecting the final cost report.
+
+A115 supersedes that one-probe qualification contract for future Anthropic
+requirement-2 work. Its successor proof uses an
+acceptance-refusal-acceptance sequence, separates spend already above a lowered
+cap from spend incurred after cap activation, and starts only after every
+conceded A78 defect and a separately reviewed clean-worker replacement are
+resolved. A115 does not qualify the PR #78 attempts.
 
 The first-party [rate-limit documentation](https://platform.claude.com/docs/en/api/rate-limits)
 states that all applicable organization and workspace limits are evaluated.
 The [workspace documentation](https://platform.claude.com/docs/en/manage-claude/workspaces)
 allows a workspace limit below the organization limit. A read-only inspection
-of the live Console interface on 2026-07-29 confirmed the current implementation:
-the workspace effective limit is the minimum of the organization enforced
-limit and every workspace `notify_and_pause` limit. The same interface refuses
-a workspace value above the organization value. A lower workspace limit
-therefore binds independently as the narrower ceiling while the unchanged
-organization ceiling continues to apply alongside it. This establishes the
-Factory-scoping precondition without changing or endangering Patchyard's organization
-limit; the failed provider proof below does not satisfy A113 clause 2.
+of the live Console interface on 2026-07-29 found client implementation text
+that calculates the effective displayed limit as the minimum of the
+organization and workspace values and refuses a workspace value above the
+organization value. That proves the configuration surface and client behavior,
+not independent server-side workspace enforcement. A115 requires the controlled
+live provider sequence to establish the Factory-scoping property.
 
 The Console dialog displays only the dollar amount; it has no enforcement-mode
 selector. The `notify_and_pause` value above comes from the first-party Console
 implementation, which posts that exact action when it saves the displayed
 workspace limit. It is not represented as a user-selected UI observation.
 
-The provider denial with an attributable error response is the qualification
-event. The Anthropic
+Under the PR #78 contract, provider denial with an attributable error response
+was the qualification event. A115 additionally permits causal attribution from
+the complete controlled sequence even when the refusal does not name the cap.
+The Anthropic
 [Cost Report API](https://platform.claude.com/docs/en/api/usage-cost-api)
 does not substitute for that denial; it measures the dedicated workspace's
 month-to-date cost after the denial, when no later calls have occurred. Cost
@@ -62,10 +69,12 @@ The repaired fixture ran once as
 Messages request, but the response did not satisfy the pre-bound error envelope
 and spend-attribution checks. The failed guest exported only the allowlisted
 status `anthropic-spend-unexpected-response-400`; by design it did not export
-the unaccepted provider body. A Cost Report snapshot after the repair remained
-exactly $7.68168, unchanged from the settled cost of the initial eight accepted
-calls, so the repaired request added $0. The measured initial-attempt overshoot
-against the temporary $1.00 workspace cap is **$6.68168**.
+the unaccepted provider body. Cost Report snapshots through 42 minutes after
+the repair remained exactly $7.68168, but the initial cost took about 2 hours
+51 minutes to appear. Those snapshots prove only that no new cost had reported
+yet, not that the repaired request added $0. The initial settled total is
+**$6.68168 above the displayed $1.00 value**; it is not an A113 overshoot
+measured at an attributable denial.
 
 The Console readback was `$7.68 of $1.00` before restoration and `$7.68 of
 $50.00` afterward; the organization limit remained $500.00. The operator
@@ -77,9 +86,12 @@ ordering evidence.
 Because the raw provider error is unavailable, the HTTP 400 cannot be bound to
 workspace spend enforcement and does not satisfy A113 clause 2. The runtime
 also set its fail-closed `BOUNDARY_TAINTED` marker at 02:21:53Z; subsequent
-worker qualification stops at that marker. A9's single repair loop is consumed:
-there will be no source repair, paid retry, marker removal, or worker
-replacement in this requirement. The terminal record is
+worker qualification stops at that marker. PR #78 consumed its A9 repair loop
+and correctly stopped. A115 later authorized one successor implementation and
+attempt plus a fresh A9 repair loop, but only after every conceded A78 defect
+and a separately reviewed clean-worker replacement are resolved. It does not
+authorize clearing the marker or reusing the current worker. The terminal
+record is
 `research/isolation/results/anthropic-spend-enforcement-repair-failure.json`.
 
 The committed fixture binds the deterministic request, deterministic patch,
@@ -97,7 +109,7 @@ not prove expiry, revocation, or credential-bearing crash cleanup.
 Anthropic and every other provider therefore remain
 `credential_qualified: false`, and behavioral acceptance remains paused.
 
-## Attended live procedure (historical; do not rerun under A9)
+## Attended live procedure (historical; superseded by A115)
 
 Use an authenticated Anthropic Console session only for cap readback and cap
 changes. The public Admin API currently exposes cost reports but no documented
@@ -178,9 +190,10 @@ In particular, never introduce a bare `ANTHROPIC_API_KEY`.
    temporary snapshots and readbacks after the committed sanitized fixture is
    verified.
 
-The deployed repair makes exactly one provider probe. If that probe is accepted
-or returns an error that cannot be attributed to spend, credit, or billing, the
-repair fails closed and A9 requires escalation with the failure log rather than
-another implementation or paid attempt. That stop condition occurred on
-2026-07-30; this procedure is retained for reviewability, not authorization to
-repeat it.
+The deployed PR #78 repair makes exactly one provider probe. If that probe is
+accepted or returns an error that cannot be attributed to spend, credit, or
+billing, the repair fails closed and A9 requires escalation with the failure
+log rather than another implementation or paid attempt. That stop condition
+occurred on 2026-07-30. This procedure is retained for reviewability and must
+not be repeated. A115 successor work uses the accepted three-phase contract and
+its separately authorized A9 budget.

@@ -339,3 +339,10 @@ acceptance, and all provider qualification flags remain out of scope.
 
 The implementation and read-only solver experiment are recorded in
 `2026-07-30-a115-bootstrap-repair.md`.
+
+A78 returned PASS on exact repair commit `cec58db` with no material finding.
+The four defense-in-depth observations were independently reproduced and
+conceded under A77; none defeats current source. The records are
+`2026-07-30-a78-bootstrap-repair-review.md` and
+`2026-07-30-a77-bootstrap-repair-adjudication.md`. No additional source repair
+followed. The fresh exact worker-only plan is the next authorized gate.

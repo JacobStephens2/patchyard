@@ -1,6 +1,6 @@
 # A115 immutable-bootstrap repair
 
-Status: **source repair implemented; A78 review pending**
+Status: **source repair passed A78 and A77; fresh plan pending**
 
 ## Authorization and boundary
 
@@ -74,3 +74,17 @@ contract:
 The unmutated focused suite passes three tests. The local cloud-init schema
 validator accepts the repaired template. No cloud resource, package, service,
 worker state, credential, provider, or cap was changed by the repair.
+
+## A78 review and A77 close
+
+A78 reviewed exact commit `cec58db` with Opus 5 at requested effort `max` and
+returned **PASS** with no material finding. Its novel shell, solver, error-path,
+and YAML mutations were rejected. The reviewer reported four defense-in-depth
+observations covering unbound sibling cloud-init keys, hard-coded outer argv in
+the functional test, the unchanged SSH/root surface, and the restore-drill
+exception to the README's general ignore-changes statement.
+
+The build seat independently reproduced and conceded all four under A77. None
+changes or bypasses the repaired command in current source. No further source
+repair follows the PASS. The next authorized gate is a fresh worker-only plan
+whose human review must include the new worker's repaired user-data value.

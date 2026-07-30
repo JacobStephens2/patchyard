@@ -49,12 +49,15 @@ EXPECTED_AUTH_CONFIG_BLOCK = '''{
   printf 'header = "anthropic-version: 2023-06-01"\\n'
   printf 'header = "content-type: application/json"\\n'
 } >"$AUTH_CONFIG"'''
-EXPECTED_PROVIDER_TRANSPORT_CONTROL_SHA256 = (
-    "6cfa99ddaedb38ae12026a31809531ca0473e893758a0441574287bfdc8c1c73"
+EXPECTED_LAUNCHER_SOURCE_SHA256 = (
+    "c2b4275704ab0447a08e157be994a0bd18e505a843f1a017ce496220f3e83928"
 )
 EXPECTED_TRANSPORT_SOURCE_SHA256 = (
     "72d62bfec46d4ba50c5e61ec07736d1e39a890007ada10de02e99c4a894db66c"
 )
+EXPECTED_PROVIDER_CALL_SEQUENCE = '''  setup_provider_transport
+  assert_provider_transport_preflight
+  "$ANTHROPIC_ONE_SHOT" "$PROVIDER_NETNS" "$CAPABILITY" "$PROVIDER_STAGE"'''
 EXPECTED_IPV6_PREFLIGHT_COMPARISON = (
     'if [[ "$ipv6_all" != 1 || "$ipv6_default" != 1 || "$ipv6_eth0" != 1 ]]; then'
 )
@@ -173,24 +176,10 @@ worker_tasks = (
 ).read_text()
 if digest(TRANSPORT_PATH) != EXPECTED_TRANSPORT_SOURCE_SHA256:
     errors.append("A118 one-shot transport differs from its complete source binding")
-
-setup_start = "setup_provider_transport() {\n"
-control_end = "\n}\n\nprovider_counter_packets() {"
-if launcher.count(setup_start) != 1 or launcher.count(control_end) != 1:
-    errors.append("post-A118 provider transport setup and preflight are not singular")
-else:
-    provider_transport_control = (
-        setup_start
-        + launcher.split(setup_start, 1)[1].split(control_end, 1)[0]
-        + "\n}"
-    )
-    if (
-        hashlib.sha256(provider_transport_control.encode()).hexdigest()
-        != EXPECTED_PROVIDER_TRANSPORT_CONTROL_SHA256
-    ):
-        errors.append(
-            "post-A118 provider transport setup or preflight differs from its binding"
-        )
+if digest(LAUNCHER_PATH) != EXPECTED_LAUNCHER_SOURCE_SHA256:
+    errors.append("post-A118 launcher differs from its complete source binding")
+if launcher.count(EXPECTED_PROVIDER_CALL_SEQUENCE) != 1:
+    errors.append("post-A118 setup, preflight, and transfer are not exactly adjacent")
 if launcher.count(EXPECTED_IPV6_PREFLIGHT_COMPARISON) != 1:
     errors.append("post-A118 exact IPv6 preflight comparison differs from its binding")
 

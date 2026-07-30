@@ -84,3 +84,71 @@ replacement, provider action, or live attempt follows without a new bounded
 authorization. Consistent with the governance-hygiene direction, any such
 grant will be appended here with its authorizer, scope, reason, and loop count;
 it will not create a new numbered decision-log ruling.
+
+## Second post-A118 operational repair authorization
+
+On 2026-07-30, after the post-repair A78 review and A77 adjudication, Jacob
+authorized another bounded source repair. This is the second operational
+post-A118 repair grant recorded in this work record:
+
+1. A118 was the policy authorization for the bounded repair of the six A117
+   findings.
+2. The first post-A118 operational grant repaired conceded A118-1 and A118-2.
+3. This second post-A118 operational grant covers only the four conceded
+   findings in `2026-07-30-a78-post-a118-source-review.md`.
+
+The reason for the grant is that the first post-A118 repair bound only the
+first textual setup/preflight region. It did not bind the executed definition,
+the direct preflight call, the readback helpers, or intervening commands at the
+paid-transfer call site.
+
+Consistent with the governance-hygiene direction, this authorization is not a
+numbered decision-log ruling. It authorizes no worker plan or mutation,
+provider request, credential issuance, cap action, behavioral acceptance,
+requirement-3 work, or qualification-flag change.
+
+## Complete launcher binding repair
+
+The repair replaces the partial transport-region digest with one hard-coded
+SHA-256 of the complete `patchyard-firecracker-run` source. The reviewed
+source digest is
+`c2b4275704ab0447a08e157be994a0bd18e505a843f1a017ce496220f3e83928`.
+The complete-file boundary includes all equivalent function-definition forms,
+both nftables readback helpers, teardown, and every command before and after
+the paid transfer. The existing exact IPv6 comparison remains independently
+readable. A new exact multiline binding requires setup, preflight, and the
+one-shot transfer to be adjacent and singular.
+
+The test independently recomputes the launcher SHA-256, requires the same
+literal in the checker, pins the reviewed checker source itself, and runs the
+real checker in a fresh disposable copy for every weakening. A mutation now
+succeeds only when the checker emits its normal controlled failure header and
+the exact diagnostic for the mutated source; a Python crash no longer satisfies
+the test.
+
+## Added post-review mutations
+
+Five disposable mutations cover the four conceded findings, splitting the two
+readback helpers so each is independently bound:
+
+1. append later setup and preflight definitions, including the two-line brace
+   spelling that evaded the old declaration count;
+2. move the preflight call into `if false; then`;
+3. make the counter helper return fabricated values before querying nftables;
+4. make the set helper return fabricated values before querying nftables; and
+5. insert an unqualified host forwarding accept rule between setup and
+   preflight.
+
+Together with the existing fifteen cases, the real-checker harness now carries
+twenty source mutations. A78 review of the exact repair commit remains required
+before any clean-worker replacement plan.
+
+The build seat also mutation-checked the binding implementation itself in a
+disposable repository copy. Changing the launcher comparison from
+`if digest(...)` to `if False and digest(...)` changed the checker SHA-256 from
+the pinned
+`6b49386cd63cb73d4aca399ac7d3b4d4bdace93c6f66bddf7ec61190c1630048`
+to
+`3c7f374501448bb8df328b1822f51491fdc71de65dd113a5f44697a2e03b4879`.
+The focused contract test failed on that exact mismatch. The mutation was not
+retained.

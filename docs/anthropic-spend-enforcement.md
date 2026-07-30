@@ -120,16 +120,16 @@ requires zero rejected guest-egress packets. This removes the false A116 claim
 that a command-name scan could make a general-purpose parity image a one-call
 environment. The exact installed one-shot client joins the spend host-contract
 digest; its complete source and curl header-only configuration are also pinned
-by the source checker. The complete transport-control section has one verified
-digest covering `setup_provider_transport`, IPv6 setup, veth and routing setup,
-host forwarding and masquerade policy, every namespace rule, and the complete
-preflight function. The exact three-way IPv6 comparison is separately
-required. A rule outside the former nested region, a host or namespace
-qualifier, a terminal rule, the comparison, or an early preflight bypass cannot
-change while leaving the source gate green. The guest image recipe remains a
-complete binding of the guest surface. Requirement 1 separately pins its exact
-Models request and two loopback calls, then rejects a remaining
-provider-capable guest command.
+by the source checker. One reviewed SHA-256 binds the complete launcher source,
+including every executable function definition, transport setup, preflight,
+counter and set readback, teardown helper, and call site. The checker also
+requires one exact adjacent setup-preflight-transfer sequence and the exact
+three-way IPv6 comparison. A later replacement definition, dead-code
+preflight, fabricated kernel readback, intervening transport change, rule or
+qualifier change, or early bypass changes the complete launcher digest. The
+guest image recipe remains a complete binding of the guest surface.
+Requirement 1 separately pins its exact Models request and two loopback calls,
+then rejects a remaining provider-capable guest command.
 
 A provider response that does not meet the bounded A115 phase contract fails
 with a response-stage diagnostic, not the obsolete `denial-not-observed` label.

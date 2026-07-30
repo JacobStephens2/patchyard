@@ -1,6 +1,7 @@
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import hashlib
 import importlib.util
 import json
 import pathlib
@@ -11,6 +12,12 @@ import unittest
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
+EXPECTED_LAUNCHER_SOURCE_SHA256 = (
+    "c2b4275704ab0447a08e157be994a0bd18e505a843f1a017ce496220f3e83928"
+)
+EXPECTED_CHECKER_SOURCE_SHA256 = (
+    "6b49386cd63cb73d4aca399ac7d3b4d4bdace93c6f66bddf7ec61190c1630048"
+)
 MODULE_PATH = ROOT / "tools/anthropic-spend-evidence.py"
 SPEC = importlib.util.spec_from_file_location("anthropic_spend_evidence", MODULE_PATH)
 assert SPEC is not None and SPEC.loader is not None
@@ -432,10 +439,21 @@ class AnthropicA117TransportContract(unittest.TestCase):
                 / "worker/qualification/patchyard-run-anthropic-issuance"
             ).read_text(),
         )
-        self.assertIn(
-            "EXPECTED_PROVIDER_TRANSPORT_CONTROL_SHA256",
-            self.checker,
+        self.assertEqual(
+            hashlib.sha256(
+                (ROOT / "worker/runtime/patchyard-firecracker-run").read_bytes()
+            ).hexdigest(),
+            EXPECTED_LAUNCHER_SOURCE_SHA256,
         )
+        self.assertIn("EXPECTED_LAUNCHER_SOURCE_SHA256", self.checker)
+        self.assertIn(EXPECTED_LAUNCHER_SOURCE_SHA256, self.checker)
+        self.assertEqual(
+            hashlib.sha256(
+                (ROOT / "tools/check-anthropic-spend.py").read_bytes()
+            ).hexdigest(),
+            EXPECTED_CHECKER_SOURCE_SHA256,
+        )
+        self.assertIn("EXPECTED_PROVIDER_CALL_SEQUENCE", self.checker)
         self.assertIn(
             "EXPECTED_IPV6_PREFLIGHT_COMPARISON",
             self.checker,
@@ -633,11 +651,89 @@ class AnthropicA117TransportContract(unittest.TestCase):
                 '  return 0\n'
                 '  if [[ "$ipv6_all" != 1 || "$ipv6_default" != 1 ||',
             ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                "      | if length == 1 then .[0] else error(\"counter cardinality\") end'\n"
+                "}\n\nprovider_set_elements() {",
+                "      | if length == 1 then .[0] else error(\"counter cardinality\") end'\n"
+                "}\n\nsetup_provider_transport()\n"
+                "{\n"
+                "  return 0\n"
+                "}\n\n"
+                "assert_provider_transport_preflight() {\n"
+                "  return 0\n"
+                "}\n\n"
+                "provider_set_elements() {",
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                "  setup_provider_transport\n"
+                "  assert_provider_transport_preflight\n"
+                '  "$ANTHROPIC_ONE_SHOT" "$PROVIDER_NETNS" '
+                '"$CAPABILITY" "$PROVIDER_STAGE"',
+                "  setup_provider_transport\n"
+                "  if false; then\n"
+                "    assert_provider_transport_preflight\n"
+                "  fi\n"
+                '  "$ANTHROPIC_ONE_SHOT" "$PROVIDER_NETNS" '
+                '"$CAPABILITY" "$PROVIDER_STAGE"',
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                "provider_counter_packets() {\n  local name=$1",
+                "provider_counter_packets() {\n"
+                "  local name=$1\n"
+                "  if [[ \"$name\" == admitted_new ]]; then\n"
+                "    printf '1\\n'\n"
+                "  else\n"
+                "    printf '0\\n'\n"
+                "  fi\n"
+                "  return 0",
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                "provider_set_elements() {\n  local name=$1",
+                "provider_set_elements() {\n"
+                "  local name=$1\n"
+                "  if [[ \"$name\" == rejected ]]; then\n"
+                "    printf '0\\n'\n"
+                "  else\n"
+                "    printf '1\\n'\n"
+                "  fi\n"
+                "  return 0",
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                "  setup_provider_transport\n"
+                "  assert_provider_transport_preflight",
+                "  setup_provider_transport\n"
+                "  nft insert rule inet \"$PROVIDER_NFT_TABLE\" forward \\\n"
+                "    iifname \"$PROVIDER_HOST_VETH\" counter accept\n"
+                "  assert_provider_transport_preflight",
+            ),
         )
+        expected_diagnostic = {
+            "worker/runtime/patchyard-anthropic-one-shot": (
+                "  A118 one-shot transport differs from its complete source binding"
+            ),
+            "worker/runtime/patchyard-firecracker-run": (
+                "  post-A118 launcher differs from its complete source binding"
+            ),
+            "worker/qualification/patchyard-run-anthropic-issuance": (
+                "  A117 host-contract binding is missing: efh[0-9a-f]{8}[@:]"
+            ),
+            "worker/image/patchyard-guest-run": (
+                "  A117 spend guest still contains the provider destination"
+            ),
+        }
         for relative, before, after in mutations:
             with self.subTest(relative=relative, before=before):
                 result = self.run_checker_mutation(relative, before, after)
                 self.assertNotEqual(result.returncode, 0, result.stdout)
+                diagnostics = result.stderr.splitlines()
+                self.assertTrue(diagnostics, result.stdout)
+                self.assertEqual(diagnostics[0], "Anthropic spend check: failed")
+                self.assertIn(expected_diagnostic[relative], diagnostics[1:])
 
 
 if __name__ == "__main__":

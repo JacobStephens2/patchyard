@@ -220,7 +220,7 @@ for required in (
 ):
     if required not in guest:
         errors.append(f"guest issuance fixture is missing: {required}")
-credential_branch = guest.index('if [[ "$CREDENTIAL_REQUIRED" == true ]]')
+credential_branch = guest.index('if [[ "$CREDENTIAL_DELIVERED_TO_GUEST" == true ]]')
 provider_branch = guest.index(
     'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then'
 )

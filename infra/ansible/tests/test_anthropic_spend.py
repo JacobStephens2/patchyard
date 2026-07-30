@@ -139,6 +139,20 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
                 "workspace_id": "workspace",
             },
             "delivery": deepcopy(EVIDENCE.DELIVERY),
+            "provider_transport": {
+                "schema_version": 1,
+                "authorization_ruling": "A117",
+                "mechanism": "host-one-shot-network-namespace-v1",
+                "http_version": "1.0",
+                "connection_close": True,
+                "client_sha256": digest,
+                "admitted_conntrack_ids": 1,
+                "admitted_new_connections": 1,
+                "rejected_new_connections": 0,
+                "rejected_connection_packets": 0,
+                "guest_provider_allowlist_entries": 0,
+                "credential_removed_before_guest_boot": True,
+            },
             "provider_observation": observation,
             "host_teardown": deepcopy(EVIDENCE.TEARDOWN),
         }
@@ -253,15 +267,24 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
         )
 
 
-class AnthropicGuestSpendContract(unittest.TestCase):
+class AnthropicA117TransportContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        cls.transport = (
+            ROOT / "worker/runtime/patchyard-anthropic-one-shot"
+        ).read_text()
+        cls.launcher = (
+            ROOT / "worker/runtime/patchyard-firecracker-run"
+        ).read_text()
         cls.guest = (ROOT / "worker/image/patchyard-guest-run").read_text()
         cls.checker = (ROOT / "tools/check-anthropic-spend.py").read_text()
+        cls.worker_tasks = (
+            ROOT / "infra/ansible/roles/worker/tasks/main.yml"
+        ).read_text()
 
     @classmethod
     def function(cls, name: str) -> str:
-        body = cls.guest.split(f"{name}() {{", 1)[1].split("\n}", 1)[0]
+        body = cls.transport.split(f"{name}() {{", 1)[1].split("\n}", 1)[0]
         return f"{name}() {{{body}\n}}"
 
     def run_raw_envelope(
@@ -287,11 +310,6 @@ class AnthropicGuestSpendContract(unittest.TestCase):
                 text=True,
             )
 
-    def run_envelope(
-        self, value: object, action: str
-    ) -> subprocess.CompletedProcess[str]:
-        return self.run_raw_envelope(json.dumps(value), action)
-
     @staticmethod
     def envelope(**extra: object) -> dict[str, object]:
         value: dict[str, object] = {
@@ -302,43 +320,7 @@ class AnthropicGuestSpendContract(unittest.TestCase):
         value.update(extra)
         return value
 
-    def test_guest_predicate_accepts_required_keys_and_bounded_extras(self) -> None:
-        self.assertEqual(
-            self.run_envelope(
-                self.envelope(extra={"compatible": True}),
-                "anthropic_error_envelope_is_compatible",
-            ).returncode,
-            0,
-        )
-
-    def test_guest_predicate_rejects_oversized_and_malformed_envelopes(self) -> None:
-        oversized = self.envelope()
-        oversized["error"]["message"] = "x" * 4097
-        self.assertNotEqual(
-            self.run_envelope(
-                oversized, "anthropic_error_envelope_is_compatible"
-            ).returncode,
-            0,
-        )
-        malformed = self.envelope(request_id="not-a-provider-id")
-        self.assertNotEqual(
-            self.run_envelope(
-                malformed, "anthropic_error_envelope_is_compatible"
-            ).returncode,
-            0,
-        )
-
-    def test_guest_rejected_shape_descriptor_is_bounded_and_useful(self) -> None:
-        result = self.run_envelope(
-            {"type": "error", "error": {"type": "invalid_request_error"}},
-            "classify_anthropic_error_shape",
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "missing-error-message")
-        self.assertIn('ERROR_TYPE" == rate_limit_error', self.guest)
-        self.assertIn('ERROR_TYPE" == overloaded_error', self.guest)
-
-    def test_guest_rejects_non_single_object_responses(self) -> None:
+    def test_transport_predicates_reject_non_single_object_responses(self) -> None:
         for value, descriptor in (
             ("", "empty-body"),
             (" \n\t", "invalid-json-body"),
@@ -356,62 +338,192 @@ class AnthropicGuestSpendContract(unittest.TestCase):
                 )
                 self.assertEqual(classified.returncode, 0, classified.stderr)
                 self.assertEqual(classified.stdout.strip(), descriptor)
-        success_branch = self.guest.split(
-            'if [[ "$PROVIDER_STATUS" == 200 ]]', 1
-        )[1].split("  elif [[", 1)[0]
-        self.assertIn("anthropic_response_is_single_json_object", success_branch)
 
-    def test_guest_has_one_exact_provider_call_block_and_strict_date(self) -> None:
-        begin = "  # A115_PROVIDER_REQUEST_BEGIN"
-        end = "  # A115_PROVIDER_REQUEST_END"
-        self.assertEqual(self.guest.count(begin), 1)
-        self.assertEqual(self.guest.count(end), 1)
-        request = self.guest.split(begin, 1)[1].split(end, 1)[0]
-        self.assertEqual(request.count("runuser -u factory-agent -- curl"), 1)
-        self.assertEqual(request.count("https://api.anthropic.com/v1/messages"), 1)
-        issuance_begin = "  # ANTHROPIC_ISSUANCE_PROVIDER_REQUEST_BEGIN"
-        issuance_end = "  # ANTHROPIC_ISSUANCE_PROVIDER_REQUEST_END"
-        self.assertEqual(self.guest.count(issuance_begin), 1)
-        self.assertEqual(self.guest.count(issuance_end), 1)
-        issuance = self.guest.split(issuance_begin, 1)[1].split(issuance_end, 1)[0]
-        self.assertEqual(issuance.count("runuser -u factory-agent -- curl"), 1)
+    def test_transport_accepts_bounded_error_extras(self) -> None:
+        result = self.run_raw_envelope(
+            json.dumps(self.envelope(extra={"compatible": True})),
+            "anthropic_error_envelope_is_compatible",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_one_shot_client_is_fixed_to_one_closed_http10_transfer(self) -> None:
+        request = self.transport.split(
+            "PROVIDER_STATUS=$(\n", 1
+        )[1].split("\n) || PROVIDER_CURL_EXIT=$?", 1)[0]
+        self.assertEqual(request.count("/usr/bin/curl"), 1)
         self.assertEqual(
-            issuance.count("https://api.anthropic.com/v1/models?limit=1"), 1
+            request.count("'https://api.anthropic.com/v1/messages'"), 1
         )
-        without_calls = self.guest.replace(
-            f"{begin}{request}{end}", "", 1
-        ).replace(f"{issuance_begin}{issuance}{issuance_end}", "", 1)
-        local_health = """APP_STATUS=$(curl --silent --output /run/fieldbook-index.html \\
-  --write-out '%{http_code}' --max-time 20 http://127.0.0.1/index.php)"""
-        local_probe = """PROBE_BODY=$(curl --fail --silent --max-time 20 \\
-  http://127.0.0.1/mfieldbook/patchyard_session4_probe.php)"""
-        self.assertEqual(without_calls.count(local_health), 1)
-        self.assertEqual(without_calls.count(local_probe), 1)
-        without_calls = without_calls.replace(local_health, "", 1).replace(
-            local_probe, "", 1
-        )
-        self.assertIsNone(
-            re.search(
-                r"(?<![-A-Za-z0-9_.])(curl|wget|netcat|nc)(?=\s)|"
-                r"/dev/(?:tcp|udp)|openssl\s+s_client",
-                without_calls,
-            )
-        )
-        self.assertIn('if [[ -z "$PROVIDER_SERVER_DATE" ]]', self.guest)
-        self.assertIn("if ! OBSERVED_AT=$(date -u -d", self.guest)
-
-    def test_checker_scans_the_complete_guest_after_exact_network_blocks(self) -> None:
-        self.assertIn("provider_free_guest = guest", self.checker)
-        self.assertIn(
-            "if PROVIDER_CAPABLE_COMMAND.search(provider_free_guest):", self.checker
-        )
-        for label in (
-            '"A115 messages"',
-            '"Anthropic issuance"',
-            '"loopback web health"',
-            '"loopback parity probe"',
+        for required in (
+            "/usr/bin/curl -q",
+            "/usr/bin/env -i HOME=/var/lib/patchyard-worker PATH=/usr/bin:/bin",
+            "--http1.0",
+            "--header 'Connection: close'",
+            "--ipv4",
+            "--proto '=https'",
+            "--data-binary",
         ):
-            self.assertIn(label, self.checker)
+            self.assertIn(required, request)
+        for forbidden in ("--retry", "--location", "--next", "--parallel"):
+            self.assertNotIn(forbidden, request)
+
+    def test_spend_guest_has_neither_credential_nor_provider_route(self) -> None:
+        self.assertNotIn(
+            "https://api.anthropic.com/v1/messages", self.guest
+        )
+        self.assertNotIn("A115_PROVIDER_REQUEST", self.guest)
+        self.assertIn('CREDENTIAL_DELIVERED_TO_GUEST=false', self.guest)
+        self.assertIn('provider-spend-enforcement', self.guest)
+        self.assertIn('[[ ! -s /input/provider-hosts ]]', self.guest)
+        self.assertIn('[[ ! -e /dev/disk/by-label/ETA_CREDENTIAL ]]', self.guest)
+
+    def test_launcher_enforces_and_reads_one_conntrack_id(self) -> None:
+        for required in (
+            "ct id @admitted counter accept",
+            "ip saddr @used add @rejected { ct id } counter name rejected_new reject",
+            "add @admitted '{' ct id '}'",
+            "add @used '{' ip saddr '}' counter name admitted_new accept",
+            "PROVIDER_ADMITTED_NEW=$(provider_counter_packets admitted_new)",
+            "PROVIDER_REJECTED_NEW=$(provider_counter_packets rejected_new)",
+            '[[ "$PROVIDER_ADMITTED_NEW" -eq 1',
+            '&& "$PROVIDER_REJECTED_NEW" -eq 0',
+            '&& "$PROVIDER_ADMITTED_IDS" -eq 1',
+            '&& "$PROVIDER_REJECTED_IDS" -eq 0',
+            '&& "$PROVIDER_USED_SOURCES" -eq 1 ]]',
+        ):
+            self.assertIn(required, self.launcher)
+        self.assertEqual(
+            self.launcher.count(
+                '"$ANTHROPIC_ONE_SHOT" "$PROVIDER_NETNS" "$CAPABILITY" "$PROVIDER_STAGE"'
+            ),
+            1,
+        )
+
+    def test_missing_request_id_retains_status_and_shape(self) -> None:
+        response = self.transport.split(
+            "PROVIDER_REQUEST_ID=$(awk", 1
+        )[1].split("PROVIDER_SERVER_DATE=$(awk", 1)[0]
+        self.assertIn('if [[ ! "$PROVIDER_REQUEST_ID" =~', response)
+        self.assertIn("RESPONSE_SHAPE=$(classify_anthropic_error_shape)", response)
+        self.assertIn(
+            "anthropic-spend-provider-response-rejected-%s-missing-request-id-%s",
+            response,
+        )
+
+    def test_missing_request_id_paths_are_bounded_after_completed_call(self) -> None:
+        for status, body, shape in (
+            ("403", "<html>denied</html>", "invalid-json-body"),
+            ("400", "", "empty-body"),
+            ("200", '{"type":"message"}', "type-not-error"),
+        ):
+            with self.subTest(status=status, shape=shape):
+                with tempfile.TemporaryDirectory() as directory:
+                    root = pathlib.Path(directory)
+                    headers = root / "headers"
+                    response = root / "response"
+                    headers.write_text("date: Thu, 30 Jul 2026 00:00:00 GMT\r\n")
+                    response.write_text(body)
+                    script = "\n".join(
+                        (
+                            "set -euo pipefail",
+                            self.function("anthropic_response_is_single_json_object"),
+                            self.function("classify_anthropic_error_shape"),
+                            self.function("read_provider_request_id"),
+                            'PROVIDER_HEADERS="$1"',
+                            'PROVIDER_RESPONSE="$2"',
+                            'PROVIDER_STATUS="$3"',
+                            "read_provider_request_id",
+                        )
+                    )
+                    result = subprocess.run(
+                        [
+                            "bash",
+                            "-c",
+                            script,
+                            "bash",
+                            str(headers),
+                            str(response),
+                            status,
+                        ],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(
+                        f"response-rejected-{status}-missing-request-id-{shape}",
+                        result.stderr,
+                    )
+
+    def test_complete_installed_transport_is_host_bound(self) -> None:
+        self.assertIn(
+            "worker/runtime/patchyard-anthropic-one-shot", self.worker_tasks
+        )
+        self.assertNotIn(
+            "patchyard-anthropic-one-shot",
+            (ROOT / "worker/image/build-parity-image").read_text(),
+        )
+        self.assertIn(
+            "TRANSPORT_SOURCE_SHA256", (
+                ROOT
+                / "worker/qualification/patchyard-run-anthropic-issuance"
+            ).read_text()
+        )
+        self.assertIn("TRANSPORT_PATH", self.checker)
+
+    def run_checker_mutation(
+        self, relative: str, before: str, after: str
+    ) -> subprocess.CompletedProcess[str]:
+        import shutil
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory) / "repo"
+            shutil.copytree(
+                ROOT,
+                root,
+                ignore=shutil.ignore_patterns(".git", "target", "node_modules"),
+            )
+            path = root / relative
+            source = path.read_text()
+            self.assertIn(before, source)
+            path.write_text(source.replace(before, after, 1))
+            return subprocess.run(
+                [str(root / "tools/check-anthropic-spend.py")],
+                cwd=root,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+    def test_checker_behaviorally_rejects_structural_weakening(self) -> None:
+        mutations = (
+            (
+                "worker/runtime/patchyard-anthropic-one-shot",
+                "--http1.0",
+                "--http2",
+            ),
+            (
+                "worker/runtime/patchyard-anthropic-one-shot",
+                "'https://api.anthropic.com/v1/messages'",
+                "'https://api.anthropic.com/v1/messages' "
+                "'https://api.anthropic.com/v1/messages'",
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                '"$PROVIDER_ADMITTED_NEW" -eq 1',
+                '"$PROVIDER_ADMITTED_NEW" -ge 1',
+            ),
+            (
+                "worker/image/patchyard-guest-run",
+                '[[ ! -s /input/provider-hosts ]]',
+                'curl https://api.anthropic.com/v1/messages\n'
+                '  [[ ! -s /input/provider-hosts ]]',
+            ),
+        )
+        for relative, before, after in mutations:
+            with self.subTest(relative=relative, before=before):
+                result = self.run_checker_mutation(relative, before, after)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
 
 
 if __name__ == "__main__":

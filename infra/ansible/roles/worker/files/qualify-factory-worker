@@ -49,6 +49,7 @@ test "$(rpm -q e2fsprogs)" = 'e2fsprogs-1.46.5-8.el9.x86_64'
 test "$(rpm -q e2fsprogs-libs)" = 'e2fsprogs-libs-1.46.5-8.el9.x86_64'
 test "$(rpm -q libcom_err)" = 'libcom_err-1.46.5-8.el9.x86_64'
 test -x /usr/local/libexec/patchyard-extract-result-image
+test -x /usr/local/libexec/patchyard-anthropic-one-shot
 test -x /usr/local/sbin/patchyard-hostile-launch
 test -x /usr/local/sbin/patchyard-test-result-contract
 test -x /usr/local/sbin/patchyard-verify-runtime

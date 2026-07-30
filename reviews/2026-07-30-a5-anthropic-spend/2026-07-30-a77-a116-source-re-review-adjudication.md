@@ -119,3 +119,12 @@ attempt.
 - Requirement 3 and behavioral acceptance remain unopened.
 - All 13 qualification flags remain false.
 - No bare `ANTHROPIC_API_KEY` was introduced.
+
+## Post-escalation disposition
+
+Jacob subsequently authorized one bounded structural redesign. A117 records
+that authorization in `docs/decision-log.md`; its design and local-only kernel
+experiment are recorded in
+`2026-07-30-a117-structural-redesign.md`. The authorization resumes source work
+only. It does not revise this adjudication, add a live attempt, or authorize a
+worker or provider action before the new source returns to A78.

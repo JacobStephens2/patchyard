@@ -114,7 +114,9 @@ class AnthropicIssuanceContract(unittest.TestCase):
             (
                 self.runner,
                 self.launcher.replace(
-                    '-f "$CAPABILITY_NEEDLE" --', '-- "$CAPABILITY_SECRET"', 1
+                    '-f "$CAPABILITY_NEEDLE" -- "$RESULT_EXTRACT"',
+                    '-- "$CAPABILITY_SECRET" "$RESULT_EXTRACT"',
+                    1,
                 ),
             ),
         )
@@ -315,7 +317,9 @@ class AnthropicIssuanceContract(unittest.TestCase):
         self.assertNotEqual(public.returncode, 0)
 
     def test_guest_removes_bearer_before_writing_results(self) -> None:
-        credential_start = self.guest.index('if [[ "$CREDENTIAL_REQUIRED" == true ]]')
+        credential_start = self.guest.index(
+            'if [[ "$CREDENTIAL_DELIVERED_TO_GUEST" == true ]]'
+        )
         credential_unmount = self.guest.index("  umount /credential", credential_start)
         branch = self.guest.split(
             'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then',

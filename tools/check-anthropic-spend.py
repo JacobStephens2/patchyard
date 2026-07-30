@@ -26,6 +26,7 @@ IMAGE_PATH = REPO / "worker/image"
 PRODUCTION_PARITY_PATH = IMAGE_PATH / "production-parity.json"
 RUNNER_PATH = REPO / "worker/qualification/patchyard-run-anthropic-issuance"
 LAUNCHER_PATH = REPO / "worker/runtime/patchyard-firecracker-run"
+TRANSPORT_PATH = REPO / "worker/runtime/patchyard-anthropic-one-shot"
 GUEST_PATH = REPO / "worker/image/patchyard-guest-run"
 ANTHROPIC_REQUEST = b"Anthropic provider-side spend enforcement qualification.\n"
 ANTHROPIC_PATCH = (
@@ -38,30 +39,10 @@ ANTHROPIC_PATCH = (
     b"@@ -0,0 +1 @@\n"
     b"+anthropic-provider-spend-enforcement-qualified\n"
 )
-EXPECTED_PROVIDER_REQUEST_BLOCK = """  # A115_PROVIDER_REQUEST_BEGIN
-  PROVIDER_STATUS=$(runuser -u factory-agent -- curl \\
-    --config "$AUTH_CONFIG" --silent --show-error \\
-    --connect-timeout 10 --max-time 60 \\
-    --dump-header "$PROVIDER_HEADERS" \\
-    --output "$PROVIDER_RESPONSE" --write-out '%{http_code}' \\
-    --data-binary "@$PROVIDER_REQUEST" \\
-    'https://api.anthropic.com/v1/messages') || PROVIDER_CURL_EXIT=$?
-  # A115_PROVIDER_REQUEST_END"""
-EXPECTED_ISSUANCE_PROVIDER_REQUEST_BLOCK = """  # ANTHROPIC_ISSUANCE_PROVIDER_REQUEST_BEGIN
-  PROVIDER_STATUS=$(runuser -u factory-agent -- curl \\
-    --config "$AUTH_CONFIG" --silent --show-error \\
-    --connect-timeout 10 --max-time 30 \\
-    --dump-header "$PROVIDER_HEADERS" \\
-    --output "$PROVIDER_RESPONSE" --write-out '%{http_code}' \\
-    'https://api.anthropic.com/v1/models?limit=1') || PROVIDER_CURL_EXIT=$?
-  # ANTHROPIC_ISSUANCE_PROVIDER_REQUEST_END"""
-EXPECTED_LOCAL_WEB_HEALTH_BLOCK = """APP_STATUS=$(curl --silent --output /run/fieldbook-index.html \\
-  --write-out '%{http_code}' --max-time 20 http://127.0.0.1/index.php)"""
-EXPECTED_LOCAL_PARITY_PROBE_BLOCK = """PROBE_BODY=$(curl --fail --silent --max-time 20 \\
-  http://127.0.0.1/mfieldbook/patchyard_session4_probe.php)"""
-PROVIDER_CAPABLE_COMMAND = re.compile(
-    r"(?<![-A-Za-z0-9_.])(curl|wget|netcat|nc)(?=\s)|"
-    r"/dev/(?:tcp|udp)|openssl\s+s_client"
+ANTHROPIC_PROVIDER_BODY = (
+    b'{"model":"claude-opus-5","max_tokens":1,"messages":['
+    b'{"role":"user","content":"Patchyard Factory spend-cap denial probe. '
+    b'Reply with one character.\\n"}]}\n'
 )
 PHASES = (
     "operational_acceptance",
@@ -84,7 +65,7 @@ def image_recipe_sha256() -> str:
 def host_contract_sha256() -> str:
     records = [
         f"{digest(path)}  {path.relative_to(REPO)}\n"
-        for path in (RUNNER_PATH, LAUNCHER_PATH)
+        for path in (RUNNER_PATH, LAUNCHER_PATH, TRANSPORT_PATH)
     ]
     return hashlib.sha256("".join(records).encode()).hexdigest()
 
@@ -166,109 +147,150 @@ if len(providers) != 13 or any(
 ):
     errors.append("all 13 provider credential qualification flags must remain false")
 
-# Source-only A115 bindings. This deliberately rejects shell constructs that can
-# turn the single curl expression into retries or a request loop.
+# A117 source bindings. Request cardinality comes from the host namespace's
+# admitted conntrack ID and independently read counters. Source checks bind the
+# small trusted client and keep the general-purpose guest outside that transport.
 runner = RUNNER_PATH.read_text()
 launcher = LAUNCHER_PATH.read_text()
+transport = TRANSPORT_PATH.read_text()
 guest = GUEST_PATH.read_text()
-spend_marker = (
-    'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \\\n'
-    "  && jq -e '.qualification_requirement == \"provider-spend-enforcement\"'"
-)
-if spend_marker not in guest:
-    errors.append("guest has no distinct A115 spend-enforcement branch")
-    spend_branch = ""
-else:
-    spend_branch = guest.split(spend_marker, 1)[1].split(
-        '\nif [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]',
-        1,
-    )[0]
+worker_tasks = (
+    REPO / "infra/ansible/roles/worker/tasks/main.yml"
+).read_text()
 
-required_sources = (
-    (runner, "run-spend-operational)"),
-    (runner, "run-spend-refusal)"),
-    (runner, "run-spend-restored)"),
-    (runner, "QUALIFICATION_PHASE=operational_acceptance"),
-    (runner, "QUALIFICATION_PHASE=temporary_refusal"),
-    (runner, "QUALIFICATION_PHASE=restored_acceptance"),
-    (runner, 'authorization_ruling "$(jq -r .spend_enforcement.authorization_ruling'),
-    (launcher, '.authorization_ruling == "A115"'),
-    (launcher, '.qualification_phase == "temporary_refusal"'),
-    (launcher, ".spend_cap_cents == 5000"),
-    (spend_branch, 'and .authorization_ruling == "A115"'),
-    (guest, 'has("type") and .type == "error"'),
-    (guest, 'and (.error | has("type")) and (.error | has("message"))'),
-    (spend_branch, "anthropic_error_envelope_is_compatible"),
-    (spend_branch, "MESSAGE_CLASS=unattributed"),
-    (spend_branch, "shape:{$top_level_keys,$error_keys}"),
-    (spend_branch, "$request_body_sha256"),
-    (spend_branch, "request_attempts:1"),
-    (spend_branch, "remove_provider_credential"),
-    (spend_branch, "anthropic-spend-provider-response-rejected"),
-    (spend_branch, "anthropic-spend-temporary-cap-refusal-not-observed"),
-    (spend_branch, "classify_anthropic_error_shape"),
-    (guest, "anthropic_response_is_single_json_object"),
-    (guest, "empty-body"),
-    (guest, "invalid-json-body"),
-    (spend_branch, "missing-date"),
-    (spend_branch, "invalid-date"),
+transfer_start = "PROVIDER_STATUS=$(\n"
+transfer_end = "\n) || PROVIDER_CURL_EXIT=$?"
+if transfer_start not in transport or transfer_end not in transport:
+    errors.append("A117 one-shot client has no bounded transfer block")
+    transfer = ""
+else:
+    transfer = transport.split(transfer_start, 1)[1].split(transfer_end, 1)[0]
+    if transport.count(transfer_start) != 1 or transport.count(transfer_end) != 1:
+        errors.append("A117 one-shot client has more than one transfer block")
+
+for required in (
+    "/usr/bin/curl -q",
+    "/usr/bin/env -i HOME=/var/lib/patchyard-worker PATH=/usr/bin:/bin",
+    "--http1.0",
+    "--header 'Connection: close'",
+    "--ipv4",
+    "--proto '=https'",
+    "--connect-timeout 10 --max-time 60",
+    '--data-binary "@$PROVIDER_REQUEST"',
+    "'https://api.anthropic.com/v1/messages'",
+):
+    if required not in transfer:
+        errors.append(f"A117 one-shot transfer is missing: {required}")
+for forbidden in (
+    "--retry",
+    "--retry-all-errors",
+    "--location",
+    "--next",
+    "--parallel",
+    "http://",
+):
+    if forbidden in transfer:
+        errors.append(f"A117 one-shot transfer permits another transfer: {forbidden}")
+if transfer.count("/usr/bin/curl") != 1 or transfer.count(
+    "'https://api.anthropic.com/v1/messages'"
+) != 1:
+    errors.append("A117 one-shot transfer does not contain exactly one fixed client and URL")
+
+transport_without_transfer = transport.replace(
+    transfer_start + transfer + transfer_end, "", 1
 )
-for source, required in required_sources:
-    if required not in source:
-        errors.append(f"Anthropic A115 source binding is missing: {required}")
-if "run-spend)" in runner:
-    errors.append("superseded single-probe runner action remains callable")
-provider_free_guest = guest
-for label, request_block in (
-    ("A115 messages", EXPECTED_PROVIDER_REQUEST_BLOCK),
-    ("Anthropic issuance", EXPECTED_ISSUANCE_PROVIDER_REQUEST_BLOCK),
-    ("loopback web health", EXPECTED_LOCAL_WEB_HEALTH_BLOCK),
-    ("loopback parity probe", EXPECTED_LOCAL_PARITY_PROBE_BLOCK),
+if re.search(
+    r"(?<![-A-Za-z0-9_.])(curl|wget|php|python[0-9]*|perl|ruby|nc|netcat|socat)"
+    r"(?=\s)|/dev/(tcp|udp)|openssl\s+s_client",
+    transport_without_transfer,
 ):
-    if provider_free_guest.count(request_block) != 1:
-        errors.append(f"{label} request differs from its exact one-call binding")
-    else:
-        provider_free_guest = provider_free_guest.replace(request_block, "", 1)
-if PROVIDER_CAPABLE_COMMAND.search(provider_free_guest):
-    errors.append("guest contains a network-capable call outside its exact blocks")
-if spend_branch:
-    if spend_branch.count(EXPECTED_PROVIDER_REQUEST_BLOCK) != 1:
-        errors.append(
-            "A115 provider request block differs from the exact one-call binding"
-        )
-        non_request_source = spend_branch
-    else:
-        non_request_source = spend_branch.replace(EXPECTED_PROVIDER_REQUEST_BLOCK, "")
-    if PROVIDER_CAPABLE_COMMAND.search(non_request_source):
-        errors.append(
-            "spend branch contains a provider-capable call outside its exact block"
-        )
-    forbidden_request_controls = (
-        r"(^|[;&|[:space:]])(for|while|until|select)[[:space:]]",
-        r"--retry(?:[=[:space:]]|$)",
-        r"--retry-all-errors",
-        r"(^|[;&|[:space:]])xargs([[:space:]]|$)",
-        r"(^|[;&|[:space:]])seq([[:space:]]|$)",
-    )
-    for expression in forbidden_request_controls:
-        if re.search(
-            expression.replace("[:space:]", r"\s"), spend_branch, re.MULTILINE
-        ):
-            errors.append(f"spend branch permits repeated provider calls: {expression}")
-    call = spend_branch.find("https://api.anthropic.com/v1/messages")
-    cleanup = spend_branch.find("remove_provider_credential", call)
-    evidence = spend_branch.find(">/result/evidence.json", cleanup)
-    if not 0 <= call < cleanup < evidence:
-        errors.append("A115 credential is not removed before evidence publication")
-finish = guest.split("finish() {", 1)[1].split("\n}", 1)[0]
-if not (
-    "remove_provider_credential || credential_cleanup_failed=1" in finish
-    and finish.find("remove_provider_credential")
-    < finish.find("printf '%s\\n' \"$FAILURE\"")
-    and "find /result -mindepth 1" in finish
+    errors.append("A117 trusted transport contains another network-capable client")
+if transport.count("https://api.anthropic.com/v1/messages") != 1:
+    errors.append("A117 trusted transport contains another Messages destination")
+for required in (
+    "jq -cRs",
+    "Patchyard Factory spend-cap denial probe. Reply with one character.",
+    "anthropic_response_is_single_json_object",
+    "classify_anthropic_error_shape",
+    "anthropic_error_envelope_is_compatible",
+    'if [[ ! "$PROVIDER_REQUEST_ID" =~ ^req_[A-Za-z0-9]+$ ]]',
+    "anthropic-spend-provider-response-rejected-%s-missing-request-id-%s",
+    'rm -f -- "$CAPABILITY"',
 ):
-    errors.append("guest failure publication is not downstream of credential deletion")
-for source in (runner, launcher, guest):
+    if required not in transport:
+        errors.append(f"A117 trusted transport is missing: {required}")
+
+if "https://api.anthropic.com/v1/messages" in guest:
+    errors.append("A117 spend guest still contains the provider destination")
+for required in (
+    "CREDENTIAL_DELIVERED_TO_GUEST=false",
+    '[[ ! -e /dev/disk/by-label/ETA_CREDENTIAL ]]',
+    '[[ ! -s /input/provider-hosts ]]',
+    'credential_delivered_to_guest:false',
+    'guest_provider_allowlist_entries == 0',
+    'admitted_new_connections == 1',
+    'rejected_new_connections == 0',
+    'rejected_connection_packets == 0',
+):
+    if required not in guest:
+        errors.append(f"A117 credential-free guest is missing: {required}")
+
+for required in (
+    'ANTHROPIC_ONE_SHOT=/usr/local/libexec/patchyard-anthropic-one-shot',
+    '"$ANTHROPIC_ONE_SHOT" "$PROVIDER_NETNS" "$CAPABILITY" "$PROVIDER_STAGE"',
+    "ct id @admitted counter accept",
+    "ip saddr @used add @rejected { ct id } counter name rejected_new reject",
+    "add @admitted '{' ct id '}'",
+    "add @used '{' ip saddr '}' counter name admitted_new accept",
+    "PROVIDER_ADMITTED_NEW=$(provider_counter_packets admitted_new)",
+    "PROVIDER_REJECTED_NEW=$(provider_counter_packets rejected_new)",
+    '"$PROVIDER_ADMITTED_NEW" -eq 1',
+    '"$PROVIDER_REJECTED_NEW" -eq 0',
+    '"$PROVIDER_ADMITTED_IDS" -eq 1',
+    '"$PROVIDER_REJECTED_IDS" -eq 0',
+    '"$PROVIDER_USED_SOURCES" -eq 1',
+    '[[ "$GUEST_REJECTED_EGRESS_PACKETS" -eq 0 ]]',
+    'if [[ "$CREDENTIAL_REQUIRED" == true ]] && ! $SPEND_MODE; then',
+    'PROVIDER_TRANSPORT_IP=$address',
+):
+    if required not in launcher:
+        errors.append(f"A117 host cardinality boundary is missing: {required}")
+if launcher.count(
+    '"$ANTHROPIC_ONE_SHOT" "$PROVIDER_NETNS" "$CAPABILITY" "$PROVIDER_STAGE"'
+) != 1:
+    errors.append("A117 launcher does not invoke the one-shot client exactly once")
+if launcher.count(
+    'if [[ "$CREDENTIAL_REQUIRED" == true ]] && ! $SPEND_MODE; then'
+) != 2:
+    errors.append("A117 launcher can still project a spend credential drive")
+if re.search(
+    r"(?<![-A-Za-z0-9_.])(curl|wget|php|python[0-9]*|perl|ruby|nc|netcat|socat)"
+    r"(?=\s)|/dev/(tcp|udp)|openssl\s+s_client",
+    launcher,
+):
+    errors.append("A117 launcher contains a second provider-capable client")
+
+for required in (
+    "worker/runtime/patchyard-anthropic-one-shot",
+    "dest: /usr/local/libexec/patchyard-anthropic-one-shot",
+):
+    if required not in worker_tasks:
+        errors.append(f"A117 installed transport binding is missing: {required}")
+if "patchyard-anthropic-one-shot" in (
+    REPO / "worker/image/build-parity-image"
+).read_text():
+    errors.append("A117 one-shot client was installed into the general-purpose guest")
+
+for required in (
+    "EXPECTED_TRANSPORT_SOURCE",
+    "EXPECTED_TRANSPORT_SHA256",
+    "TRANSPORT_SOURCE_SHA256",
+    "worker/runtime/patchyard-anthropic-one-shot",
+):
+    if required not in runner:
+        errors.append(f"A117 host-contract binding is missing: {required}")
+
+for source in (runner, launcher, transport, guest):
     if "overshoot_ceiling" in source or "max_overshoot" in source:
         errors.append("source encodes a forbidden preset overshoot ceiling")
 
@@ -469,8 +491,33 @@ if RESULT_PATH.exists():
             "nftables_tables": 0,
             "run_directories": 0,
             "credential_files": 0,
+            "guest_provider_egress_packets": 0,
         }:
             errors.append(f"A115 {phase} host teardown is incomplete")
+        if evidence.get("delivery") != {
+            "worker_host_tmpfs": True,
+            "credential_delivered_to_guest": False,
+            "credential_removed_before_guest_boot": True,
+            "assertion_delivered": False,
+            "signing_key_delivered": False,
+            "admin_credential_delivered": False,
+        }:
+            errors.append(f"A117 {phase} credential delivery boundary is malformed")
+        if evidence.get("provider_transport") != {
+            "schema_version": 1,
+            "authorization_ruling": "A117",
+            "mechanism": "host-one-shot-network-namespace-v1",
+            "http_version": "1.0",
+            "connection_close": True,
+            "client_sha256": digest(TRANSPORT_PATH),
+            "admitted_conntrack_ids": 1,
+            "admitted_new_connections": 1,
+            "rejected_new_connections": 0,
+            "rejected_connection_packets": 0,
+            "guest_provider_allowlist_entries": 0,
+            "credential_removed_before_guest_boot": True,
+        }:
+            errors.append(f"A117 {phase} one-shot transport receipt is malformed")
         issuance = evidence.get("issuance", {})
         try:
             exchange_id = issuance["exchange_request_id"]
@@ -515,10 +562,9 @@ if RESULT_PATH.exists():
             or observation.get("model") != "claude-opus-5"
         ):
             errors.append(f"A115 {phase} is not an accepted positive control")
-    if len(provider_body_hashes) != 1 or not all(
-        re.fullmatch(r"[0-9a-f]{64}", value) for value in provider_body_hashes
-    ):
-        errors.append("A115 phase request bodies are not byte-identical")
+    expected_body_hash = hashlib.sha256(ANTHROPIC_PROVIDER_BODY).hexdigest()
+    if provider_body_hashes != {expected_body_hash}:
+        errors.append("A115 phase request bodies differ from the exact bound body")
     if len(set(exchange_ids)) != 3 or len(issuance_windows) != 3:
         errors.append("A115 phases do not bind three distinct WIF exchanges")
     elif any(

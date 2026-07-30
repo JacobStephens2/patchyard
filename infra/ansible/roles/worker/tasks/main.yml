@@ -125,6 +125,14 @@
     group: root
     mode: "0750"
 
+- name: Install the Anthropic one-shot provider transport
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../worker/runtime/patchyard-anthropic-one-shot"
+    dest: /usr/local/libexec/patchyard-anthropic-one-shot
+    owner: root
+    group: root
+    mode: "0750"
+
 - name: Install the explicit supervisor worker-teardown operation
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../../worker/runtime/patchyard-worker-teardown"

@@ -16,8 +16,10 @@ sequence in the dedicated `Patchyard Factory` workspace
    settlement window, Anthropic accepts the same request again.
 
 Each phase uses a fresh five-minute WIF bearer for the same Factory service
-account, rule, workspace, model, and endpoint. The guest makes exactly one
-provider request. The $500.00 organization monthly limit remains unchanged and
+account, rule, workspace, model, and endpoint. The worker host makes exactly
+one provider request through the A117 one-shot transport; the general-purpose
+guest receives neither the bearer nor a provider route. The $500.00
+organization monthly limit remains unchanged and
 nonbinding, and no other workspace changes. The two accepted requests bracket
 the refusal and exclude credential, request-validity, model-availability, and
 organization-limit causes. HTTP 429, `rate_limit_error`, and
@@ -97,22 +99,30 @@ The control-plane runner exposes three separate actions:
 - `run-spend-restored`
 
 The phase and expected workspace value are in the short-lived capability and
-run manifest. The guest constructs the same deterministic one-token Messages
-body in every phase and records its SHA-256. Shell source checks reject curl
-retry flags, loops, `xargs`, and `seq` in the provider branch. A116 additionally
-removes the two exact approved Anthropic call blocks from the source and rejects
-any provider-capable command left anywhere in the guest, so a helper defined
-outside the branch cannot hide a second request.
+run manifest. The worker resolves one reviewed Anthropic address, places the
+fixed client in a dedicated host network namespace, and admits one conntrack
+ID. Retransmits on that ID remain possible; every later connection is rejected.
+The client uses HTTP/1.0, `Connection: close`, one fixed Messages URL, one
+deterministic one-token body, no redirect, and no retry. Before accepting the
+result, the launcher independently reads one admitted connection, zero rejected
+connections, one admitted ID, and one used source from the kernel. It then
+deletes the bearer, raw headers and body, namespace, veth, and rules before it
+boots the spend guest.
 
-The guest removes the copied capability, authorization configuration, request,
-headers, and provider response before publishing success or failure. If that
-cleanup cannot be proven, it purges the result filesystem and leaves no status
-for the host to accept. The host then taints the worker. A provider response
-that does not meet the bounded A115 phase contract fails with a response-stage
-diagnostic, not the obsolete `denial-not-observed` label. Empty bodies fail as
-`empty-body`; whitespace, malformed JSON, multiple documents, and other
-non-single-object inputs fail before jq can treat an absent document as a
-successful predicate.
+The spend guest receives only credential-free issuance metadata, the bounded
+provider observation, and the host-owned transport receipt. Its provider-hosts
+file is empty, no credential drive is attached, and the host additionally
+requires zero rejected guest-egress packets. This removes the false A116 claim
+that a command-name scan could make a general-purpose parity image a one-call
+environment. The exact installed one-shot client joins the spend host-contract
+digest; the guest image recipe remains a complete binding of the guest surface.
+
+A provider response that does not meet the bounded A115 phase contract fails
+with a response-stage diagnostic, not the obsolete `denial-not-observed` label.
+Empty bodies fail as `empty-body`; whitespace, malformed JSON, multiple
+documents, and other non-single-object inputs fail before jq can treat an
+absent document as a successful predicate. A missing request-ID header retains
+the observed HTTP status and bounded response-shape class in the diagnostic.
 
 The A114 child-launcher repair also treats output purge, ownership and mode
 normalization, network-lock release, and terminal publication failures as
@@ -226,16 +236,15 @@ selector that the Console does not expose.
      --output research/isolation/results/anthropic-spend-enforcement.json
    ```
 
-7. Rerun requirement 1 because the shared guest image and host contract have
+7. Rerun requirement 1 because the shared guest image, runner, and launcher have
    changed. Copy only its sanitized evidence. Run both Anthropic checkers, the
    full repository gates, and the prescribed mutations. Delete the root-only
    temporary snapshots and readbacks after the committed evidence passes.
 
 If any phase fails, preserve the sanitized failure log and use at most the one
-A9 live-attempt repair loop authorized by A115. A116 authorized only the
-additional pre-attempt source repair recorded in its re-review; it did not add
-a provider request or another live repair loop. Then escalate rather than
-making another provider request.
+A9 live-attempt repair loop authorized by A115. A116 and A117 authorized only
+pre-attempt source work; neither added a provider request or another live repair
+loop. Then escalate rather than making another provider request.
 
 Requirement 2 remains unqualified until the completed A115 result lands.
 Behavioral acceptance remains paused, all 13 `credential_qualified` flags stay

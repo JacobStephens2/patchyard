@@ -28,67 +28,6 @@ remove_provider_credential() {
   return "$cleanup_failed"
 }
 
-anthropic_response_is_single_json_object() {
-  [[ -s "$PROVIDER_RESPONSE" ]] \
-    && jq -e --slurp 'length == 1 and (.[0] | type == "object")' \
-      "$PROVIDER_RESPONSE" >/dev/null 2>&1
-}
-
-classify_anthropic_error_shape() {
-  if [[ ! -s "$PROVIDER_RESPONSE" ]]; then
-    printf 'empty-body\n'
-  elif ! jq -e --slurp 'length == 1' "$PROVIDER_RESPONSE" >/dev/null 2>&1; then
-    printf 'invalid-json-body\n'
-  elif ! jq -e 'type == "object"' "$PROVIDER_RESPONSE" >/dev/null 2>&1; then
-    printf 'non-object\n'
-  elif ! jq -e 'has("type")' "$PROVIDER_RESPONSE" >/dev/null; then
-    printf 'missing-type\n'
-  elif ! jq -e '.type == "error"' "$PROVIDER_RESPONSE" >/dev/null; then
-    printf 'type-not-error\n'
-  elif ! jq -e 'has("error")' "$PROVIDER_RESPONSE" >/dev/null; then
-    printf 'missing-error\n'
-  elif ! jq -e '.error | type == "object"' "$PROVIDER_RESPONSE" >/dev/null; then
-    printf 'error-not-object\n'
-  elif ! jq -e '.error | has("type")' "$PROVIDER_RESPONSE" >/dev/null; then
-    printf 'missing-error-type\n'
-  elif ! jq -e '.error | has("message")' "$PROVIDER_RESPONSE" >/dev/null; then
-    printf 'missing-error-message\n'
-  elif ! jq -e '.error.type | type == "string" and test("^[a-z_]{1,64}$")' \
-    "$PROVIDER_RESPONSE" >/dev/null; then
-    printf 'invalid-error-type\n'
-  elif ! jq -e '.error.message | type == "string" and length > 0 and length <= 4096' \
-    "$PROVIDER_RESPONSE" >/dev/null; then
-    printf 'invalid-error-message\n'
-  elif ! jq -e '(keys | length <= 16) and (.error | keys | length <= 16)' \
-    "$PROVIDER_RESPONSE" >/dev/null; then
-    printf 'too-many-keys\n'
-  elif ! jq -e 'all(keys[]; test("^[A-Za-z0-9_-]{1,64}$"))
-    and all(.error | keys[]; test("^[A-Za-z0-9_-]{1,64}$"))' \
-    "$PROVIDER_RESPONSE" >/dev/null; then
-    printf 'invalid-key\n'
-  elif ! jq -e '((has("request_id") | not)
-    or (.request_id | test("^req_[A-Za-z0-9]+$")))' \
-    "$PROVIDER_RESPONSE" >/dev/null; then
-    printf 'invalid-request-id\n'
-  else
-    printf 'compatible-error-envelope\n'
-  fi
-}
-
-anthropic_error_envelope_is_compatible() {
-  anthropic_response_is_single_json_object || return 1
-  jq -e '
-    has("type") and .type == "error" and has("error") and (.error | type == "object")
-    and (.error | has("type")) and (.error | has("message"))
-    and (.error.type | type == "string" and test("^[a-z_]{1,64}$"))
-    and (.error.message | type == "string" and length > 0 and length <= 4096)
-    and (keys | length <= 16) and (.error | keys | length <= 16)
-    and all(keys[]; test("^[A-Za-z0-9_-]{1,64}$"))
-    and all(.error | keys[]; test("^[A-Za-z0-9_-]{1,64}$"))
-    and ((has("request_id") | not) or (.request_id | test("^req_[A-Za-z0-9]+$")))
-  ' "$PROVIDER_RESPONSE" >/dev/null
-}
-
 poweroff_guest() {
   sync
   systemctl reboot --force --force >/dev/null 2>&1 || reboot -f
@@ -196,26 +135,7 @@ if [[ -s /input/provider-hosts ]]; then
 fi
 
 CREDENTIAL_REQUIRED=$(jq -r .credential_required "$MANIFEST")
-CREDENTIAL_DRIVE_READ_ONLY=false
-if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
-  [[ -e /dev/disk/by-label/ETA_CREDENTIAL ]]
-  CREDENTIAL_DEVICE=$(readlink -f -- /dev/disk/by-label/ETA_CREDENTIAL)
-  [[ "$CREDENTIAL_DEVICE" == /dev/* ]]
-  [[ "$(blockdev --getro "$CREDENTIAL_DEVICE")" == 1 ]]
-  install -d -m 0700 /credential /run/patchyard-capability
-  mount -o ro,nosuid,nodev,noexec "$CREDENTIAL_DEVICE" /credential
-  findmnt -n -o OPTIONS /credential | tr ',' '\n' | grep -Fxq ro
-  if touch /credential/write-probe 2>/dev/null; then
-    FAILURE=credential-drive-writable
-    exit 1
-  fi
-  CREDENTIAL_DRIVE_READ_ONLY=true
-  install -m 0400 -o factory-agent -g factory-agent \
-    /credential/capability.json /run/patchyard-capability/capability.json
-  umount /credential
-  CAPABILITY_FILE=/run/patchyard-capability/capability.json
-fi
-
+CREDENTIAL_DELIVERED_TO_GUEST=$CREDENTIAL_REQUIRED
 if [[ "$MODE" == adversarial-qualification ]]; then
   [[ "$PROVIDER" == openai && "$CREDENTIAL_REQUIRED" == false ]]
   [[ -f /work/base.txt ]]
@@ -289,174 +209,98 @@ if [[ "$MODE" == adversarial-qualification ]]; then
   exit 0
 fi
 
+
+if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
+ && jq -e '.qualification_requirement == "provider-spend-enforcement"' \
+   "$MANIFEST" >/dev/null; then
+  CREDENTIAL_DELIVERED_TO_GUEST=false
+fi
+CREDENTIAL_DRIVE_READ_ONLY=false
+if [[ "$CREDENTIAL_DELIVERED_TO_GUEST" == true ]]; then
+  [[ -e /dev/disk/by-label/ETA_CREDENTIAL ]]
+  CREDENTIAL_DEVICE=$(readlink -f -- /dev/disk/by-label/ETA_CREDENTIAL)
+  [[ "$CREDENTIAL_DEVICE" == /dev/* ]]
+  [[ "$(blockdev --getro "$CREDENTIAL_DEVICE")" == 1 ]]
+  install -d -m 0700 /credential /run/patchyard-capability
+  mount -o ro,nosuid,nodev,noexec "$CREDENTIAL_DEVICE" /credential
+  findmnt -n -o OPTIONS /credential | tr ',' '\n' | grep -Fxq ro
+  if touch /credential/write-probe 2>/dev/null; then
+    FAILURE=credential-drive-writable
+    exit 1
+  fi
+  CREDENTIAL_DRIVE_READ_ONLY=true
+  install -m 0400 -o factory-agent -g factory-agent \
+    /credential/capability.json /run/patchyard-capability/capability.json
+  umount /credential
+  CAPABILITY_FILE=/run/patchyard-capability/capability.json
+fi
+
 if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
   && jq -e '.qualification_requirement == "provider-spend-enforcement"' \
-    "$CAPABILITY_FILE" >/dev/null; then
-  [[ "$CREDENTIAL_REQUIRED" == true && -n "$CAPABILITY_FILE" ]]
+    "$MANIFEST" >/dev/null; then
+  [[ "$CREDENTIAL_REQUIRED" == true ]]
+  [[ "$CREDENTIAL_DELIVERED_TO_GUEST" == false ]]
+  [[ "$CREDENTIAL_DRIVE_READ_ONLY" == false ]]
+  [[ ! -e /dev/disk/by-label/ETA_CREDENTIAL ]]
+  [[ ! -s /input/provider-hosts ]]
   [[ -f /work/base.txt ]]
-  [[ "$CREDENTIAL_DRIVE_READ_ONLY" == true ]]
-  if mountpoint -q /credential; then
-    FAILURE=credential-drive-still-mounted
-    exit 1
-  fi
+  [[ -f /input/issuance.json && -f /input/provider-observation.json ]]
+  [[ -f /input/provider-transport.json ]]
+  QUALIFICATION_PHASE=$(jq -r .qualification_phase "$MANIFEST")
+  SPEND_CAP_CENTS=$(jq -r .spend_cap_cents "$MANIFEST")
+
   jq -e '
-    (keys | sort) == ["authorization_ruling","capability_id","exchange_request_id",
-      "expires_at","expires_in","issued_at","provider","qualification_phase",
-      "qualification_requirement","rule_id","schema_version","scope","secret",
-      "service_account_id","spend_cap_cents","token_type","workspace_id"]
-    and .schema_version == 1 and .provider == "anthropic"
-    and .qualification_requirement == "provider-spend-enforcement"
-    and .authorization_ruling == "A115"
-    and ((.qualification_phase == "temporary_refusal" and .spend_cap_cents == 100)
-      or ((.qualification_phase == "operational_acceptance"
-        or .qualification_phase == "restored_acceptance")
-        and .spend_cap_cents == 5000))
-    and (.secret | test("^sk-ant-oat01-[A-Za-z0-9_-]+$") and length <= 8192)
-    and .token_type == "Bearer"
-    and .scope == "workspace:inference"
-    and (.expires_in >= 60 and .expires_in <= 300)
-  ' "$CAPABILITY_FILE" >/dev/null
-  [[ "$(jq -r .qualification_phase "$CAPABILITY_FILE")" \
-    == "$(jq -r .qualification_phase "$MANIFEST")" ]]
-  [[ "$(jq -r .authorization_ruling "$CAPABILITY_FILE")" \
-    == "$(jq -r .authorization_ruling "$MANIFEST")" ]]
-
-  ISSUED_AT=$(jq -r .issued_at "$CAPABILITY_FILE")
-  EXPIRES_AT=$(jq -r .expires_at "$CAPABILITY_FILE")
-  EXPIRES_IN=$(jq -r .expires_in "$CAPABILITY_FILE")
-  EXCHANGE_REQUEST_ID=$(jq -r .exchange_request_id "$CAPABILITY_FILE")
-  SERVICE_ACCOUNT_ID=$(jq -r .service_account_id "$CAPABILITY_FILE")
-  RULE_ID=$(jq -r .rule_id "$CAPABILITY_FILE")
-  WORKSPACE_ID=$(jq -r .workspace_id "$CAPABILITY_FILE")
-  SPEND_CAP_CENTS=$(jq -r .spend_cap_cents "$CAPABILITY_FILE")
-  QUALIFICATION_PHASE=$(jq -r .qualification_phase "$CAPABILITY_FILE")
-  PROVIDER_TEMP=/run/patchyard-provider
-  install -d -m 0700 -o factory-agent -g factory-agent "$PROVIDER_TEMP"
-  AUTH_CONFIG="$PROVIDER_TEMP/anthropic-curl.conf"
-  PROVIDER_HEADERS="$PROVIDER_TEMP/messages.headers"
-  PROVIDER_RESPONSE="$PROVIDER_TEMP/messages.json"
-  PROMPT_TEXT="$PROVIDER_TEMP/prompt.txt"
-  PROVIDER_REQUEST="$PROVIDER_TEMP/request.json"
-  {
-    printf 'header = "Authorization: Bearer %s"\n' "$(jq -r .secret "$CAPABILITY_FILE")"
-    printf 'header = "anthropic-version: 2023-06-01"\n'
-    printf 'header = "content-type: application/json"\n'
-  } >"$AUTH_CONFIG"
-  chown factory-agent:factory-agent "$AUTH_CONFIG"
-  chmod 0400 "$AUTH_CONFIG"
-  printf '%s\n' \
-    'Patchyard Factory spend-cap denial probe. Reply with one character.' \
-    >"$PROMPT_TEXT"
-  jq -Rs '{model:"claude-opus-5",max_tokens:1,
-    messages:[{role:"user",content:.}]}' "$PROMPT_TEXT" >"$PROVIDER_REQUEST"
-  chown factory-agent:factory-agent "$PROMPT_TEXT" "$PROVIDER_REQUEST"
-  chmod 0400 "$PROMPT_TEXT" "$PROVIDER_REQUEST"
-  PROVIDER_REQUEST_SHA256=$(sha256sum "$PROVIDER_REQUEST" | cut -d' ' -f1)
-
-  FAILURE=anthropic-spend-provider-call-not-completed
-  PROVIDER_OBSERVATION=
-  PROVIDER_CURL_EXIT=0
-  # A115_PROVIDER_REQUEST_BEGIN
-  PROVIDER_STATUS=$(runuser -u factory-agent -- curl \
-    --config "$AUTH_CONFIG" --silent --show-error \
-    --connect-timeout 10 --max-time 60 \
-    --dump-header "$PROVIDER_HEADERS" \
-    --output "$PROVIDER_RESPONSE" --write-out '%{http_code}' \
-    --data-binary "@$PROVIDER_REQUEST" \
-    'https://api.anthropic.com/v1/messages') || PROVIDER_CURL_EXIT=$?
-  # A115_PROVIDER_REQUEST_END
-  if [[ "$PROVIDER_CURL_EXIT" -ne 0 ]]; then
-    [[ "$PROVIDER_CURL_EXIT" =~ ^[1-9][0-9]?$ ]] || PROVIDER_CURL_EXIT=unknown
-    FAILURE="anthropic-provider-transport-failed-$PROVIDER_CURL_EXIT"
-    exit 1
-  fi
-  PROVIDER_REQUEST_ID=$(awk 'tolower($1) == "request-id:" {gsub("\r", "", $2); print $2; exit}' \
-    "$PROVIDER_HEADERS")
-  [[ "$PROVIDER_REQUEST_ID" =~ ^req_[A-Za-z0-9]+$ ]]
-  PROVIDER_SERVER_DATE=$(awk 'tolower($1) == "date:" {
-    sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit
-  }' "$PROVIDER_HEADERS")
-  if [[ -z "$PROVIDER_SERVER_DATE" ]]; then
-    FAILURE="anthropic-spend-provider-response-rejected-$PROVIDER_STATUS-missing-date"
-    exit 1
-  fi
-  if ! OBSERVED_AT=$(date -u -d "$PROVIDER_SERVER_DATE" +%Y-%m-%dT%H:%M:%SZ); then
-    FAILURE="anthropic-spend-provider-response-rejected-$PROVIDER_STATUS-invalid-date"
-    exit 1
-  fi
-  FAILURE=anthropic-spend-provider-response-rejected
-  if [[ "$PROVIDER_STATUS" == 200 ]]; then
-    if ! anthropic_response_is_single_json_object; then
-      RESPONSE_SHAPE=$(classify_anthropic_error_shape)
-      FAILURE="anthropic-spend-provider-response-rejected-200-$RESPONSE_SHAPE"
-      exit 1
-    elif ! jq -e '
-      .type == "message" and .model == "claude-opus-5"
+    (keys | sort) == ["exchange_request_id","expires_at","expires_in","issued_at",
+      "rule_id","scope","service_account_id","token_type","workspace_id"]
+    and (.issued_at | fromdateiso8601 | type == "number")
+    and (.expires_at | fromdateiso8601 | type == "number")
+    and (.expires_in | type == "number" and . >= 60 and . <= 300)
+    and (.exchange_request_id | test("^req_[A-Za-z0-9]+$"))
+    and .token_type == "Bearer" and .scope == "workspace:inference"
+    and (.service_account_id | test("^svac_[A-Za-z0-9]+$"))
+    and (.rule_id | test("^fdrl_[A-Za-z0-9]+$"))
+    and (.workspace_id | test("^wrkspc_[A-Za-z0-9]+$"))
+  ' /input/issuance.json >/dev/null
+  jq -e '
+    (keys | sort) == ["admitted_conntrack_ids","admitted_new_connections",
+      "authorization_ruling","client_sha256","connection_close",
+      "credential_removed_before_guest_boot","guest_provider_allowlist_entries",
+      "http_version","mechanism","rejected_connection_packets",
+      "rejected_new_connections","schema_version"]
+    and .schema_version == 1 and .authorization_ruling == "A117"
+    and .mechanism == "host-one-shot-network-namespace-v1"
+    and .http_version == "1.0" and .connection_close == true
+    and .admitted_conntrack_ids == 1 and .admitted_new_connections == 1
+    and .rejected_new_connections == 0 and .rejected_connection_packets == 0
+    and .guest_provider_allowlist_entries == 0
+    and .credential_removed_before_guest_boot == true
+    and (.client_sha256 | test("^[0-9a-f]{64}$"))
+  ' /input/provider-transport.json >/dev/null
+  jq -e --arg phase "$QUALIFICATION_PHASE" --argjson cap "$SPEND_CAP_CENTS" '
+    .endpoint == "/v1/messages" and .request_attempts == 1
+    and .expected_workspace_cap_cents == $cap
+    and (.observed_at | fromdateiso8601 | type == "number")
+    and (.request_id | test("^req_[A-Za-z0-9]+$"))
+    and (.request_body_sha256 | test("^[0-9a-f]{64}$"))
+    and (if $phase == "temporary_refusal" then
+      .outcome == "refused" and (.http_status == 400 or .http_status == 403)
+      and .response_type == "error"
+      and (.provider_error.error_type | test("^[a-z_]{1,64}$"))
+      and (.provider_error.error_type != "rate_limit_error")
+      and (.provider_error.error_type != "overloaded_error")
+    else
+      .outcome == "accepted" and .http_status == 200
+      and .response_type == "message" and .model == "claude-opus-5"
       and (.usage.input_tokens | type == "number" and . >= 1)
       and (.usage.output_tokens | type == "number" and . >= 1)
-    ' "$PROVIDER_RESPONSE" >/dev/null; then
-      FAILURE=anthropic-spend-provider-response-rejected-200-invalid-message-envelope
-      exit 1
-    fi
-    if [[ "$QUALIFICATION_PHASE" == temporary_refusal ]]; then
-      FAILURE=anthropic-spend-temporary-cap-refusal-not-observed
-      exit 1
-    fi
-    PROVIDER_OBSERVATION=$(jq -nc \
-      --arg observed_at "$OBSERVED_AT" --arg request_id "$PROVIDER_REQUEST_ID" \
-      --arg request_body_sha256 "$PROVIDER_REQUEST_SHA256" \
-      --argjson expected_workspace_cap_cents "$SPEND_CAP_CENTS" \
-      --argjson input_tokens "$(jq -r .usage.input_tokens "$PROVIDER_RESPONSE")" \
-      --argjson output_tokens "$(jq -r .usage.output_tokens "$PROVIDER_RESPONSE")" \
-      '{outcome:"accepted",endpoint:"/v1/messages",http_status:200,$observed_at,
-        $request_id,$request_body_sha256,response_type:"message",
-        model:"claude-opus-5",request_attempts:1,
-        $expected_workspace_cap_cents,usage:{$input_tokens,$output_tokens}}')
-  elif [[ "$QUALIFICATION_PHASE" == temporary_refusal \
-    && "$PROVIDER_STATUS" =~ ^(400|403)$ ]] \
-    && anthropic_error_envelope_is_compatible; then
-    BODY_REQUEST_ID=$(jq -r '.request_id // empty' "$PROVIDER_RESPONSE")
-    if [[ -n "$BODY_REQUEST_ID" && "$BODY_REQUEST_ID" != "$PROVIDER_REQUEST_ID" ]]; then
-      FAILURE="anthropic-spend-provider-response-rejected-$PROVIDER_STATUS-request-id-mismatch"
-      exit 1
-    fi
-    ERROR_TYPE=$(jq -r .error.type "$PROVIDER_RESPONSE")
-    if [[ "$ERROR_TYPE" == rate_limit_error || "$ERROR_TYPE" == overloaded_error ]]; then
-      FAILURE="anthropic-spend-provider-response-rejected-$PROVIDER_STATUS-$ERROR_TYPE"
-      FAILURE=${FAILURE//_/-}
-      exit 1
-    fi
-    ERROR_MESSAGE_SHA256=$(jq -jr .error.message "$PROVIDER_RESPONSE" | sha256sum | cut -d' ' -f1)
-    if jq -e '.error.message | test("(spend|credit|billing|monthly (spend|usage) limit)"; "i")' \
-      "$PROVIDER_RESPONSE" >/dev/null; then
-      MESSAGE_CLASS=spend_attributable
-    else
-      MESSAGE_CLASS=unattributed
-    fi
-    TOP_LEVEL_KEYS=$(jq -c 'keys | sort' "$PROVIDER_RESPONSE")
-    ERROR_KEYS=$(jq -c '.error | keys | sort' "$PROVIDER_RESPONSE")
-    PROVIDER_OBSERVATION=$(jq -nc \
-      --arg observed_at "$OBSERVED_AT" --arg request_id "$PROVIDER_REQUEST_ID" \
-      --arg request_body_sha256 "$PROVIDER_REQUEST_SHA256" \
-      --arg response_type "$(jq -r .type "$PROVIDER_RESPONSE")" \
-      --arg error_type "$ERROR_TYPE" --arg message_class "$MESSAGE_CLASS" \
-      --arg message_sha256 "$ERROR_MESSAGE_SHA256" \
-      --argjson top_level_keys "$TOP_LEVEL_KEYS" --argjson error_keys "$ERROR_KEYS" \
-      --argjson expected_workspace_cap_cents "$SPEND_CAP_CENTS" \
-      --argjson http_status "$PROVIDER_STATUS" \
-      '{outcome:"refused",endpoint:"/v1/messages",$http_status,$observed_at,
-        $request_id,$request_body_sha256,$response_type,request_attempts:1,
-        $expected_workspace_cap_cents,
-        provider_error:{$error_type,$message_class,$message_sha256,
-          shape:{$top_level_keys,$error_keys}}}')
-  else
-    [[ "$PROVIDER_STATUS" =~ ^[0-9]{3}$ ]] || PROVIDER_STATUS=unknown
-    RESPONSE_SHAPE=$(classify_anthropic_error_shape)
-    FAILURE="anthropic-spend-provider-response-rejected-$PROVIDER_STATUS-$RESPONSE_SHAPE"
-    exit 1
-  fi
-  [[ -n "$PROVIDER_OBSERVATION" ]]
-  remove_provider_credential
+    end)
+  ' /input/provider-observation.json >/dev/null
+  jq -e --slurpfile issuance /input/issuance.json '
+    ($issuance[0].issued_at | fromdateiso8601)
+      <= (.observed_at | fromdateiso8601)
+    and (.observed_at | fromdateiso8601)
+      < ($issuance[0].expires_at | fromdateiso8601)
+  ' /input/provider-observation.json >/dev/null
 
   FAILURE=anthropic-spend-qualification-patch-failed
   printf 'anthropic-provider-spend-enforcement-qualified\n' \
@@ -467,11 +311,14 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
     >/result/change.patch
   [[ -s /result/change.patch ]]
   printf '%s\n' \
-    'Ran exactly one A115 phase request with a fresh Patchyard Factory workspace bearer, removed the bearer, and published only the bounded provider observation.' \
+    'Validated the host-owned A117 one-shot receipt after the bearer and provider network namespace were removed; the spend guest had neither credential nor provider allowlist.' \
     >/result/rationale.txt
 
   FAILURE=anthropic-spend-qualification-evidence-failed
   PATCH_SHA=$(sha256sum /result/change.patch | cut -d' ' -f1)
+  ISSUANCE=$(jq -c . /input/issuance.json)
+  PROVIDER_OBSERVATION=$(jq -c . /input/provider-observation.json)
+  PROVIDER_TRANSPORT=$(jq -c . /input/provider-transport.json)
   jq -n \
     --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
     --arg request_sha256 "$REQUEST_SHA" --arg patch_sha256 "$PATCH_SHA" \
@@ -479,24 +326,20 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
     --arg image_recipe_sha256 "$IMAGE_RECIPE_SHA" \
     --arg production_parity_sha256 "$PRODUCTION_PARITY_SHA" \
     --arg host_contract_sha256 "$HOST_CONTRACT_SHA" \
-    --arg issued_at "$ISSUED_AT" --arg expires_at "$EXPIRES_AT" \
-    --arg exchange_request_id "$EXCHANGE_REQUEST_ID" \
-    --arg service_account_id "$SERVICE_ACCOUNT_ID" --arg rule_id "$RULE_ID" \
-    --arg workspace_id "$WORKSPACE_ID" --argjson expires_in "$EXPIRES_IN" \
     --arg qualification_phase "$QUALIFICATION_PHASE" \
+    --argjson issuance "$ISSUANCE" \
     --argjson provider_observation "$PROVIDER_OBSERVATION" \
+    --argjson provider_transport "$PROVIDER_TRANSPORT" \
     '{schema_version:1,$run_id,$base_sha,$request_sha256,provider:"anthropic",
       qualification_requirement:"provider-spend-enforcement",
       authorization_ruling:"A115",$qualification_phase,$patch_sha256,
       $observed_rootfs_sha256,$image_recipe_sha256,$production_parity_sha256,
       git_remote_count:0,$host_contract_sha256,credential_removed_before_output:true,
-      issuance:{$issued_at,$expires_at,$expires_in,$exchange_request_id,
-        token_type:"Bearer",scope:"workspace:inference",$service_account_id,$rule_id,$workspace_id},
-      delivery:{capability_drive_read_only:true,
-        capability_drive_unmounted_before_provider_call:true,
-        credential_removed_before_output:true,assertion_delivered:false,
+      $issuance,
+      delivery:{worker_host_tmpfs:true,credential_delivered_to_guest:false,
+        credential_removed_before_guest_boot:true,assertion_delivered:false,
         signing_key_delivered:false,admin_credential_delivered:false},
-      $provider_observation}' \
+      $provider_transport,$provider_observation}' \
     >/result/evidence.json
   printf 'success\n' >/result/status
   STATUS=success

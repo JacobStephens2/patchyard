@@ -1,0 +1,278 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+usage() {
+  echo "usage: $0 NETWORK-NAMESPACE /absolute/capability.json /absolute/output-directory" >&2
+  exit 2
+}
+
+[[ $# -eq 3 ]] || usage
+NETWORK_NAMESPACE=$1
+CAPABILITY=$2
+OUTPUT=$3
+[[ "$NETWORK_NAMESPACE" =~ ^efp[0-9a-f]{10}$ ]] || usage
+[[ "$CAPABILITY" == /* && "$OUTPUT" == /* ]] || usage
+[[ -f "$CAPABILITY" && ! -L "$CAPABILITY" ]]
+[[ "$(stat -c '%U:%G:%a' "$CAPABILITY")" == root:root:600 ]]
+[[ -d "$OUTPUT" && ! -L "$OUTPUT" ]]
+[[ "$(stat -c '%U:%G:%a' "$OUTPUT")" == root:factory-worker:710 ]]
+
+jq -e '
+  (keys | sort) == ["authorization_ruling","capability_id","exchange_request_id",
+    "expires_at","expires_in","issued_at","provider","qualification_phase",
+    "qualification_requirement","rule_id","schema_version","scope","secret",
+    "service_account_id","spend_cap_cents","token_type","workspace_id"]
+  and .schema_version == 1 and .provider == "anthropic"
+  and .qualification_requirement == "provider-spend-enforcement"
+  and .authorization_ruling == "A115"
+  and ((.qualification_phase == "temporary_refusal" and .spend_cap_cents == 100)
+    or ((.qualification_phase == "operational_acceptance"
+      or .qualification_phase == "restored_acceptance")
+      and .spend_cap_cents == 5000))
+  and (.secret | type == "string" and test("^sk-ant-oat01-[A-Za-z0-9_-]+$")
+    and length <= 8192)
+  and .token_type == "Bearer" and .scope == "workspace:inference"
+  and (.expires_in | type == "number" and . >= 60 and . <= 300)
+  and (.issued_at | fromdateiso8601 | type == "number")
+  and (.expires_at | fromdateiso8601 | type == "number")
+  and (.exchange_request_id | test("^req_[A-Za-z0-9]+$"))
+  and (.service_account_id | test("^svac_[A-Za-z0-9]+$"))
+  and (.rule_id | test("^fdrl_[A-Za-z0-9]+$"))
+  and (.workspace_id | test("^wrkspc_[A-Za-z0-9]+$"))
+' "$CAPABILITY" >/dev/null
+
+RAW="$OUTPUT/raw"
+install -d -m 0700 -o factory-worker -g factory-worker "$RAW"
+AUTH_CONFIG="$RAW/anthropic-curl.conf"
+PROVIDER_HEADERS="$RAW/messages.headers"
+PROVIDER_RESPONSE="$RAW/messages.json"
+PROVIDER_REQUEST="$RAW/request.json"
+PROMPT_TEXT="$RAW/prompt.txt"
+
+remove_private_material() {
+  local rc=$?
+  local cleanup_failed=0
+  rm -rf -- "$RAW" || cleanup_failed=1
+  rm -f -- "$CAPABILITY" || cleanup_failed=1
+  [[ ! -e "$RAW" && ! -L "$RAW" ]] || cleanup_failed=1
+  [[ ! -e "$CAPABILITY" && ! -L "$CAPABILITY" ]] || cleanup_failed=1
+  if [[ "$cleanup_failed" -ne 0 && "$rc" -eq 0 ]]; then
+    rc=1
+  fi
+  exit "$rc"
+}
+trap remove_private_material EXIT
+
+{
+  printf 'header = "Authorization: Bearer %s"\n' "$(jq -r .secret "$CAPABILITY")"
+  printf 'header = "anthropic-version: 2023-06-01"\n'
+  printf 'header = "content-type: application/json"\n'
+} >"$AUTH_CONFIG"
+printf '%s\n' \
+  'Patchyard Factory spend-cap denial probe. Reply with one character.' \
+  >"$PROMPT_TEXT"
+jq -cRs '{model:"claude-opus-5",max_tokens:1,
+  messages:[{role:"user",content:.}]}' "$PROMPT_TEXT" >"$PROVIDER_REQUEST"
+chown factory-worker:factory-worker \
+  "$AUTH_CONFIG" "$PROMPT_TEXT" "$PROVIDER_REQUEST"
+chmod 0400 "$AUTH_CONFIG" "$PROMPT_TEXT" "$PROVIDER_REQUEST"
+PROVIDER_REQUEST_SHA256=$(sha256sum "$PROVIDER_REQUEST" | cut -d' ' -f1)
+
+jq 'del(.secret, .capability_id, .authorization_ruling,
+  .qualification_requirement, .qualification_phase, .spend_cap_cents)
+  | {issued_at,expires_at,expires_in,exchange_request_id,token_type,scope,
+      service_account_id,rule_id,workspace_id}' \
+  "$CAPABILITY" >"$OUTPUT/issuance.json"
+chmod 0600 "$OUTPUT/issuance.json"
+
+PROVIDER_CURL_EXIT=0
+PROVIDER_STATUS=$(
+  /usr/sbin/ip netns exec "$NETWORK_NAMESPACE" \
+    /usr/sbin/runuser -u factory-worker -- \
+    /usr/bin/env -i HOME=/var/lib/patchyard-worker PATH=/usr/bin:/bin \
+    /usr/bin/curl -q --config "$AUTH_CONFIG" \
+      --http1.0 --header 'Connection: close' --ipv4 --proto '=https' \
+      --silent --show-error --connect-timeout 10 --max-time 60 \
+      --dump-header "$PROVIDER_HEADERS" \
+      --output "$PROVIDER_RESPONSE" --write-out '%{http_code}' \
+      --data-binary "@$PROVIDER_REQUEST" \
+      'https://api.anthropic.com/v1/messages'
+) || PROVIDER_CURL_EXIT=$?
+
+if [[ "$PROVIDER_CURL_EXIT" -ne 0 ]]; then
+  [[ "$PROVIDER_CURL_EXIT" =~ ^[1-9][0-9]?$ ]] || PROVIDER_CURL_EXIT=unknown
+  printf 'anthropic-spend-provider-transport-failed-%s\n' \
+    "$PROVIDER_CURL_EXIT" >&2
+  exit 1
+fi
+[[ "$(stat -c %s "$PROVIDER_HEADERS")" -le 65536 ]]
+[[ "$(stat -c %s "$PROVIDER_RESPONSE")" -le 1048576 ]]
+[[ "$PROVIDER_STATUS" =~ ^[0-9]{3}$ ]] || PROVIDER_STATUS=unknown
+
+anthropic_response_is_single_json_object() {
+  [[ -s "$PROVIDER_RESPONSE" ]] \
+    && jq -e --slurp 'length == 1 and (.[0] | type == "object")' \
+      "$PROVIDER_RESPONSE" >/dev/null 2>&1
+}
+
+classify_anthropic_error_shape() {
+  if [[ ! -s "$PROVIDER_RESPONSE" ]]; then
+    printf 'empty-body\n'
+  elif ! jq -e --slurp 'length == 1' "$PROVIDER_RESPONSE" >/dev/null 2>&1; then
+    printf 'invalid-json-body\n'
+  elif ! jq -e 'type == "object"' "$PROVIDER_RESPONSE" >/dev/null 2>&1; then
+    printf 'non-object\n'
+  elif ! jq -e 'has("type")' "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'missing-type\n'
+  elif ! jq -e '.type == "error"' "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'type-not-error\n'
+  elif ! jq -e 'has("error")' "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'missing-error\n'
+  elif ! jq -e '.error | type == "object"' "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'error-not-object\n'
+  elif ! jq -e '.error | has("type")' "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'missing-error-type\n'
+  elif ! jq -e '.error | has("message")' "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'missing-error-message\n'
+  elif ! jq -e '.error.type | type == "string" and test("^[a-z_]{1,64}$")' \
+    "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'invalid-error-type\n'
+  elif ! jq -e '.error.message | type == "string" and length > 0 and length <= 4096' \
+    "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'invalid-error-message\n'
+  elif ! jq -e '(keys | length <= 16) and (.error | keys | length <= 16)' \
+    "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'too-many-keys\n'
+  elif ! jq -e 'all(keys[]; test("^[A-Za-z0-9_-]{1,64}$"))
+    and all(.error | keys[]; test("^[A-Za-z0-9_-]{1,64}$"))' \
+    "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'invalid-key\n'
+  elif ! jq -e '((has("request_id") | not)
+    or (.request_id | test("^req_[A-Za-z0-9]+$")))' \
+    "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'invalid-request-id\n'
+  else
+    printf 'compatible-error-envelope\n'
+  fi
+}
+
+anthropic_error_envelope_is_compatible() {
+  anthropic_response_is_single_json_object || return 1
+  jq -e '
+    has("type") and .type == "error" and has("error") and (.error | type == "object")
+    and (.error | has("type")) and (.error | has("message"))
+    and (.error.type | type == "string" and test("^[a-z_]{1,64}$"))
+    and (.error.message | type == "string" and length > 0 and length <= 4096)
+    and (keys | length <= 16) and (.error | keys | length <= 16)
+    and all(keys[]; test("^[A-Za-z0-9_-]{1,64}$"))
+    and all(.error | keys[]; test("^[A-Za-z0-9_-]{1,64}$"))
+    and ((has("request_id") | not) or (.request_id | test("^req_[A-Za-z0-9]+$")))
+  ' "$PROVIDER_RESPONSE" >/dev/null
+}
+
+read_provider_request_id() {
+  PROVIDER_REQUEST_ID=$(awk 'tolower($1) == "request-id:" {
+    gsub("\r", "", $2); print $2; exit
+  }' "$PROVIDER_HEADERS")
+  if [[ ! "$PROVIDER_REQUEST_ID" =~ ^req_[A-Za-z0-9]+$ ]]; then
+    RESPONSE_SHAPE=$(classify_anthropic_error_shape)
+    printf 'anthropic-spend-provider-response-rejected-%s-missing-request-id-%s\n' \
+      "$PROVIDER_STATUS" "$RESPONSE_SHAPE" >&2
+    return 1
+  fi
+}
+
+read_provider_request_id || exit 1
+PROVIDER_SERVER_DATE=$(awk 'tolower($1) == "date:" {
+  sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit
+}' "$PROVIDER_HEADERS")
+if [[ -z "$PROVIDER_SERVER_DATE" ]]; then
+  printf 'anthropic-spend-provider-response-rejected-%s-missing-date\n' \
+    "$PROVIDER_STATUS" >&2
+  exit 1
+fi
+if ! OBSERVED_AT=$(date -u -d "$PROVIDER_SERVER_DATE" +%Y-%m-%dT%H:%M:%SZ); then
+  printf 'anthropic-spend-provider-response-rejected-%s-invalid-date\n' \
+    "$PROVIDER_STATUS" >&2
+  exit 1
+fi
+
+QUALIFICATION_PHASE=$(jq -r .qualification_phase "$CAPABILITY")
+SPEND_CAP_CENTS=$(jq -r .spend_cap_cents "$CAPABILITY")
+if [[ "$PROVIDER_STATUS" == 200 ]]; then
+  if ! anthropic_response_is_single_json_object; then
+    RESPONSE_SHAPE=$(classify_anthropic_error_shape)
+    printf 'anthropic-spend-provider-response-rejected-200-%s\n' \
+      "$RESPONSE_SHAPE" >&2
+    exit 1
+  fi
+  if ! jq -e '
+    .type == "message" and .model == "claude-opus-5"
+    and (.usage.input_tokens | type == "number" and . >= 1)
+    and (.usage.output_tokens | type == "number" and . >= 1)
+  ' "$PROVIDER_RESPONSE" >/dev/null; then
+    echo 'anthropic-spend-provider-response-rejected-200-invalid-message-envelope' >&2
+    exit 1
+  fi
+  if [[ "$QUALIFICATION_PHASE" == temporary_refusal ]]; then
+    echo 'anthropic-spend-temporary-cap-refusal-not-observed' >&2
+    exit 1
+  fi
+  jq -n \
+    --arg observed_at "$OBSERVED_AT" --arg request_id "$PROVIDER_REQUEST_ID" \
+    --arg request_body_sha256 "$PROVIDER_REQUEST_SHA256" \
+    --argjson expected_workspace_cap_cents "$SPEND_CAP_CENTS" \
+    --argjson input_tokens "$(jq -r .usage.input_tokens "$PROVIDER_RESPONSE")" \
+    --argjson output_tokens "$(jq -r .usage.output_tokens "$PROVIDER_RESPONSE")" \
+    '{outcome:"accepted",endpoint:"/v1/messages",http_status:200,$observed_at,
+      $request_id,$request_body_sha256,response_type:"message",
+      model:"claude-opus-5",$expected_workspace_cap_cents,
+      usage:{$input_tokens,$output_tokens}}' >"$OUTPUT/provider-observation.json"
+elif [[ "$QUALIFICATION_PHASE" == temporary_refusal \
+  && "$PROVIDER_STATUS" =~ ^(400|403)$ ]] \
+  && anthropic_error_envelope_is_compatible; then
+  BODY_REQUEST_ID=$(jq -r '.request_id // empty' "$PROVIDER_RESPONSE")
+  if [[ -n "$BODY_REQUEST_ID" && "$BODY_REQUEST_ID" != "$PROVIDER_REQUEST_ID" ]]; then
+    printf 'anthropic-spend-provider-response-rejected-%s-request-id-mismatch\n' \
+      "$PROVIDER_STATUS" >&2
+    exit 1
+  fi
+  ERROR_TYPE=$(jq -r .error.type "$PROVIDER_RESPONSE")
+  if [[ "$ERROR_TYPE" == rate_limit_error || "$ERROR_TYPE" == overloaded_error ]]; then
+    ERROR_TYPE=${ERROR_TYPE//_/-}
+    printf 'anthropic-spend-provider-response-rejected-%s-%s\n' \
+      "$PROVIDER_STATUS" "$ERROR_TYPE" >&2
+    exit 1
+  fi
+  ERROR_MESSAGE_SHA256=$(jq -jr .error.message "$PROVIDER_RESPONSE" \
+    | sha256sum | cut -d' ' -f1)
+  if jq -e '.error.message | test("(spend|credit|billing|monthly (spend|usage) limit)"; "i")' \
+    "$PROVIDER_RESPONSE" >/dev/null; then
+    MESSAGE_CLASS=spend_attributable
+  else
+    MESSAGE_CLASS=unattributed
+  fi
+  TOP_LEVEL_KEYS=$(jq -c 'keys | sort' "$PROVIDER_RESPONSE")
+  ERROR_KEYS=$(jq -c '.error | keys | sort' "$PROVIDER_RESPONSE")
+  jq -n \
+    --arg observed_at "$OBSERVED_AT" --arg request_id "$PROVIDER_REQUEST_ID" \
+    --arg request_body_sha256 "$PROVIDER_REQUEST_SHA256" \
+    --arg response_type "$(jq -r .type "$PROVIDER_RESPONSE")" \
+    --arg error_type "$ERROR_TYPE" --arg message_class "$MESSAGE_CLASS" \
+    --arg message_sha256 "$ERROR_MESSAGE_SHA256" \
+    --argjson top_level_keys "$TOP_LEVEL_KEYS" --argjson error_keys "$ERROR_KEYS" \
+    --argjson expected_workspace_cap_cents "$SPEND_CAP_CENTS" \
+    --argjson http_status "$PROVIDER_STATUS" \
+    '{outcome:"refused",endpoint:"/v1/messages",$http_status,$observed_at,
+      $request_id,$request_body_sha256,$response_type,
+      $expected_workspace_cap_cents,
+      provider_error:{$error_type,$message_class,$message_sha256,
+        shape:{$top_level_keys,$error_keys}}}' >"$OUTPUT/provider-observation.json"
+else
+  RESPONSE_SHAPE=$(classify_anthropic_error_shape)
+  printf 'anthropic-spend-provider-response-rejected-%s-%s\n' \
+    "$PROVIDER_STATUS" "$RESPONSE_SHAPE" >&2
+  exit 1
+fi
+chmod 0600 "$OUTPUT/provider-observation.json"

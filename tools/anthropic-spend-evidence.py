@@ -30,11 +30,12 @@ TEARDOWN = {
     "nftables_tables": 0,
     "run_directories": 0,
     "credential_files": 0,
+    "guest_provider_egress_packets": 0,
 }
 DELIVERY = {
-    "capability_drive_read_only": True,
-    "capability_drive_unmounted_before_provider_call": True,
-    "credential_removed_before_output": True,
+    "worker_host_tmpfs": True,
+    "credential_delivered_to_guest": False,
+    "credential_removed_before_guest_boot": True,
     "assertion_delivered": False,
     "signing_key_delivered": False,
     "admin_credential_delivered": False,
@@ -260,6 +261,7 @@ def validate_phase(
         "credential_removed_before_output",
         "issuance",
         "delivery",
+        "provider_transport",
         "provider_observation",
         "host_teardown",
     }
@@ -303,6 +305,38 @@ def validate_phase(
         raise ValueError(f"{phase} bearer lifetime is malformed")
     if not 60 <= issuance["expires_in"] <= 300:
         raise ValueError(f"{phase} bearer lifetime is outside policy")
+
+    transport = evidence["provider_transport"]
+    if (
+        set(transport)
+        != {
+            "schema_version",
+            "authorization_ruling",
+            "mechanism",
+            "http_version",
+            "connection_close",
+            "client_sha256",
+            "admitted_conntrack_ids",
+            "admitted_new_connections",
+            "rejected_new_connections",
+            "rejected_connection_packets",
+            "guest_provider_allowlist_entries",
+            "credential_removed_before_guest_boot",
+        }
+        or transport["schema_version"] != 1
+        or transport["authorization_ruling"] != "A117"
+        or transport["mechanism"] != "host-one-shot-network-namespace-v1"
+        or transport["http_version"] != "1.0"
+        or transport["connection_close"] is not True
+        or not re.fullmatch(r"[0-9a-f]{64}", str(transport["client_sha256"]))
+        or transport["admitted_conntrack_ids"] != 1
+        or transport["admitted_new_connections"] != 1
+        or transport["rejected_new_connections"] != 0
+        or transport["rejected_connection_packets"] != 0
+        or transport["guest_provider_allowlist_entries"] != 0
+        or transport["credential_removed_before_guest_boot"] is not True
+    ):
+        raise ValueError(f"{phase} provider transport differs from A117")
 
     observation = evidence["provider_observation"]
     expected_cap = (

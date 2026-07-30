@@ -238,6 +238,42 @@ spend checker, and the preview checker passed independently. The stale live
 fixture is not altered: requirement 1 must be rerun on the eventual reviewed
 clean replacement.
 
-A new A78 review of the exact committed repair remains required. No repaired
-source has been installed and the quarantined worker remains ineligible for
-reuse.
+At commit time, a new A78 review of the exact repair remained required. No
+repaired source had been installed and the quarantined worker remained
+ineligible for reuse.
+
+## Further-repair A78 result and A77 adjudication
+
+A78 reviewed exact commit
+`520663f25cbaf862d252067e9ca5d933b00b0e9b` with Claude Code 2.1.220 and
+`claude-opus-5` at requested effort `xhigh` in plan/read-only mode. Session
+`b5da2aa3-17aa-4e06-ab0b-ebd9ffa7f81c` completed in 756,150 API ms and
+1,122,617 wall ms with no permission denials, web use, subagents, repository
+edits, live actions, or infrastructure mutations. The prompt contained a
+mistyped long object ID; the reviewer explicitly resolved the unique short ID,
+HEAD, parent, and full commit above before reviewing.
+
+A78 returned **PASS with no material findings**. It ran seven novel M1
+anchor/order mutations and twelve novel M2 readback/identity/bypass mutations;
+all failed with controlled diagnostics. It confirmed 25 focused tests, 36
+authored mutations, both complete-source hashes, the honest stale
+requirement-1 binding, all 13 false qualification flags, and clean credential
+naming. It found the repair fit only for a separately reviewed clean-worker
+replacement plan; the PASS authorizes no replacement or provider action.
+
+A78's most useful nonblocking observation reproduced curl status 23 from
+unreadable config/request/output paths and noted that narrower one-shot file
+readability and writability checks remain possible future hardening. The build
+seat independently reproduced the same offline behavior: curl warned that it
+could not read the config or request, described an empty POST, failed to open
+the header output, returned `000`, and exited 23. This corroborates the
+run-root diagnosis but does not prove historical provider receipt or absence.
+The narrower preflight opportunity predates this repair and is outside the
+authorized M1/M2 scope.
+
+The exact review and adjudication are recorded in
+`2026-07-30-a78-spend-run-root-verification-review.md` and
+`2026-07-30-a77-spend-run-root-verification-adjudication.md`. No repaired
+source has been installed, worker `588778422` remains quarantined and
+ineligible, and no credential, provider request, cap action, behavioral
+acceptance, requirement-3 work, or qualification-flag change has occurred.

@@ -70,3 +70,17 @@ No provider or external-network action occurred. No worker, credential, cap,
 acceptance, requirement-3, or qualification-flag state changed. A78 review of
 the exact repaired source SHA remains the next gate before any clean-worker
 replacement plan.
+
+## Post-repair review result
+
+A78 reviewed exact commit `4a1fb52` with Opus 5 at effort `max`. The review
+found four further material gaps in the source binding: executable replacement
+definitions, a preflight call hidden in dead code, fabricated counter/set
+readbacks, and a transport-changing command inserted at the call site. The
+build seat independently reproduced and conceded all four under A77.
+
+The authorized repair loop is exhausted. No further repair, clean-worker
+replacement, provider action, or live attempt follows without a new bounded
+authorization. Consistent with the governance-hygiene direction, any such
+grant will be appended here with its authorizer, scope, reason, and loop count;
+it will not create a new numbered decision-log ruling.

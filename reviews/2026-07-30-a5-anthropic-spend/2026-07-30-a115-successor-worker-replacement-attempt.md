@@ -171,3 +171,25 @@ requirement-2 bearer, make a paid Messages request, start behavioral
 acceptance, or change any `credential_qualified` flag. Requirement 2 still
 requires a fresh bounded Console readback at the reviewed $50.00 workspace
 limit before its first paid positive control.
+
+## Continuation repository gates
+
+The exact continuation tree passed the complete local application,
+infrastructure, and Ansible wrappers. This included the 26-case spend-source
+mutation harness, 139 of 139 Ansible unit tests, all OpenTofu roots, four
+Ansible production lint profiles, four playbook syntax checks, reproducible
+release verification, dependency and advisory checks, model checks, and the
+byte-exact codebase projection. The local host has no usable Docker daemon or
+PostgreSQL service, so GitHub's pinned disposable services remain authoritative
+for those integration cases.
+
+At pushed head `1ab2833`, GitHub infrastructure run `30570197052` passed. The
+application run `30570197008` prepared its disposable PostgreSQL service, then
+failed one of 39 preview tests: the missing-selector case observed
+`child_timed_out` rather than the expected `contract_rejected` result. The
+other 38 passed, including the Docker-backed Traefik boundary case. The exact
+failing test then passed five consecutive local executions, each in 5.8 to 6.1
+seconds. No source was changed or test weakened. The available GitHub token was
+not permitted to invoke the rerun endpoint, so this audit-only record update
+creates a new committed head and a second authoritative CI execution while
+preserving the first failure.

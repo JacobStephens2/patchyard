@@ -268,8 +268,8 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8562,
-      "comments": 13337,
-      "blanks": 3847,
+      "comments": 13356,
+      "blanks": 3850,
       "files": 148,
       "languages": [
         {
@@ -289,8 +289,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 13317,
-          "blanks": 3794,
+          "comments": 13336,
+          "blanks": 3797,
           "files": 120
         },
         {

@@ -256,9 +256,10 @@ selector that the Console does not expose.
    temporary snapshots and readbacks after the committed evidence passes.
 
 If any phase fails, preserve the sanitized failure log and use at most the one
-A9 live-attempt repair loop authorized by A115. A116 through A119 authorized
-only pre-attempt source work; none added a provider request or another live
-repair loop. Then escalate rather than making another provider request.
+A9 live-attempt repair loop authorized by A115. A116 through A118 and the later
+A118-findings work-record authorization cover only pre-attempt source work;
+none added a provider request or another live repair loop. Then escalate rather
+than making another provider request.
 
 Requirement 2 remains unqualified until the completed A115 result lands.
 Behavioral acceptance remains paused, all 13 `credential_qualified` flags stay

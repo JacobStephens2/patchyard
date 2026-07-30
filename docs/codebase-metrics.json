@@ -173,7 +173,7 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 7494,
+      "code": 7496,
       "comments": 255,
       "blanks": 715,
       "files": 92,
@@ -229,7 +229,7 @@
         },
         {
           "language": "Python",
-          "code": 4887,
+          "code": 4889,
           "comments": 41,
           "blanks": 545,
           "files": 24
@@ -268,8 +268,8 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8552,
-      "comments": 11959,
-      "blanks": 3475,
+      "comments": 11965,
+      "blanks": 3476,
       "files": 133,
       "languages": [
         {
@@ -289,8 +289,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 11939,
-          "blanks": 3422,
+          "comments": 11945,
+          "blanks": 3423,
           "files": 105
         },
         {

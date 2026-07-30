@@ -73,8 +73,10 @@ clean A78 source verdict.
 
 ## Post-escalation disposition
 
-Jacob subsequently authorized that bounded source-only repair. A119 records
-the authorization in `docs/decision-log.md`; its implementation and mutation
-record are in `2026-07-30-a119-bounded-source-repair.md`. A119 is limited to
-A118-1 and A118-2, adds no live attempt or further repair loop, and leaves the
-clean-worker plan downstream of another A78 source review.
+Jacob subsequently authorized that bounded source-only repair. The
+authorization was initially recorded as A119 on this branch before a merged
+governance ruling reserved that number. Per the governance coordination, the
+operational grant is instead preserved in
+`2026-07-30-a118-findings-bounded-source-repair.md`, not the policy ledger. It
+is limited to A118-1 and A118-2, adds no live attempt or further repair loop,
+and leaves the clean-worker plan downstream of another A78 source review.

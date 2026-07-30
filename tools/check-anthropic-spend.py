@@ -177,7 +177,7 @@ if digest(TRANSPORT_PATH) != EXPECTED_TRANSPORT_SOURCE_SHA256:
 setup_start = "setup_provider_transport() {\n"
 control_end = "\n}\n\nprovider_counter_packets() {"
 if launcher.count(setup_start) != 1 or launcher.count(control_end) != 1:
-    errors.append("A119 provider transport setup and preflight are not singular")
+    errors.append("post-A118 provider transport setup and preflight are not singular")
 else:
     provider_transport_control = (
         setup_start
@@ -188,9 +188,11 @@ else:
         hashlib.sha256(provider_transport_control.encode()).hexdigest()
         != EXPECTED_PROVIDER_TRANSPORT_CONTROL_SHA256
     ):
-        errors.append("A119 provider transport setup or preflight differs from its binding")
+        errors.append(
+            "post-A118 provider transport setup or preflight differs from its binding"
+        )
 if launcher.count(EXPECTED_IPV6_PREFLIGHT_COMPARISON) != 1:
-    errors.append("A119 exact IPv6 preflight comparison differs from its binding")
+    errors.append("post-A118 exact IPv6 preflight comparison differs from its binding")
 
 transfer_start = "PROVIDER_STATUS=$(\n"
 transfer_end = "\n) || PROVIDER_CURL_EXIT=$?"

@@ -372,3 +372,23 @@ successor sequence. The exact records are
 `2026-07-30-a78-worker-replacement-plan2-review.md`,
 `2026-07-30-a77-worker-replacement-plan2-adjudication.md`, and
 `2026-07-30-a115-successor-worker-replacement-attempt.md`.
+
+## Successor continuation authorization and result
+
+Jacob subsequently answered, "I authorize the continuation." Per the
+governance-hygiene instruction, this operational grant is recorded here and in
+the successor attempt record rather than minted as A119 or any later numbered
+ruling. It authorized a fresh qualification sequence, production isolation
+probe, requirement-1 refresh, and prerequisite assessment. It did not authorize
+another source repair, host repair, cap mutation, behavioral acceptance,
+requirement-3 work, or qualification-flag change.
+
+At exact installed technical revision `673b89f`, the complete qualifier passed,
+the production isolation probe passed, the post-probe qualifier passed,
+requirement 1 passed with a fresh five-minute WIF bearer and Anthropic HTTP 200,
+and the final qualifier passed. The requirement-1 sanitized artifact was
+refreshed byte-exactly in the repository. Independent residue checks were
+empty. No requirement-2 bearer or paid provider request was made. Exact run
+IDs, artifact hashes, the local-only OpenTofu initialization precondition, and
+the preserved earlier A101 timeout are recorded in
+`2026-07-30-a115-successor-worker-replacement-attempt.md`.

@@ -1,7 +1,8 @@
 # A115 successor worker-replacement attempt
 
 Status: **replacement and convergence passed; first A101 qualification timed
-out; sequence stopped; no provider request**
+out; separately authorized continuation passed through requirement-1 refresh;
+no requirement-2 provider request**
 
 This is the operational record for Jacob's authorization: "I authorize the
 repair, its review, and a new sequence." It is recorded under A115 rather than
@@ -103,3 +104,70 @@ cap change, bearer mint, Anthropic request, acceptance case, requirement-3
 work, or provider qualification flag change followed. Continuing requires a
 new bounded sequence authorization; it does not presently require a source or
 host repair.
+
+## Authorized continuation
+
+Jacob subsequently answered, "I authorize the continuation." That operational
+authorization is recorded under A115 rather than as a new numbered ruling;
+A119 remains reserved. It covered one fresh qualifier, one production isolation
+probe, a post-probe qualifier, one requirement-1 refresh, a final qualifier,
+and assessment of the remaining cap and provider prerequisites. It authorized
+no source or host repair, Console mutation, behavioral acceptance,
+requirement-3 work, or provider qualification-flag change.
+
+The continuation used a detached exact-source worktree at technical revision
+`673b89fbfad5c287f79f9d6b7d046c35f1881cee`. Its first local qualifier command
+stopped before contacting a live host because that new worktree had no
+initialized OpenTofu data directory. `tofu init -reconfigure` initialized only
+that local ignored directory with the repository's lock-file providers. No
+infrastructure or host state changed. The rerun then passed all four layers:
+control, worker, A101 private-VPC management transport, and independence.
+
+The production isolation probe passed as run
+`s4-probe-20260730-70ac5dbc8d`. Its control-plane artifact directory is
+`/var/lib/patchyard/artifacts/worker-replacement-continuation-20260730T181103Z`.
+The sanitized artifact hashes are:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `change.patch` | `435853c4d5712877b7eec91f5edeff093504c717abcc21712058185ea7822cd1` |
+| `evidence.json` | `b5b6ce67c3e3578e5061835cff98f6111ff29208cc7097be7cdf3fee5cdcd083` |
+| `rationale.txt` | `7a0c036d360924489a5249f1cf11caecc9c3df1a7da6ab1766ffee577115c333` |
+
+The evidence reported zero residual processes, mounts, namespaces, veth
+interfaces, and nftables state. Its provider boundary was the credential-free
+OpenAI 401 isolation probe, not an Anthropic credential or paid request. The
+post-isolation qualifier passed all four layers.
+
+Requirement 1 then passed as run `anthropic-i1-20260730-399c37c157`, using a
+fresh five-minute WIF bearer and `GET /v1/models?limit=1`. Anthropic returned
+HTTP 200, request ID `req_011CdYhK71cBRNdQFQyZ9EUk`, and model
+`claude-opus-5`. The exchange request ID was
+`req_011CdYhHoJis4sYthS2CEkjP`; issuance was
+`2026-07-30T18:13:16Z` through `2026-07-30T18:18:16Z`. The control-plane
+artifact directory is
+`/var/lib/patchyard/artifacts/anthropic-issuance-delivery-requirement2-successor-20260730T181314Z`.
+Its sanitized artifact hashes are:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `change.patch` | `9ad97cf0310918118c2094d26c5843e2bbeb1c2a4fbe9a8b3cc8c82a684c5cbc` |
+| `evidence.json` | `b28f4218bc688ff5818f11cf0e42a97769b785ed791673d4f325b324d59c2193` |
+| `rationale.txt` | `eeec98baddec78ce5584e4acd888afdff9d44824379d9a08bc8352c2c3eea67d` |
+
+The repository copy of the sanitized requirement-1 evidence is byte-exact to
+that `evidence.json`. The checker rejected the first manual transcription
+because `qualification_phase: "none"` was absent; adding the observed field
+made the repository hash equal the live artifact hash. Both Anthropic checkers,
+the 139-test Ansible unit suite, and the secret-pattern scan then passed. A
+final complete qualifier passed all four layers. Independent residue checks
+found no taint marker, child process, network namespace, veth, nftables, or
+runtime residue; the control services and private management probe remained
+healthy.
+
+This continuation establishes a clean, qualified successor and refreshes the
+shared requirement-1 proof. It did not change either Anthropic limit, mint a
+requirement-2 bearer, make a paid Messages request, start behavioral
+acceptance, or change any `credential_qualified` flag. Requirement 2 still
+requires a fresh bounded Console readback at the reviewed $50.00 workspace
+limit before its first paid positive control.

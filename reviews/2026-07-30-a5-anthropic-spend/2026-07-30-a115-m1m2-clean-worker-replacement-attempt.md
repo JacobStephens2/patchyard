@@ -192,3 +192,9 @@ attachment. The plan and its non-executing boundary are recorded in
 `2026-07-30-a115-m1m2-quarantined-successor-replacement-plan.md`. The grant
 does not authorize apply or any provider action, and the plan requires a fresh
 A78 review before any separate apply decision.
+
+A78 later returned PASS with no material findings on exact plan-record commit
+`9c40b086a3c59a5955ebd484f942319e02786c68` and the unchanged saved plan. The
+build seat sustained that result under A77. No retry of this failed sequence,
+worker reuse, or apply occurred; only the separately generated successor plan
+is eligible for a new explicit apply decision.

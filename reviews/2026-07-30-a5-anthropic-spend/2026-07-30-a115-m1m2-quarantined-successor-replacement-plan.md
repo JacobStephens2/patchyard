@@ -1,7 +1,7 @@
 # A115 M1/M2 quarantined-successor replacement plan
 
-Status: **saved and mechanically inspected; not applied; fresh A78 review
-required**
+Status: **A78 passed with no material finding; not applied; separate apply
+authorization required**
 
 Jacob explicitly authorized "a new clean-worker replacement plan plus A78
 review." This operational grant is recorded under A115 and does not mint a new
@@ -208,3 +208,31 @@ A78 must independently:
    return PASS or material findings without regenerating or applying the plan,
    accessing a host or provider Console, issuing a credential, or making a
    provider request.
+
+## A78 result and A77 adjudication
+
+A78 reviewed exact plan-record commit
+`9c40b086a3c59a5955ebd484f942319e02786c68` and the two saved artifacts above
+with Claude Code 2.1.220 and `claude-opus-5` at requested effort `xhigh`. The
+reviewer returned **PASS with no material findings** after a complete offline
+decode, 7 of 7 replacement tests, 25 of 25 spend tests, the spend checker and
+codebase projection, 17 rejected plan mutations, and a corrected independent
+31-case wrapper harness. All 12 attacks on the unmodified wrapper were refused;
+13 of 16 source mutations reached mocked apply and proved their guards
+load-bearing, while the other three remained stopped by an independent guard.
+
+A78 confirmed that these exact bytes replace rather than repair or reuse worker
+`588826948`, that the explicit operational quarantine remains binding despite
+the absent automated marker, and that the deliberately stale requirement-1
+fixture must not be refreshed before a successful replacement. The reviewer
+withdrew an initial A119 numbering observation after receiving the governing
+cross-branch coordination fact. Eight remaining nonblocking observations and
+their A77 dispositions are recorded in
+`2026-07-30-a78-quarantined-successor-replacement-plan-review.md` and
+`2026-07-30-a77-quarantined-successor-replacement-plan-adjudication.md`.
+
+No repair or plan regeneration follows the PASS. The plan remains unapplied;
+applying it requires new explicit authorization and a fresh live prerequisite
+bracket. No credential, provider request, Console action, requirement-1
+refresh, behavioral acceptance, requirement-3 work, or qualification-flag
+change occurred.

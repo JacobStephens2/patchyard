@@ -44,8 +44,9 @@ the bracketing sequence qualifies.
 The fixture uses the Anthropic Cost Report API for the dedicated workspace. Its
 minor-unit amounts are converted to USD. Because Anthropic reporting was
 observed to take about 2 hours 51 minutes during the first attempt, A115 binds
-a minimum 10,260-second settlement window after the refusal. This is a
-settlement floor, not an overshoot ceiling.
+a minimum 10,260-second settlement window both before cap activation and after
+the refusal. The first window prevents late phase-1 cost from being counted as
+refusal cost. These are settlement floors, not overshoot ceilings.
 
 The final evidence records separate figures:
 
@@ -57,7 +58,13 @@ The final evidence records separate figures:
 - `incremental_spend_before_refusal_usd` - the latter minus the former.
 
 Only `incremental_spend_before_refusal_usd` is the observed enforcement
-overshoot. It may be zero, and it has no preset ceiling.
+overshoot. It may be zero, and it has no preset ceiling. Pre-activation spend
+must remain below the $50.00 positive-control value so the first acceptance is
+not ambiguous. That eligibility condition is applied to spend that already
+exists before activation; it is not a limit on the recorded incremental
+figure. Post-refusal settled spend has no $50.00 schema ceiling. If the
+positive controls or timing become ambiguous, the result is unqualified and
+the figures are never relabelled to make it pass.
 
 ## Historical failures retained
 
@@ -115,6 +122,21 @@ worker. Never add a standing Anthropic inference key to Factory state or
 `/srv/orchestration/env.tpl`, and never introduce a bare
 `ANTHROPIC_API_KEY`.
 
+The sequence is month-scoped. All provider, cap, and settled-cost observations
+must occur in one Anthropic monthly billing period. For the authorized attempt,
+July's already-settled $7.68168 makes it possible to lower the temporary value
+below settled spend without generating a ramp. If the month rolls over before
+the sequence completes, or if the current month-to-date baseline is no longer
+above $1.00 and below $50.00, stop and escalate to Jacob for a new ruling. Do
+not create spend to manufacture a baseline, change the $1.00 binding, or reuse
+the failed eight-request ramp.
+
+Keep the dedicated workspace idle except for the three named phase requests
+from the first acceptance until the post-refusal cost snapshot. The two full
+settlement windows and that exclusive-workspace interval make the Cost Report
+difference the observed refusal increment rather than an upper bound that may
+contain a late positive-control charge.
+
 Use a root-only working directory. Record Console readbacks with control-plane
 UTC commands immediately before and after each observation. Each phase object
 has this shape:
@@ -146,8 +168,9 @@ selector that the Console does not expose.
      /var/lib/patchyard/artifacts/anthropic-spend-operational
    ```
 
-2. Wait until Cost Report contains the positive-control charge, then capture
-   the settled pre-activation snapshot:
+2. Wait at least 10,260 seconds after the first acceptance and until Cost
+   Report contains the positive-control charge, then capture the settled
+   pre-activation snapshot:
 
    ```bash
    tools/anthropic-spend-evidence.py snapshot \

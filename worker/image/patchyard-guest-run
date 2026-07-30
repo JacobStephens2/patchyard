@@ -28,6 +28,56 @@ remove_provider_credential() {
   return "$cleanup_failed"
 }
 
+classify_anthropic_error_shape() {
+  if ! jq -e 'type == "object"' "$PROVIDER_RESPONSE" >/dev/null 2>&1; then
+    printf 'non-object\n'
+  elif ! jq -e 'has("type")' "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'missing-type\n'
+  elif ! jq -e '.type == "error"' "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'type-not-error\n'
+  elif ! jq -e 'has("error")' "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'missing-error\n'
+  elif ! jq -e '.error | type == "object"' "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'error-not-object\n'
+  elif ! jq -e '.error | has("type")' "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'missing-error-type\n'
+  elif ! jq -e '.error | has("message")' "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'missing-error-message\n'
+  elif ! jq -e '.error.type | type == "string" and test("^[a-z_]{1,64}$")' \
+    "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'invalid-error-type\n'
+  elif ! jq -e '.error.message | type == "string" and length > 0 and length <= 4096' \
+    "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'invalid-error-message\n'
+  elif ! jq -e '(keys | length <= 16) and (.error | keys | length <= 16)' \
+    "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'too-many-keys\n'
+  elif ! jq -e 'all(keys[]; test("^[A-Za-z0-9_-]{1,64}$"))
+    and all(.error | keys[]; test("^[A-Za-z0-9_-]{1,64}$"))' \
+    "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'invalid-key\n'
+  elif ! jq -e '((has("request_id") | not)
+    or (.request_id | test("^req_[A-Za-z0-9]+$")))' \
+    "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'invalid-request-id\n'
+  else
+    printf 'compatible-error-envelope\n'
+  fi
+}
+
+anthropic_error_envelope_is_compatible() {
+  jq -e '
+    has("type") and .type == "error" and has("error") and (.error | type == "object")
+    and (.error | has("type")) and (.error | has("message"))
+    and (.error.type | type == "string" and test("^[a-z_]{1,64}$"))
+    and (.error.message | type == "string" and length > 0 and length <= 4096)
+    and (keys | length <= 16) and (.error | keys | length <= 16)
+    and all(keys[]; test("^[A-Za-z0-9_-]{1,64}$"))
+    and all(.error | keys[]; test("^[A-Za-z0-9_-]{1,64}$"))
+    and ((has("request_id") | not) or (.request_id | test("^req_[A-Za-z0-9]+$")))
+  ' "$PROVIDER_RESPONSE" >/dev/null
+}
+
 poweroff_guest() {
   sync
   systemctl reboot --force --force >/dev/null 2>&1 || reboot -f
@@ -295,6 +345,7 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
   FAILURE=anthropic-spend-provider-call-not-completed
   PROVIDER_OBSERVATION=
   PROVIDER_CURL_EXIT=0
+  # A115_PROVIDER_REQUEST_BEGIN
   PROVIDER_STATUS=$(runuser -u factory-agent -- curl \
     --config "$AUTH_CONFIG" --silent --show-error \
     --connect-timeout 10 --max-time 60 \
@@ -302,6 +353,7 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
     --output "$PROVIDER_RESPONSE" --write-out '%{http_code}' \
     --data-binary "@$PROVIDER_REQUEST" \
     'https://api.anthropic.com/v1/messages') || PROVIDER_CURL_EXIT=$?
+  # A115_PROVIDER_REQUEST_END
   if [[ "$PROVIDER_CURL_EXIT" -ne 0 ]]; then
     [[ "$PROVIDER_CURL_EXIT" =~ ^[1-9][0-9]?$ ]] || PROVIDER_CURL_EXIT=unknown
     FAILURE="anthropic-provider-transport-failed-$PROVIDER_CURL_EXIT"
@@ -313,14 +365,24 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
   PROVIDER_SERVER_DATE=$(awk 'tolower($1) == "date:" {
     sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit
   }' "$PROVIDER_HEADERS")
-  OBSERVED_AT=$(date -u -d "$PROVIDER_SERVER_DATE" +%Y-%m-%dT%H:%M:%SZ)
+  if [[ -z "$PROVIDER_SERVER_DATE" ]]; then
+    FAILURE="anthropic-spend-provider-response-rejected-$PROVIDER_STATUS-missing-date"
+    exit 1
+  fi
+  if ! OBSERVED_AT=$(date -u -d "$PROVIDER_SERVER_DATE" +%Y-%m-%dT%H:%M:%SZ); then
+    FAILURE="anthropic-spend-provider-response-rejected-$PROVIDER_STATUS-invalid-date"
+    exit 1
+  fi
   FAILURE=anthropic-spend-provider-response-rejected
   if [[ "$PROVIDER_STATUS" == 200 ]]; then
-    jq -e '
+    if ! jq -e '
       .type == "message" and .model == "claude-opus-5"
       and (.usage.input_tokens | type == "number" and . >= 1)
       and (.usage.output_tokens | type == "number" and . >= 1)
-    ' "$PROVIDER_RESPONSE" >/dev/null
+    ' "$PROVIDER_RESPONSE" >/dev/null; then
+      FAILURE=anthropic-spend-provider-response-rejected-200-invalid-message-envelope
+      exit 1
+    fi
     if [[ "$QUALIFICATION_PHASE" == temporary_refusal ]]; then
       FAILURE=anthropic-spend-temporary-cap-refusal-not-observed
       exit 1
@@ -336,20 +398,19 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
         model:"claude-opus-5",request_attempts:1,
         $expected_workspace_cap_cents,usage:{$input_tokens,$output_tokens}}')
   elif [[ "$QUALIFICATION_PHASE" == temporary_refusal \
-    && "$PROVIDER_STATUS" =~ ^(400|403)$ ]] && jq -e '
-    has("type") and .type == "error" and has("error") and (.error | type == "object")
-    and (.error | has("type")) and (.error | has("message"))
-    and (.error.type | type == "string" and test("^[a-z_]{1,64}$"))
-    and (.error.message | type == "string" and length > 0 and length <= 4096)
-    and (keys | length <= 16) and (.error | keys | length <= 16)
-    and all(keys[]; test("^[A-Za-z0-9_-]{1,64}$"))
-    and all(.error | keys[]; test("^[A-Za-z0-9_-]{1,64}$"))
-    and ((has("request_id") | not) or (.request_id | test("^req_[A-Za-z0-9]+$")))
-  ' "$PROVIDER_RESPONSE" >/dev/null; then
+    && "$PROVIDER_STATUS" =~ ^(400|403)$ ]] \
+    && anthropic_error_envelope_is_compatible; then
     BODY_REQUEST_ID=$(jq -r '.request_id // empty' "$PROVIDER_RESPONSE")
-    [[ -z "$BODY_REQUEST_ID" || "$BODY_REQUEST_ID" == "$PROVIDER_REQUEST_ID" ]]
+    if [[ -n "$BODY_REQUEST_ID" && "$BODY_REQUEST_ID" != "$PROVIDER_REQUEST_ID" ]]; then
+      FAILURE="anthropic-spend-provider-response-rejected-$PROVIDER_STATUS-request-id-mismatch"
+      exit 1
+    fi
     ERROR_TYPE=$(jq -r .error.type "$PROVIDER_RESPONSE")
-    [[ "$ERROR_TYPE" != rate_limit_error && "$ERROR_TYPE" != overloaded_error ]]
+    if [[ "$ERROR_TYPE" == rate_limit_error || "$ERROR_TYPE" == overloaded_error ]]; then
+      FAILURE="anthropic-spend-provider-response-rejected-$PROVIDER_STATUS-$ERROR_TYPE"
+      FAILURE=${FAILURE//_/-}
+      exit 1
+    fi
     ERROR_MESSAGE_SHA256=$(jq -jr .error.message "$PROVIDER_RESPONSE" | sha256sum | cut -d' ' -f1)
     if jq -e '.error.message | test("(spend|credit|billing|monthly (spend|usage) limit)"; "i")' \
       "$PROVIDER_RESPONSE" >/dev/null; then
@@ -375,7 +436,8 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
           shape:{$top_level_keys,$error_keys}}}')
   else
     [[ "$PROVIDER_STATUS" =~ ^[0-9]{3}$ ]] || PROVIDER_STATUS=unknown
-    FAILURE="anthropic-spend-provider-response-rejected-$PROVIDER_STATUS"
+    RESPONSE_SHAPE=$(classify_anthropic_error_shape)
+    FAILURE="anthropic-spend-provider-response-rejected-$PROVIDER_STATUS-$RESPONSE_SHAPE"
     exit 1
   fi
   [[ -n "$PROVIDER_OBSERVATION" ]]

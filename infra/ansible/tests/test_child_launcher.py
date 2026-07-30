@@ -159,15 +159,16 @@ class ChildLauncherContract(unittest.TestCase):
         # turns the terminal state into teardown_failed before exit status is
         # finalized. Unlock precedes terminal publication so its failure is
         # represented in terminal.json rather than hidden after it.
-        for operation in (
-            'find "$OUTPUT" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +',
-            'chown -R "$MANAGER_UID:$MANAGER_GID" "$JOB"',
-            'find "$JOB" -type d -exec chmod 0700 {} +',
-            'find "$JOB" -type f -exec chmod 0600 {} +',
-            'flock -u "$NETWORK_LOCK"',
+        for guarded_operation in (
+            'find "$OUTPUT" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + \\\n'
+            "      || mark_teardown_failed",
+            'chown -R "$MANAGER_UID:$MANAGER_GID" "$JOB" || mark_teardown_failed',
+            'find "$JOB" -type d -exec chmod 0700 {} + || mark_teardown_failed',
+            'find "$JOB" -type f -exec chmod 0600 {} + || mark_teardown_failed',
+            'flock -u "$NETWORK_LOCK" >/dev/null 2>&1 || mark_teardown_failed',
             "if ! write_terminal; then",
         ):
-            self.assertIn(operation, finish)
+            self.assertIn(guarded_operation, finish)
         self.assertLess(
             finish.index('flock -u "$NETWORK_LOCK"'),
             finish.index("if ! write_terminal; then"),

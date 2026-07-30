@@ -60,6 +60,10 @@
   "containment": {
     "boundary_tainted": true,
     "marker": "run=anthropic-s2-20260730-4d80267abf reason=containment-qualification-failed stage=result-filesystem-validation line=470 detected_at=2026-07-30T02:21:53Z",
+    "tainted_worker": {
+      "worker_id": 588590370,
+      "disposition": "quarantined_pending_reviewed_replacement"
+    },
     "worker_qualification_after_failure": "failed_closed_at_boundary_taint_check"
   },
   "repair_loop": {

@@ -70,6 +70,7 @@ expected_policy = {
         "model": "claude-opus-5",
         "operational_cap_cents": 5000,
         "qualification_cap_cents": 100,
+        "organization_monthly_limit_cents": 50000,
         "authorization_ruling": "A115",
         "minimum_settlement_window_seconds": 10260,
         "qualification_phases": [

@@ -198,6 +198,9 @@ def validate_cap_readbacks(
 
     operational = Decimal(policy["spend_enforcement"]["operational_cap_cents"]) / 100
     temporary = Decimal(policy["spend_enforcement"]["qualification_cap_cents"]) / 100
+    organization_expected = (
+        Decimal(policy["spend_enforcement"]["organization_monthly_limit_cents"]) / 100
+    )
     intervals: dict[str, tuple[datetime, datetime]] = {}
     organization_limits: list[Decimal] = []
     for phase, expected_workspace in (
@@ -227,8 +230,8 @@ def validate_cap_readbacks(
         organization_limit = decimal_value(observed["organization_monthly_limit_usd"])
         if workspace_limit != expected_workspace:
             raise ValueError(f"{phase} workspace cap differs from policy")
-        if organization_limit <= operational:
-            raise ValueError("organization cap is not nonbinding")
+        if organization_limit != organization_expected:
+            raise ValueError("organization cap differs from reviewed $500.00 binding")
         intervals[phase] = (before, after)
         organization_limits.append(organization_limit)
     if len(set(organization_limits)) != 1:
@@ -415,6 +418,23 @@ def finalize(
         != 1
     ):
         raise ValueError("A115 provider request bodies are not byte-identical")
+    exchange_ids = [
+        phases[phase]["issuance"]["exchange_request_id"] for phase in PHASES
+    ]
+    if len(set(exchange_ids)) != len(PHASES):
+        raise ValueError("A115 phases did not use distinct WIF exchanges")
+    issuance_windows = [
+        (
+            parse_time(phases[phase]["issuance"]["issued_at"]),
+            parse_time(phases[phase]["issuance"]["expires_at"]),
+        )
+        for phase in PHASES
+    ]
+    if any(
+        first[1] > second[0]
+        for first, second in zip(issuance_windows, issuance_windows[1:])
+    ):
+        raise ValueError("A115 phase bearer lifetimes overlap")
 
     workspace_id = policy["workspace"]["id"]
     before_amount, before_time = validate_snapshot(settled_before, workspace_id)
@@ -444,12 +464,30 @@ def finalize(
     settlement_window = int(
         (after_time - observed["temporary_refusal"]).total_seconds()
     )
+    pre_activation_settlement_window = int(
+        (before_time - observed["operational_acceptance"]).total_seconds()
+    )
+    if pre_activation_settlement_window < minimum_window:
+        raise ValueError("pre-activation cost has not completed the settlement window")
     if settlement_window < minimum_window:
         raise ValueError("post-refusal cost has not completed the settlement window")
+    month_keys = {
+        (value.year, value.month)
+        for value in (
+            *observed.values(),
+            before_time,
+            after_time,
+            *(time for interval in cap_times.values() for time in interval),
+        )
+    }
+    if len(month_keys) != 1:
+        raise ValueError("A115 qualification crosses a monthly billing boundary")
     if before_amount <= temporary_cap:
         raise ValueError("temporary cap was not lowered below already-settled spend")
-    if before_amount >= operational_cap or after_amount >= operational_cap:
-        raise ValueError("operational workspace cap was not demonstrably nonbinding")
+    if before_amount >= operational_cap:
+        raise ValueError(
+            "pre-activation spend makes the $50 positive control ambiguous"
+        )
     if after_amount < before_amount:
         raise ValueError("post-refusal settled spend moved backwards")
 
@@ -483,6 +521,7 @@ def finalize(
             "before_captured_at": settled_before["captured_at"],
             "after_captured_at": settled_after["captured_at"],
             "settlement_window_seconds": settlement_window,
+            "pre_activation_settlement_window_seconds": pre_activation_settlement_window,
             "attribution": "A115_acceptance_refusal_acceptance_workspace_only_cap_change",
         },
     }

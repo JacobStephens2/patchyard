@@ -2,7 +2,10 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import importlib.util
+import json
 import pathlib
+import subprocess
+import tempfile
 import unittest
 
 
@@ -29,6 +32,7 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
                 "model": "claude-opus-5",
                 "operational_cap_cents": 5000,
                 "qualification_cap_cents": 100,
+                "organization_monthly_limit_cents": 50000,
                 "minimum_settlement_window_seconds": 10260,
             },
         }
@@ -181,7 +185,7 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
 
     def test_finalizer_rejects_changed_organization_limit(self) -> None:
         self.caps["restored_acceptance"]["organization_monthly_limit_usd"] = "499.00"
-        with self.assertRaisesRegex(ValueError, "organization cap changed"):
+        with self.assertRaisesRegex(ValueError, "reviewed .500.00 binding"):
             self.finalize()
 
     def test_finalizer_rejects_failure_to_restore_operational_cap(self) -> None:
@@ -212,6 +216,130 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
         self.caps["temporary_refusal"]["captured_after_at"] = self.timestamp(190)
         with self.assertRaisesRegex(ValueError, "tightly time-bounded"):
             self.finalize()
+
+    def test_finalizer_rejects_duplicate_wif_exchange(self) -> None:
+        self.refusal["issuance"]["exchange_request_id"] = self.operational["issuance"][
+            "exchange_request_id"
+        ]
+        with self.assertRaisesRegex(ValueError, "distinct WIF exchanges"):
+            self.finalize()
+
+    def test_finalizer_rejects_pre_activation_under_settlement_floor(self) -> None:
+        self.before["captured_at"] = self.timestamp(100)
+        self.caps["temporary_refusal"] = self.cap(101, "1.00")
+        self.refusal = self.worker("temporary_refusal", 103, "refused")
+        with self.assertRaisesRegex(ValueError, "pre-activation cost"):
+            self.finalize()
+
+    def test_finalizer_rejects_month_boundary(self) -> None:
+        self.start = datetime(2026, 7, 31, 21, tzinfo=timezone.utc)
+        self.operational = self.worker("operational_acceptance", 2, "accepted")
+        self.before = self.snapshot(180, "7.68168")
+        self.caps["operational_acceptance"] = self.cap(0, "50.00")
+        self.caps["temporary_refusal"] = self.cap(181, "1.00")
+        self.refusal = self.worker("temporary_refusal", 183, "refused")
+        self.caps["restored_acceptance"] = self.cap(184, "50.00")
+        self.after = self.snapshot(360, "7.70234")
+        self.restored = self.worker("restored_acceptance", 361, "accepted")
+        with self.assertRaisesRegex(ValueError, "monthly billing boundary"):
+            self.finalize()
+
+    def test_post_refusal_spend_has_no_fifty_dollar_ceiling(self) -> None:
+        self.after["cost_usd"] = "55.00"
+        measurement = self.finalize()["cost_measurement"]
+        self.assertEqual(
+            measurement["incremental_spend_before_refusal_usd"], "47.31832"
+        )
+
+
+class AnthropicGuestSpendContract(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.guest = (ROOT / "worker/image/patchyard-guest-run").read_text()
+
+    @classmethod
+    def function(cls, name: str) -> str:
+        body = cls.guest.split(f"{name}() {{", 1)[1].split("\n}", 1)[0]
+        return f"{name}() {{{body}\n}}"
+
+    def run_envelope(
+        self, value: object, action: str
+    ) -> subprocess.CompletedProcess[str]:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as handle:
+            json.dump(value, handle)
+            handle.flush()
+            script = "\n".join(
+                (
+                    "set -euo pipefail",
+                    self.function("classify_anthropic_error_shape"),
+                    self.function("anthropic_error_envelope_is_compatible"),
+                    'PROVIDER_RESPONSE="$1"',
+                    action,
+                )
+            )
+            return subprocess.run(
+                ["bash", "-c", script, "bash", handle.name],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+    @staticmethod
+    def envelope(**extra: object) -> dict[str, object]:
+        value: dict[str, object] = {
+            "type": "error",
+            "error": {"type": "invalid_request_error", "message": "denied"},
+            "request_id": "req_abc123",
+        }
+        value.update(extra)
+        return value
+
+    def test_guest_predicate_accepts_required_keys_and_bounded_extras(self) -> None:
+        self.assertEqual(
+            self.run_envelope(
+                self.envelope(extra={"compatible": True}),
+                "anthropic_error_envelope_is_compatible",
+            ).returncode,
+            0,
+        )
+
+    def test_guest_predicate_rejects_oversized_and_malformed_envelopes(self) -> None:
+        oversized = self.envelope()
+        oversized["error"]["message"] = "x" * 4097
+        self.assertNotEqual(
+            self.run_envelope(
+                oversized, "anthropic_error_envelope_is_compatible"
+            ).returncode,
+            0,
+        )
+        malformed = self.envelope(request_id="not-a-provider-id")
+        self.assertNotEqual(
+            self.run_envelope(
+                malformed, "anthropic_error_envelope_is_compatible"
+            ).returncode,
+            0,
+        )
+
+    def test_guest_rejected_shape_descriptor_is_bounded_and_useful(self) -> None:
+        result = self.run_envelope(
+            {"type": "error", "error": {"type": "invalid_request_error"}},
+            "classify_anthropic_error_shape",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "missing-error-message")
+        self.assertIn('ERROR_TYPE" == rate_limit_error', self.guest)
+        self.assertIn('ERROR_TYPE" == overloaded_error', self.guest)
+
+    def test_guest_has_one_exact_provider_call_block_and_strict_date(self) -> None:
+        begin = "  # A115_PROVIDER_REQUEST_BEGIN"
+        end = "  # A115_PROVIDER_REQUEST_END"
+        self.assertEqual(self.guest.count(begin), 1)
+        self.assertEqual(self.guest.count(end), 1)
+        request = self.guest.split(begin, 1)[1].split(end, 1)[0]
+        self.assertEqual(request.count("runuser -u factory-agent -- curl"), 1)
+        self.assertEqual(request.count("https://api.anthropic.com/v1/messages"), 1)
+        self.assertIn('if [[ -z "$PROVIDER_SERVER_DATE" ]]', self.guest)
+        self.assertIn("if ! OBSERVED_AT=$(date -u -d", self.guest)
 
 
 if __name__ == "__main__":

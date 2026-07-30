@@ -38,6 +38,15 @@ ANTHROPIC_PATCH = (
     b"@@ -0,0 +1 @@\n"
     b"+anthropic-provider-spend-enforcement-qualified\n"
 )
+EXPECTED_PROVIDER_REQUEST_BLOCK = """  # A115_PROVIDER_REQUEST_BEGIN
+  PROVIDER_STATUS=$(runuser -u factory-agent -- curl \\
+    --config "$AUTH_CONFIG" --silent --show-error \\
+    --connect-timeout 10 --max-time 60 \\
+    --dump-header "$PROVIDER_HEADERS" \\
+    --output "$PROVIDER_RESPONSE" --write-out '%{http_code}' \\
+    --data-binary "@$PROVIDER_REQUEST" \\
+    'https://api.anthropic.com/v1/messages') || PROVIDER_CURL_EXIT=$?
+  # A115_PROVIDER_REQUEST_END"""
 PHASES = (
     "operational_acceptance",
     "temporary_refusal",
@@ -118,6 +127,7 @@ expected_spend_policy = {
     "model": "claude-opus-5",
     "operational_cap_cents": 5000,
     "qualification_cap_cents": 100,
+    "organization_monthly_limit_cents": 50000,
     "authorization_ruling": "A115",
     "minimum_settlement_window_seconds": 10260,
     "qualification_phases": list(PHASES),
@@ -170,8 +180,9 @@ required_sources = (
     (launcher, '.qualification_phase == "temporary_refusal"'),
     (launcher, ".spend_cap_cents == 5000"),
     (spend_branch, 'and .authorization_ruling == "A115"'),
-    (spend_branch, 'has("type") and .type == "error"'),
-    (spend_branch, 'and (.error | has("type")) and (.error | has("message"))'),
+    (guest, 'has("type") and .type == "error"'),
+    (guest, 'and (.error | has("type")) and (.error | has("message"))'),
+    (spend_branch, "anthropic_error_envelope_is_compatible"),
     (spend_branch, "MESSAGE_CLASS=unattributed"),
     (spend_branch, "shape:{$top_level_keys,$error_keys}"),
     (spend_branch, "$request_body_sha256"),
@@ -179,6 +190,9 @@ required_sources = (
     (spend_branch, "remove_provider_credential"),
     (spend_branch, "anthropic-spend-provider-response-rejected"),
     (spend_branch, "anthropic-spend-temporary-cap-refusal-not-observed"),
+    (spend_branch, "classify_anthropic_error_shape"),
+    (spend_branch, "missing-date"),
+    (spend_branch, "invalid-date"),
 )
 for source, required in required_sources:
     if required not in source:
@@ -186,8 +200,21 @@ for source, required in required_sources:
 if "run-spend)" in runner:
     errors.append("superseded single-probe runner action remains callable")
 if spend_branch:
-    if spend_branch.count("https://api.anthropic.com/v1/messages") != 1:
-        errors.append("each A115 phase is not exactly one provider request")
+    if spend_branch.count(EXPECTED_PROVIDER_REQUEST_BLOCK) != 1:
+        errors.append(
+            "A115 provider request block differs from the exact one-call binding"
+        )
+        non_request_source = spend_branch
+    else:
+        non_request_source = spend_branch.replace(EXPECTED_PROVIDER_REQUEST_BLOCK, "")
+    if re.search(
+        r"(?<![-A-Za-z0-9_.])(curl|wget|netcat|nc)(?=\s)|"
+        r"/dev/(?:tcp|udp)|openssl\s+s_client",
+        non_request_source,
+    ):
+        errors.append(
+            "spend branch contains a provider-capable call outside its exact block"
+        )
     forbidden_request_controls = (
         r"(^|[;&|[:space:]])(for|while|until|select)[[:space:]]",
         r"--retry(?:[=[:space:]]|$)",
@@ -330,6 +357,11 @@ if [item.get("billed_cost_usd") for item in observations] != [
     "2026-07-30T03:04:16Z",
 ]:
     errors.append("A9 repair cost observations differ from the historical reports")
+if repair.get("containment", {}).get("tainted_worker") != {
+    "worker_id": 588590370,
+    "disposition": "quarantined_pending_reviewed_replacement",
+}:
+    errors.append("A9 repair record does not identify the quarantined worker")
 if repair.get("repair_loop") != {
     "consumed": True,
     "further_provider_requests_permitted": False,
@@ -385,6 +417,8 @@ if RESULT_PATH.exists():
     }
     provider_body_hashes: set[str] = set()
     provider_times: dict[str, datetime] = {}
+    exchange_ids: list[str] = []
+    issuance_windows: list[tuple[datetime, datetime]] = []
     for phase in PHASES:
         evidence = phases.get(phase, {}) if isinstance(phases, dict) else {}
         if evidence.get("qualification_phase") != phase:
@@ -409,6 +443,17 @@ if RESULT_PATH.exists():
             "credential_files": 0,
         }:
             errors.append(f"A115 {phase} host teardown is incomplete")
+        issuance = evidence.get("issuance", {})
+        try:
+            exchange_id = issuance["exchange_request_id"]
+            if not re.fullmatch(r"req_[A-Za-z0-9]+", exchange_id):
+                raise ValueError
+            exchange_ids.append(exchange_id)
+            issuance_windows.append(
+                (parse_time(issuance["issued_at"]), parse_time(issuance["expires_at"]))
+            )
+        except (KeyError, TypeError, ValueError):
+            errors.append(f"A115 {phase} issuance window is malformed")
         observation = evidence.get("provider_observation", {})
         provider_body_hashes.add(str(observation.get("request_body_sha256", "")))
         try:
@@ -446,6 +491,13 @@ if RESULT_PATH.exists():
         re.fullmatch(r"[0-9a-f]{64}", value) for value in provider_body_hashes
     ):
         errors.append("A115 phase request bodies are not byte-identical")
+    if len(set(exchange_ids)) != 3 or len(issuance_windows) != 3:
+        errors.append("A115 phases do not bind three distinct WIF exchanges")
+    elif any(
+        first[1] > second[0]
+        for first, second in zip(issuance_windows, issuance_windows[1:])
+    ):
+        errors.append("A115 phase WIF lifetimes overlap")
     binding = result.get("request_binding", {})
     if binding != {
         "model": "claude-opus-5",
@@ -483,7 +535,7 @@ if RESULT_PATH.exists():
                 or before > after
                 or (after - before).total_seconds() > 300
                 or workspace_cap != expected
-                or organization_cap <= Decimal(50)
+                or organization_cap != Decimal(500)
             ):
                 raise ValueError
             cap_intervals[phase] = (before, after)
@@ -513,19 +565,24 @@ if RESULT_PATH.exists():
                 "before_captured_at",
                 "after_captured_at",
                 "settlement_window_seconds",
+                "pre_activation_settlement_window_seconds",
                 "attribution",
             }
             or cost["source"] != "Anthropic Cost Report API"
             or cost["currency"] != "USD"
             or before_amount <= Decimal(1)
             or before_amount >= Decimal(50)
-            or after_amount >= Decimal(50)
             or preexisting != before_amount - Decimal(1)
             or incremental != after_amount - before_amount
             or incremental < 0
             or cost["settlement_window_seconds"]
             != int((after_time - provider_times["temporary_refusal"]).total_seconds())
             or cost["settlement_window_seconds"] < 10260
+            or cost["pre_activation_settlement_window_seconds"]
+            != int(
+                (before_time - provider_times["operational_acceptance"]).total_seconds()
+            )
+            or cost["pre_activation_settlement_window_seconds"] < 10260
             or cost["attribution"]
             != "A115_acceptance_refusal_acceptance_workspace_only_cap_change"
             or not (
@@ -541,6 +598,14 @@ if RESULT_PATH.exists():
                 <= provider_times["restored_acceptance"]
             )
         ):
+            raise ValueError
+        event_times = {
+            *provider_times.values(),
+            before_time,
+            after_time,
+            *(time for interval in cap_intervals.values() for time in interval),
+        }
+        if len({(value.year, value.month) for value in event_times}) != 1:
             raise ValueError
     except (KeyError, InvalidOperation, TypeError, ValueError):
         errors.append(

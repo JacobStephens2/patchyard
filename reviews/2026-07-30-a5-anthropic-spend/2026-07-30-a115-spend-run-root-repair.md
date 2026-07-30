@@ -347,3 +347,27 @@ behavioral acceptance, requirement-3 work, or qualification-flag change
 followed. Continuing requires a new explicit bounded sequence and cannot reuse
 replacement worker `588826948` under the reviewed plan's failed-successor
 boundary.
+
+## Quarantined-successor plan authorization
+
+Jacob then explicitly authorized "a new clean-worker replacement plan plus A78
+review." This operational grant is recorded here under A115 and does not mint
+a new decision-log ruling; A119 is already taken. It authorizes generation and
+fresh read-only review of a plan that replaces operationally quarantined worker
+`588826948`. It does not authorize applying the plan, modifying or reusing the
+current worker, requirement-1 refresh, an Anthropic credential or request,
+either Console-limit action, behavioral acceptance, requirement 3, or a
+qualification-flag change.
+
+The resulting owner-only plan was generated from clean operational source
+`d8b2955c4de050a67d932d763fd58f2509f34df5`. Its binary SHA-256 is
+`62adfcaac371203a5c9127ed307f29fdbd1593e2f2a466ae22836551e9fd91c3` and
+its rendered-plan SHA-256 is
+`b77a32f12f3480e08496d6b8ff83fb38dc6c2b300999649ff0b9ad94169cafae`.
+It replaces only worker `588826948`, updates only firewall
+`01af87da-4951-4441-a1c8-ddfc0214811b`, and leaves seven resources as no-op.
+The exact projection, live bracket, external registry retry, SQL-probe
+corrections, operational-quarantine binding, and non-executing sequence are
+recorded in
+`2026-07-30-a115-m1m2-quarantined-successor-replacement-plan.md`. At this
+point the plan remains unapplied and a fresh A78 review is required.

@@ -181,3 +181,14 @@ runtime was entered, the reviewed plan also said a failed successor is not to
 be repaired or reused. Worker `588826948` is therefore operationally
 quarantined by this record. Continuing requires escalation and a new explicit
 bounded sequence; it cannot silently reuse this worker.
+
+## Authorized successor-plan disposition
+
+Jacob later explicitly authorized "a new clean-worker replacement plan plus
+A78 review." No retry, repair, or reuse of worker `588826948` followed. The
+build seat instead generated a fresh owner-only saved plan that replaces that
+exact operationally quarantined worker and updates only its existing firewall
+attachment. The plan and its non-executing boundary are recorded in
+`2026-07-30-a115-m1m2-quarantined-successor-replacement-plan.md`. The grant
+does not authorize apply or any provider action, and the plan requires a fresh
+A78 review before any separate apply decision.

@@ -34,6 +34,22 @@ ANTHROPIC_PATCH = (
     b"@@ -0,0 +1 @@\n"
     b"+anthropic-issuance-delivery-qualified\n"
 )
+EXPECTED_ISSUANCE_PROVIDER_REQUEST_BLOCK = """  # ANTHROPIC_ISSUANCE_PROVIDER_REQUEST_BEGIN
+  PROVIDER_STATUS=$(runuser -u factory-agent -- curl \\
+    --config "$AUTH_CONFIG" --silent --show-error \\
+    --connect-timeout 10 --max-time 30 \\
+    --dump-header "$PROVIDER_HEADERS" \\
+    --output "$PROVIDER_RESPONSE" --write-out '%{http_code}' \\
+    'https://api.anthropic.com/v1/models?limit=1') || PROVIDER_CURL_EXIT=$?
+  # ANTHROPIC_ISSUANCE_PROVIDER_REQUEST_END"""
+EXPECTED_LOCAL_WEB_HEALTH_BLOCK = """APP_STATUS=$(curl --silent --output /run/fieldbook-index.html \\
+  --write-out '%{http_code}' --max-time 20 http://127.0.0.1/index.php)"""
+EXPECTED_LOCAL_PARITY_PROBE_BLOCK = """PROBE_BODY=$(curl --fail --silent --max-time 20 \\
+  http://127.0.0.1/mfieldbook/patchyard_session4_probe.php)"""
+PROVIDER_CAPABLE_COMMAND = re.compile(
+    r"(?<![-A-Za-z0-9_.])(curl|wget|netcat|nc)(?=\s)|"
+    r"/dev/(?:tcp|udp)|openssl\s+s_client"
+)
 
 
 def image_recipe_sha256() -> str:
@@ -220,6 +236,18 @@ for required in (
 ):
     if required not in guest:
         errors.append(f"guest issuance fixture is missing: {required}")
+provider_free_guest = guest
+for label, request_block in (
+    ("Anthropic issuance", EXPECTED_ISSUANCE_PROVIDER_REQUEST_BLOCK),
+    ("loopback web health", EXPECTED_LOCAL_WEB_HEALTH_BLOCK),
+    ("loopback parity probe", EXPECTED_LOCAL_PARITY_PROBE_BLOCK),
+):
+    if provider_free_guest.count(request_block) != 1:
+        errors.append(f"{label} request differs from its exact one-call binding")
+    else:
+        provider_free_guest = provider_free_guest.replace(request_block, "", 1)
+if PROVIDER_CAPABLE_COMMAND.search(provider_free_guest):
+    errors.append("issuance guest contains a network-capable call outside exact blocks")
 credential_branch = guest.index('if [[ "$CREDENTIAL_DELIVERED_TO_GUEST" == true ]]')
 provider_branch = guest.index(
     'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then'

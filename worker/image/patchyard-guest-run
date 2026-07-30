@@ -265,7 +265,7 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
     (keys | sort) == ["admitted_conntrack_ids","admitted_new_connections",
       "authorization_ruling","client_sha256","connection_close",
       "credential_removed_before_guest_boot","guest_provider_allowlist_entries",
-      "http_version","mechanism","rejected_connection_packets",
+      "http_version","mechanism","namespace_ipv6_disabled","rejected_connection_packets",
       "rejected_new_connections","schema_version"]
     and .schema_version == 1 and .authorization_ruling == "A117"
     and .mechanism == "host-one-shot-network-namespace-v1"
@@ -273,6 +273,7 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
     and .admitted_conntrack_ids == 1 and .admitted_new_connections == 1
     and .rejected_new_connections == 0 and .rejected_connection_packets == 0
     and .guest_provider_allowlist_entries == 0
+    and .namespace_ipv6_disabled == true
     and .credential_removed_before_guest_boot == true
     and (.client_sha256 | test("^[0-9a-f]{64}$"))
   ' /input/provider-transport.json >/dev/null

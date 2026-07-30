@@ -44,6 +44,17 @@ ANTHROPIC_PROVIDER_BODY = (
     b'{"role":"user","content":"Patchyard Factory spend-cap denial probe. '
     b'Reply with one character.\\n"}]}\n'
 )
+EXPECTED_AUTH_CONFIG_BLOCK = '''{
+  printf 'header = "Authorization: Bearer %s"\\n' "$(jq -r .secret "$CAPABILITY")"
+  printf 'header = "anthropic-version: 2023-06-01"\\n'
+  printf 'header = "content-type: application/json"\\n'
+} >"$AUTH_CONFIG"'''
+EXPECTED_PROVIDER_NAMESPACE_POLICY_SHA256 = (
+    "e0b10b92b488d2e78e2f0b4c54ada50aff7e44ddc0919e994875f5aa5b5ac174"
+)
+EXPECTED_TRANSPORT_SOURCE_SHA256 = (
+    "72d62bfec46d4ba50c5e61ec07736d1e39a890007ada10de02e99c4a894db66c"
+)
 PHASES = (
     "operational_acceptance",
     "temporary_refusal",
@@ -157,6 +168,20 @@ guest = GUEST_PATH.read_text()
 worker_tasks = (
     REPO / "infra/ansible/roles/worker/tasks/main.yml"
 ).read_text()
+if digest(TRANSPORT_PATH) != EXPECTED_TRANSPORT_SOURCE_SHA256:
+    errors.append("A118 one-shot transport differs from its complete source binding")
+
+policy_begin = "  # A118_PROVIDER_NAMESPACE_POLICY_BEGIN\n"
+policy_end = "\n  # A118_PROVIDER_NAMESPACE_POLICY_END"
+if launcher.count(policy_begin) != 1 or launcher.count(policy_end) != 1:
+    errors.append("A118 provider namespace policy markers are not singular")
+else:
+    namespace_policy = launcher.split(policy_begin, 1)[1].split(policy_end, 1)[0]
+    if (
+        hashlib.sha256(namespace_policy.encode()).hexdigest()
+        != EXPECTED_PROVIDER_NAMESPACE_POLICY_SHA256
+    ):
+        errors.append("A118 provider namespace policy differs from its exact binding")
 
 transfer_start = "PROVIDER_STATUS=$(\n"
 transfer_end = "\n) || PROVIDER_CURL_EXIT=$?"
@@ -187,6 +212,10 @@ for forbidden in (
     "--location",
     "--next",
     "--parallel",
+    "--http0.9",
+    "--http1.1",
+    "--http2",
+    "--http3",
     "http://",
 ):
     if forbidden in transfer:
@@ -195,6 +224,14 @@ if transfer.count("/usr/bin/curl") != 1 or transfer.count(
     "'https://api.anthropic.com/v1/messages'"
 ) != 1:
     errors.append("A117 one-shot transfer does not contain exactly one fixed client and URL")
+if transfer.count('--config "$AUTH_CONFIG"') != 1:
+    errors.append("A118 one-shot transfer does not load exactly one bound config")
+if transport.count(EXPECTED_AUTH_CONFIG_BLOCK) != 1:
+    errors.append("A118 curl configuration is not the exact header-only generator")
+if transport.count('"$AUTH_CONFIG"') != 4:
+    errors.append("A118 curl configuration has another read or write path")
+if transport.count("anthropic-curl.conf") != 1:
+    errors.append("A118 curl configuration path is not singular")
 
 transport_without_transfer = transport.replace(
     transfer_start + transfer + transfer_end, "", 1
@@ -231,6 +268,7 @@ for required in (
     'admitted_new_connections == 1',
     'rejected_new_connections == 0',
     'rejected_connection_packets == 0',
+    'namespace_ipv6_disabled == true',
 ):
     if required not in guest:
         errors.append(f"A117 credential-free guest is missing: {required}")
@@ -252,6 +290,13 @@ for required in (
     '[[ "$GUEST_REJECTED_EGRESS_PACKETS" -eq 0 ]]',
     'if [[ "$CREDENTIAL_REQUIRED" == true ]] && ! $SPEND_MODE; then',
     'PROVIDER_TRANSPORT_IP=$address',
+    'net.ipv6.conf.all.disable_ipv6=1',
+    'net.ipv6.conf.default.disable_ipv6=1',
+    'net.ipv6.conf.eth0.disable_ipv6)',
+    'assert_provider_transport_preflight',
+    'anthropic-spend-provider-transport-preflight-rejected-ipv6',
+    'anthropic-spend-transport-cardinality-rejected-%s-%s-%s-%s-%s',
+    'namespace_ipv6_disabled:true',
 ):
     if required not in launcher:
         errors.append(f"A117 host cardinality boundary is missing: {required}")
@@ -263,6 +308,28 @@ if launcher.count(
     'if [[ "$CREDENTIAL_REQUIRED" == true ]] && ! $SPEND_MODE; then'
 ) != 2:
     errors.append("A117 launcher can still project a spend credential drive")
+try:
+    ipv6_all_write = launcher.index("net.ipv6.conf.all.disable_ipv6=1")
+    ipv6_default_write = launcher.index("net.ipv6.conf.default.disable_ipv6=1")
+    provider_veth_create = launcher.index(
+        'ip link add "$PROVIDER_HOST_VETH" type veth peer name "$PROVIDER_NS_VETH"'
+    )
+    provider_preflight = launcher.index(
+        "  assert_provider_transport_preflight\n",
+        launcher.index("if $SPEND_MODE; then"),
+    )
+    provider_call = launcher.index(
+        '  "$ANTHROPIC_ONE_SHOT" "$PROVIDER_NETNS" "$CAPABILITY" "$PROVIDER_STAGE"'
+    )
+    if not (
+        ipv6_all_write
+        < provider_veth_create
+        and ipv6_default_write < provider_veth_create
+        and provider_preflight < provider_call
+    ):
+        errors.append("A118 IPv6 disable/readback does not precede the paid transfer")
+except ValueError:
+    errors.append("A118 IPv6 disable/readback ordering is incomplete")
 if re.search(
     r"(?<![-A-Za-z0-9_.])(curl|wget|php|python[0-9]*|perl|ruby|nc|netcat|socat)"
     r"(?=\s)|/dev/(tcp|udp)|openssl\s+s_client",
@@ -286,6 +353,8 @@ for required in (
     "EXPECTED_TRANSPORT_SHA256",
     "TRANSPORT_SOURCE_SHA256",
     "worker/runtime/patchyard-anthropic-one-shot",
+    "transport-cardinality-rejected-([0-9]{1,20}-){4}[0-9]{1,20}",
+    "efh[0-9a-f]{8}[@:]",
 ):
     if required not in runner:
         errors.append(f"A117 host-contract binding is missing: {required}")
@@ -515,6 +584,7 @@ if RESULT_PATH.exists():
             "rejected_new_connections": 0,
             "rejected_connection_packets": 0,
             "guest_provider_allowlist_entries": 0,
+            "namespace_ipv6_disabled": True,
             "credential_removed_before_guest_boot": True,
         }:
             errors.append(f"A117 {phase} one-shot transport receipt is malformed")

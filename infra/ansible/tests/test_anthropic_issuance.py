@@ -130,6 +130,49 @@ class AnthropicIssuanceContract(unittest.TestCase):
         mount = self.guest.index('mount -o ro,nosuid,nodev,noexec "$CREDENTIAL_DEVICE"')
         self.assertLess(block_probe, mount)
 
+    def test_issuance_checker_rejects_an_extra_guest_network_client(self) -> None:
+        import shutil
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory) / "repo"
+            shutil.copytree(
+                ROOT,
+                root,
+                ignore=shutil.ignore_patterns(".git", "target", "node_modules"),
+            )
+            result_path = (
+                root
+                / "research/isolation/results/anthropic-issuance-delivery.json"
+            )
+            result_path.unlink()
+            checker = root / "tools/check-anthropic-issuance.py"
+            baseline = subprocess.run(
+                [str(checker), "--allow-missing-results"],
+                cwd=root,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(baseline.returncode, 0, baseline.stderr)
+
+            guest = root / "worker/image/patchyard-guest-run"
+            guest.write_text(
+                guest.read_text()
+                + "\ncurl https://api.anthropic.com/v1/models?limit=1\n"
+            )
+            mutated = subprocess.run(
+                [str(checker), "--allow-missing-results"],
+                cwd=root,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(mutated.returncode, 0)
+            self.assertIn(
+                "network-capable call outside exact blocks", mutated.stderr
+            )
+
     def test_teardown_cannot_publish_after_a_failed_assertion(self) -> None:
         cleanup = self.launcher.split("remove_runtime() {", 1)[1].split("\n}", 1)[0]
         teardown = self.launcher.split("FAILURE_STAGE=teardown", 1)[1]

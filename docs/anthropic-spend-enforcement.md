@@ -100,12 +100,16 @@ The control-plane runner exposes three separate actions:
 
 The phase and expected workspace value are in the short-lived capability and
 run manifest. The worker resolves one reviewed Anthropic address, places the
-fixed client in a dedicated host network namespace, and admits one conntrack
-ID. Retransmits on that ID remain possible; every later connection is rejected.
+fixed client in a dedicated host network namespace, disables IPv6 before
+link-up, independently reads the namespace and interface controls, and admits
+one conntrack ID. Retransmits on that ID remain possible; every later
+connection is rejected.
 The client uses HTTP/1.0, `Connection: close`, one fixed Messages URL, one
 deterministic one-token body, no redirect, and no retry. Before accepting the
-result, the launcher independently reads one admitted connection, zero rejected
-connections, one admitted ID, and one used source from the kernel. It then
+result, the launcher independently reads one admitted-new packet, zero
+rejected packets, one admitted conntrack ID, zero rejected conntrack IDs, and
+one used source from the kernel. A mismatch preserves all five values in a
+bounded diagnostic. It then
 deletes the bearer, raw headers and body, namespace, veth, and rules before it
 boots the spend guest.
 
@@ -115,7 +119,13 @@ file is empty, no credential drive is attached, and the host additionally
 requires zero rejected guest-egress packets. This removes the false A116 claim
 that a command-name scan could make a general-purpose parity image a one-call
 environment. The exact installed one-shot client joins the spend host-contract
-digest; the guest image recipe remains a complete binding of the guest surface.
+digest; its complete source and curl header-only configuration are also pinned
+by the source checker. The complete marked namespace policy has one verified
+digest, so a qualifier, drop policy, or terminal rejection cannot change while
+leaving the source gate green. The guest image recipe remains a complete
+binding of the guest surface. Requirement 1 separately pins its exact Models
+request and two loopback calls, then rejects a remaining provider-capable guest
+command.
 
 A provider response that does not meet the bounded A115 phase contract fails
 with a response-stage diagnostic, not the obsolete `denial-not-observed` label.
@@ -242,9 +252,9 @@ selector that the Console does not expose.
    temporary snapshots and readbacks after the committed evidence passes.
 
 If any phase fails, preserve the sanitized failure log and use at most the one
-A9 live-attempt repair loop authorized by A115. A116 and A117 authorized only
-pre-attempt source work; neither added a provider request or another live repair
-loop. Then escalate rather than making another provider request.
+A9 live-attempt repair loop authorized by A115. A116, A117, and A118 authorized
+only pre-attempt source work; none added a provider request or another live
+repair loop. Then escalate rather than making another provider request.
 
 Requirement 2 remains unqualified until the completed A115 result lands.
 Behavioral acceptance remains paused, all 13 `credential_qualified` flags stay

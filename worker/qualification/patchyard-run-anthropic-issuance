@@ -363,7 +363,7 @@ if ! remote_ssh sudo /usr/local/sbin/patchyard-firecracker-run \
   <"$RUN_TEMP/capability.json" \
   >"$RUN_TEMP/launcher.stdout" 2>"$RUN_TEMP/launcher.stderr"; then
   SANITIZED_WORKER_DIAGNOSTIC=$(LC_ALL=C grep -E \
-    '^(anthropic-spend-(provider-(transport-failed-[a-z0-9-]+|response-rejected-[a-z0-9-]+)|temporary-cap-refusal-not-observed)|result filesystem integrity check failed|incomplete guest result: file_count=[0-9]{1,3} expected_mask=(none|[cers]{1,4})|guest returned incomplete status=[a-z0-9,-]{1,128}|result entry type rejected|guest returned failure status=[a-z0-9,-]{1,128}|factory worker run failed: stage=[a-z0-9-]{1,64} line=([0-9]{1,6}|unknown) status=[0-9]{1,3})$' \
+    '^(anthropic-spend-(provider-(transport-failed-[a-z0-9-]+|transport-preflight-rejected-ipv6|response-rejected-[a-z0-9-]+)|transport-cardinality-rejected-([0-9]{1,20}-){4}[0-9]{1,20}|temporary-cap-refusal-not-observed)|result filesystem integrity check failed|incomplete guest result: file_count=[0-9]{1,3} expected_mask=(none|[cers]{1,4})|guest returned incomplete status=[a-z0-9,-]{1,128}|result entry type rejected|guest returned failure status=[a-z0-9,-]{1,128}|factory worker run failed: stage=[a-z0-9-]{1,64} line=([0-9]{1,6}|unknown) status=[0-9]{1,3})$' \
     "$RUN_TEMP/launcher.stderr" | head -20 || true)
   if [[ -n "$SANITIZED_WORKER_DIAGNOSTIC" ]]; then
     printf '%s\n' "$SANITIZED_WORKER_DIAGNOSTIC" >&2
@@ -435,6 +435,7 @@ jq -e \
     and .provider_transport.rejected_new_connections == 0
     and .provider_transport.rejected_connection_packets == 0
     and .provider_transport.guest_provider_allowlist_entries == 0
+    and .provider_transport.namespace_ipv6_disabled == true
     and .provider_transport.credential_removed_before_guest_boot == true
     and (.provider_transport.client_sha256 | test("^[0-9a-f]{64}$"))
     and (if $qualification_phase == "temporary_refusal" then
@@ -492,7 +493,7 @@ if grep -Eq '(^|[[:space:]])efp[0-9a-f]{10}($|[[:space:]])' \
   echo "provider network namespace residue remains" >&2
   exit 1
 fi
-if grep -Eq '(^|[[:space:]])efh[0-9a-f]{8}:' <<<"$worker_links"; then
+if grep -Eq '(^|[[:space:]])efh[0-9a-f]{8}[@:]' <<<"$worker_links"; then
   echo "provider veth residue remains" >&2
   exit 1
 fi

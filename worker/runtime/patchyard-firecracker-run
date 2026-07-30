@@ -182,6 +182,10 @@ setup_provider_transport() {
   chmod 0644 "$PROVIDER_HOSTS_DIRECTORY/hosts"
 
   ip netns add "$PROVIDER_NETNS"
+  ip netns exec "$PROVIDER_NETNS" sysctl -q -w \
+    net.ipv6.conf.all.disable_ipv6=1
+  ip netns exec "$PROVIDER_NETNS" sysctl -q -w \
+    net.ipv6.conf.default.disable_ipv6=1
   ip link add "$PROVIDER_HOST_VETH" type veth peer name "$PROVIDER_NS_VETH"
   ip link set "$PROVIDER_NS_VETH" netns "$PROVIDER_NETNS"
   ip addr add 172.30.255.249/30 dev "$PROVIDER_HOST_VETH"
@@ -206,6 +210,7 @@ setup_provider_transport() {
   nft add rule inet "$PROVIDER_NFT_TABLE" postrouting \
     ip saddr 172.30.255.248/30 oifname != "$PROVIDER_HOST_VETH" masquerade
 
+  # A118_PROVIDER_NAMESPACE_POLICY_BEGIN
   ip netns exec "$PROVIDER_NETNS" nft add table inet eta_anthropic_one_shot
   ip netns exec "$PROVIDER_NETNS" nft \
     'add chain inet eta_anthropic_one_shot input { type filter hook input priority 0; policy drop; }'
@@ -239,6 +244,21 @@ setup_provider_transport() {
     'add rule inet eta_anthropic_one_shot output meta l4proto tcp ct state new add @rejected { ct id } counter name rejected_new reject'
   ip netns exec "$PROVIDER_NETNS" nft \
     'add rule inet eta_anthropic_one_shot output counter name rejected_new reject'
+  # A118_PROVIDER_NAMESPACE_POLICY_END
+}
+
+assert_provider_transport_preflight() {
+  local ipv6_all ipv6_default ipv6_eth0
+  ipv6_all=$(ip netns exec "$PROVIDER_NETNS" sysctl -n \
+    net.ipv6.conf.all.disable_ipv6)
+  ipv6_default=$(ip netns exec "$PROVIDER_NETNS" sysctl -n \
+    net.ipv6.conf.default.disable_ipv6)
+  ipv6_eth0=$(ip netns exec "$PROVIDER_NETNS" sysctl -n \
+    net.ipv6.conf.eth0.disable_ipv6)
+  if [[ "$ipv6_all" != 1 || "$ipv6_default" != 1 || "$ipv6_eth0" != 1 ]]; then
+    echo 'anthropic-spend-provider-transport-preflight-rejected-ipv6' >&2
+    return 1
+  fi
 }
 
 provider_counter_packets() {
@@ -503,6 +523,7 @@ if $SPEND_MODE; then
   PROVIDER_STAGE="$RUN_TMPFS/provider"
   install -d -m 0710 -o root -g factory-worker "$PROVIDER_STAGE"
   setup_provider_transport
+  assert_provider_transport_preflight
   "$ANTHROPIC_ONE_SHOT" "$PROVIDER_NETNS" "$CAPABILITY" "$PROVIDER_STAGE"
   [[ ! -e "$CAPABILITY" && ! -e "$PROVIDER_STAGE/raw" ]]
   if grep -R -F -q -f "$CAPABILITY_NEEDLE" -- "$PROVIDER_STAGE"; then
@@ -517,11 +538,17 @@ if $SPEND_MODE; then
   PROVIDER_ADMITTED_IDS=$(provider_set_elements admitted)
   PROVIDER_REJECTED_IDS=$(provider_set_elements rejected)
   PROVIDER_USED_SOURCES=$(provider_set_elements used)
-  [[ "$PROVIDER_ADMITTED_NEW" -eq 1 \
+  if ! [[ "$PROVIDER_ADMITTED_NEW" -eq 1 \
     && "$PROVIDER_REJECTED_NEW" -eq 0 \
     && "$PROVIDER_ADMITTED_IDS" -eq 1 \
     && "$PROVIDER_REJECTED_IDS" -eq 0 \
-    && "$PROVIDER_USED_SOURCES" -eq 1 ]]
+    && "$PROVIDER_USED_SOURCES" -eq 1 ]]; then
+    printf 'anthropic-spend-transport-cardinality-rejected-%s-%s-%s-%s-%s\n' \
+      "$PROVIDER_ADMITTED_NEW" "$PROVIDER_REJECTED_NEW" \
+      "$PROVIDER_ADMITTED_IDS" "$PROVIDER_REJECTED_IDS" \
+      "$PROVIDER_USED_SOURCES" >&2
+    exit 1
+  fi
 
   jq --argjson request_attempts "$PROVIDER_ADMITTED_NEW" \
     '. + {$request_attempts}' "$PROVIDER_STAGE/provider-observation.json" \
@@ -539,7 +566,8 @@ if $SPEND_MODE; then
       mechanism:"host-one-shot-network-namespace-v1",http_version:"1.0",
       connection_close:true,$client_sha256,$admitted_conntrack_ids,
       $admitted_new_connections,$rejected_new_connections,$rejected_connection_packets,
-      $guest_provider_allowlist_entries,credential_removed_before_guest_boot:true}' \
+      $guest_provider_allowlist_entries,namespace_ipv6_disabled:true,
+      credential_removed_before_guest_boot:true}' \
     >"$PROVIDER_STAGE/provider-transport.json"
   chmod 0600 "$PROVIDER_STAGE"/*.json
   jq -e --arg client_sha256 "$(sha256sum "$ANTHROPIC_ONE_SHOT" | cut -d' ' -f1)" '
@@ -549,6 +577,7 @@ if $SPEND_MODE; then
     and .admitted_conntrack_ids == 1 and .admitted_new_connections == 1
     and .rejected_new_connections == 0 and .rejected_connection_packets == 0
     and .guest_provider_allowlist_entries == 0
+    and .namespace_ipv6_disabled == true
     and .credential_removed_before_guest_boot == true
     and .client_sha256 == $client_sha256
   ' "$PROVIDER_STAGE/provider-transport.json" >/dev/null

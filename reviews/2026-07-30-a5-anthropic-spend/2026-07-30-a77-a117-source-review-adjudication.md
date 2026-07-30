@@ -101,3 +101,13 @@ bounded repair. If authorized, the smallest consolidated scope is the six
 conceded material findings above, followed by another A78 source review and a
 separately reviewed clean-worker replacement plan. It would not add a provider
 attempt or enlarge A115's live A9 budget.
+
+## Post-escalation disposition
+
+Jacob subsequently authorized one additional bounded source repair. A118
+records that authorization in `docs/decision-log.md`; its implementation and
+mutation record are in `2026-07-30-a118-bounded-source-repair.md`. The
+authorization resumes source work only and is limited to A117-1 through
+A117-6. It does not revise this adjudication, add a live attempt or repair loop,
+or authorize a clean-worker replacement before the repaired source returns to
+A78.

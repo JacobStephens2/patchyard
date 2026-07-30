@@ -151,6 +151,7 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
                 "rejected_new_connections": 0,
                 "rejected_connection_packets": 0,
                 "guest_provider_allowlist_entries": 0,
+                "namespace_ipv6_disabled": True,
                 "credential_removed_before_guest_boot": True,
             },
             "provider_observation": observation,
@@ -366,6 +367,10 @@ class AnthropicA117TransportContract(unittest.TestCase):
             self.assertIn(required, request)
         for forbidden in ("--retry", "--location", "--next", "--parallel"):
             self.assertNotIn(forbidden, request)
+        for forbidden in ("--http0.9", "--http1.1", "--http2", "--http3"):
+            self.assertNotIn(forbidden, request)
+        self.assertIn("EXPECTED_AUTH_CONFIG_BLOCK", self.checker)
+        self.assertIn("header-only generator", self.checker)
 
     def test_spend_guest_has_neither_credential_nor_provider_route(self) -> None:
         self.assertNotIn(
@@ -390,6 +395,12 @@ class AnthropicA117TransportContract(unittest.TestCase):
             '&& "$PROVIDER_ADMITTED_IDS" -eq 1',
             '&& "$PROVIDER_REJECTED_IDS" -eq 0',
             '&& "$PROVIDER_USED_SOURCES" -eq 1 ]]',
+            "net.ipv6.conf.all.disable_ipv6=1",
+            "net.ipv6.conf.default.disable_ipv6=1",
+            "assert_provider_transport_preflight",
+            "anthropic-spend-transport-cardinality-rejected-%s-%s-%s-%s-%s",
+            "A118_PROVIDER_NAMESPACE_POLICY_BEGIN",
+            "A118_PROVIDER_NAMESPACE_POLICY_END",
         ):
             self.assertIn(required, self.launcher)
         self.assertEqual(
@@ -397,6 +408,30 @@ class AnthropicA117TransportContract(unittest.TestCase):
                 '"$ANTHROPIC_ONE_SHOT" "$PROVIDER_NETNS" "$CAPABILITY" "$PROVIDER_STAGE"'
             ),
             1,
+        )
+        self.assertLess(
+            self.launcher.index("net.ipv6.conf.all.disable_ipv6=1"),
+            self.launcher.index('ip link add "$PROVIDER_HOST_VETH"'),
+        )
+        self.assertLess(
+            self.launcher.index("  assert_provider_transport_preflight\n"),
+            self.launcher.index(
+                '  "$ANTHROPIC_ONE_SHOT" "$PROVIDER_NETNS" "$CAPABILITY"'
+            ),
+        )
+        self.assertIn(
+            "transport-cardinality-rejected-([0-9]{1,20}-){4}[0-9]{1,20}",
+            (
+                ROOT
+                / "worker/qualification/patchyard-run-anthropic-issuance"
+            ).read_text(),
+        )
+        self.assertIn(
+            "efh[0-9a-f]{8}[@:]",
+            (
+                ROOT
+                / "worker/qualification/patchyard-run-anthropic-issuance"
+            ).read_text(),
         )
 
     def test_missing_request_id_retains_status_and_shape(self) -> None:
@@ -499,8 +534,14 @@ class AnthropicA117TransportContract(unittest.TestCase):
         mutations = (
             (
                 "worker/runtime/patchyard-anthropic-one-shot",
-                "--http1.0",
-                "--http2",
+                "--http1.0 --header",
+                "--http1.0 --http2 --header",
+            ),
+            (
+                "worker/runtime/patchyard-anthropic-one-shot",
+                "  printf 'header = \"content-type: application/json\"\\n'",
+                "  printf 'header = \"content-type: application/json\"\\n'\n"
+                "  printf 'next\\n'",
             ),
             (
                 "worker/runtime/patchyard-anthropic-one-shot",
@@ -512,6 +553,33 @@ class AnthropicA117TransportContract(unittest.TestCase):
                 "worker/runtime/patchyard-firecracker-run",
                 '"$PROVIDER_ADMITTED_NEW" -eq 1',
                 '"$PROVIDER_ADMITTED_NEW" -ge 1',
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                'ip daddr "$PROVIDER_TRANSPORT_IP" \\\n    tcp dport 443 ct state new add @admitted',
+                'ip daddr 0.0.0.0/0 \\\n    tcp dport 443 ct state new add @admitted',
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                "output counter name rejected_new reject'\n"
+                "  # A118_PROVIDER_NAMESPACE_POLICY_END",
+                "output counter name rejected_new accept'\n"
+                "  # A118_PROVIDER_NAMESPACE_POLICY_END",
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                "net.ipv6.conf.all.disable_ipv6=1",
+                "net.ipv6.conf.all.disable_ipv6=0",
+            ),
+            (
+                "worker/qualification/patchyard-run-anthropic-issuance",
+                "efh[0-9a-f]{8}[@:]",
+                "efh[0-9a-f]{8}:",
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                "anthropic-spend-transport-cardinality-rejected-%s-%s-%s-%s-%s",
+                "anthropic-spend-transport-cardinality-rejected",
             ),
             (
                 "worker/image/patchyard-guest-run",

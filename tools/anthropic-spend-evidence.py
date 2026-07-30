@@ -321,6 +321,7 @@ def validate_phase(
             "rejected_new_connections",
             "rejected_connection_packets",
             "guest_provider_allowlist_entries",
+            "namespace_ipv6_disabled",
             "credential_removed_before_guest_boot",
         }
         or transport["schema_version"] != 1
@@ -334,6 +335,7 @@ def validate_phase(
         or transport["rejected_new_connections"] != 0
         or transport["rejected_connection_packets"] != 0
         or transport["guest_provider_allowlist_entries"] != 0
+        or transport["namespace_ipv6_disabled"] is not True
         or transport["credential_removed_before_guest_boot"] is not True
     ):
         raise ValueError(f"{phase} provider transport differs from A117")

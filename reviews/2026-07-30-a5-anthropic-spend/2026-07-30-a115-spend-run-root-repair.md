@@ -1,7 +1,7 @@
 # A115 spend run-root repair
 
-Status: **source repair implemented and locally bound; A78 review and worker
-replacement have not begun**
+Status: **A78 review failed on two conceded medium findings; repair iteration
+exhausted and clean-worker replacement blocked**
 
 This is the requirement-2 work record for Jacob's explicit authorization of
 the bounded repair after the first successor operational attempt. It is an
@@ -142,11 +142,35 @@ That failure must remain visible until the reviewed repair is installed on a
 clean replacement worker and requirement 1 is rerun; changing the evidence
 without a live rerun would be false proof.
 
-## Boundary after repair
+## A78 review and A77 adjudication
+
+A78 reviewed exact commit
+`8cdfeef955ba3d574030e21aff65549219642b86` with Opus 5 at requested effort
+`xhigh` in plan/read-only mode. The review returned FAIL on two medium material
+findings:
+
+1. the new checker ordering anchors can raise uncontrolled `ValueError` and
+   suppress every accumulated diagnostic; and
+2. the launcher does not read back the realized directory mode or test
+   traversal as `factory-worker` before capability creation.
+
+The build seat reproduced both. Three independent anchor mutations each
+produced the bare traceback and no controlled checker diagnostic. Source
+inspection and a disposable `install -d` experiment confirmed the missing
+readback and the dependence on realized filesystem state. Both findings and
+their severity are conceded under A77. The six nonblocking observations are
+individually adjudicated in
+`2026-07-30-a77-spend-run-root-repair-adjudication.md`.
+
+The exact A78 review is recorded in
+`2026-07-30-a78-spend-run-root-repair-review.md`. Because the authorized
+repair reached a failed adversarial review, A9 stops another implicit source
+iteration. A separately authorized bounded M1/M2 repair and new A78 review are
+required before any replacement plan.
+
+## Boundary after review
 
 No repaired source has been installed, no worker has been replaced, no taint
 marker has been cleared, and no further capability or provider request has
-been made. The next gate is A78 adversarial review of the exact repair commit.
-Only a PASS with no material unresolved finding can advance to a separately
-reviewed clean-worker replacement. Behavioral acceptance, requirement 3, and
-all provider qualification flags remain untouched.
+been made. A clean-worker replacement is blocked. Behavioral acceptance,
+requirement 3, and all provider qualification flags remain untouched.

@@ -201,5 +201,7 @@ operational-acceptance attempt are recorded in
 `2026-07-30-a115-spend-run-root-repair.md`. The attempt stopped with local curl
 status 23 before producing a provider observation. A source permission defect
 is conceded, worker `588778422` is boundary-tainted and permanently ineligible
-for reuse, and the bounded repair is awaiting A78 review. No second provider
-request, cap mutation, or worker replacement followed.
+for reuse, and A78 failed the bounded repair on two subsequently conceded
+medium findings. The repair iteration is exhausted and replacement remains
+blocked. No second provider request, cap mutation, or worker replacement
+followed.

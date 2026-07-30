@@ -1,6 +1,7 @@
 # A115 M1/M2 clean-worker replacement plan
 
-Status: **generated and mechanically inspected; apply is not authorized**
+Status: **A78 passed; separately authorized apply stopped at A101 private-VPC
+transport after replacement and idempotent convergence passed**
 
 This is the non-executing plan Jacob authorized after A78 passed the bounded
 spend run-root M1/M2 repair. The authorization covers plan preparation and a
@@ -121,6 +122,22 @@ destroyed worker must return provider 404 and be absent from the production-tag
 inventory, and requirement 1 must be refreshed because its live host-contract
 digest is deliberately stale against this source. Any later Console bracket,
 cap mutation, or paid provider sequence remains outside this plan.
+
+## Later apply disposition
+
+Jacob later explicitly approved this exact plan. The apply created worker
+`588826948`, updated the matching firewall, and destroyed quarantined worker
+`588778422`. Both convergence passes succeeded, the second with zero changes,
+and the standalone control and worker qualifications passed. The wrapper then
+stopped because the first control-to-worker A101 management probe timed out to
+`10.132.0.11:22`.
+
+No isolation or provider phase ran. A later read-only invocation of the same
+installed management probe succeeded without a state change, and DigitalOcean
+reported the firewall settled with zero pending changes. Provider attachment
+propagation is therefore plausible but remains an inference. The failed
+sequence and operational quarantine are recorded in
+`2026-07-30-a115-m1m2-clean-worker-replacement-attempt.md`.
 
 ## Review questions
 

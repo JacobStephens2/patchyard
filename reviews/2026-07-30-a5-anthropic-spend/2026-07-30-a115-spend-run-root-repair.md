@@ -1,7 +1,7 @@
 # A115 spend run-root repair
 
-Status: **A78 review failed on two conceded medium findings; repair iteration
-exhausted and clean-worker replacement blocked**
+Status: **M1/M2 repair and plan review passed; exact replacement applied and
+converged; A101 private-VPC qualification timed out; sequence stopped**
 
 This is the requirement-2 work record for Jacob's explicit authorization of
 the bounded repair after the first successor operational attempt. It is an
@@ -313,7 +313,37 @@ unchecked GitHub App key mode, the plan-only tag-firewall guard, and one benign
 provider-drift entry. None changes the exact-plan PASS. No repair or plan
 regeneration followed.
 
-The plan remains unapplied. Worker `588778422` remains quarantined and
-ineligible. A separately authorized apply is the next boundary; no credential,
-provider request, Console action, behavioral acceptance, requirement-3 work,
-or qualification-flag change is authorized by this review result.
+At the close of plan review, the plan remained unapplied and worker
+`588778422` remained quarantined and ineligible. No credential, provider
+request, Console action, behavioral acceptance, requirement-3 work, or
+qualification-flag change was authorized by the review result.
+
+## Clean-worker apply authorization and stop
+
+Jacob subsequently answered, "I approve the plan." This authorized applying
+only the exact reviewed plan and allowing its wrapper to run the built-in
+convergence, qualification, and credential-free isolation gates. It did not
+authorize an Anthropic credential or request, Console mutation, requirement-1
+refresh, behavioral acceptance, requirement 3, or a qualification-flag change.
+
+OpenTofu created worker `588826948`, updated only its firewall attachment, and
+destroyed quarantined worker `588778422`. Both convergence passes succeeded;
+the second reported `changed=0,failed=0` on both hosts. The standalone control
+and worker qualifications passed. The wrapper then stopped with exit 1 because
+the first A101 private-VPC management probe timed out to replacement private IP
+`10.132.0.11:22`. No isolation or provider phase ran.
+
+A read-only invocation of the exact installed management probe succeeded at
+`2026-07-30T22:04:17Z` without a state change. DigitalOcean reported the worker
+active and its firewall `succeeded`, with no pending changes and only the new
+worker attached. Firewall attachment propagation is a supported inference, not
+a directly observed cause at the timeout instant, and the sequence remains
+failed rather than retried. The exact apply, convergence recaps, failure log,
+post-stop state, and operational quarantine are recorded in
+`2026-07-30-a115-m1m2-clean-worker-replacement-attempt.md`.
+
+No qualifier retry, requirement-1 refresh, provider request, cap action,
+behavioral acceptance, requirement-3 work, or qualification-flag change
+followed. Continuing requires a new explicit bounded sequence and cannot reuse
+replacement worker `588826948` under the reviewed plan's failed-successor
+boundary.

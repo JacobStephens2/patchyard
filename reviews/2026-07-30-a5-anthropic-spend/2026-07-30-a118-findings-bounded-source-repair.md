@@ -323,3 +323,19 @@ record and failure log are in
 No retry or manual host repair followed. A9 now requires escalation before any
 bootstrap source repair, new replacement plan, worker replacement, cap action,
 or provider request.
+
+## Immutable-bootstrap repair authorization
+
+After that escalation, Jacob answered: "I authorize the repair, its review,
+and a new sequence." This is the next operational grant under A115 and is
+recorded here rather than minted as a new numbered decision-log ruling.
+
+The grant covers one bounded repair of the Rocky bootstrap package transaction,
+its tests and source-weakening mutations, A78 review, and a fresh worker
+replacement sequence only after that review passes. Failed worker `588761785`
+remains ineligible for reuse. Cap and provider actions remain gated behind a
+cleanly converged and qualified replacement worker. Requirement 3, behavioral
+acceptance, and all provider qualification flags remain out of scope.
+
+The implementation and read-only solver experiment are recorded in
+`2026-07-30-a115-bootstrap-repair.md`.

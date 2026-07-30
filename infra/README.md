@@ -77,6 +77,13 @@ droplet exists. New/replacement hosts receive the current template; Ansible owns
 the converged identity metadata. This prevents a comment or bootstrap-package
 change from silently turning into a host replacement.
 
+The bootstrap installs its three prerequisites in one fail-fast
+`dnf --nobest` transaction, then verifies their RPM presence before enabling
+firewalld. Rocky image and repository mirrors can briefly expose a newer
+`python3` build before the matching `python-unversioned-command` build;
+allowing the solver to retain the coherent installed version avoids choosing
+the un-installable newest package without erasing or skipping dependencies.
+
 DigitalOcean planning fails closed if any live cloud firewall targets a desired
 host tag. This prevents a tag-attached firewall's rule union from silently
 widening either host before a reviewer sees the resource plan.

@@ -61,9 +61,13 @@ jq -e '
     and .provider == "anthropic"
     and (.host_contract_sha256 | test("^[0-9a-f]{64}$"))
     and ((.qualification_requirement == "issuance-delivery"
-      and .spend_cap_cents == 0)
+      and .qualification_phase == "none" and .spend_cap_cents == 0)
       or (.qualification_requirement == "provider-spend-enforcement"
-      and .spend_cap_cents == 100))
+      and .authorization_ruling == "A115"
+      and ((.qualification_phase == "temporary_refusal" and .spend_cap_cents == 100)
+        or ((.qualification_phase == "operational_acceptance"
+          or .qualification_phase == "restored_acceptance")
+          and .spend_cap_cents == 5000))))
   else true end)
   and (if .mode == "adversarial-qualification" then
     (.qualification_manifest_sha256 | test("^[0-9a-f]{64}$"))
@@ -305,15 +309,28 @@ if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
   ISSUED=$(jq -r '.issued_at | fromdateiso8601' "$CAPABILITY")
   EXPIRES=$(jq -r '.expires_at | fromdateiso8601' "$CAPABILITY")
   EXPIRES_IN=$(jq -r .expires_in "$CAPABILITY")
-  jq -e --arg provider "$PROVIDER" '
-    (keys | sort) == ["capability_id","exchange_request_id","expires_at","expires_in",
-      "issued_at","provider","qualification_requirement","rule_id","schema_version",
-      "scope","secret","service_account_id","spend_cap_cents","token_type","workspace_id"]
+  jq -e --arg provider "$PROVIDER" \
+    --arg qualification_requirement "$(jq -r .qualification_requirement "$MANIFEST")" \
+    --arg qualification_phase "$(jq -r .qualification_phase "$MANIFEST")" \
+    --arg authorization_ruling "$(jq -r '.authorization_ruling // empty' "$MANIFEST")" \
+    --argjson spend_cap_cents "$(jq -r .spend_cap_cents "$MANIFEST")" '
+    (keys | sort) == ["authorization_ruling","capability_id","exchange_request_id",
+      "expires_at","expires_in","issued_at","provider","qualification_phase",
+      "qualification_requirement","rule_id","schema_version","scope","secret",
+      "service_account_id","spend_cap_cents","token_type","workspace_id"]
     and .schema_version == 1 and .provider == $provider
+    and .qualification_requirement == $qualification_requirement
+    and .qualification_phase == $qualification_phase
+    and .authorization_ruling == $authorization_ruling
+    and .spend_cap_cents == $spend_cap_cents
     and ((.qualification_requirement == "issuance-delivery"
-      and .spend_cap_cents == 0)
+      and .qualification_phase == "none" and .spend_cap_cents == 0)
       or (.qualification_requirement == "provider-spend-enforcement"
-      and .spend_cap_cents == 100))
+      and .authorization_ruling == "A115"
+      and ((.qualification_phase == "temporary_refusal" and .spend_cap_cents == 100)
+        or ((.qualification_phase == "operational_acceptance"
+          or .qualification_phase == "restored_acceptance")
+          and .spend_cap_cents == 5000))))
     and (.capability_id | test("^[a-zA-Z0-9_-]{8,128}$"))
     and (.secret | type == "string" and test("^sk-ant-oat01-[A-Za-z0-9_-]+$") and length <= 8192)
     and .token_type == "Bearer" and .scope == "workspace:inference"

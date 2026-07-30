@@ -6,9 +6,27 @@ RESULT_MOUNTED=false
 INPUT_MOUNTED=false
 WORK_MOUNTED=false
 WEBROOT_MOUNTED=false
-CREDENTIAL_MOUNTED=false
 STATUS=error
 FAILURE=guest-runner-failed
+CAPABILITY_FILE=
+PROVIDER_TEMP=
+
+remove_provider_credential() {
+  local cleanup_failed=0
+  if mountpoint -q /credential; then
+    umount /credential || cleanup_failed=1
+  fi
+  if [[ -n "$PROVIDER_TEMP" ]]; then
+    rm -rf -- "$PROVIDER_TEMP" || cleanup_failed=1
+    [[ ! -e "$PROVIDER_TEMP" && ! -L "$PROVIDER_TEMP" ]] || cleanup_failed=1
+  fi
+  rm -rf -- /run/patchyard-capability || cleanup_failed=1
+  [[ ! -e /run/patchyard-capability \
+    && ! -L /run/patchyard-capability ]] || cleanup_failed=1
+  CAPABILITY_FILE=
+  PROVIDER_TEMP=
+  return "$cleanup_failed"
+}
 
 poweroff_guest() {
   sync
@@ -17,14 +35,18 @@ poweroff_guest() {
 
 finish() {
   local rc=$?
+  local credential_cleanup_failed=0
   set +e
+  remove_provider_credential || credential_cleanup_failed=1
   if $RESULT_MOUNTED; then
-    if [[ "$STATUS" != success ]]; then
+    if [[ "$credential_cleanup_failed" -ne 0 ]]; then
+      find /result -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+      rc=1
+    elif [[ "$STATUS" != success ]]; then
       printf '%s\n' "$FAILURE" > /result/status
     fi
     sync /result
   fi
-  $CREDENTIAL_MOUNTED && umount /credential
   $WEBROOT_MOUNTED && umount /var/www/html
   $WORK_MOUNTED && umount /work
   $INPUT_MOUNTED && umount /input
@@ -113,7 +135,6 @@ if [[ -s /input/provider-hosts ]]; then
 fi
 
 CREDENTIAL_REQUIRED=$(jq -r .credential_required "$MANIFEST")
-CAPABILITY_FILE=
 CREDENTIAL_DRIVE_READ_ONLY=false
 if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
   [[ -e /dev/disk/by-label/ETA_CREDENTIAL ]]
@@ -122,7 +143,6 @@ if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
   [[ "$(blockdev --getro "$CREDENTIAL_DEVICE")" == 1 ]]
   install -d -m 0700 /credential /run/patchyard-capability
   mount -o ro,nosuid,nodev,noexec "$CREDENTIAL_DEVICE" /credential
-  CREDENTIAL_MOUNTED=true
   findmnt -n -o OPTIONS /credential | tr ',' '\n' | grep -Fxq ro
   if touch /credential/write-probe 2>/dev/null; then
     FAILURE=credential-drive-writable
@@ -132,7 +152,6 @@ if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
   install -m 0400 -o factory-agent -g factory-agent \
     /credential/capability.json /run/patchyard-capability/capability.json
   umount /credential
-  CREDENTIAL_MOUNTED=false
   CAPABILITY_FILE=/run/patchyard-capability/capability.json
 fi
 
@@ -220,16 +239,26 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
     exit 1
   fi
   jq -e '
-    (keys | sort) == ["capability_id","exchange_request_id","expires_at","expires_in",
-      "issued_at","provider","qualification_requirement","rule_id","schema_version",
-      "scope","secret","service_account_id","spend_cap_cents","token_type","workspace_id"]
+    (keys | sort) == ["authorization_ruling","capability_id","exchange_request_id",
+      "expires_at","expires_in","issued_at","provider","qualification_phase",
+      "qualification_requirement","rule_id","schema_version","scope","secret",
+      "service_account_id","spend_cap_cents","token_type","workspace_id"]
     and .schema_version == 1 and .provider == "anthropic"
     and .qualification_requirement == "provider-spend-enforcement"
+    and .authorization_ruling == "A115"
+    and ((.qualification_phase == "temporary_refusal" and .spend_cap_cents == 100)
+      or ((.qualification_phase == "operational_acceptance"
+        or .qualification_phase == "restored_acceptance")
+        and .spend_cap_cents == 5000))
     and (.secret | test("^sk-ant-oat01-[A-Za-z0-9_-]+$") and length <= 8192)
-    and .spend_cap_cents == 100 and .token_type == "Bearer"
+    and .token_type == "Bearer"
     and .scope == "workspace:inference"
     and (.expires_in >= 60 and .expires_in <= 300)
   ' "$CAPABILITY_FILE" >/dev/null
+  [[ "$(jq -r .qualification_phase "$CAPABILITY_FILE")" \
+    == "$(jq -r .qualification_phase "$MANIFEST")" ]]
+  [[ "$(jq -r .authorization_ruling "$CAPABILITY_FILE")" \
+    == "$(jq -r .authorization_ruling "$MANIFEST")" ]]
 
   ISSUED_AT=$(jq -r .issued_at "$CAPABILITY_FILE")
   EXPIRES_AT=$(jq -r .expires_at "$CAPABILITY_FILE")
@@ -239,6 +268,7 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
   RULE_ID=$(jq -r .rule_id "$CAPABILITY_FILE")
   WORKSPACE_ID=$(jq -r .workspace_id "$CAPABILITY_FILE")
   SPEND_CAP_CENTS=$(jq -r .spend_cap_cents "$CAPABILITY_FILE")
+  QUALIFICATION_PHASE=$(jq -r .qualification_phase "$CAPABILITY_FILE")
   PROVIDER_TEMP=/run/patchyard-provider
   install -d -m 0700 -o factory-agent -g factory-agent "$PROVIDER_TEMP"
   AUTH_CONFIG="$PROVIDER_TEMP/anthropic-curl.conf"
@@ -260,10 +290,10 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
     messages:[{role:"user",content:.}]}' "$PROMPT_TEXT" >"$PROVIDER_REQUEST"
   chown factory-agent:factory-agent "$PROMPT_TEXT" "$PROVIDER_REQUEST"
   chmod 0400 "$PROMPT_TEXT" "$PROVIDER_REQUEST"
+  PROVIDER_REQUEST_SHA256=$(sha256sum "$PROVIDER_REQUEST" | cut -d' ' -f1)
 
-  FAILURE=anthropic-spend-denial-not-observed
-  PROVIDER_ERROR=
-  DENIED_AT=
+  FAILURE=anthropic-spend-provider-call-not-completed
+  PROVIDER_OBSERVATION=
   PROVIDER_CURL_EXIT=0
   PROVIDER_STATUS=$(runuser -u factory-agent -- curl \
     --config "$AUTH_CONFIG" --silent --show-error \
@@ -280,41 +310,76 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
   PROVIDER_REQUEST_ID=$(awk 'tolower($1) == "request-id:" {gsub("\r", "", $2); print $2; exit}' \
     "$PROVIDER_HEADERS")
   [[ "$PROVIDER_REQUEST_ID" =~ ^req_[A-Za-z0-9]+$ ]]
+  PROVIDER_SERVER_DATE=$(awk 'tolower($1) == "date:" {
+    sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit
+  }' "$PROVIDER_HEADERS")
+  OBSERVED_AT=$(date -u -d "$PROVIDER_SERVER_DATE" +%Y-%m-%dT%H:%M:%SZ)
+  FAILURE=anthropic-spend-provider-response-rejected
   if [[ "$PROVIDER_STATUS" == 200 ]]; then
     jq -e '
       .type == "message" and .model == "claude-opus-5"
       and (.usage.input_tokens | type == "number" and . >= 1)
       and (.usage.output_tokens | type == "number" and . >= 1)
     ' "$PROVIDER_RESPONSE" >/dev/null
-    exit 1
-  fi
-  if [[ "$PROVIDER_STATUS" =~ ^(400|403|429)$ ]] && jq -e '
-    (keys | sort) == ["error","request_id","type"]
-    and .type == "error"
-    and (.error | keys | sort) == ["message","type"]
+    if [[ "$QUALIFICATION_PHASE" == temporary_refusal ]]; then
+      FAILURE=anthropic-spend-temporary-cap-refusal-not-observed
+      exit 1
+    fi
+    PROVIDER_OBSERVATION=$(jq -nc \
+      --arg observed_at "$OBSERVED_AT" --arg request_id "$PROVIDER_REQUEST_ID" \
+      --arg request_body_sha256 "$PROVIDER_REQUEST_SHA256" \
+      --argjson expected_workspace_cap_cents "$SPEND_CAP_CENTS" \
+      --argjson input_tokens "$(jq -r .usage.input_tokens "$PROVIDER_RESPONSE")" \
+      --argjson output_tokens "$(jq -r .usage.output_tokens "$PROVIDER_RESPONSE")" \
+      '{outcome:"accepted",endpoint:"/v1/messages",http_status:200,$observed_at,
+        $request_id,$request_body_sha256,response_type:"message",
+        model:"claude-opus-5",request_attempts:1,
+        $expected_workspace_cap_cents,usage:{$input_tokens,$output_tokens}}')
+  elif [[ "$QUALIFICATION_PHASE" == temporary_refusal \
+    && "$PROVIDER_STATUS" =~ ^(400|403)$ ]] && jq -e '
+    has("type") and .type == "error" and has("error") and (.error | type == "object")
+    and (.error | has("type")) and (.error | has("message"))
     and (.error.type | type == "string" and test("^[a-z_]{1,64}$"))
-    and (.error.message | type == "string" and length > 0 and length <= 1024
-      and test("(spend|credit|billing|monthly (spend|usage) limit)"; "i"))
-    and (.request_id | test("^req_[A-Za-z0-9]+$"))
+    and (.error.message | type == "string" and length > 0 and length <= 4096)
+    and (keys | length <= 16) and (.error | keys | length <= 16)
+    and all(keys[]; test("^[A-Za-z0-9_-]{1,64}$"))
+    and all(.error | keys[]; test("^[A-Za-z0-9_-]{1,64}$"))
+    and ((has("request_id") | not) or (.request_id | test("^req_[A-Za-z0-9]+$")))
   ' "$PROVIDER_RESPONSE" >/dev/null; then
-    [[ "$(jq -r .request_id "$PROVIDER_RESPONSE")" == "$PROVIDER_REQUEST_ID" ]]
-    PROVIDER_ERROR=$(jq -c \
-      '{type,error:{type:.error.type,message:.error.message},request_id}' \
-      "$PROVIDER_RESPONSE")
-    PROVIDER_SERVER_DATE=$(awk 'tolower($1) == "date:" {
-      sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit
-    }' "$PROVIDER_HEADERS")
-    DENIED_AT=$(date -u -d "$PROVIDER_SERVER_DATE" +%Y-%m-%dT%H:%M:%SZ)
+    BODY_REQUEST_ID=$(jq -r '.request_id // empty' "$PROVIDER_RESPONSE")
+    [[ -z "$BODY_REQUEST_ID" || "$BODY_REQUEST_ID" == "$PROVIDER_REQUEST_ID" ]]
+    ERROR_TYPE=$(jq -r .error.type "$PROVIDER_RESPONSE")
+    [[ "$ERROR_TYPE" != rate_limit_error && "$ERROR_TYPE" != overloaded_error ]]
+    ERROR_MESSAGE_SHA256=$(jq -jr .error.message "$PROVIDER_RESPONSE" | sha256sum | cut -d' ' -f1)
+    if jq -e '.error.message | test("(spend|credit|billing|monthly (spend|usage) limit)"; "i")' \
+      "$PROVIDER_RESPONSE" >/dev/null; then
+      MESSAGE_CLASS=spend_attributable
+    else
+      MESSAGE_CLASS=unattributed
+    fi
+    TOP_LEVEL_KEYS=$(jq -c 'keys | sort' "$PROVIDER_RESPONSE")
+    ERROR_KEYS=$(jq -c '.error | keys | sort' "$PROVIDER_RESPONSE")
+    PROVIDER_OBSERVATION=$(jq -nc \
+      --arg observed_at "$OBSERVED_AT" --arg request_id "$PROVIDER_REQUEST_ID" \
+      --arg request_body_sha256 "$PROVIDER_REQUEST_SHA256" \
+      --arg response_type "$(jq -r .type "$PROVIDER_RESPONSE")" \
+      --arg error_type "$ERROR_TYPE" --arg message_class "$MESSAGE_CLASS" \
+      --arg message_sha256 "$ERROR_MESSAGE_SHA256" \
+      --argjson top_level_keys "$TOP_LEVEL_KEYS" --argjson error_keys "$ERROR_KEYS" \
+      --argjson expected_workspace_cap_cents "$SPEND_CAP_CENTS" \
+      --argjson http_status "$PROVIDER_STATUS" \
+      '{outcome:"refused",endpoint:"/v1/messages",$http_status,$observed_at,
+        $request_id,$request_body_sha256,$response_type,request_attempts:1,
+        $expected_workspace_cap_cents,
+        provider_error:{$error_type,$message_class,$message_sha256,
+          shape:{$top_level_keys,$error_keys}}}')
   else
     [[ "$PROVIDER_STATUS" =~ ^[0-9]{3}$ ]] || PROVIDER_STATUS=unknown
-    FAILURE="anthropic-spend-unexpected-response-$PROVIDER_STATUS"
+    FAILURE="anthropic-spend-provider-response-rejected-$PROVIDER_STATUS"
     exit 1
   fi
-  [[ -n "$PROVIDER_ERROR" && -n "$DENIED_AT" ]]
-  rm -f -- "$AUTH_CONFIG" "$CAPABILITY_FILE" "$PROVIDER_HEADERS" \
-    "$PROVIDER_RESPONSE" "$PROMPT_TEXT" "$PROVIDER_REQUEST"
-  CAPABILITY_FILE=
-  rmdir /run/patchyard-capability "$PROVIDER_TEMP"
+  [[ -n "$PROVIDER_OBSERVATION" ]]
+  remove_provider_credential
 
   FAILURE=anthropic-spend-qualification-patch-failed
   printf 'anthropic-provider-spend-enforcement-qualified\n' \
@@ -325,7 +390,7 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
     >/result/change.patch
   [[ -s /result/change.patch ]]
   printf '%s\n' \
-    'Used the isolated Patchyard Factory workspace bearer for one minimal probe after recorded spend exceeded the temporary cap; Anthropic refused it, and the credential was removed before publishing the provider error.' \
+    'Ran exactly one A115 phase request with a fresh Patchyard Factory workspace bearer, removed the bearer, and published only the bounded provider observation.' \
     >/result/rationale.txt
 
   FAILURE=anthropic-spend-qualification-evidence-failed
@@ -341,11 +406,11 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
     --arg exchange_request_id "$EXCHANGE_REQUEST_ID" \
     --arg service_account_id "$SERVICE_ACCOUNT_ID" --arg rule_id "$RULE_ID" \
     --arg workspace_id "$WORKSPACE_ID" --argjson expires_in "$EXPIRES_IN" \
-    --arg denied_at "$DENIED_AT" --argjson cap_cents "$SPEND_CAP_CENTS" \
-    --argjson provider_status "$PROVIDER_STATUS" \
-    --argjson provider_error "$PROVIDER_ERROR" \
+    --arg qualification_phase "$QUALIFICATION_PHASE" \
+    --argjson provider_observation "$PROVIDER_OBSERVATION" \
     '{schema_version:1,$run_id,$base_sha,$request_sha256,provider:"anthropic",
-      qualification_requirement:"provider-spend-enforcement",$patch_sha256,
+      qualification_requirement:"provider-spend-enforcement",
+      authorization_ruling:"A115",$qualification_phase,$patch_sha256,
       $observed_rootfs_sha256,$image_recipe_sha256,$production_parity_sha256,
       git_remote_count:0,$host_contract_sha256,credential_removed_before_output:true,
       issuance:{$issued_at,$expires_at,$expires_in,$exchange_request_id,
@@ -354,9 +419,7 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
         capability_drive_unmounted_before_provider_call:true,
         credential_removed_before_output:true,assertion_delivered:false,
         signing_key_delivered:false,admin_credential_delivered:false},
-      spend_enforcement:{$cap_cents,model:"claude-opus-5",probe_attempts:1,
-        denial:{endpoint:"/v1/messages",http_status:$provider_status,
-          $denied_at,provider_error:$provider_error}}}' \
+      $provider_observation}' \
     >/result/evidence.json
   printf 'success\n' >/result/status
   STATUS=success
@@ -373,11 +436,13 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then
     exit 1
   fi
   jq -e '
-    (keys | sort) == ["capability_id","exchange_request_id","expires_at","expires_in",
-      "issued_at","provider","qualification_requirement","rule_id","schema_version",
-      "scope","secret","service_account_id","spend_cap_cents","token_type","workspace_id"]
+    (keys | sort) == ["authorization_ruling","capability_id","exchange_request_id",
+      "expires_at","expires_in","issued_at","provider","qualification_phase",
+      "qualification_requirement","rule_id","schema_version","scope","secret",
+      "service_account_id","spend_cap_cents","token_type","workspace_id"]
     and .schema_version == 1 and .provider == "anthropic"
     and .qualification_requirement == "issuance-delivery"
+    and .qualification_phase == "none"
     and (.secret | test("^sk-ant-oat01-[A-Za-z0-9_-]+$") and length <= 8192)
     and .spend_cap_cents == 0 and .token_type == "Bearer"
     and .scope == "workspace:inference"
@@ -467,7 +532,8 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then
     --arg workspace_id "$WORKSPACE_ID" --arg provider_request_id "$PROVIDER_REQUEST_ID" \
     --arg model_id "$MODEL_ID" --argjson expires_in "$EXPIRES_IN" \
     '{schema_version:1,$run_id,$base_sha,$request_sha256,provider:"anthropic",
-      qualification_requirement:"issuance-delivery",$patch_sha256,$observed_rootfs_sha256,
+      qualification_requirement:"issuance-delivery",qualification_phase:"none",
+      $patch_sha256,$observed_rootfs_sha256,
       $image_recipe_sha256,$production_parity_sha256,git_remote_count:0,
       $host_contract_sha256,
       credential_removed_before_output:true,

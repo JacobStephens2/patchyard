@@ -13,7 +13,14 @@
     "currency": "USD",
     "model": "claude-opus-5",
     "operational_cap_cents": 5000,
-    "qualification_cap_cents": 100
+    "qualification_cap_cents": 100,
+    "authorization_ruling": "A115",
+    "minimum_settlement_window_seconds": 10260,
+    "qualification_phases": [
+      "operational_acceptance",
+      "temporary_refusal",
+      "restored_acceptance"
+    ]
   },
   "service_account": {
     "id": "svac_01BqCdjSqFsWTvfDyCucThZy",

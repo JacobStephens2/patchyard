@@ -107,16 +107,12 @@ class ChildLauncherContract(unittest.TestCase):
         self.assertIn(
             "sysctl_file: /etc/sysctl.d/90-patchyard-child.conf", self.tasks
         )
-        baseline = self.launcher.index(
-            'BASE_FORWARD=$(sysctl -n net.ipv4.ip_forward)'
-        )
+        baseline = self.launcher.index("BASE_FORWARD=$(sysctl -n net.ipv4.ip_forward)")
         required = self.launcher.index('[[ "$BASE_FORWARD" == 0 ]]', baseline)
         network = self.launcher.index('ip netns add "$NETNS"', required)
         self.assertLess(baseline, required)
         self.assertLess(required, network)
-        self.assertIn(
-            'test "$(sysctl -n net.ipv4.ip_forward)" = 0', self.qualifier
-        )
+        self.assertIn('test "$(sysctl -n net.ipv4.ip_forward)" = 0', self.qualifier)
         self.assertIn("net.ipv4.ip_forward=0", self.reaper)
 
     def test_cancel_skips_reset_after_systemd_collected_the_unit(self) -> None:
@@ -128,9 +124,7 @@ class ChildLauncherContract(unittest.TestCase):
     def test_teardown_measures_and_reaps_declared_resource_classes(self) -> None:
         self.assertIn("PROCESSES=$(count_child_processes)", self.launcher)
         self.assertIn("MOUNTS=$(count_child_mounts)", self.launcher)
-        self.assertIn(
-            '[[ "$pid" == "$$" || "$pid" == "$BASHPID" ]]', self.launcher
-        )
+        self.assertIn('[[ "$pid" == "$$" || "$pid" == "$BASHPID" ]]', self.launcher)
         self.assertNotIn('pgrep -f -- "patchyard-child-$ID"', self.launcher)
         self.assertIn(
             "ExecStopPost=/usr/local/sbin/patchyard-reap-child %i", self.unit
@@ -146,10 +140,57 @@ class ChildLauncherContract(unittest.TestCase):
 
     def test_teardown_failure_forces_a_nonzero_exit(self) -> None:
         helper = self.launcher.split("final_exit_status() {", 1)[1].split("\n}", 1)[0]
-        finish = self.launcher.split("finish() {", 1)[1].split("\n}\n\ntrap finish", 1)[0]
+        finish = self.launcher.split("finish() {", 1)[1].split("\n}\n\ntrap finish", 1)[
+            0
+        ]
         self.assertIn('[[ "$TEARDOWN_COMPLETE" != true', helper)
         self.assertIn('rc=$(final_exit_status "$rc")', finish)
-        self.assertIn("STATE=teardown_failed", finish)
+        transition = self.launcher.split("mark_teardown_failed() {", 1)[1].split(
+            "\n}", 1
+        )[0]
+        self.assertIn("STATE=teardown_failed", transition)
+        residue = finish.index("PROCESSES=$(count_child_processes)")
+        state_transition = finish.index("mark_teardown_failed", residue)
+        final_status = finish.index('rc=$(final_exit_status "$rc")')
+        self.assertLess(residue, state_transition)
+        self.assertLess(state_transition, final_status)
+
+        # Every fallible post-child publication operation either succeeds or
+        # turns the terminal state into teardown_failed before exit status is
+        # finalized. Unlock precedes terminal publication so its failure is
+        # represented in terminal.json rather than hidden after it.
+        for operation in (
+            'find "$OUTPUT" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +',
+            'chown -R "$MANAGER_UID:$MANAGER_GID" "$JOB"',
+            'find "$JOB" -type d -exec chmod 0700 {} +',
+            'find "$JOB" -type f -exec chmod 0600 {} +',
+            'flock -u "$NETWORK_LOCK"',
+            "if ! write_terminal; then",
+        ):
+            self.assertIn(operation, finish)
+        self.assertLess(
+            finish.index('flock -u "$NETWORK_LOCK"'),
+            finish.index("if ! write_terminal; then"),
+        )
+        terminal_recovery = finish.split("if ! write_terminal; then", 1)[1].split(
+            "fi", 1
+        )[0]
+        self.assertIn("mark_teardown_failed", terminal_recovery)
+        self.assertIn(
+            'rm -f -- "$TERMINAL_TEMP" || mark_teardown_failed', terminal_recovery
+        )
+        self.assertIn("write_terminal || mark_teardown_failed", terminal_recovery)
+        write_terminal = self.launcher.split("write_terminal() {", 1)[1].split(
+            "\n}\n\nfinish()", 1
+        )[0]
+        for guarded in (
+            "outputs=$(output_claims) || return 1",
+            '}\' >"$TERMINAL_TEMP" || return 1',
+            'chmod 0600 "$TERMINAL_TEMP" || return 1',
+            'chown "$MANAGER_UID:$MANAGER_GID" "$TERMINAL_TEMP" || return 1',
+            'mv -T "$TERMINAL_TEMP" "$JOB/terminal.json" || return 1',
+        ):
+            self.assertIn(guarded, write_terminal)
 
         probe = subprocess.run(
             [

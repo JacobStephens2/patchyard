@@ -51,5 +51,22 @@
     "currency": "USD",
     "observed_at": "2026-07-30T01:17:29Z",
     "billed_cost_usd": "7.68168"
+  },
+  "containment": {
+    "boundary_tainted": true,
+    "marker": "run=anthropic-s2-20260729-412f8a1777 reason=containment-qualification-failed stage=result-filesystem-validation line=470 detected_at=2026-07-29T22:25:26Z",
+    "tainted_worker": {
+      "worker_id": 588324505,
+      "disposition": "destroyed"
+    },
+    "reviewed_replacement": {
+      "plan_binary_sha256": "ebf3ef3de8dc8a0bbf73936193ddfbde064d49cd35ab0b42699ce1334a1c69e7",
+      "plan_text_sha256": "8c8e5230aaedc17d708064ca36d8300ec81cb209dd7b7efa0d40aa9f905d7c71",
+      "worker_id": 588590370,
+      "created_at": "2026-07-30T01:11:07Z",
+      "public_ipv4": "167.71.81.211",
+      "private_ipv4": "10.132.0.15",
+      "copied_state_from_tainted_worker": false
+    }
   }
 }

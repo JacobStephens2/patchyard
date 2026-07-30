@@ -38,12 +38,24 @@
   "cost_measurement": {
     "source": "Anthropic Cost Report API",
     "currency": "USD",
-    "before_repair_usd": "7.68168",
-    "before_repair_observed_at": "2026-07-30T01:17:29Z",
-    "after_repair_usd": "7.68168",
-    "after_repair_observed_at": "2026-07-30T02:26:10Z",
-    "incremental_repair_cost_usd": "0",
-    "measured_initial_attempt_overshoot_usd": "6.68168"
+    "observations": [
+      {
+        "observed_at": "2026-07-30T01:17:29Z",
+        "billed_cost_usd": "7.68168"
+      },
+      {
+        "observed_at": "2026-07-30T02:26:10Z",
+        "billed_cost_usd": "7.68168"
+      },
+      {
+        "observed_at": "2026-07-30T03:04:16Z",
+        "billed_cost_usd": "7.68168"
+      }
+    ],
+    "incremental_repair_cost_status": "unproved_due_to_incomplete_settlement_window",
+    "latest_recheck_seconds_after_repair": 2543,
+    "initial_spend_above_displayed_cap_usd": "6.68168",
+    "denial_overshoot_status": "not_observed"
   },
   "containment": {
     "boundary_tainted": true,
@@ -53,6 +65,7 @@
   "repair_loop": {
     "consumed": true,
     "further_provider_requests_permitted": false,
-    "disposition": "escalate_under_A9"
+    "disposition": "escalated_under_A9",
+    "successor_authorization": "A115"
   }
 }

@@ -43,6 +43,10 @@ jq -e '
   and .spend_enforcement.model == "claude-opus-5"
   and .spend_enforcement.operational_cap_cents == 5000
   and .spend_enforcement.qualification_cap_cents == 100
+  and .spend_enforcement.authorization_ruling == "A115"
+  and .spend_enforcement.minimum_settlement_window_seconds == 10260
+  and .spend_enforcement.qualification_phases == [
+    "operational_acceptance", "temporary_refusal", "restored_acceptance"]
   and .issuer.issuer_url == "https://factory.example.com/workload-identity"
   and .issuer.check_jti == true
   and .issuer.max_jwt_lifetime_seconds == 300
@@ -66,17 +70,35 @@ case "$ACTION" in
     SPEND_CAP_CENTS=0
     RUN_PREFIX=anthropic-i1
     ;;
-  run-spend)
+  run-spend-operational)
     [[ $# -eq 3 ]]
     QUALIFICATION_REQUIREMENT=provider-spend-enforcement
+    QUALIFICATION_PHASE=operational_acceptance
+    SPEND_CAP_CENTS=$(jq -r .spend_enforcement.operational_cap_cents "$CONFIG")
+    RUN_PREFIX=anthropic-s2-operational
+    ;;
+  run-spend-refusal)
+    [[ $# -eq 3 ]]
+    QUALIFICATION_REQUIREMENT=provider-spend-enforcement
+    QUALIFICATION_PHASE=temporary_refusal
     SPEND_CAP_CENTS=$(jq -r .spend_enforcement.qualification_cap_cents "$CONFIG")
-    RUN_PREFIX=anthropic-s2
+    RUN_PREFIX=anthropic-s2-refusal
+    ;;
+  run-spend-restored)
+    [[ $# -eq 3 ]]
+    QUALIFICATION_REQUIREMENT=provider-spend-enforcement
+    QUALIFICATION_PHASE=restored_acceptance
+    SPEND_CAP_CENTS=$(jq -r .spend_enforcement.operational_cap_cents "$CONFIG")
+    RUN_PREFIX=anthropic-s2-restored
     ;;
   *)
-    echo "usage: $0 jwks | run SNAPSHOT_DIR OUTPUT_DIR | run-spend SNAPSHOT_DIR OUTPUT_DIR" >&2
+    echo "usage: $0 jwks | run SNAPSHOT_DIR OUTPUT_DIR | run-spend-{operational,refusal,restored} SNAPSHOT_DIR OUTPUT_DIR" >&2
     exit 2
     ;;
 esac
+if [[ "$QUALIFICATION_REQUIREMENT" == issuance-delivery ]]; then
+  QUALIFICATION_PHASE=none
+fi
 SNAPSHOT_DIR=$(readlink -f -- "$2")
 OUTPUT_DIR=$3
 [[ "$SNAPSHOT_DIR" == /* && "$OUTPUT_DIR" == /* ]]
@@ -257,9 +279,12 @@ jq -n \
   --arg rule_id "$(jq -r .rule.id "$CONFIG")" \
   --arg workspace_id "$(jq -r .workspace.id "$CONFIG")" \
   --arg qualification_requirement "$QUALIFICATION_REQUIREMENT" \
+  --arg qualification_phase "$QUALIFICATION_PHASE" \
+  --arg authorization_ruling "$(jq -r .spend_enforcement.authorization_ruling "$CONFIG")" \
   --argjson spend_cap_cents "$SPEND_CAP_CENTS" \
   '{schema_version:1,provider:"anthropic",$qualification_requirement,
-    $capability_id,secret:$exchange[0].access_token,$spend_cap_cents,$issued_at,$expires_at,
+    $qualification_phase,$authorization_ruling,$capability_id,
+    secret:$exchange[0].access_token,$spend_cap_cents,$issued_at,$expires_at,
     token_type:$exchange[0].token_type,scope:$exchange[0].scope,
     expires_in:$exchange[0].expires_in,$exchange_request_id,
     $service_account_id,$rule_id,$workspace_id}' >"$RUN_TEMP/capability.json"
@@ -296,10 +321,13 @@ jq -n \
   --arg capability_sha256 "$CAPABILITY_SHA256" \
   --arg host_contract_sha256 "$HOST_CONTRACT_SHA256" \
   --arg qualification_requirement "$QUALIFICATION_REQUIREMENT" \
+  --arg qualification_phase "$QUALIFICATION_PHASE" \
+  --arg authorization_ruling "$(jq -r .spend_enforcement.authorization_ruling "$CONFIG")" \
   --argjson spend_cap_cents "$SPEND_CAP_CENTS" \
   '{schema_version:1,$run_id,$base_sha,$source_archive_sha256,$request_sha256,
     $snapshot_sql_sha256,$snapshot_manifest_sha256,provider:"anthropic",
-    mode:"provider-qualification",$qualification_requirement,
+    mode:"provider-qualification",$qualification_requirement,$qualification_phase,
+    $authorization_ruling,
     credential_required:true,$capability_sha256,$host_contract_sha256,$spend_cap_cents}' \
   >"$RUN_TEMP/run.json"
 
@@ -353,9 +381,12 @@ jq -e \
   --arg exchange_request_id "$EXCHANGE_REQUEST_ID" \
   --arg host_contract_sha256 "$HOST_CONTRACT_SHA256" \
   --arg qualification_requirement "$QUALIFICATION_REQUIREMENT" \
+  --arg qualification_phase "$QUALIFICATION_PHASE" \
+  --arg authorization_ruling "$(jq -r .spend_enforcement.authorization_ruling "$CONFIG")" \
   --argjson spend_cap_cents "$SPEND_CAP_CENTS" '
   .schema_version == 1 and .run_id == $run_id and .provider == "anthropic"
   and .qualification_requirement == $qualification_requirement
+  and .qualification_phase == $qualification_phase
   and (.observed_rootfs_sha256 | test("^[0-9a-f]{64}$"))
   and (has("rootfs_sha256") | not)
   and .host_contract_sha256 == $host_contract_sha256
@@ -369,14 +400,19 @@ jq -e \
     and .provider_call.http_status == 200
     and (.provider_call.request_id | test("^req_[A-Za-z0-9]+$"))
   else
-    .spend_enforcement.cap_cents == $spend_cap_cents
-    and .spend_enforcement.probe_attempts == 1
-    and .spend_enforcement.denial.endpoint == "/v1/messages"
-    and (.spend_enforcement.denial.http_status == 400
-      or .spend_enforcement.denial.http_status == 403
-      or .spend_enforcement.denial.http_status == 429)
-    and (.spend_enforcement.denial.provider_error.request_id
-      | test("^req_[A-Za-z0-9]+$"))
+    .authorization_ruling == $authorization_ruling
+    and .provider_observation.expected_workspace_cap_cents == $spend_cap_cents
+    and .provider_observation.request_attempts == 1
+    and .provider_observation.endpoint == "/v1/messages"
+    and (.provider_observation.request_id | test("^req_[A-Za-z0-9]+$"))
+    and (if $qualification_phase == "temporary_refusal" then
+      .provider_observation.outcome == "refused"
+      and (.provider_observation.http_status == 400
+        or .provider_observation.http_status == 403)
+    else
+      .provider_observation.outcome == "accepted"
+      and .provider_observation.http_status == 200
+    end)
   end)
   and .host_teardown == {processes:0,taps:0,nftables_tables:0,run_directories:0,credential_files:0}
   and (has("secret") | not) and (has("access_token") | not)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the Anthropic A-5 provider-side spend-enforcement contract."""
+"""Check the Anthropic A-5 requirement-2 A115 successor contract."""
 
 from __future__ import annotations
 
@@ -15,33 +15,18 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parent.parent
 POLICY_PATH = REPO / "policy" / "anthropic-wif.json"
-RESULT_PATH = (
-    REPO
-    / "research"
-    / "isolation"
-    / "results"
-    / "anthropic-spend-enforcement.json"
-)
+RESULT_PATH = REPO / "research/isolation/results/anthropic-spend-enforcement.json"
 INITIAL_FAILURE_PATH = (
-    REPO
-    / "research"
-    / "isolation"
-    / "results"
-    / "anthropic-spend-enforcement-initial-failure.json"
+    REPO / "research/isolation/results/anthropic-spend-enforcement-initial-failure.json"
 )
 REPAIR_FAILURE_PATH = (
-    REPO
-    / "research"
-    / "isolation"
-    / "results"
-    / "anthropic-spend-enforcement-repair-failure.json"
+    REPO / "research/isolation/results/anthropic-spend-enforcement-repair-failure.json"
 )
-IMAGE_PATH = REPO / "worker" / "image"
+IMAGE_PATH = REPO / "worker/image"
 PRODUCTION_PARITY_PATH = IMAGE_PATH / "production-parity.json"
-HOST_CONTRACT_PATHS = (
-    REPO / "worker" / "qualification" / "patchyard-run-anthropic-issuance",
-    REPO / "worker" / "runtime" / "patchyard-firecracker-run",
-)
+RUNNER_PATH = REPO / "worker/qualification/patchyard-run-anthropic-issuance"
+LAUNCHER_PATH = REPO / "worker/runtime/patchyard-firecracker-run"
+GUEST_PATH = REPO / "worker/image/patchyard-guest-run"
 ANTHROPIC_REQUEST = b"Anthropic provider-side spend enforcement qualification.\n"
 ANTHROPIC_PATCH = (
     b"diff --git a/anthropic-spend-qualified.txt b/anthropic-spend-qualified.txt\n"
@@ -53,21 +38,29 @@ ANTHROPIC_PATCH = (
     b"@@ -0,0 +1 @@\n"
     b"+anthropic-provider-spend-enforcement-qualified\n"
 )
+PHASES = (
+    "operational_acceptance",
+    "temporary_refusal",
+    "restored_acceptance",
+)
+
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def image_recipe_sha256() -> str:
     records = []
     for path in sorted(path for path in IMAGE_PATH.rglob("*") if path.is_file()):
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        records.append(f"{digest}  {path.relative_to(IMAGE_PATH)}\n")
+        records.append(f"{digest(path)}  {path.relative_to(IMAGE_PATH)}\n")
     return hashlib.sha256("".join(records).encode()).hexdigest()
 
 
 def host_contract_sha256() -> str:
-    records = []
-    for path in HOST_CONTRACT_PATHS:
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        records.append(f"{digest}  {path.relative_to(REPO)}\n")
+    records = [
+        f"{digest(path)}  {path.relative_to(REPO)}\n"
+        for path in (RUNNER_PATH, LAUNCHER_PATH)
+    ]
     return hashlib.sha256("".join(records).encode()).hexdigest()
 
 
@@ -105,555 +98,461 @@ def secret_named_key(value: Any) -> str | None:
     return None
 
 
+def contains_forbidden_ceiling(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(
+            "ceiling" in key
+            or "max_overshoot" in key
+            or contains_forbidden_ceiling(child)
+            for key, child in value.items()
+        )
+    if isinstance(value, list):
+        return any(contains_forbidden_ceiling(child) for child in value)
+    return False
+
+
 errors: list[str] = []
 policy = json.loads(POLICY_PATH.read_text())
-if policy.get("spend_enforcement") != {
+expected_spend_policy = {
     "currency": "USD",
     "model": "claude-opus-5",
     "operational_cap_cents": 5000,
     "qualification_cap_cents": 100,
-}:
-    errors.append("Anthropic spend policy differs from the reviewed exact binding")
+    "authorization_ruling": "A115",
+    "minimum_settlement_window_seconds": 10260,
+    "qualification_phases": list(PHASES),
+}
+if policy.get("spend_enforcement") != expected_spend_policy:
+    errors.append("Anthropic spend policy differs from the exact A115 binding")
 organization_id = "aaadc747-869a-42d2-af51-58a5be8e3b7f"
 workspace_id = "wrkspc_000000000000000000000000"
+service_account_id = "svac_01BqCdjSqFsWTvfDyCucThZy"
 if policy.get("organization", {}).get("id") != organization_id:
     errors.append("Anthropic organization differs from the reviewed binding")
 if policy.get("workspace") != {"id": workspace_id, "name": "Patchyard Factory"}:
     errors.append("Anthropic Factory workspace differs from the reviewed binding")
+if policy.get("service_account", {}).get("id") != service_account_id:
+    errors.append("Anthropic Factory principal differs from the reviewed binding")
 
-providers = json.loads((REPO / "policy" / "provider-egress.json").read_text())[
-    "providers"
-]
-if any(item.get("credential_qualified") is not False for item in providers.values()):
-    errors.append("a provider became credential-qualified before its six live fixtures")
+providers = json.loads((REPO / "policy/provider-egress.json").read_text())["providers"]
+if len(providers) != 13 or any(
+    item.get("credential_qualified") is not False for item in providers.values()
+):
+    errors.append("all 13 provider credential qualification flags must remain false")
 
-runner = (
-    REPO / "worker" / "qualification" / "patchyard-run-anthropic-issuance"
-).read_text()
-launcher = (REPO / "worker" / "runtime" / "patchyard-firecracker-run").read_text()
-guest = (REPO / "worker" / "image" / "patchyard-guest-run").read_text()
-spend_branch_start = (
+# Source-only A115 bindings. This deliberately rejects shell constructs that can
+# turn the single curl expression into retries or a request loop.
+runner = RUNNER_PATH.read_text()
+launcher = LAUNCHER_PATH.read_text()
+guest = GUEST_PATH.read_text()
+spend_marker = (
     'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \\\n'
-    '  && jq -e \'.qualification_requirement == "provider-spend-enforcement"\''
+    "  && jq -e '.qualification_requirement == \"provider-spend-enforcement\"'"
 )
-if spend_branch_start not in guest:
-    errors.append("guest has no distinct Anthropic spend-enforcement branch")
+if spend_marker not in guest:
+    errors.append("guest has no distinct A115 spend-enforcement branch")
     spend_branch = ""
 else:
-    spend_branch = guest.split(spend_branch_start, 1)[1].split(
+    spend_branch = guest.split(spend_marker, 1)[1].split(
         '\nif [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]',
         1,
     )[0]
-for source, required in (
-    (runner, "run-spend)"),
-    (runner, "QUALIFICATION_REQUIREMENT=provider-spend-enforcement"),
-    (runner, "SPEND_CAP_CENTS=$(jq -r .spend_enforcement.qualification_cap_cents"),
-    (launcher, '.qualification_requirement == "provider-spend-enforcement"'),
-    (launcher, ".spend_cap_cents == 100"),
-    (spend_branch, 'and .spend_cap_cents == 100'),
-    (spend_branch, 'model:"claude-opus-5"'),
-    (spend_branch, "Patchyard Factory spend-cap denial probe. Reply with one character."),
-    (spend_branch, "probe_attempts:1"),
-    (spend_branch, 'test("(spend|credit|billing|monthly (spend|usage) limit)"; "i")'),
-    (spend_branch, 'https://api.anthropic.com/v1/messages'),
-    (spend_branch, 'rm -f -- "$AUTH_CONFIG" "$CAPABILITY_FILE"'),
-    (spend_branch, '== "$PROVIDER_REQUEST_ID"'),
-    (spend_branch, "anthropic-provider-spend-enforcement-qualified"),
-):
+
+required_sources = (
+    (runner, "run-spend-operational)"),
+    (runner, "run-spend-refusal)"),
+    (runner, "run-spend-restored)"),
+    (runner, "QUALIFICATION_PHASE=operational_acceptance"),
+    (runner, "QUALIFICATION_PHASE=temporary_refusal"),
+    (runner, "QUALIFICATION_PHASE=restored_acceptance"),
+    (runner, 'authorization_ruling "$(jq -r .spend_enforcement.authorization_ruling'),
+    (launcher, '.authorization_ruling == "A115"'),
+    (launcher, '.qualification_phase == "temporary_refusal"'),
+    (launcher, ".spend_cap_cents == 5000"),
+    (spend_branch, 'and .authorization_ruling == "A115"'),
+    (spend_branch, 'has("type") and .type == "error"'),
+    (spend_branch, 'and (.error | has("type")) and (.error | has("message"))'),
+    (spend_branch, "MESSAGE_CLASS=unattributed"),
+    (spend_branch, "shape:{$top_level_keys,$error_keys}"),
+    (spend_branch, "$request_body_sha256"),
+    (spend_branch, "request_attempts:1"),
+    (spend_branch, "remove_provider_credential"),
+    (spend_branch, "anthropic-spend-provider-response-rejected"),
+    (spend_branch, "anthropic-spend-temporary-cap-refusal-not-observed"),
+)
+for source, required in required_sources:
     if required not in source:
-        errors.append(f"Anthropic spend source binding is missing: {required}")
+        errors.append(f"Anthropic A115 source binding is missing: {required}")
+if "run-spend)" in runner:
+    errors.append("superseded single-probe runner action remains callable")
 if spend_branch:
-    mount_guard = spend_branch.find("if mountpoint -q /credential")
-    provider_call = spend_branch.find("https://api.anthropic.com/v1/messages")
-    credential_delete = spend_branch.find('rm -f -- "$AUTH_CONFIG" "$CAPABILITY_FILE"')
-    evidence_output = spend_branch.find(">/result/evidence.json")
-    if not 0 <= mount_guard < provider_call < credential_delete < evidence_output:
-        errors.append("spend credential lifecycle order is not fail-closed")
     if spend_branch.count("https://api.anthropic.com/v1/messages") != 1:
-        errors.append("spend qualification is not exactly one provider probe")
-    if "for ATTEMPT" in spend_branch or "sleep " in spend_branch:
-        errors.append("spend qualification contains a repeated or delayed probe")
+        errors.append("each A115 phase is not exactly one provider request")
+    forbidden_request_controls = (
+        r"(^|[;&|[:space:]])(for|while|until|select)[[:space:]]",
+        r"--retry(?:[=[:space:]]|$)",
+        r"--retry-all-errors",
+        r"(^|[;&|[:space:]])xargs([[:space:]]|$)",
+        r"(^|[;&|[:space:]])seq([[:space:]]|$)",
+    )
+    for expression in forbidden_request_controls:
+        if re.search(
+            expression.replace("[:space:]", r"\s"), spend_branch, re.MULTILINE
+        ):
+            errors.append(f"spend branch permits repeated provider calls: {expression}")
+    call = spend_branch.find("https://api.anthropic.com/v1/messages")
+    cleanup = spend_branch.find("remove_provider_credential", call)
+    evidence = spend_branch.find(">/result/evidence.json", cleanup)
+    if not 0 <= call < cleanup < evidence:
+        errors.append("A115 credential is not removed before evidence publication")
+finish = guest.split("finish() {", 1)[1].split("\n}", 1)[0]
+if not (
+    "remove_provider_credential || credential_cleanup_failed=1" in finish
+    and finish.find("remove_provider_credential")
+    < finish.find("printf '%s\\n' \"$FAILURE\"")
+    and "find /result -mindepth 1" in finish
+):
+    errors.append("guest failure publication is not downstream of credential deletion")
 for source in (runner, launcher, guest):
     if "overshoot_ceiling" in source or "max_overshoot" in source:
         errors.append("source encodes a forbidden preset overshoot ceiling")
 
-allow_missing = "--allow-missing-results" in sys.argv[1:]
-initial_failure: dict[str, Any] | None = None
-initial_failure_cost: Decimal | None = None
-if INITIAL_FAILURE_PATH.exists():
-    initial_failure = json.loads(INITIAL_FAILURE_PATH.read_text())
-    expected_failure_keys = {
-        "schema_version",
-        "provider",
-        "qualification_requirement",
-        "outcome",
-        "workspace_id",
-        "service_account_id",
-        "cap_control",
-        "fixture",
-        "usage_measurement",
-        "cost_measurement",
-    }
-    if set(initial_failure) != expected_failure_keys:
-        errors.append("initial spend failure record has an unexpected shape")
-    if (
-        initial_failure.get("schema_version") != 1
-        or initial_failure.get("provider") != "anthropic"
-        or initial_failure.get("qualification_requirement")
-        != "provider-spend-enforcement"
-        or initial_failure.get("outcome") != "denial_not_observed"
-        or initial_failure.get("workspace_id") != workspace_id
-        or initial_failure.get("service_account_id")
-        != policy.get("service_account", {}).get("id")
-    ):
-        errors.append("initial spend failure identity differs from policy")
-    initial_caps = initial_failure.get("cap_control", {})
-    if initial_caps != {
-        "organization_monthly_limit_usd": "500.00",
-        "qualification_workspace_limit_usd": "1.00",
-        "qualification_observed_at": "2026-07-29T22:03Z",
-        "restored_workspace_limit_usd": "50.00",
-        "restored_observed_at": "2026-07-29T22:27Z",
-    }:
-        errors.append("initial spend failure cap history differs from live readbacks")
-    initial_fixture = initial_failure.get("fixture", {})
-    if initial_fixture != {
-        "model": "claude-opus-5",
-        "request_attempts": 8,
-        "accepted_requests": 8,
-        "denial_observed": False,
-        "diagnostic": [
-            "incomplete guest result: file_count=1 expected_mask=s",
-            "guest returned incomplete status=anthropic-spend-denial-not-observed",
-            "factory worker run failed: stage=result-filesystem-validation line=470 status=1",
-        ],
-    }:
-        errors.append("initial spend failure diagnostic differs from observed failure")
-    usage = initial_failure.get("usage_measurement", {})
-    buckets = usage.get("buckets", []) if isinstance(usage, dict) else []
-    expected_buckets = [
-        {
-            "starting_at": "2026-07-29T22:24:00Z",
-            "ending_at": "2026-07-29T22:25:00Z",
-            "uncached_input_tokens": 960185,
-            "output_tokens": 5,
-        },
-        {
-            "starting_at": "2026-07-29T22:25:00Z",
-            "ending_at": "2026-07-29T22:26:00Z",
-            "uncached_input_tokens": 576111,
-            "output_tokens": 3,
-        },
-    ]
-    if (
-        not isinstance(usage, dict)
-        or set(usage)
-        != {
-            "source",
-            "observed_at",
-            "model",
-            "cache_read_input_tokens",
-            "cache_creation_input_tokens",
-            "buckets",
-            "total_uncached_input_tokens",
-            "total_output_tokens",
-        }
-        or usage.get("source") != "Anthropic Usage Report API"
-        or usage.get("model") != "claude-opus-5"
-        or usage.get("cache_read_input_tokens") != 0
-        or usage.get("cache_creation_input_tokens") != 0
-        or buckets != expected_buckets
-        or usage.get("total_uncached_input_tokens")
-        != sum(bucket["uncached_input_tokens"] for bucket in expected_buckets)
-        or usage.get("total_output_tokens")
-        != sum(bucket["output_tokens"] for bucket in expected_buckets)
-    ):
-        errors.append("initial spend failure usage differs from the live report")
-    else:
-        try:
-            parse_time(usage["observed_at"])
-        except (KeyError, TypeError, ValueError):
-            errors.append("initial spend failure usage observation time is malformed")
-    failure_cost = initial_failure.get("cost_measurement", {})
-    try:
-        if set(failure_cost) != {"source", "currency", "observed_at", "billed_cost_usd"}:
-            raise ValueError("unexpected cost shape")
-        initial_failure_cost = decimal_value(failure_cost["billed_cost_usd"])
-        parse_time(failure_cost["observed_at"])
-        if (
-            failure_cost["source"] != "Anthropic Cost Report API"
-            or failure_cost["currency"] != "USD"
-            or initial_failure_cost <= Decimal(1)
-        ):
-            raise ValueError("unexpected cost value")
-    except (KeyError, InvalidOperation, TypeError, ValueError):
-        errors.append("initial spend failure billed cost is malformed")
-    serialized_failure = json.dumps(initial_failure, sort_keys=True)
-    if secret_named_key(initial_failure) or re.search(
-        r"sk-ant-|eyJ[A-Za-z0-9_-]+\.eyJ", serialized_failure
-    ):
-        errors.append("initial spend failure record contains a credential")
-elif RESULT_PATH.exists():
-    errors.append("initial spend failure record is missing")
+# The two failed July attempts are permanent history, not mutually exclusive
+# with a future A115 success.
+try:
+    initial = json.loads(INITIAL_FAILURE_PATH.read_text())
+except FileNotFoundError:
+    errors.append("initial July failure record is missing")
+    initial = {}
+if set(initial) != {
+    "schema_version",
+    "provider",
+    "qualification_requirement",
+    "outcome",
+    "workspace_id",
+    "service_account_id",
+    "cap_control",
+    "fixture",
+    "usage_measurement",
+    "cost_measurement",
+    "containment",
+}:
+    errors.append("initial July failure record has an unexpected shape")
+if (
+    initial.get("schema_version") != 1
+    or initial.get("provider") != "anthropic"
+    or initial.get("qualification_requirement") != "provider-spend-enforcement"
+    or initial.get("outcome") != "denial_not_observed"
+    or initial.get("workspace_id") != workspace_id
+    or initial.get("service_account_id") != service_account_id
+):
+    errors.append("initial July failure identity differs from the observed attempt")
+if initial.get("fixture") != {
+    "model": "claude-opus-5",
+    "request_attempts": 8,
+    "accepted_requests": 8,
+    "denial_observed": False,
+    "diagnostic": [
+        "incomplete guest result: file_count=1 expected_mask=s",
+        "guest returned incomplete status=anthropic-spend-denial-not-observed",
+        "factory worker run failed: stage=result-filesystem-validation line=470 status=1",
+    ],
+}:
+    errors.append("initial July fixture record differs from the live failure")
+initial_cost = initial.get("cost_measurement", {})
+if initial_cost != {
+    "source": "Anthropic Cost Report API",
+    "currency": "USD",
+    "observed_at": "2026-07-30T01:17:29Z",
+    "billed_cost_usd": "7.68168",
+}:
+    errors.append("initial July settled cost differs from the live report")
+initial_containment = initial.get("containment", {})
+if (
+    initial_containment.get("boundary_tainted") is not True
+    or initial_containment.get("marker")
+    != "run=anthropic-s2-20260729-412f8a1777 reason=containment-qualification-failed stage=result-filesystem-validation line=470 detected_at=2026-07-29T22:25:26Z"
+    or initial_containment.get("tainted_worker")
+    != {"worker_id": 588324505, "disposition": "destroyed"}
+    or initial_containment.get("reviewed_replacement", {}).get(
+        "copied_state_from_tainted_worker"
+    )
+    is not False
+):
+    errors.append("initial failure omits taint or reviewed clean-replacement history")
 
-repair_failure: dict[str, Any] | None = None
-if REPAIR_FAILURE_PATH.exists():
-    repair_failure = json.loads(REPAIR_FAILURE_PATH.read_text())
-    expected_repair_keys = {
-        "schema_version",
-        "provider",
-        "qualification_requirement",
-        "outcome",
-        "workspace_id",
-        "service_account_id",
-        "run_id",
-        "cap_control",
-        "fixture",
-        "cost_measurement",
-        "containment",
-        "repair_loop",
-    }
-    if set(repair_failure) != expected_repair_keys:
-        errors.append("repair failure record has an unexpected shape")
-    if (
-        repair_failure.get("schema_version") != 1
-        or repair_failure.get("provider") != "anthropic"
-        or repair_failure.get("qualification_requirement")
-        != "provider-spend-enforcement"
-        or repair_failure.get("outcome")
-        != "repair_failed_unattributed_http_400"
-        or repair_failure.get("workspace_id") != workspace_id
-        or repair_failure.get("service_account_id")
-        != policy.get("service_account", {}).get("id")
-        or repair_failure.get("run_id")
-        != "anthropic-s2-20260730-4d80267abf"
-    ):
-        errors.append("repair failure identity differs from the observed run")
-    if repair_failure.get("cap_control") != {
-        "organization_monthly_limit_usd": "500.00",
-        "qualification": {
-            "displayed": "$7.68 of $1.00",
-            "operator_reported_observed_at": "2026-07-30T02:05Z",
-        },
-        "restored": {
-            "displayed": "$7.68 of $50.00",
-            "operator_reported_observed_at": "2026-07-30T02:07Z",
-        },
-        "timestamp_note": (
-            "The operator-reported readback times precede the worker's journaled "
-            "execution interval and are not used as ordering evidence."
-        ),
-    }:
-        errors.append("repair failure cap readbacks differ from the operator report")
-    repair_fixture = repair_failure.get("fixture", {})
-    if repair_fixture != {
-        "model": "claude-opus-5",
-        "endpoint": "/v1/messages",
-        "prompt": "Patchyard Factory spend-cap denial probe. Reply with one character.",
-        "request_attempts": 1,
-        "http_status": 400,
-        "provider_error_response_exported": False,
-        "spend_attribution_verified": False,
-        "qualification_satisfied": False,
-        "worker_started_at": "2026-07-30T02:21:34Z",
-        "failed_at": "2026-07-30T02:21:53Z",
-        "diagnostic": [
-            "incomplete guest result: file_count=1 expected_mask=s",
-            "guest returned incomplete status=anthropic-spend-unexpected-response-400",
-            "factory worker run failed: stage=result-filesystem-validation line=470 status=1",
-        ],
-    }:
-        errors.append("repair failure fixture differs from the fail-closed log")
-    else:
-        try:
-            if parse_time(repair_fixture["worker_started_at"]) >= parse_time(
-                repair_fixture["failed_at"]
-            ):
-                raise ValueError("worker interval is reversed")
-        except (KeyError, TypeError, ValueError):
-            errors.append("repair failure worker interval is malformed")
-    repair_cost = repair_failure.get("cost_measurement", {})
-    try:
-        if set(repair_cost) != {
-            "source",
-            "currency",
-            "before_repair_usd",
-            "before_repair_observed_at",
-            "after_repair_usd",
-            "after_repair_observed_at",
-            "incremental_repair_cost_usd",
-            "measured_initial_attempt_overshoot_usd",
-        }:
-            raise ValueError("unexpected cost shape")
-        before_repair = decimal_value(repair_cost["before_repair_usd"])
-        after_repair = decimal_value(repair_cost["after_repair_usd"])
-        incremental = decimal_value(repair_cost["incremental_repair_cost_usd"])
-        overshoot = decimal_value(
-            repair_cost["measured_initial_attempt_overshoot_usd"]
-        )
-        before_repair_time = parse_time(repair_cost["before_repair_observed_at"])
-        after_repair_time = parse_time(repair_cost["after_repair_observed_at"])
-        if (
-            repair_cost["source"] != "Anthropic Cost Report API"
-            or repair_cost["currency"] != "USD"
-            or initial_failure_cost is None
-            or before_repair != initial_failure_cost
-            or after_repair != before_repair
-            or incremental != after_repair - before_repair
-            or overshoot != before_repair - Decimal(1)
-            or before_repair_time >= after_repair_time
-        ):
-            raise ValueError("cost figures do not reconcile")
-    except (KeyError, InvalidOperation, TypeError, ValueError):
-        errors.append("repair failure cost reconciliation is malformed")
-    if repair_failure.get("containment") != {
-        "boundary_tainted": True,
-        "marker": (
-            "run=anthropic-s2-20260730-4d80267abf "
-            "reason=containment-qualification-failed "
-            "stage=result-filesystem-validation line=470 "
-            "detected_at=2026-07-30T02:21:53Z"
-        ),
-        "worker_qualification_after_failure": "failed_closed_at_boundary_taint_check",
-    }:
-        errors.append("repair failure containment record differs from the live marker")
-    if repair_failure.get("repair_loop") != {
-        "consumed": True,
-        "further_provider_requests_permitted": False,
-        "disposition": "escalate_under_A9",
-    }:
-        errors.append("repair failure does not preserve the A9 stop condition")
-    serialized_repair_failure = json.dumps(repair_failure, sort_keys=True)
-    if secret_named_key(repair_failure) or re.search(
-        r"sk-ant-|eyJ[A-Za-z0-9_-]+\.eyJ", serialized_repair_failure
-    ):
-        errors.append("repair failure record contains a credential")
-    if RESULT_PATH.exists():
-        errors.append("successful result and terminal repair failure are mutually exclusive")
-elif initial_failure is not None and not allow_missing:
-    errors.append("terminal repair failure record is missing")
+try:
+    repair = json.loads(REPAIR_FAILURE_PATH.read_text())
+except FileNotFoundError:
+    errors.append("A9 repair failure record is missing")
+    repair = {}
+if set(repair) != {
+    "schema_version",
+    "provider",
+    "qualification_requirement",
+    "outcome",
+    "workspace_id",
+    "service_account_id",
+    "run_id",
+    "cap_control",
+    "fixture",
+    "cost_measurement",
+    "containment",
+    "repair_loop",
+}:
+    errors.append("A9 repair failure record has an unexpected shape")
+if (
+    repair.get("outcome") != "repair_failed_unattributed_http_400"
+    or repair.get("run_id") != "anthropic-s2-20260730-4d80267abf"
+    or repair.get("workspace_id") != workspace_id
+    or repair.get("service_account_id") != service_account_id
+):
+    errors.append("A9 repair failure identity differs from the observed attempt")
+repair_cost = repair.get("cost_measurement", {})
+if (
+    repair_cost.get("incremental_repair_cost_status")
+    != "unproved_due_to_incomplete_settlement_window"
+    or repair_cost.get("latest_recheck_seconds_after_repair") != 2543
+    or repair_cost.get("initial_spend_above_displayed_cap_usd") != "6.68168"
+    or repair_cost.get("denial_overshoot_status") != "not_observed"
+    or "incremental_repair_cost_usd" in repair_cost
+    or "measured_initial_attempt_overshoot_usd" in repair_cost
+):
+    errors.append("A9 repair cost record still claims an unproved denial overshoot")
+observations = repair_cost.get("observations", [])
+if [item.get("billed_cost_usd") for item in observations] != [
+    "7.68168",
+    "7.68168",
+    "7.68168",
+] or [item.get("observed_at") for item in observations] != [
+    "2026-07-30T01:17:29Z",
+    "2026-07-30T02:26:10Z",
+    "2026-07-30T03:04:16Z",
+]:
+    errors.append("A9 repair cost observations differ from the historical reports")
+if repair.get("repair_loop") != {
+    "consumed": True,
+    "further_provider_requests_permitted": False,
+    "disposition": "escalated_under_A9",
+    "successor_authorization": "A115",
+}:
+    errors.append(
+        "historical A9 stop and A115 successor authorization are not distinct"
+    )
 
-if not RESULT_PATH.exists():
-    if not allow_missing and repair_failure is None:
-        errors.append("committed live Anthropic spend result is missing")
-else:
+for name, record in (("initial", initial), ("repair", repair)):
+    serialized = json.dumps(record, sort_keys=True)
+    if secret_named_key(record) or re.search(
+        r"sk-ant-|eyJ[A-Za-z0-9_-]+\.eyJ", serialized
+    ):
+        errors.append(f"{name} failure record contains a credential")
+
+if RESULT_PATH.exists():
     result = json.loads(RESULT_PATH.read_text())
-    expected_keys = {
-        "base_sha",
-        "cap_control",
-        "cost_measurement",
-        "credential_removed_before_output",
-        "delivery",
-        "git_remote_count",
-        "host_contract_sha256",
-        "host_teardown",
-        "image_recipe_sha256",
-        "issuance",
-        "observed_rootfs_sha256",
-        "patch_sha256",
-        "production_parity_sha256",
+    if set(result) != {
+        "schema_version",
         "provider",
         "qualification_requirement",
-        "request_sha256",
-        "run_id",
-        "schema_version",
-        "spend_enforcement",
-    }
-    if set(result) != expected_keys:
-        errors.append("live spend result has an unexpected top-level evidence shape")
+        "authorization_ruling",
+        "organization_id",
+        "workspace_id",
+        "service_account_id",
+        "request_binding",
+        "phases",
+        "cap_control",
+        "cost_measurement",
+    }:
+        errors.append("A115 live result has an unexpected top-level shape")
+    if (
+        result.get("schema_version") != 2
+        or result.get("provider") != "anthropic"
+        or result.get("qualification_requirement") != "provider-spend-enforcement"
+        or result.get("authorization_ruling") != "A115"
+        or result.get("organization_id") != organization_id
+        or result.get("workspace_id") != workspace_id
+        or result.get("service_account_id") != service_account_id
+    ):
+        errors.append("A115 live result identity differs from policy")
+    phases = result.get("phases", {})
+    if set(phases) != set(PHASES):
+        errors.append("A115 live result does not contain exactly three phases")
     reproducible = {
         "request_sha256": hashlib.sha256(ANTHROPIC_REQUEST).hexdigest(),
         "patch_sha256": hashlib.sha256(ANTHROPIC_PATCH).hexdigest(),
-        "production_parity_sha256": hashlib.sha256(
-            PRODUCTION_PARITY_PATH.read_bytes()
-        ).hexdigest(),
+        "production_parity_sha256": digest(PRODUCTION_PARITY_PATH),
         "image_recipe_sha256": image_recipe_sha256(),
         "host_contract_sha256": host_contract_sha256(),
     }
-    for field, expected in reproducible.items():
-        if result.get(field) != expected:
-            errors.append(f"live spend result {field} differs from current source")
-    if not re.fullmatch(r"[0-9a-f]{64}", str(result.get("observed_rootfs_sha256", ""))):
-        errors.append("live spend rootfs observation is malformed")
-    if "rootfs_sha256" in result:
-        errors.append("non-reproducible rootfs is represented as a binding")
-    if (
-        result.get("schema_version") != 1
-        or result.get("provider") != "anthropic"
-        or result.get("qualification_requirement") != "provider-spend-enforcement"
+    provider_body_hashes: set[str] = set()
+    provider_times: dict[str, datetime] = {}
+    for phase in PHASES:
+        evidence = phases.get(phase, {}) if isinstance(phases, dict) else {}
+        if evidence.get("qualification_phase") != phase:
+            errors.append(f"A115 {phase} evidence has the wrong phase")
+        for field, expected in reproducible.items():
+            if evidence.get(field) != expected:
+                errors.append(f"A115 {phase} {field} differs from current source")
+        if (
+            not re.fullmatch(
+                r"[0-9a-f]{64}", str(evidence.get("observed_rootfs_sha256", ""))
+            )
+            or "rootfs_sha256" in evidence
+        ):
+            errors.append(f"A115 {phase} rootfs observation is malformed")
+        if evidence.get("credential_removed_before_output") is not True:
+            errors.append(f"A115 {phase} retained a credential at output")
+        if evidence.get("host_teardown") != {
+            "processes": 0,
+            "taps": 0,
+            "nftables_tables": 0,
+            "run_directories": 0,
+            "credential_files": 0,
+        }:
+            errors.append(f"A115 {phase} host teardown is incomplete")
+        observation = evidence.get("provider_observation", {})
+        provider_body_hashes.add(str(observation.get("request_body_sha256", "")))
+        try:
+            provider_times[phase] = parse_time(observation.get("observed_at"))
+        except ValueError:
+            errors.append(f"A115 {phase} provider time is malformed")
+        if (
+            observation.get("endpoint") != "/v1/messages"
+            or observation.get("request_attempts") != 1
+            or not re.fullmatch(
+                r"req_[A-Za-z0-9]+", str(observation.get("request_id", ""))
+            )
+        ):
+            errors.append(f"A115 {phase} provider observation is malformed")
+        if phase == "temporary_refusal":
+            provider_error = observation.get("provider_error", {})
+            if (
+                observation.get("outcome") != "refused"
+                or observation.get("http_status") not in {400, 403}
+                or observation.get("response_type") != "error"
+                or provider_error.get("error_type")
+                in {"rate_limit_error", "overloaded_error"}
+                or set(provider_error.get("shape", {}))
+                != {"top_level_keys", "error_keys"}
+            ):
+                errors.append("A115 refusal is not a bounded provider denial")
+        elif (
+            observation.get("outcome") != "accepted"
+            or observation.get("http_status") != 200
+            or observation.get("response_type") != "message"
+            or observation.get("model") != "claude-opus-5"
+        ):
+            errors.append(f"A115 {phase} is not an accepted positive control")
+    if len(provider_body_hashes) != 1 or not all(
+        re.fullmatch(r"[0-9a-f]{64}", value) for value in provider_body_hashes
     ):
-        errors.append("live result is not Anthropic spend requirement 2")
-    if result.get("git_remote_count") != 0:
-        errors.append("live spend guest received a Git remote")
-    if result.get("credential_removed_before_output") is not True:
-        errors.append("live spend guest retained the credential at output")
-    if result.get("host_teardown") != {
-        "processes": 0,
-        "taps": 0,
-        "nftables_tables": 0,
-        "run_directories": 0,
-        "credential_files": 0,
+        errors.append("A115 phase request bodies are not byte-identical")
+    binding = result.get("request_binding", {})
+    if binding != {
+        "model": "claude-opus-5",
+        "endpoint": "/v1/messages",
+        "request_body_sha256": next(iter(provider_body_hashes), ""),
+        "byte_identical_across_phases": True,
     }:
-        errors.append("live spend result does not prove exact host teardown")
-
-    issuance = result.get("issuance", {})
-    try:
-        issued = parse_time(issuance["issued_at"])
-        expires = parse_time(issuance["expires_at"])
-        if int((expires - issued).total_seconds()) != issuance["expires_in"]:
-            raise ValueError("issuance lifetime mismatch")
-        if not 60 <= issuance["expires_in"] <= 300:
-            raise ValueError("issuance lifetime outside policy")
-    except (KeyError, TypeError, ValueError):
-        errors.append("live spend issuance time is malformed")
-    if (
-        issuance.get("workspace_id") != workspace_id
-        or issuance.get("scope") != "workspace:inference"
-        or issuance.get("token_type") != "Bearer"
-    ):
-        errors.append("live spend bearer identity or scope differs from policy")
-    delivery = result.get("delivery")
-    if delivery != {
-        "capability_drive_read_only": True,
-        "capability_drive_unmounted_before_provider_call": True,
-        "credential_removed_before_output": True,
-        "assertion_delivered": False,
-        "signing_key_delivered": False,
-        "admin_credential_delivered": False,
-    }:
-        errors.append("live spend delivery boundary differs from the exact contract")
-
-    spend = result.get("spend_enforcement", {})
-    if set(spend) != {"cap_cents", "model", "probe_attempts", "denial"}:
-        errors.append("live spend provider proof has an unexpected shape")
-    if (
-        spend.get("cap_cents") != 100
-        or spend.get("model") != "claude-opus-5"
-        or spend.get("probe_attempts") != 1
-    ):
-        errors.append("live spend provider proof used an unexpected cap, model, or probe count")
-    denial = spend.get("denial", {})
-    provider_error = denial.get("provider_error", {})
-    if set(denial) != {"endpoint", "http_status", "denied_at", "provider_error"}:
-        errors.append("live spend denial has an unexpected shape")
-    if denial.get("endpoint") != "/v1/messages" or denial.get("http_status") not in {
-        400,
-        403,
-        429,
-    }:
-        errors.append("live spend denial is not a provider refusal")
-    if set(provider_error) != {"type", "error", "request_id"}:
-        errors.append("live provider error has an unexpected shape")
-    nested_error = provider_error.get("error", {})
-    if (
-        provider_error.get("type") != "error"
-        or not isinstance(nested_error, dict)
-        or set(nested_error) != {"type", "message"}
-        or not re.fullmatch(r"[a-z_]{1,64}", str(nested_error.get("type", "")))
-    ):
-        errors.append("live provider error envelope is malformed")
-    message = nested_error.get("message", "") if isinstance(nested_error, dict) else ""
-    if not isinstance(message, str) or not re.search(
-        r"spend|credit|billing|monthly (?:spend|usage) limit", message, re.IGNORECASE
-    ):
-        errors.append("live provider error is not attributable to spend enforcement")
-    if not re.fullmatch(r"req_[A-Za-z0-9]+", str(provider_error.get("request_id", ""))):
-        errors.append("live provider denial request ID is malformed")
-    try:
-        parse_time(denial.get("denied_at"))
-    except (TypeError, ValueError):
-        errors.append("live provider denial time is malformed")
+        errors.append("A115 request binding does not match the phase evidence")
 
     cap_control = result.get("cap_control", {})
-    if set(cap_control) != {
-        "schema_version",
-        "provider",
-        "organization_id",
-        "workspace_id",
-        "before",
-        "qualification",
-        "restored",
-    }:
-        errors.append("live cap-control evidence has an unexpected shape")
-    if (
-        cap_control.get("provider") != "anthropic"
-        or cap_control.get("organization_id") != organization_id
-        or cap_control.get("workspace_id") != workspace_id
+    cap_intervals: dict[str, tuple[datetime, datetime]] = {}
+    organization_limits: list[Decimal] = []
+    for phase, expected in (
+        ("operational_acceptance", Decimal(50)),
+        ("temporary_refusal", Decimal(1)),
+        ("restored_acceptance", Decimal(50)),
     ):
-        errors.append("live cap-control identity differs from policy")
-    organization_limits = []
-    cap_times: dict[str, datetime] = {}
-    for name, expected in (("before", Decimal(50)), ("qualification", Decimal(1)), ("restored", Decimal(50))):
-        observed = cap_control.get(name, {})
+        cap = cap_control.get(phase, {}) if isinstance(cap_control, dict) else {}
         try:
-            cap_times[name] = parse_time(observed["observed_at"])
-            workspace_limit = decimal_value(observed["workspace_monthly_limit_usd"])
-            organization_limit = decimal_value(observed["organization_monthly_limit_usd"])
-            if set(observed) != {
-                "observed_at",
-                "workspace_monthly_limit_usd",
-                "organization_monthly_limit_usd",
-                "enforcement",
-            }:
-                raise ValueError("unexpected readback shape")
-            if workspace_limit != expected or organization_limit <= Decimal(50):
-                raise ValueError("cap values differ")
-            if observed["enforcement"] != "notify_and_pause":
-                raise ValueError("cap does not pause")
-            organization_limits.append(organization_limit)
+            before = parse_time(cap["captured_before_at"])
+            after = parse_time(cap["captured_after_at"])
+            workspace_cap = decimal_value(cap["workspace_monthly_limit_usd"])
+            organization_cap = decimal_value(cap["organization_monthly_limit_usd"])
+            if (
+                set(cap)
+                != {
+                    "captured_before_at",
+                    "captured_after_at",
+                    "workspace_monthly_limit_usd",
+                    "organization_monthly_limit_usd",
+                    "capture_method",
+                }
+                or cap["capture_method"]
+                != "operator_console_readback_bounded_by_control_plane_utc"
+                or before > after
+                or (after - before).total_seconds() > 300
+                or workspace_cap != expected
+                or organization_cap <= Decimal(50)
+            ):
+                raise ValueError
+            cap_intervals[phase] = (before, after)
+            organization_limits.append(organization_cap)
         except (KeyError, InvalidOperation, TypeError, ValueError):
-            errors.append(f"live {name} cap readback is malformed")
+            errors.append(f"A115 {phase} cap readback is malformed")
     if organization_limits and len(set(organization_limits)) != 1:
-        errors.append("organization limit changed during workspace qualification")
+        errors.append("organization cap changed during A115 qualification")
 
     cost = result.get("cost_measurement", {})
-    if set(cost) != {
-        "source",
-        "currency",
-        "spend_before_usd",
-        "observed_spend_at_denial_usd",
-        "measured_overshoot_usd",
-        "observed_at",
-        "attribution",
-    }:
-        errors.append("live cost measurement has an unexpected shape")
     try:
-        before = decimal_value(cost["spend_before_usd"])
-        at_denial = decimal_value(cost["observed_spend_at_denial_usd"])
-        overshoot = decimal_value(cost["measured_overshoot_usd"])
-        cost_time = parse_time(cost["observed_at"])
-        denial_time = parse_time(denial["denied_at"])
-        if before < 0 or before >= Decimal(1):
-            raise ValueError("baseline was not below cap")
-        if at_denial <= before or overshoot != max(at_denial - Decimal(1), Decimal(0)):
-            raise ValueError("overshoot arithmetic does not bind to the cap")
-        if initial_failure_cost is not None and at_denial != initial_failure_cost:
-            raise ValueError("final cost differs from the isolated accepted-call record")
-        if cost.get("source") != "Anthropic Cost Report API" or cost.get("currency") != "USD":
-            raise ValueError("cost source differs")
-        if cost.get("attribution") != "isolated_workspace_with_no_calls_after_provider_denial":
-            raise ValueError("cost attribution differs")
-        if cap_times and not (
-            cap_times["before"]
-            <= cap_times["qualification"]
-            <= denial_time
-            <= cap_times["restored"]
-            <= cost_time
+        before_amount = decimal_value(cost["settled_spend_before_activation_usd"])
+        preexisting = decimal_value(cost["preexisting_excess_at_activation_usd"])
+        after_amount = decimal_value(cost["settled_spend_after_refusal_usd"])
+        incremental = decimal_value(cost["incremental_spend_before_refusal_usd"])
+        before_time = parse_time(cost["before_captured_at"])
+        after_time = parse_time(cost["after_captured_at"])
+        if (
+            set(cost)
+            != {
+                "source",
+                "currency",
+                "settled_spend_before_activation_usd",
+                "preexisting_excess_at_activation_usd",
+                "settled_spend_after_refusal_usd",
+                "incremental_spend_before_refusal_usd",
+                "before_captured_at",
+                "after_captured_at",
+                "settlement_window_seconds",
+                "attribution",
+            }
+            or cost["source"] != "Anthropic Cost Report API"
+            or cost["currency"] != "USD"
+            or before_amount <= Decimal(1)
+            or before_amount >= Decimal(50)
+            or after_amount >= Decimal(50)
+            or preexisting != before_amount - Decimal(1)
+            or incremental != after_amount - before_amount
+            or incremental < 0
+            or cost["settlement_window_seconds"]
+            != int((after_time - provider_times["temporary_refusal"]).total_seconds())
+            or cost["settlement_window_seconds"] < 10260
+            or cost["attribution"]
+            != "A115_acceptance_refusal_acceptance_workspace_only_cap_change"
+            or not (
+                cap_intervals["operational_acceptance"][1]
+                <= provider_times["operational_acceptance"]
+                <= before_time
+                <= cap_intervals["temporary_refusal"][0]
+                <= cap_intervals["temporary_refusal"][1]
+                <= provider_times["temporary_refusal"]
+                <= cap_intervals["restored_acceptance"][0]
+                <= cap_intervals["restored_acceptance"][1]
+                <= after_time
+                <= provider_times["restored_acceptance"]
+            )
         ):
-            raise ValueError("cap and cost evidence is out of order")
+            raise ValueError
     except (KeyError, InvalidOperation, TypeError, ValueError):
-        errors.append("live cost and overshoot figures are malformed")
-
+        errors.append(
+            "A115 cost separation, settlement, or phase ordering is malformed"
+        )
+    if contains_forbidden_ceiling(result):
+        errors.append("A115 result encodes a forbidden preset overshoot ceiling")
     serialized = json.dumps(result, sort_keys=True)
-    forbidden_key = secret_named_key(result)
-    if forbidden_key:
-        errors.append(f"committed evidence contains forbidden key: {forbidden_key}")
-    if re.search(r"sk-ant-[A-Za-z0-9_-]+", serialized):
-        errors.append("committed evidence contains an Anthropic credential")
-    if re.search(r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", serialized):
-        errors.append("committed evidence contains a JWT assertion")
-    if any("ceiling" in key or "max_overshoot" in key for key in result):
-        errors.append("live result encodes a forbidden preset overshoot ceiling")
+    if secret_named_key(result) or re.search(
+        r"sk-ant-|eyJ[A-Za-z0-9_-]+\.eyJ", serialized
+    ):
+        errors.append("A115 result contains a credential")
 
 if errors:
     print("Anthropic spend check: failed", file=sys.stderr)
@@ -661,10 +560,5 @@ if errors:
         print(f"  {error}", file=sys.stderr)
     raise SystemExit(1)
 
-if RESULT_PATH.exists():
-    status = "with live result"
-elif REPAIR_FAILURE_PATH.exists():
-    status = "with terminal A9 escalation evidence"
-else:
-    status = "static preflight"
-print(f"Anthropic spend check: pass ({status})")
+status = "with live A115 result" if RESULT_PATH.exists() else "A115 successor preflight"
+print(f"Anthropic spend check: pass ({status}; historical failures retained)")

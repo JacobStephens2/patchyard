@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture Anthropic workspace cost and finalize sanitized spend evidence."""
+"""Capture Anthropic workspace cost and finalize sanitized A115 evidence."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from decimal import Decimal, InvalidOperation
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 from typing import Any
 import urllib.parse
@@ -18,16 +19,53 @@ import urllib.request
 ROOT = Path(__file__).resolve().parent.parent
 POLICY_PATH = ROOT / "policy" / "anthropic-wif.json"
 BASE_URL = "https://api.anthropic.com"
+PHASES = (
+    "operational_acceptance",
+    "temporary_refusal",
+    "restored_acceptance",
+)
+TEARDOWN = {
+    "processes": 0,
+    "taps": 0,
+    "nftables_tables": 0,
+    "run_directories": 0,
+    "credential_files": 0,
+}
+DELIVERY = {
+    "capability_drive_read_only": True,
+    "capability_drive_unmounted_before_provider_call": True,
+    "credential_removed_before_output": True,
+    "assertion_delivered": False,
+    "signing_key_delivered": False,
+    "admin_credential_delivered": False,
+}
 
 
 def iso_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(
-        "+00:00", "Z"
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
     )
 
 
-def parse_time(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+def parse_time(value: Any) -> datetime:
+    if not isinstance(value, str):
+        raise ValueError("timestamp is not a string")
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        raise ValueError("timestamp has no timezone")
+    return parsed
+
+
+def decimal_value(value: Any) -> Decimal:
+    if not isinstance(value, str):
+        raise ValueError("decimal figure is not a string")
+    number = Decimal(value)
+    if not number.is_finite():
+        raise ValueError("decimal figure is not finite")
+    return number
 
 
 def decimal_text(value: Decimal) -> str:
@@ -44,14 +82,7 @@ def admin_token(profile: str) -> str:
     env.pop("ANTHROPIC_API_KEY", None)
     env.pop("ANTHROPIC_AUTH_TOKEN", None)
     return subprocess.check_output(
-        [
-            "ant",
-            "auth",
-            "print-credentials",
-            "--profile",
-            profile,
-            "--access-token",
-        ],
+        ["ant", "auth", "print-credentials", "--profile", profile, "--access-token"],
         env=env,
         text=True,
     ).strip()
@@ -74,13 +105,11 @@ def fetch_workspace_cost(profile: str, workspace_id: str) -> dict[str, Any]:
         if page is not None:
             query["page"] = page
         request = urllib.request.Request(
-            BASE_URL
-            + "/v1/organizations/cost_report?"
-            + urllib.parse.urlencode(query),
+            BASE_URL + "/v1/organizations/cost_report?" + urllib.parse.urlencode(query),
             headers={
                 "authorization": f"Bearer {token}",
                 "anthropic-version": "2023-06-01",
-                "user-agent": "patchyard-anthropic-spend-evidence/1",
+                "user-agent": "patchyard-anthropic-spend-evidence/2",
             },
         )
         with urllib.request.urlopen(request, timeout=30) as response:
@@ -139,104 +168,324 @@ def validate_snapshot(
     ):
         raise ValueError("cost snapshot identity differs from policy")
     try:
-        amount = Decimal(snapshot["cost_usd"])
+        amount = decimal_value(snapshot["cost_usd"])
         captured = parse_time(snapshot["captured_at"])
     except (InvalidOperation, TypeError, ValueError) as error:
         raise ValueError("cost snapshot amount or time is malformed") from error
-    if not amount.is_finite() or amount < 0:
-        raise ValueError("cost snapshot amount is invalid")
+    if amount < 0:
+        raise ValueError("cost snapshot amount is negative")
     return amount, captured
 
 
 def validate_cap_readbacks(
     readbacks: dict[str, Any], policy: dict[str, Any]
-) -> dict[str, Any]:
-    expected_top = {
+) -> tuple[dict[str, Any], dict[str, tuple[datetime, datetime]]]:
+    if set(readbacks) != {
         "schema_version",
         "provider",
         "organization_id",
         "workspace_id",
-        "before",
-        "qualification",
-        "restored",
-    }
-    if set(readbacks) != expected_top:
+        *PHASES,
+    }:
         raise ValueError("cap readbacks have an unexpected shape")
     if (
-        readbacks["schema_version"] != 1
+        readbacks["schema_version"] != 2
         or readbacks["provider"] != "anthropic"
         or readbacks["organization_id"] != policy["organization"]["id"]
         or readbacks["workspace_id"] != policy["workspace"]["id"]
     ):
         raise ValueError("cap readback identity differs from policy")
+
     operational = Decimal(policy["spend_enforcement"]["operational_cap_cents"]) / 100
-    qualification = (
-        Decimal(policy["spend_enforcement"]["qualification_cap_cents"]) / 100
-    )
+    temporary = Decimal(policy["spend_enforcement"]["qualification_cap_cents"]) / 100
+    intervals: dict[str, tuple[datetime, datetime]] = {}
     organization_limits: list[Decimal] = []
-    for name, expected_workspace in (
-        ("before", operational),
-        ("qualification", qualification),
-        ("restored", operational),
+    for phase, expected_workspace in (
+        ("operational_acceptance", operational),
+        ("temporary_refusal", temporary),
+        ("restored_acceptance", operational),
     ):
-        observed = readbacks[name]
+        observed = readbacks[phase]
         if set(observed) != {
-            "observed_at",
+            "captured_before_at",
+            "captured_after_at",
             "workspace_monthly_limit_usd",
             "organization_monthly_limit_usd",
-            "enforcement",
+            "capture_method",
         }:
-            raise ValueError(f"{name} cap readback has an unexpected shape")
-        if observed["enforcement"] != "notify_and_pause":
-            raise ValueError(f"{name} cap is not provider-enforced pause")
-        parse_time(observed["observed_at"])
-        workspace_limit = Decimal(observed["workspace_monthly_limit_usd"])
-        organization_limit = Decimal(observed["organization_monthly_limit_usd"])
+            raise ValueError(f"{phase} cap readback has an unexpected shape")
+        before = parse_time(observed["captured_before_at"])
+        after = parse_time(observed["captured_after_at"])
+        if before > after or (after - before).total_seconds() > 300:
+            raise ValueError(f"{phase} cap readback is not tightly time-bounded")
+        if (
+            observed["capture_method"]
+            != "operator_console_readback_bounded_by_control_plane_utc"
+        ):
+            raise ValueError(f"{phase} cap readback lacks an independent UTC bound")
+        workspace_limit = decimal_value(observed["workspace_monthly_limit_usd"])
+        organization_limit = decimal_value(observed["organization_monthly_limit_usd"])
         if workspace_limit != expected_workspace:
-            raise ValueError(f"{name} workspace cap differs from policy")
-        if not organization_limit.is_finite() or organization_limit <= operational:
-            raise ValueError("organization cap is not safely above the workspace cap")
+            raise ValueError(f"{phase} workspace cap differs from policy")
+        if organization_limit <= operational:
+            raise ValueError("organization cap is not nonbinding")
+        intervals[phase] = (before, after)
         organization_limits.append(organization_limit)
     if len(set(organization_limits)) != 1:
         raise ValueError("organization cap changed during qualification")
-    return readbacks
+    return readbacks, intervals
+
+
+def validate_phase(
+    evidence: dict[str, Any], phase: str, policy: dict[str, Any]
+) -> datetime:
+    expected_keys = {
+        "schema_version",
+        "run_id",
+        "base_sha",
+        "request_sha256",
+        "provider",
+        "qualification_requirement",
+        "authorization_ruling",
+        "qualification_phase",
+        "patch_sha256",
+        "observed_rootfs_sha256",
+        "image_recipe_sha256",
+        "production_parity_sha256",
+        "git_remote_count",
+        "host_contract_sha256",
+        "credential_removed_before_output",
+        "issuance",
+        "delivery",
+        "provider_observation",
+        "host_teardown",
+    }
+    if set(evidence) != expected_keys:
+        raise ValueError(f"{phase} worker evidence has an unexpected shape")
+    if (
+        evidence["schema_version"] != 1
+        or evidence["provider"] != "anthropic"
+        or evidence["qualification_requirement"] != "provider-spend-enforcement"
+        or evidence["authorization_ruling"] != "A115"
+        or evidence["qualification_phase"] != phase
+        or evidence["git_remote_count"] != 0
+        or evidence["credential_removed_before_output"] is not True
+        or evidence["delivery"] != DELIVERY
+        or evidence["host_teardown"] != TEARDOWN
+    ):
+        raise ValueError(f"{phase} worker boundary differs from A115")
+    for name in (
+        "request_sha256",
+        "patch_sha256",
+        "observed_rootfs_sha256",
+        "image_recipe_sha256",
+        "production_parity_sha256",
+        "host_contract_sha256",
+    ):
+        if not re.fullmatch(r"[0-9a-f]{64}", str(evidence[name])):
+            raise ValueError(f"{phase} {name} is malformed")
+
+    issuance = evidence["issuance"]
+    if (
+        issuance.get("workspace_id") != policy["workspace"]["id"]
+        or issuance.get("service_account_id") != policy["service_account"]["id"]
+        or issuance.get("rule_id") != policy["rule"]["id"]
+        or issuance.get("scope") != "workspace:inference"
+        or issuance.get("token_type") != "Bearer"
+    ):
+        raise ValueError(f"{phase} principal differs from policy")
+    issued = parse_time(issuance.get("issued_at"))
+    expires = parse_time(issuance.get("expires_at"))
+    if int((expires - issued).total_seconds()) != issuance.get("expires_in"):
+        raise ValueError(f"{phase} bearer lifetime is malformed")
+    if not 60 <= issuance["expires_in"] <= 300:
+        raise ValueError(f"{phase} bearer lifetime is outside policy")
+
+    observation = evidence["provider_observation"]
+    expected_cap = (
+        policy["spend_enforcement"]["qualification_cap_cents"]
+        if phase == "temporary_refusal"
+        else policy["spend_enforcement"]["operational_cap_cents"]
+    )
+    common = {
+        "endpoint",
+        "http_status",
+        "observed_at",
+        "request_id",
+        "request_body_sha256",
+        "response_type",
+        "request_attempts",
+        "expected_workspace_cap_cents",
+        "outcome",
+    }
+    if (
+        observation.get("endpoint") != "/v1/messages"
+        or observation.get("request_attempts") != 1
+        or observation.get("expected_workspace_cap_cents") != expected_cap
+        or not re.fullmatch(r"req_[A-Za-z0-9]+", str(observation.get("request_id", "")))
+        or not re.fullmatch(
+            r"[0-9a-f]{64}", str(observation.get("request_body_sha256", ""))
+        )
+    ):
+        raise ValueError(f"{phase} provider request differs from A115")
+    observed = parse_time(observation.get("observed_at"))
+    if not issued <= observed < expires:
+        raise ValueError(f"{phase} provider request is outside bearer lifetime")
+    if phase == "temporary_refusal":
+        if set(observation) != common | {"provider_error"}:
+            raise ValueError("temporary refusal has an unexpected shape")
+        error = observation["provider_error"]
+        shape = error.get("shape", {}) if isinstance(error, dict) else {}
+        if (
+            observation.get("outcome") != "refused"
+            or observation.get("http_status") not in {400, 403}
+            or observation.get("response_type") != "error"
+            or set(error) != {"error_type", "message_class", "message_sha256", "shape"}
+            or not re.fullmatch(r"[a-z_]{1,64}", str(error.get("error_type", "")))
+            or error.get("error_type") in {"rate_limit_error", "overloaded_error"}
+            or error.get("message_class") not in {"spend_attributable", "unattributed"}
+            or not re.fullmatch(r"[0-9a-f]{64}", str(error.get("message_sha256", "")))
+            or set(shape) != {"top_level_keys", "error_keys"}
+            or not all(
+                isinstance(keys, list)
+                and len(keys) <= 16
+                and all(
+                    isinstance(key, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", key)
+                    for key in keys
+                )
+                for keys in shape.values()
+            )
+        ):
+            raise ValueError("temporary refusal response is not safely diagnostic")
+    else:
+        if set(observation) != common | {"model", "usage"}:
+            raise ValueError(f"{phase} acceptance has an unexpected shape")
+        usage = observation.get("usage", {})
+        if (
+            observation.get("outcome") != "accepted"
+            or observation.get("http_status") != 200
+            or observation.get("response_type") != "message"
+            or observation.get("model") != policy["spend_enforcement"]["model"]
+            or set(usage) != {"input_tokens", "output_tokens"}
+            or not all(
+                isinstance(value, int) and value >= 1 for value in usage.values()
+            )
+        ):
+            raise ValueError(f"{phase} positive control was not accepted")
+    return observed
 
 
 def finalize(
-    worker: dict[str, Any],
-    before: dict[str, Any],
-    after: dict[str, Any],
+    operational: dict[str, Any],
+    refusal: dict[str, Any],
+    restored: dict[str, Any],
+    settled_before: dict[str, Any],
+    settled_after: dict[str, Any],
     readbacks: dict[str, Any],
     policy: dict[str, Any],
 ) -> dict[str, Any]:
-    workspace_id = policy["workspace"]["id"]
-    before_amount, before_time = validate_snapshot(before, workspace_id)
-    after_amount, after_time = validate_snapshot(after, workspace_id)
-    readbacks = validate_cap_readbacks(readbacks, policy)
-    denial = worker.get("spend_enforcement", {}).get("denial", {})
-    denied_at = parse_time(denial.get("denied_at", ""))
-    qualification_time = parse_time(readbacks["qualification"]["observed_at"])
-    restored_time = parse_time(readbacks["restored"]["observed_at"])
-    if not before_time <= qualification_time <= denied_at <= restored_time <= after_time:
-        raise ValueError("cost, cap, denial, and restoration observations are out of order")
-    cap = Decimal(policy["spend_enforcement"]["qualification_cap_cents"]) / 100
-    if before_amount >= cap:
-        raise ValueError("Factory workspace was already at the qualification cap")
-    if after_amount <= before_amount:
-        raise ValueError("cost report does not yet show recorded Factory spend")
-    overshoot = max(after_amount - cap, Decimal(0))
-    result = dict(worker)
-    result["cost_measurement"] = {
-        "source": "Anthropic Cost Report API",
-        "currency": "USD",
-        "spend_before_usd": decimal_text(before_amount),
-        "observed_spend_at_denial_usd": decimal_text(after_amount),
-        "measured_overshoot_usd": decimal_text(overshoot),
-        "observed_at": after["captured_at"],
-        "attribution": "isolated_workspace_with_no_calls_after_provider_denial",
+    phases = {
+        "operational_acceptance": operational,
+        "temporary_refusal": refusal,
+        "restored_acceptance": restored,
     }
-    result["cap_control"] = readbacks
-    return result
+    observed = {
+        phase: validate_phase(evidence, phase, policy)
+        for phase, evidence in phases.items()
+    }
+    invariant_fields = (
+        "base_sha",
+        "request_sha256",
+        "patch_sha256",
+        "observed_rootfs_sha256",
+        "image_recipe_sha256",
+        "production_parity_sha256",
+        "host_contract_sha256",
+    )
+    for field in invariant_fields:
+        if len({phases[phase][field] for phase in PHASES}) != 1:
+            raise ValueError(f"A115 phase {field} values differ")
+    if (
+        len(
+            {
+                phases[phase]["provider_observation"]["request_body_sha256"]
+                for phase in PHASES
+            }
+        )
+        != 1
+    ):
+        raise ValueError("A115 provider request bodies are not byte-identical")
+
+    workspace_id = policy["workspace"]["id"]
+    before_amount, before_time = validate_snapshot(settled_before, workspace_id)
+    after_amount, after_time = validate_snapshot(settled_after, workspace_id)
+    readbacks, cap_times = validate_cap_readbacks(readbacks, policy)
+    operational_cap = (
+        Decimal(policy["spend_enforcement"]["operational_cap_cents"]) / 100
+    )
+    temporary_cap = (
+        Decimal(policy["spend_enforcement"]["qualification_cap_cents"]) / 100
+    )
+    minimum_window = policy["spend_enforcement"]["minimum_settlement_window_seconds"]
+
+    if not (
+        cap_times["operational_acceptance"][1]
+        <= observed["operational_acceptance"]
+        <= before_time
+        <= cap_times["temporary_refusal"][0]
+        <= cap_times["temporary_refusal"][1]
+        <= observed["temporary_refusal"]
+        <= cap_times["restored_acceptance"][0]
+        <= cap_times["restored_acceptance"][1]
+        <= after_time
+        <= observed["restored_acceptance"]
+    ):
+        raise ValueError("A115 cost, cap, and provider observations are out of order")
+    settlement_window = int(
+        (after_time - observed["temporary_refusal"]).total_seconds()
+    )
+    if settlement_window < minimum_window:
+        raise ValueError("post-refusal cost has not completed the settlement window")
+    if before_amount <= temporary_cap:
+        raise ValueError("temporary cap was not lowered below already-settled spend")
+    if before_amount >= operational_cap or after_amount >= operational_cap:
+        raise ValueError("operational workspace cap was not demonstrably nonbinding")
+    if after_amount < before_amount:
+        raise ValueError("post-refusal settled spend moved backwards")
+
+    preexisting = before_amount - temporary_cap
+    incremental = after_amount - before_amount
+    return {
+        "schema_version": 2,
+        "provider": "anthropic",
+        "qualification_requirement": "provider-spend-enforcement",
+        "authorization_ruling": "A115",
+        "organization_id": policy["organization"]["id"],
+        "workspace_id": workspace_id,
+        "service_account_id": policy["service_account"]["id"],
+        "request_binding": {
+            "model": policy["spend_enforcement"]["model"],
+            "endpoint": "/v1/messages",
+            "request_body_sha256": operational["provider_observation"][
+                "request_body_sha256"
+            ],
+            "byte_identical_across_phases": True,
+        },
+        "phases": phases,
+        "cap_control": readbacks,
+        "cost_measurement": {
+            "source": "Anthropic Cost Report API",
+            "currency": "USD",
+            "settled_spend_before_activation_usd": decimal_text(before_amount),
+            "preexisting_excess_at_activation_usd": decimal_text(preexisting),
+            "settled_spend_after_refusal_usd": decimal_text(after_amount),
+            "incremental_spend_before_refusal_usd": decimal_text(incremental),
+            "before_captured_at": settled_before["captured_at"],
+            "after_captured_at": settled_after["captured_at"],
+            "settlement_window_seconds": settlement_window,
+            "attribution": "A115_acceptance_refusal_acceptance_workspace_only_cap_change",
+        },
+    }
 
 
 def write_json(path: Path, value: dict[str, Any]) -> None:
@@ -250,9 +499,11 @@ def main() -> int:
     snapshot = subparsers.add_parser("snapshot")
     snapshot.add_argument("--output", required=True, type=Path)
     final = subparsers.add_parser("finalize")
-    final.add_argument("--worker-evidence", required=True, type=Path)
-    final.add_argument("--before-cost", required=True, type=Path)
-    final.add_argument("--after-cost", type=Path)
+    final.add_argument("--operational-evidence", required=True, type=Path)
+    final.add_argument("--refusal-evidence", required=True, type=Path)
+    final.add_argument("--restored-evidence", required=True, type=Path)
+    final.add_argument("--settled-before", required=True, type=Path)
+    final.add_argument("--settled-after", required=True, type=Path)
     final.add_argument("--cap-readbacks", required=True, type=Path)
     final.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
@@ -263,15 +514,12 @@ def main() -> int:
             fetch_workspace_cost(args.profile, policy["workspace"]["id"]),
         )
         return 0
-    after = (
-        load_json(args.after_cost)
-        if args.after_cost
-        else fetch_workspace_cost(args.profile, policy["workspace"]["id"])
-    )
     result = finalize(
-        load_json(args.worker_evidence),
-        load_json(args.before_cost),
-        after,
+        load_json(args.operational_evidence),
+        load_json(args.refusal_evidence),
+        load_json(args.restored_evidence),
+        load_json(args.settled_before),
+        load_json(args.settled_after),
         load_json(args.cap_readbacks),
         policy,
     )

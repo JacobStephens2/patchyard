@@ -70,6 +70,13 @@ expected_policy = {
         "model": "claude-opus-5",
         "operational_cap_cents": 5000,
         "qualification_cap_cents": 100,
+        "authorization_ruling": "A115",
+        "minimum_settlement_window_seconds": 10260,
+        "qualification_phases": [
+            "operational_acceptance",
+            "temporary_refusal",
+            "restored_acceptance",
+        ],
     },
     "service_account": {
         "id": policy.get("service_account", {}).get("id"),
@@ -171,14 +178,18 @@ for required in (
     if required not in runner:
         errors.append(f"control-plane issuance runner is missing: {required}")
 if "{{" in runner or "RUNNER_TEMPLATE_LINE" in runner:
-    errors.append("control-plane issuance runner still normalizes executable template data")
+    errors.append(
+        "control-plane issuance runner still normalizes executable template data"
+    )
 for forbidden in (
     'grep -R -F -q -- "$ACCESS_TOKEN"',
     'grep -R -F -q -- "$ASSERTION"',
     "ACCESS_TOKEN=",
 ):
     if forbidden in runner:
-        errors.append(f"control-plane issuance runner exposes a credential in argv: {forbidden}")
+        errors.append(
+            f"control-plane issuance runner exposes a credential in argv: {forbidden}"
+        )
 
 for required in (
     'dd if=/dev/stdin of="$CAPABILITY" bs=65536 count=1 iflag=fullblock',
@@ -261,7 +272,10 @@ for required in (
 runner_install = control_tasks.split(
     "- name: Install the Anthropic issuance-and-delivery qualification runner", 1
 )[1].split("\n- name:", 1)[0]
-if "ansible.builtin.copy" not in runner_install or "ansible.builtin.template" in runner_install:
+if (
+    "ansible.builtin.copy" not in runner_install
+    or "ansible.builtin.template" in runner_install
+):
     errors.append("Anthropic issuance runner is not installed byte-for-byte")
 if "anthropic-wif-signing.pem" in worker_tasks:
     errors.append("worker desired state references the control-plane signing key")
@@ -309,6 +323,7 @@ else:
         "production_parity_sha256",
         "provider",
         "provider_call",
+        "qualification_phase",
         "qualification_requirement",
         "request_sha256",
         "run_id",
@@ -358,6 +373,8 @@ else:
         errors.append("live result provider is not Anthropic")
     if result.get("qualification_requirement") != "issuance-delivery":
         errors.append("live result is not requirement 1")
+    if result.get("qualification_phase") != "none":
+        errors.append("live issuance result has an unexpected qualification phase")
     if result.get("git_remote_count") != 0:
         errors.append("live guest received a Git remote")
     if result.get("credential_removed_before_output") is not True:

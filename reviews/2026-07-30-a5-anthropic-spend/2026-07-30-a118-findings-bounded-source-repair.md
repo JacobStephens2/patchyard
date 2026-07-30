@@ -271,3 +271,29 @@ already documented requirement-1 live-evidence shape, image-recipe,
 host-contract, and phase diagnostics before stopping. No requirement-1 fixture
 was rerun because this source-only repair authorizes no worker or provider
 action.
+
+## Third-repair A78 result and A77 close
+
+A78 reviewed exact technical commit `62d2502` with Opus 5 at requested effort
+`max`. Claude Code exposed no actual-effort value, so the record claims the
+request rather than an unobservable realized setting. A78 rejected eleven novel
+in-bound mutations and returned **PASS**: both the runner/install-writer target
+and the guest-assertion target are closed, with no material finding.
+
+A78 also reported six defense-in-depth observations: an unpinned guest
+installation path, literal-only singular-writer syntax after coordinated
+re-pinning, later Ansible writers outside the task file, the terminal unpinned
+test, unbound gate wiring, and complete-file change friction. The build seat
+independently reproduced every checkable observation and conceded all six under
+A77. None defeats the reviewed runner's installed-vs-checkout comparisons
+before bearer minting. The retained sentence claiming that the image recipe is
+a complete guest-surface binding is conceded as inaccurate; it is not relied on
+as qualification evidence.
+
+The review and adjudication are recorded in
+`2026-07-30-a78-runner-guest-binding-review.md` and
+`2026-07-30-a77-runner-guest-binding-adjudication.md`. The third post-A118
+operational source-repair grant is exhausted. No further source repair, worker
+plan or mutation, provider request, credential issuance, cap action,
+behavioral acceptance, requirement-3 work, or qualification-flag change is
+authorized by this grant.

@@ -297,3 +297,29 @@ operational source-repair grant is exhausted. No further source repair, worker
 plan or mutation, provider request, credential issuance, cap action,
 behavioral acceptance, requirement-3 work, or qualification-flag change is
 authorized by this grant.
+
+## Subsequent clean-worker authorization and A9 stop
+
+Jacob later explicitly authorized the separately reviewed plan and worker
+replacement, and allowed a provider request only if the prerequisites made one
+useful. This operational grant is recorded here rather than minted as a new
+decision-log ruling; A119 remains reserved.
+
+A78 first rejected the correct replacement plan because its apply wrapper did
+not bind the reviewed bytes or source revision and validated converge inputs
+too late. Exact commit `6c161e9` repaired those three findings and tightened
+the plan action shape. Seven source-only weakening mutations failed. A78 then
+returned PASS after independently reproducing all seven.
+
+The exact saved plan created worker `588761785`, attached the reviewed worker
+firewall, and destroyed quarantined worker `588590370`. First converge stopped
+nonzero because Rocky's live BaseOS/AppStream projection offered incompatible
+Python package releases during cloud-init, leaving `firewalld` uninstalled.
+The worker never received Factory state or credentials. The second converge,
+qualification, isolation probe, and provider phases did not run. The full
+record and failure log are in
+`2026-07-30-a115-clean-worker-replacement-attempt.md`.
+
+No retry or manual host repair followed. A9 now requires escalation before any
+bootstrap source repair, new replacement plan, worker replacement, cap action,
+or provider request.

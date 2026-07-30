@@ -277,3 +277,19 @@ The exact review and adjudication are recorded in
 source has been installed, worker `588778422` remains quarantined and
 ineligible, and no credential, provider request, cap action, behavioral
 acceptance, requirement-3 work, or qualification-flag change has occurred.
+
+## Clean-worker plan authorization
+
+Jacob then explicitly answered, "I authorize the plan." This operational
+grant authorizes preparation of a mechanically pinned clean-worker replacement
+plan and its separate A78 review. It does not authorize applying that plan,
+modifying or reusing worker `588778422`, clearing its taint marker, issuing a
+credential, making a provider request, changing either Anthropic limit,
+starting behavioral acceptance or requirement 3, or changing a provider
+qualification flag. The authorization is recorded here under A115 rather than
+as a new decision-log ruling; A119 remains reserved.
+
+The generated plan and its non-executing boundary are recorded in
+`2026-07-30-a115-m1m2-clean-worker-replacement-plan.md`. At the time of this
+record, the plan was saved and mechanically inspected but not applied; a fresh
+A78 review remained required.

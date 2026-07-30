@@ -170,3 +170,104 @@ second operational post-A118 repair grant is exhausted. No further repair,
 clean-worker replacement, provider action, or live attempt follows without a
 new bounded authorization recorded in this work record. No new numbered ruling
 is to be created.
+
+## Third post-A118 operational repair authorization
+
+On 2026-07-30, after receiving the complete-launcher review and A77
+adjudication, Jacob answered `Yes` to authorize another bounded source-only
+repair. This is the third operational post-A118 repair grant. It is limited to
+the two conceded findings in
+`2026-07-30-a78-complete-launcher-binding-review.md`: the unbound runner and
+non-singular installed-path writers, and the substring-bound spend-guest
+assertions.
+
+The reason for the grant is that the complete launcher binding does not itself
+prove that the runner enforces the installed-source comparisons before bearer
+issuance, that no later Ansible task overwrites either executed path, or that
+the guest actually executes its credential-absence and receipt-cardinality
+assertions.
+
+Consistent with the governance-hygiene direction, this authorization is
+recorded here and is not a numbered decision-log ruling. It authorizes no
+worker plan or mutation, provider request, credential issuance, cap action,
+behavioral acceptance, requirement-3 work, or qualification-flag change.
+
+## Runner, installed-path, and guest binding repair
+
+The checker now binds the complete issuance-runner source at SHA-256
+`45ff683fdd9c9226e6fa07c5ea1de52bb7581f77eb231c42ea6c05c256feaa87`.
+That boundary includes the runner's independently measured installed launcher
+and one-shot hashes, their comparisons against checkout sources, and the order
+of those checks before capability issuance. The tests independently recompute
+the runner digest and require the same literal in the checker.
+
+The complete worker install-task source is bound at SHA-256
+`110cbffc6db188aafa1364e88901249290653134b7f0adc559152abf3f35df40`,
+and it must contain exactly one writer for each executed path:
+`/usr/local/sbin/patchyard-firecracker-run` and
+`/usr/local/libexec/patchyard-anthropic-one-shot`. This rejects a later task,
+including an alternate destination spelling inside the bound task source, that
+overwrites a reviewed executable after its normal install task. The tests
+independently recompute the task-source digest and require the same literal in
+the checker.
+
+The checker also binds the complete spend-guest source at SHA-256
+`229346fb350297b298c1b752188c0f7762ef9d5de77572156843070fecfcc654`.
+That boundary includes the credential-drive and provider-hosts absence checks
+and the full host-owned transport-receipt validation. The tests independently
+recompute this digest and require the same literal in the checker.
+
+## Added complete-boundary mutations
+
+Six new disposable source weakenings exercise the repair:
+
+1. move the installed-launcher comparison into dead code;
+2. make the expected launcher digest self-referential;
+3. remove the installed one-shot comparison;
+4. add a later Ansible writer that overwrites the launcher destination;
+5. move the guest credential-drive and provider-hosts assertions into dead
+   code; and
+6. short-circuit the guest's transport-receipt assertions with `true or`.
+
+Each mutation must make the real checker exit nonzero with its controlled
+failure header and the exact complete-source or singular-writer diagnostic.
+Together with the existing twenty cases, the harness now covers twenty-six
+source mutations without increasing the focused suite's 24-test count.
+
+The checker source remains independently pinned by the contract test. A78
+review of the exact repaired source SHA is required before any clean-worker
+replacement plan. This third operational grant is exhausted after that review
+and A77 adjudication; no live or provider action is authorized by it.
+
+## Third-repair verification
+
+The focused spend suite passed 24 tests. Its real-checker mutation subtest
+rejected all twenty-six disposable source weakenings, including the six added
+for this repair. The unmutated spend checker passed.
+
+Four additional disposable checker-source mutations weakened each new binding
+directly:
+
+| Mutated checker binding | Mutated checker SHA-256 | Result |
+| --- | --- | --- |
+| runner digest comparison guarded by `False and` | `be6d8b18ebb5702c5ea534029658b072afafe743c887c8c6797bf131a673640c` | pinned-checker test failed |
+| guest digest comparison guarded by `False and` | `80904f54467e0df6b67bfe7c054950ca02cbe0db50c11bf0b568cc9ef2cfa64a` | pinned-checker test failed |
+| worker-task digest comparison guarded by `False and` | `014604c82f86a358b8a23e1d8f393f7196ce3c0cee55500483d4dfcf1f0aa758` | pinned-checker test failed |
+| singular-writer comparison guarded by `False and` | `92d3cb91b16db0ba641a804fc1f085ad6338a06abb7eb0a3255ffc71b3e438cb` | pinned-checker test failed |
+
+None of those mutations was retained. The reviewed checker source remains
+SHA-256
+`231676da8fb3ca579556b9b78e63374ae206003e7cfdaa150668297aaf8a5815`.
+
+The complete application gate passed after regenerating its deterministic
+codebase-metrics projection. OpenTofu formatting, initialization, and
+validation passed for all three roots; stack, independence, worker-runtime,
+worker-qualification, spend, and preview checks passed. ShellCheck passed. All
+four Ansible lint profiles and all four playbook syntax checks passed. The full
+Ansible unit suite retained its known requirement-1 evidence boundary: 127 of
+129 tests passed, with only stale live guest-image-recipe and host-contract
+digests failing. The infrastructure wrapper likewise reached only the four
+already documented requirement-1 live-evidence shape, image-recipe,
+host-contract, and phase diagnostics before stopping. No requirement-1 fixture
+was rerun because this source-only repair authorizes no worker or provider
+action.

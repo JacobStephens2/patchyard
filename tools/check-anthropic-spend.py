@@ -28,6 +28,7 @@ RUNNER_PATH = REPO / "worker/qualification/patchyard-run-anthropic-issuance"
 LAUNCHER_PATH = REPO / "worker/runtime/patchyard-firecracker-run"
 TRANSPORT_PATH = REPO / "worker/runtime/patchyard-anthropic-one-shot"
 GUEST_PATH = REPO / "worker/image/patchyard-guest-run"
+WORKER_TASKS_PATH = REPO / "infra/ansible/roles/worker/tasks/main.yml"
 ANTHROPIC_REQUEST = b"Anthropic provider-side spend enforcement qualification.\n"
 ANTHROPIC_PATCH = (
     b"diff --git a/anthropic-spend-qualified.txt b/anthropic-spend-qualified.txt\n"
@@ -52,8 +53,17 @@ EXPECTED_AUTH_CONFIG_BLOCK = '''{
 EXPECTED_LAUNCHER_SOURCE_SHA256 = (
     "c2b4275704ab0447a08e157be994a0bd18e505a843f1a017ce496220f3e83928"
 )
+EXPECTED_RUNNER_SOURCE_SHA256 = (
+    "45ff683fdd9c9226e6fa07c5ea1de52bb7581f77eb231c42ea6c05c256feaa87"
+)
 EXPECTED_TRANSPORT_SOURCE_SHA256 = (
     "72d62bfec46d4ba50c5e61ec07736d1e39a890007ada10de02e99c4a894db66c"
+)
+EXPECTED_GUEST_SOURCE_SHA256 = (
+    "229346fb350297b298c1b752188c0f7762ef9d5de77572156843070fecfcc654"
+)
+EXPECTED_WORKER_TASKS_SOURCE_SHA256 = (
+    "110cbffc6db188aafa1364e88901249290653134b7f0adc559152abf3f35df40"
 )
 EXPECTED_PROVIDER_CALL_SEQUENCE = '''  setup_provider_transport
   assert_provider_transport_preflight
@@ -171,13 +181,23 @@ runner = RUNNER_PATH.read_text()
 launcher = LAUNCHER_PATH.read_text()
 transport = TRANSPORT_PATH.read_text()
 guest = GUEST_PATH.read_text()
-worker_tasks = (
-    REPO / "infra/ansible/roles/worker/tasks/main.yml"
-).read_text()
+worker_tasks = WORKER_TASKS_PATH.read_text()
+if digest(RUNNER_PATH) != EXPECTED_RUNNER_SOURCE_SHA256:
+    errors.append("post-A118 issuance runner differs from its complete source binding")
 if digest(TRANSPORT_PATH) != EXPECTED_TRANSPORT_SOURCE_SHA256:
     errors.append("A118 one-shot transport differs from its complete source binding")
 if digest(LAUNCHER_PATH) != EXPECTED_LAUNCHER_SOURCE_SHA256:
     errors.append("post-A118 launcher differs from its complete source binding")
+if digest(GUEST_PATH) != EXPECTED_GUEST_SOURCE_SHA256:
+    errors.append("post-A118 spend guest differs from its complete source binding")
+if digest(WORKER_TASKS_PATH) != EXPECTED_WORKER_TASKS_SOURCE_SHA256:
+    errors.append("post-A118 worker install tasks differ from their complete source binding")
+for installed_path, label in (
+    ("dest: /usr/local/sbin/patchyard-firecracker-run", "launcher"),
+    ("dest: /usr/local/libexec/patchyard-anthropic-one-shot", "one-shot"),
+):
+    if worker_tasks.count(installed_path) != 1:
+        errors.append(f"post-A118 installed {label} path is not singular")
 if launcher.count(EXPECTED_PROVIDER_CALL_SEQUENCE) != 1:
     errors.append("post-A118 setup, preflight, and transfer are not exactly adjacent")
 if launcher.count(EXPECTED_IPV6_PREFLIGHT_COMPARISON) != 1:

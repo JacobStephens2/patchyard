@@ -15,8 +15,17 @@ ROOT = pathlib.Path(__file__).resolve().parents[3]
 EXPECTED_LAUNCHER_SOURCE_SHA256 = (
     "c2b4275704ab0447a08e157be994a0bd18e505a843f1a017ce496220f3e83928"
 )
+EXPECTED_RUNNER_SOURCE_SHA256 = (
+    "45ff683fdd9c9226e6fa07c5ea1de52bb7581f77eb231c42ea6c05c256feaa87"
+)
+EXPECTED_GUEST_SOURCE_SHA256 = (
+    "229346fb350297b298c1b752188c0f7762ef9d5de77572156843070fecfcc654"
+)
+EXPECTED_WORKER_TASKS_SOURCE_SHA256 = (
+    "110cbffc6db188aafa1364e88901249290653134b7f0adc559152abf3f35df40"
+)
 EXPECTED_CHECKER_SOURCE_SHA256 = (
-    "6b49386cd63cb73d4aca399ac7d3b4d4bdace93c6f66bddf7ec61190c1630048"
+    "231676da8fb3ca579556b9b78e63374ae206003e7cfdaa150668297aaf8a5815"
 )
 MODULE_PATH = ROOT / "tools/anthropic-spend-evidence.py"
 SPEC = importlib.util.spec_from_file_location("anthropic_spend_evidence", MODULE_PATH)
@@ -445,8 +454,37 @@ class AnthropicA117TransportContract(unittest.TestCase):
             ).hexdigest(),
             EXPECTED_LAUNCHER_SOURCE_SHA256,
         )
+        self.assertEqual(
+            hashlib.sha256(
+                (
+                    ROOT
+                    / "worker/qualification/patchyard-run-anthropic-issuance"
+                ).read_bytes()
+            ).hexdigest(),
+            EXPECTED_RUNNER_SOURCE_SHA256,
+        )
+        self.assertEqual(
+            hashlib.sha256(
+                (ROOT / "worker/image/patchyard-guest-run").read_bytes()
+            ).hexdigest(),
+            EXPECTED_GUEST_SOURCE_SHA256,
+        )
+        self.assertEqual(
+            hashlib.sha256(
+                (
+                    ROOT / "infra/ansible/roles/worker/tasks/main.yml"
+                ).read_bytes()
+            ).hexdigest(),
+            EXPECTED_WORKER_TASKS_SOURCE_SHA256,
+        )
         self.assertIn("EXPECTED_LAUNCHER_SOURCE_SHA256", self.checker)
         self.assertIn(EXPECTED_LAUNCHER_SOURCE_SHA256, self.checker)
+        self.assertIn("EXPECTED_RUNNER_SOURCE_SHA256", self.checker)
+        self.assertIn(EXPECTED_RUNNER_SOURCE_SHA256, self.checker)
+        self.assertIn("EXPECTED_GUEST_SOURCE_SHA256", self.checker)
+        self.assertIn(EXPECTED_GUEST_SOURCE_SHA256, self.checker)
+        self.assertIn("EXPECTED_WORKER_TASKS_SOURCE_SHA256", self.checker)
+        self.assertIn(EXPECTED_WORKER_TASKS_SOURCE_SHA256, self.checker)
         self.assertEqual(
             hashlib.sha256(
                 (ROOT / "tools/check-anthropic-spend.py").read_bytes()
@@ -711,6 +749,70 @@ class AnthropicA117TransportContract(unittest.TestCase):
                 "    iifname \"$PROVIDER_HOST_VETH\" counter accept\n"
                 "  assert_provider_transport_preflight",
             ),
+            (
+                "worker/qualification/patchyard-run-anthropic-issuance",
+                "LAUNCHER_SOURCE_SHA256=${BASH_REMATCH[1]}\n"
+                '[[ "$LAUNCHER_SOURCE_SHA256" == "$EXPECTED_LAUNCHER_SHA256" ]]',
+                "LAUNCHER_SOURCE_SHA256=${BASH_REMATCH[1]}\n"
+                "if false; then\n"
+                '  [[ "$LAUNCHER_SOURCE_SHA256" == "$EXPECTED_LAUNCHER_SHA256" ]]\n'
+                "fi",
+            ),
+            (
+                "worker/qualification/patchyard-run-anthropic-issuance",
+                "LAUNCHER_SOURCE_SHA256=${BASH_REMATCH[1]}\n"
+                '[[ "$LAUNCHER_SOURCE_SHA256" == "$EXPECTED_LAUNCHER_SHA256" ]]',
+                "LAUNCHER_SOURCE_SHA256=${BASH_REMATCH[1]}\n"
+                "EXPECTED_LAUNCHER_SHA256=$LAUNCHER_SOURCE_SHA256\n"
+                '[[ "$LAUNCHER_SOURCE_SHA256" == "$EXPECTED_LAUNCHER_SHA256" ]]',
+            ),
+            (
+                "worker/qualification/patchyard-run-anthropic-issuance",
+                '  [[ "$TRANSPORT_SOURCE_SHA256" == "$EXPECTED_TRANSPORT_SHA256" ]]',
+                "  : # removed transport comparison",
+            ),
+            (
+                "infra/ansible/roles/worker/tasks/main.yml",
+                "- name: Install the explicit supervisor worker-teardown operation",
+                "- name: Overwrite the production launcher from a different source\n"
+                "  ansible.builtin.copy:\n"
+                '    src: "{{ playbook_dir }}/../../worker/runtime/patchyard-run-fixture"\n'
+                "    dest: /usr/local/sbin/patchyard-firecracker-run\n"
+                "    owner: root\n"
+                "    group: root\n"
+                '    mode: "0750"\n\n'
+                "- name: Install the explicit supervisor worker-teardown operation",
+            ),
+            (
+                "worker/image/patchyard-guest-run",
+                "  [[ ! -e /dev/disk/by-label/ETA_CREDENTIAL ]]\n"
+                "  [[ ! -s /input/provider-hosts ]]",
+                "  if false; then\n"
+                "    [[ ! -e /dev/disk/by-label/ETA_CREDENTIAL ]]\n"
+                "    [[ ! -s /input/provider-hosts ]]\n"
+                "  fi",
+            ),
+            (
+                "worker/image/patchyard-guest-run",
+                "    and .schema_version == 1 and .authorization_ruling == \"A117\"\n"
+                "    and .mechanism == \"host-one-shot-network-namespace-v1\"\n"
+                "    and .http_version == \"1.0\" and .connection_close == true\n"
+                "    and .admitted_conntrack_ids == 1 and .admitted_new_connections == 1\n"
+                "    and .rejected_new_connections == 0 and .rejected_connection_packets == 0\n"
+                "    and .guest_provider_allowlist_entries == 0\n"
+                "    and .namespace_ipv6_disabled == true\n"
+                "    and .credential_removed_before_guest_boot == true",
+                "    and (true or (\n"
+                "      .schema_version == 1 and .authorization_ruling == \"A117\"\n"
+                "      and .mechanism == \"host-one-shot-network-namespace-v1\"\n"
+                "      and .http_version == \"1.0\" and .connection_close == true\n"
+                "      and .admitted_conntrack_ids == 1 and .admitted_new_connections == 1\n"
+                "      and .rejected_new_connections == 0 and .rejected_connection_packets == 0\n"
+                "      and .guest_provider_allowlist_entries == 0\n"
+                "      and .namespace_ipv6_disabled == true\n"
+                "      and .credential_removed_before_guest_boot == true\n"
+                "    ))",
+            ),
         )
         expected_diagnostic = {
             "worker/runtime/patchyard-anthropic-one-shot": (
@@ -725,6 +827,36 @@ class AnthropicA117TransportContract(unittest.TestCase):
             "worker/image/patchyard-guest-run": (
                 "  A117 spend guest still contains the provider destination"
             ),
+            "infra/ansible/roles/worker/tasks/main.yml": (
+                "  post-A118 installed launcher path is not singular"
+            ),
+        }
+        complete_source_diagnostic = {
+            (
+                "worker/qualification/patchyard-run-anthropic-issuance",
+                "LAUNCHER_SOURCE_SHA256=${BASH_REMATCH[1]}\n"
+                '[[ "$LAUNCHER_SOURCE_SHA256" == "$EXPECTED_LAUNCHER_SHA256" ]]',
+            ): "  post-A118 issuance runner differs from its complete source binding",
+            (
+                "worker/qualification/patchyard-run-anthropic-issuance",
+                '  [[ "$TRANSPORT_SOURCE_SHA256" == "$EXPECTED_TRANSPORT_SHA256" ]]',
+            ): "  post-A118 issuance runner differs from its complete source binding",
+            (
+                "worker/image/patchyard-guest-run",
+                "  [[ ! -e /dev/disk/by-label/ETA_CREDENTIAL ]]\n"
+                "  [[ ! -s /input/provider-hosts ]]",
+            ): "  post-A118 spend guest differs from its complete source binding",
+            (
+                "worker/image/patchyard-guest-run",
+                "    and .schema_version == 1 and .authorization_ruling == \"A117\"\n"
+                "    and .mechanism == \"host-one-shot-network-namespace-v1\"\n"
+                "    and .http_version == \"1.0\" and .connection_close == true\n"
+                "    and .admitted_conntrack_ids == 1 and .admitted_new_connections == 1\n"
+                "    and .rejected_new_connections == 0 and .rejected_connection_packets == 0\n"
+                "    and .guest_provider_allowlist_entries == 0\n"
+                "    and .namespace_ipv6_disabled == true\n"
+                "    and .credential_removed_before_guest_boot == true",
+            ): "  post-A118 spend guest differs from its complete source binding",
         }
         for relative, before, after in mutations:
             with self.subTest(relative=relative, before=before):
@@ -733,7 +865,12 @@ class AnthropicA117TransportContract(unittest.TestCase):
                 diagnostics = result.stderr.splitlines()
                 self.assertTrue(diagnostics, result.stdout)
                 self.assertEqual(diagnostics[0], "Anthropic spend check: failed")
-                self.assertIn(expected_diagnostic[relative], diagnostics[1:])
+                self.assertIn(
+                    complete_source_diagnostic.get(
+                        (relative, before), expected_diagnostic[relative]
+                    ),
+                    diagnostics[1:],
+                )
 
 
 if __name__ == "__main__":

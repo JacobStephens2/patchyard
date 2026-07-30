@@ -118,16 +118,25 @@ provider observation, and the host-owned transport receipt. Its provider-hosts
 file is empty, no credential drive is attached, and the host additionally
 requires zero rejected guest-egress packets. This removes the false A116 claim
 that a command-name scan could make a general-purpose parity image a one-call
-environment. The exact installed one-shot client joins the spend host-contract
-digest; its complete source and curl header-only configuration are also pinned
-by the source checker. One reviewed SHA-256 binds the complete launcher source,
-including every executable function definition, transport setup, preflight,
-counter and set readback, teardown helper, and call site. The checker also
-requires one exact adjacent setup-preflight-transfer sequence and the exact
-three-way IPv6 comparison. A later replacement definition, dead-code
-preflight, fabricated kernel readback, intervening transport change, rule or
-qualifier change, or early bypass changes the complete launcher digest. The
-guest image recipe remains a complete binding of the guest surface.
+environment. The complete worker install-task source is digest-bound, and the
+exact installed launcher and one-shot destinations each have one Ansible
+writer. The runner independently compares their installed bytes to the checkout
+sources before bearer issuance, and one reviewed SHA-256 binds the complete
+runner source so those comparisons cannot be bypassed or made self-referential
+without changing the binding. The exact installed one-shot client joins the
+spend host-contract digest; its complete source and curl header-only
+configuration are also pinned by the source checker. A second reviewed SHA-256
+binds the complete launcher source, including every executable function
+definition, transport setup, preflight, counter and set readback, teardown
+helper, and call site. The checker also requires one exact adjacent
+setup-preflight-transfer sequence and the exact three-way IPv6 comparison. A
+later replacement definition, dead-code preflight, fabricated kernel readback,
+intervening transport change, rule or qualifier change, or early bypass changes
+the complete launcher digest. The complete spend guest source is independently
+digest-bound, so its credential-drive absence, empty provider-hosts file, and
+receipt-cardinality checks cannot be dead-coded or short-circuited without
+changing the binding. The guest image recipe remains a complete binding of the
+guest surface.
 Requirement 1 separately pins its exact Models request and two loopback calls,
 then rejects a remaining provider-capable guest command.
 

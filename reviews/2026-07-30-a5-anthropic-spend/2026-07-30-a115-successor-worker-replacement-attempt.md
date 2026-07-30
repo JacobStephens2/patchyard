@@ -193,3 +193,13 @@ seconds. No source was changed or test weakened. The available GitHub token was
 not permitted to invoke the rerun endpoint, so this audit-only record update
 creates a new committed head and a second authoritative CI execution while
 preserving the first failure.
+
+## First requirement-2 operational attempt
+
+Jacob's tightly bracketed Console readback and the first successor
+operational-acceptance attempt are recorded in
+`2026-07-30-a115-spend-run-root-repair.md`. The attempt stopped with local curl
+status 23 before producing a provider observation. A source permission defect
+is conceded, worker `588778422` is boundary-tainted and permanently ineligible
+for reuse, and the bounded repair is awaiting A78 review. No second provider
+request, cap mutation, or worker replacement followed.

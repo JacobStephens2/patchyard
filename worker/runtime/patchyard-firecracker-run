@@ -376,7 +376,14 @@ trap 'record_failure "$LINENO" "$?"' ERR
 
 FAILURE_STAGE=runtime-staging
 install -d -m 0750 "$RUNTIME_ROOT" "$JAIL_ROOT" "$SOURCE_STAGE" "$INPUT_STAGE"
-install -d -m 0700 "$RUN_TMPFS"
+if $SPEND_MODE; then
+  # The one-shot request runs as factory-worker. Grant that identity traversal of
+  # this exact run root without directory read or write access; the capability
+  # itself remains root:root 0600 and the worker-owned raw directory is 0700.
+  install -d -m 0710 -o root -g factory-worker "$RUN_TMPFS"
+else
+  install -d -m 0700 -o root -g root "$RUN_TMPFS"
+fi
 install -d -m 0700 -o factory-worker -g factory-worker "$RESULT_EXTRACT"
 # Jailer creates the path above its chroot as root. Keep those directories
 # root-owned, but let the dedicated parser identity traverse the exact run path

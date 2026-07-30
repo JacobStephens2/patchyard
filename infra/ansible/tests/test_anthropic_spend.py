@@ -13,7 +13,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 EXPECTED_LAUNCHER_SOURCE_SHA256 = (
-    "c2b4275704ab0447a08e157be994a0bd18e505a843f1a017ce496220f3e83928"
+    "5e69e5f99389bbbcc7796d1623fc0cefa1912ae4050b14eb2c47cb3772b697d5"
 )
 EXPECTED_RUNNER_SOURCE_SHA256 = (
     "45ff683fdd9c9226e6fa07c5ea1de52bb7581f77eb231c42ea6c05c256feaa87"
@@ -25,7 +25,7 @@ EXPECTED_WORKER_TASKS_SOURCE_SHA256 = (
     "110cbffc6db188aafa1364e88901249290653134b7f0adc559152abf3f35df40"
 )
 EXPECTED_CHECKER_SOURCE_SHA256 = (
-    "231676da8fb3ca579556b9b78e63374ae206003e7cfdaa150668297aaf8a5815"
+    "d44c188a0113b8b4afbbe0ecd9ecee7f950a8815932d791672291d20c5ce3dbc"
 )
 MODULE_PATH = ROOT / "tools/anthropic-spend-evidence.py"
 SPEC = importlib.util.spec_from_file_location("anthropic_spend_evidence", MODULE_PATH)
@@ -492,9 +492,36 @@ class AnthropicA117TransportContract(unittest.TestCase):
             EXPECTED_CHECKER_SOURCE_SHA256,
         )
         self.assertIn("EXPECTED_PROVIDER_CALL_SEQUENCE", self.checker)
+        self.assertIn("EXPECTED_RUN_ROOT_STAGING", self.checker)
         self.assertIn(
             "EXPECTED_IPV6_PREFLIGHT_COMPARISON",
             self.checker,
+        )
+
+    def test_spend_run_root_grants_only_required_traversal(self) -> None:
+        exact = '''if $SPEND_MODE; then
+  # The one-shot request runs as factory-worker. Grant that identity traversal of
+  # this exact run root without directory read or write access; the capability
+  # itself remains root:root 0600 and the worker-owned raw directory is 0700.
+  install -d -m 0710 -o root -g factory-worker "$RUN_TMPFS"
+else
+  install -d -m 0700 -o root -g root "$RUN_TMPFS"
+fi'''
+        self.assertEqual(self.launcher.count(exact), 1)
+        staging_index = self.launcher.index(exact)
+        self.assertLess(
+            self.launcher.index("FAILURE_STAGE=runtime-staging"), staging_index
+        )
+        self.assertLess(
+            staging_index,
+            self.launcher.index(
+                'install -d -m 0700 -o factory-worker -g factory-worker '
+                '"$RESULT_EXTRACT"'
+            ),
+        )
+        self.assertLess(
+            staging_index,
+            self.launcher.index('CAPABILITY="$RUN_TMPFS/capability.json"'),
         )
 
     def test_missing_request_id_retains_status_and_shape(self) -> None:
@@ -616,6 +643,21 @@ class AnthropicA117TransportContract(unittest.TestCase):
                 "worker/runtime/patchyard-firecracker-run",
                 '"$PROVIDER_ADMITTED_NEW" -eq 1',
                 '"$PROVIDER_ADMITTED_NEW" -ge 1',
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                '  install -d -m 0710 -o root -g factory-worker "$RUN_TMPFS"',
+                '  install -d -m 0700 -o root -g root "$RUN_TMPFS"',
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                '  install -d -m 0710 -o root -g factory-worker "$RUN_TMPFS"',
+                '  install -d -m 0770 -o root -g factory-worker "$RUN_TMPFS"',
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                '  install -d -m 0700 -o root -g root "$RUN_TMPFS"',
+                '  install -d -m 0710 -o root -g factory-worker "$RUN_TMPFS"',
             ),
             (
                 "worker/runtime/patchyard-firecracker-run",
@@ -832,6 +874,14 @@ class AnthropicA117TransportContract(unittest.TestCase):
             ),
         }
         complete_source_diagnostic = {
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                '  install -d -m 0710 -o root -g factory-worker "$RUN_TMPFS"',
+            ): "  A115 spend run-root traversal differs from its exact binding",
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                '  install -d -m 0700 -o root -g root "$RUN_TMPFS"',
+            ): "  A115 spend run-root traversal differs from its exact binding",
             (
                 "worker/qualification/patchyard-run-anthropic-issuance",
                 "LAUNCHER_SOURCE_SHA256=${BASH_REMATCH[1]}\n"

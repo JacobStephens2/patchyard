@@ -51,7 +51,7 @@ EXPECTED_AUTH_CONFIG_BLOCK = '''{
   printf 'header = "content-type: application/json"\\n'
 } >"$AUTH_CONFIG"'''
 EXPECTED_LAUNCHER_SOURCE_SHA256 = (
-    "c2b4275704ab0447a08e157be994a0bd18e505a843f1a017ce496220f3e83928"
+    "5e69e5f99389bbbcc7796d1623fc0cefa1912ae4050b14eb2c47cb3772b697d5"
 )
 EXPECTED_RUNNER_SOURCE_SHA256 = (
     "45ff683fdd9c9226e6fa07c5ea1de52bb7581f77eb231c42ea6c05c256feaa87"
@@ -68,6 +68,14 @@ EXPECTED_WORKER_TASKS_SOURCE_SHA256 = (
 EXPECTED_PROVIDER_CALL_SEQUENCE = '''  setup_provider_transport
   assert_provider_transport_preflight
   "$ANTHROPIC_ONE_SHOT" "$PROVIDER_NETNS" "$CAPABILITY" "$PROVIDER_STAGE"'''
+EXPECTED_RUN_ROOT_STAGING = '''if $SPEND_MODE; then
+  # The one-shot request runs as factory-worker. Grant that identity traversal of
+  # this exact run root without directory read or write access; the capability
+  # itself remains root:root 0600 and the worker-owned raw directory is 0700.
+  install -d -m 0710 -o root -g factory-worker "$RUN_TMPFS"
+else
+  install -d -m 0700 -o root -g root "$RUN_TMPFS"
+fi'''
 EXPECTED_IPV6_PREFLIGHT_COMPARISON = (
     'if [[ "$ipv6_all" != 1 || "$ipv6_default" != 1 || "$ipv6_eth0" != 1 ]]; then'
 )
@@ -200,6 +208,18 @@ for installed_path, label in (
         errors.append(f"post-A118 installed {label} path is not singular")
 if launcher.count(EXPECTED_PROVIDER_CALL_SEQUENCE) != 1:
     errors.append("post-A118 setup, preflight, and transfer are not exactly adjacent")
+if launcher.count(EXPECTED_RUN_ROOT_STAGING) != 1:
+    errors.append("A115 spend run-root traversal differs from its exact binding")
+else:
+    staging_index = launcher.index(EXPECTED_RUN_ROOT_STAGING)
+    if not (
+        launcher.index('FAILURE_STAGE=runtime-staging') < staging_index
+        < launcher.index(
+            'install -d -m 0700 -o factory-worker -g factory-worker "$RESULT_EXTRACT"'
+        )
+        < launcher.index('CAPABILITY="$RUN_TMPFS/capability.json"')
+    ):
+        errors.append("A115 spend run-root traversal is outside runtime staging")
 if launcher.count(EXPECTED_IPV6_PREFLIGHT_COMPARISON) != 1:
     errors.append("post-A118 exact IPv6 preflight comparison differs from its binding")
 

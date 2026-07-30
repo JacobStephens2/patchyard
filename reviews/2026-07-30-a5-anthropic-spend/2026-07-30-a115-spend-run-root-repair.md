@@ -293,3 +293,27 @@ The generated plan and its non-executing boundary are recorded in
 `2026-07-30-a115-m1m2-clean-worker-replacement-plan.md`. At the time of this
 record, the plan was saved and mechanically inspected but not applied; a fresh
 A78 review remained required.
+
+## Clean-worker plan review result
+
+A78 reviewed plan-record commit
+`5a5ba96f7030214e0fe022369a3361e496b3b738`, operational source
+`bc496e47bfeb703876495e80b011d88e10c7c232`, binary plan digest
+`a87568c6707f7d1e5bf581072d70584be117d01e785d1e12ff64ee3665415a59`,
+and rendered-plan digest
+`d5c222e7b353e67eead2ff391fad1800e2537fe2e8bfedadd471cf3202649891`.
+The reviewer returned **PASS with no material findings** after an offline plan
+decode, the focused suites, and an independent 34-case mutation harness.
+
+Five nonblocking observations and their A77 dispositions are recorded in
+`2026-07-30-a78-m1m2-clean-worker-replacement-plan-review.md` and
+`2026-07-30-a77-m1m2-clean-worker-replacement-plan-adjudication.md`. They cover
+the broad action-shape gate, one potentially ambiguous record sentence, the
+unchecked GitHub App key mode, the plan-only tag-firewall guard, and one benign
+provider-drift entry. None changes the exact-plan PASS. No repair or plan
+regeneration followed.
+
+The plan remains unapplied. Worker `588778422` remains quarantined and
+ineligible. A separately authorized apply is the next boundary; no credential,
+provider request, Console action, behavioral acceptance, requirement-3 work,
+or qualification-flag change is authorized by this review result.

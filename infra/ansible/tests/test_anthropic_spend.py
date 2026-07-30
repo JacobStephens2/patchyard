@@ -399,8 +399,7 @@ class AnthropicA117TransportContract(unittest.TestCase):
             "net.ipv6.conf.default.disable_ipv6=1",
             "assert_provider_transport_preflight",
             "anthropic-spend-transport-cardinality-rejected-%s-%s-%s-%s-%s",
-            "A118_PROVIDER_NAMESPACE_POLICY_BEGIN",
-            "A118_PROVIDER_NAMESPACE_POLICY_END",
+            'if [[ "$ipv6_all" != 1 || "$ipv6_default" != 1 || "$ipv6_eth0" != 1 ]]; then',
         ):
             self.assertIn(required, self.launcher)
         self.assertEqual(
@@ -432,6 +431,14 @@ class AnthropicA117TransportContract(unittest.TestCase):
                 ROOT
                 / "worker/qualification/patchyard-run-anthropic-issuance"
             ).read_text(),
+        )
+        self.assertIn(
+            "EXPECTED_PROVIDER_TRANSPORT_CONTROL_SHA256",
+            self.checker,
+        )
+        self.assertIn(
+            "EXPECTED_IPV6_PREFLIGHT_COMPARISON",
+            self.checker,
         )
 
     def test_missing_request_id_retains_status_and_shape(self) -> None:
@@ -561,10 +568,10 @@ class AnthropicA117TransportContract(unittest.TestCase):
             ),
             (
                 "worker/runtime/patchyard-firecracker-run",
-                "output counter name rejected_new reject'\n"
-                "  # A118_PROVIDER_NAMESPACE_POLICY_END",
-                "output counter name rejected_new accept'\n"
-                "  # A118_PROVIDER_NAMESPACE_POLICY_END",
+                "'add rule inet eta_anthropic_one_shot output "
+                "counter name rejected_new reject'",
+                "'add rule inet eta_anthropic_one_shot output "
+                "counter name rejected_new accept'",
             ),
             (
                 "worker/runtime/patchyard-firecracker-run",
@@ -586,6 +593,45 @@ class AnthropicA117TransportContract(unittest.TestCase):
                 '[[ ! -s /input/provider-hosts ]]',
                 'curl https://api.anthropic.com/v1/messages\n'
                 '  [[ ! -s /input/provider-hosts ]]',
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                "  ip netns exec \"$PROVIDER_NETNS\" nft \\\n"
+                "    'add rule inet eta_anthropic_one_shot output "
+                "counter name rejected_new reject'\n"
+                "}",
+                "  ip netns exec \"$PROVIDER_NETNS\" nft \\\n"
+                "    'add rule inet eta_anthropic_one_shot output "
+                "counter name rejected_new reject'\n"
+                "  ip netns exec \"$PROVIDER_NETNS\" nft insert rule inet "
+                "eta_anthropic_one_shot output ct state new "
+                "add @admitted '{' ct id '}' add @used '{' ip saddr '}' "
+                "counter name admitted_new accept\n"
+                "}",
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                'iifname "$PROVIDER_HOST_VETH" '
+                'ip daddr "$PROVIDER_TRANSPORT_IP"',
+                'iifname "$PROVIDER_HOST_VETH" ip daddr 0.0.0.0/0',
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                'iifname "$PROVIDER_HOST_VETH" counter reject',
+                'iifname "$PROVIDER_HOST_VETH" counter accept',
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                'if [[ "$ipv6_all" != 1 || "$ipv6_default" != 1 || '
+                '"$ipv6_eth0" != 1 ]]; then',
+                'if [[ "$ipv6_all" != 1 && "$ipv6_default" != 1 && '
+                '"$ipv6_eth0" != 9 ]]; then',
+            ),
+            (
+                "worker/runtime/patchyard-firecracker-run",
+                '  if [[ "$ipv6_all" != 1 || "$ipv6_default" != 1 ||',
+                '  return 0\n'
+                '  if [[ "$ipv6_all" != 1 || "$ipv6_default" != 1 ||',
             ),
         )
         for relative, before, after in mutations:

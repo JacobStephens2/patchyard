@@ -49,11 +49,14 @@ EXPECTED_AUTH_CONFIG_BLOCK = '''{
   printf 'header = "anthropic-version: 2023-06-01"\\n'
   printf 'header = "content-type: application/json"\\n'
 } >"$AUTH_CONFIG"'''
-EXPECTED_PROVIDER_NAMESPACE_POLICY_SHA256 = (
-    "e0b10b92b488d2e78e2f0b4c54ada50aff7e44ddc0919e994875f5aa5b5ac174"
+EXPECTED_PROVIDER_TRANSPORT_CONTROL_SHA256 = (
+    "6cfa99ddaedb38ae12026a31809531ca0473e893758a0441574287bfdc8c1c73"
 )
 EXPECTED_TRANSPORT_SOURCE_SHA256 = (
     "72d62bfec46d4ba50c5e61ec07736d1e39a890007ada10de02e99c4a894db66c"
+)
+EXPECTED_IPV6_PREFLIGHT_COMPARISON = (
+    'if [[ "$ipv6_all" != 1 || "$ipv6_default" != 1 || "$ipv6_eth0" != 1 ]]; then'
 )
 PHASES = (
     "operational_acceptance",
@@ -171,17 +174,23 @@ worker_tasks = (
 if digest(TRANSPORT_PATH) != EXPECTED_TRANSPORT_SOURCE_SHA256:
     errors.append("A118 one-shot transport differs from its complete source binding")
 
-policy_begin = "  # A118_PROVIDER_NAMESPACE_POLICY_BEGIN\n"
-policy_end = "\n  # A118_PROVIDER_NAMESPACE_POLICY_END"
-if launcher.count(policy_begin) != 1 or launcher.count(policy_end) != 1:
-    errors.append("A118 provider namespace policy markers are not singular")
+setup_start = "setup_provider_transport() {\n"
+control_end = "\n}\n\nprovider_counter_packets() {"
+if launcher.count(setup_start) != 1 or launcher.count(control_end) != 1:
+    errors.append("A119 provider transport setup and preflight are not singular")
 else:
-    namespace_policy = launcher.split(policy_begin, 1)[1].split(policy_end, 1)[0]
+    provider_transport_control = (
+        setup_start
+        + launcher.split(setup_start, 1)[1].split(control_end, 1)[0]
+        + "\n}"
+    )
     if (
-        hashlib.sha256(namespace_policy.encode()).hexdigest()
-        != EXPECTED_PROVIDER_NAMESPACE_POLICY_SHA256
+        hashlib.sha256(provider_transport_control.encode()).hexdigest()
+        != EXPECTED_PROVIDER_TRANSPORT_CONTROL_SHA256
     ):
-        errors.append("A118 provider namespace policy differs from its exact binding")
+        errors.append("A119 provider transport setup or preflight differs from its binding")
+if launcher.count(EXPECTED_IPV6_PREFLIGHT_COMPARISON) != 1:
+    errors.append("A119 exact IPv6 preflight comparison differs from its binding")
 
 transfer_start = "PROVIDER_STATUS=$(\n"
 transfer_end = "\n) || PROVIDER_CURL_EXIT=$?"

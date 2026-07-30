@@ -72,15 +72,15 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 19510,
-      "comments": 507,
+      "code": 19556,
+      "comments": 505,
       "blanks": 1713,
       "files": 149,
       "languages": [
         {
           "language": "BASH",
           "code": 5808,
-          "comments": 120,
+          "comments": 118,
           "blanks": 400,
           "files": 40
         },
@@ -135,7 +135,7 @@
         },
         {
           "language": "Python",
-          "code": 6539,
+          "code": 6585,
           "comments": 43,
           "blanks": 573,
           "files": 22
@@ -173,7 +173,7 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 7485,
+      "code": 7494,
       "comments": 255,
       "blanks": 715,
       "files": 92,
@@ -229,7 +229,7 @@
         },
         {
           "language": "Python",
-          "code": 4878,
+          "code": 4887,
           "comments": 41,
           "blanks": 545,
           "files": 24
@@ -267,17 +267,17 @@
     {
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
-      "code": 8551,
-      "comments": 11899,
-      "blanks": 3456,
-      "files": 132,
+      "code": 8552,
+      "comments": 11959,
+      "blanks": 3475,
+      "files": 133,
       "languages": [
         {
           "language": "BASH",
-          "code": 259,
+          "code": 260,
           "comments": 18,
           "blanks": 21,
-          "files": 17
+          "files": 18
         },
         {
           "language": "JSON",
@@ -289,9 +289,9 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 11879,
-          "blanks": 3403,
-          "files": 104
+          "comments": 11939,
+          "blanks": 3422,
+          "files": 105
         },
         {
           "language": "Shell",

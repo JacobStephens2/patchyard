@@ -70,3 +70,11 @@ A further source change requires Jacob to decide whether to authorize one more
 bounded repair. Any such ruling should remain source-only, add no provider
 attempt, and leave the separately reviewed clean-worker plan downstream of a
 clean A78 source verdict.
+
+## Post-escalation disposition
+
+Jacob subsequently authorized that bounded source-only repair. A119 records
+the authorization in `docs/decision-log.md`; its implementation and mutation
+record are in `2026-07-30-a119-bounded-source-repair.md`. A119 is limited to
+A118-1 and A118-2, adds no live attempt or further repair loop, and leaves the
+clean-worker plan downstream of another A78 source review.

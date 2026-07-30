@@ -210,7 +210,6 @@ setup_provider_transport() {
   nft add rule inet "$PROVIDER_NFT_TABLE" postrouting \
     ip saddr 172.30.255.248/30 oifname != "$PROVIDER_HOST_VETH" masquerade
 
-  # A118_PROVIDER_NAMESPACE_POLICY_BEGIN
   ip netns exec "$PROVIDER_NETNS" nft add table inet eta_anthropic_one_shot
   ip netns exec "$PROVIDER_NETNS" nft \
     'add chain inet eta_anthropic_one_shot input { type filter hook input priority 0; policy drop; }'
@@ -244,7 +243,6 @@ setup_provider_transport() {
     'add rule inet eta_anthropic_one_shot output meta l4proto tcp ct state new add @rejected { ct id } counter name rejected_new reject'
   ip netns exec "$PROVIDER_NETNS" nft \
     'add rule inet eta_anthropic_one_shot output counter name rejected_new reject'
-  # A118_PROVIDER_NAMESPACE_POLICY_END
 }
 
 assert_provider_transport_preflight() {

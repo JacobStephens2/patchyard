@@ -1,7 +1,7 @@
 # A115 A101 firewall-readiness repair attempt
 
-Status: **further bounded test-harness repair passed focused mutations and full
-technical gates; pending A78 source review**
+Status: **first A78 review returned three conceded findings; bounded source
+repair authorized and focused repair tests pass; full gates pending**
 
 ## Authorization and boundary
 
@@ -213,3 +213,63 @@ A78 must review the exact final record commit in a fresh detached worktree and:
 
 The current worker remains quarantined. This repair does not authorize a fresh
 worker plan or live sequence.
+
+## First A78 review and A77 disposition
+
+A78 reviewed exact commit
+`097a5b4acdf68fb27b173445f0df0ff6fb3b7e74` in a clean detached worktree and
+returned NOT A PASS:
+
+- F1 high: jq 1.6 exits zero for empty or whitespace-only input, so a
+  successful zero-byte response bypassed every provider predicate;
+- F2 medium: four independent source weakenings survived the current contract,
+  and combined fixtures masked individual pending and cardinality predicates;
+  and
+- F3 low: the new helper placed the DigitalOcean bearer in curl's process
+  argument vector.
+
+The build seat reproduced and conceded all three findings under A77. The exact
+review and adjudication are recorded in
+`2026-07-31-a78-a101-firewall-readiness-source-review.md` and
+`2026-07-31-a77-a101-firewall-readiness-source-review-adjudication.md`.
+
+Jacob then authorized the bounded repair, its tests and source mutations, the
+full gates, and a fresh A78 review. This operational grant is recorded under
+A115, not as a new numbered ruling.
+
+## Authorized source repair
+
+The helper now rejects empty and whitespace-only bodies, captures jq output,
+and accepts only the exact single value `true`. It requires an exact HTTP 200
+in addition to curl's `--fail`, uses a private temporary response file, and
+passes a validated bearer through `curl --config -` on standard input rather
+than argv.
+
+The repaired suite independently exercises:
+
+- empty and whitespace bodies;
+- a redirect carrying an otherwise ready body;
+- `status=succeeded` with nonempty pending changes;
+- a provider firewall with an extra worker;
+- two workers in OpenTofu state;
+- a state firewall with two worker attachments; and
+- a malformed bearer before the provider mock can run.
+
+It also requires the operator interval between the second converge and A101 to
+contain only one direct fatal readiness call.
+
+The first focused repair run found one expected-block formatting error in the
+test validator and one standalone ShellCheck unused-trap-helper warning. The
+authorized repair loop replaced the helper function with a direct EXIT trap
+and corrected the exact indentation-aware operator interval. The repeated
+focused run passed all 7 tests, Bash parsing, Python compilation, standalone
+ShellCheck, and `git diff --check`.
+
+The permanent source mutation set now rejects 24 weakenings: 20 helper
+mutations and 4 operator mutations. New cases cover empty-body acceptance,
+jq-status-only acceptance, non-200 acceptance, curl failure acceptance,
+provider object type, state worker/firewall/attachment cardinality, provider
+attachment cardinality, bearer argv exposure, bearer-alphabet weakening,
+conditional readiness, and a nonfatal readiness call.
+
+No live or provider action occurred.

@@ -460,3 +460,29 @@ current. No false evidence refresh follows.
 The source-only repair is ready for A78 review. It authorizes no replacement
 plan, host or cloud action, provider request, Console action, acceptance,
 requirement-3 work, rotation, or qualification-flag change.
+
+## A101 readiness review findings and bounded repair
+
+A78 reviewed exact readiness record commit
+`097a5b4acdf68fb27b173445f0df0ff6fb3b7e74` and returned NOT A PASS. The
+helper accepted an empty or whitespace-only successful curl body because jq
+1.6 exits zero when it produces no result. A78 also found unbound conditional,
+state-cardinality, curl-failure, and object-type mutations, plus bearer exposure
+in curl's argv.
+
+The build seat reproduced and conceded all three findings under A77. Jacob
+authorized a bounded source repair, its tests and mutations, full gates, and a
+fresh A78 review. No new numbered ruling records the operational grant.
+
+The repaired helper requires a nonempty body, jq output exactly `true`, and
+HTTP status exactly 200; keeps curl HTTP failures fatal; and supplies the
+validated bearer through config on standard input. Independent fixtures now
+cover succeeded-with-pending, extra provider and state attachments, two state
+workers, empty and whitespace bodies, a redirect with a ready body, and
+malformed bearer input. The operator validator requires one direct fatal call
+in the complete interval between the second converge and A101.
+
+The focused repair suite passes 7 of 7 tests and rejects 24 source-only
+weakenings. Full repository gates and fresh A78 review remain pending. No live
+worker, DigitalOcean, Anthropic, Console, acceptance, requirement-1,
+requirement-3, rotation, or qualification-flag action occurred.

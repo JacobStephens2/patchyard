@@ -7,6 +7,13 @@ MAX_ATTEMPTS=24
 POLL_SECONDS=2
 
 : "${DO_API_TOKEN:?missing DigitalOcean provider token}"
+[[ "$DO_API_TOKEN" =~ ^[A-Za-z0-9._-]+$ ]] || {
+  echo 'worker firewall readiness refused a malformed DigitalOcean provider token' >&2
+  exit 2
+}
+
+RESPONSE_FILE=$(mktemp)
+trap 'rm -f -- "$RESPONSE_FILE"' EXIT
 
 STATE_JSON=$("$REPO_ROOT/infra/tofu.sh" digitalocean show -json) || {
   echo 'worker firewall readiness refused because current OpenTofu state could not be inspected' >&2
@@ -54,7 +61,9 @@ FIREWALL_ID=$(jq -r '.firewall_id' <<<"$BINDING_JSON")
 
 firewall_is_ready() {
   local response=$1
-  jq -e \
+  local verdict
+  [[ -n "${response//[[:space:]]/}" ]] || return 1
+  verdict=$(jq -cer \
     --arg firewall_id "$FIREWALL_ID" \
     --arg worker_id "$WORKER_ID" '
       .firewall
@@ -75,16 +84,28 @@ firewall_is_ready() {
           (.tags | type) == "array"
           and (.tags | length) == 0
         )
-    ' <<<"$response" >/dev/null 2>&1
+    ' <<<"$response" 2>/dev/null) || return 1
+  [[ "$verdict" == true ]]
+}
+
+curl_with_bearer() {
+  local bearer=$1
+  shift
+  printf 'header = "Authorization: Bearer %s"\n' "$bearer" \
+    | curl -q --config - "$@"
 }
 
 for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do
   FIREWALL_RESPONSE=
-  if FIREWALL_RESPONSE=$(curl -q --fail --silent --show-error \
+  HTTP_STATUS=
+  if HTTP_STATUS=$(curl_with_bearer "$DO_API_TOKEN" \
+    --fail --silent --show-error \
     --connect-timeout 3 --max-time 3 --proto '=https' \
-    -H "Authorization: Bearer $DO_API_TOKEN" \
+    --output "$RESPONSE_FILE" --write-out '%{http_code}' \
     "https://api.digitalocean.com/v2/firewalls/$FIREWALL_ID"); then
-    if firewall_is_ready "$FIREWALL_RESPONSE"; then
+    FIREWALL_RESPONSE=$(<"$RESPONSE_FILE")
+    if [[ "$HTTP_STATUS" == 200 ]] \
+      && firewall_is_ready "$FIREWALL_RESPONSE"; then
       printf 'worker firewall readiness: pass (firewall=%s worker=%s attempt=%s)\n' \
         "$FIREWALL_ID" "$WORKER_ID" "$attempt"
       exit 0

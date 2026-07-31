@@ -3,7 +3,10 @@ set -euo pipefail
 umask 077
 
 REPO_ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
-source "$REPO_ROOT/infra/tool-versions.env"
+python3 "$REPO_ROOT/tools/check-a101-readiness-root.py"
+OPENTOFU_VERSION=$(
+  python3 "$REPO_ROOT/tools/read-infra-tool-version.py" OPENTOFU_VERSION
+)
 
 if [[ "$(tofu version -json | jq -r .terraform_version)" != "$OPENTOFU_VERSION" ]]; then
   echo "OpenTofu must be exactly $OPENTOFU_VERSION" >&2
@@ -34,6 +37,6 @@ python3 "$REPO_ROOT/tools/check-stack.py"
 python3 "$REPO_ROOT/tools/check-independence.py"
 python3 "$REPO_ROOT/tools/check-worker-runtime.py"
 python3 "$REPO_ROOT/tools/check-worker-qualification.py"
-python3 "$REPO_ROOT/tools/check-anthropic-issuance.py"
 python3 "$REPO_ROOT/tools/check-anthropic-spend.py"
+python3 "$REPO_ROOT/tools/check-anthropic-issuance.py"
 python3 "$REPO_ROOT/tools/check-preview-runtime.py"

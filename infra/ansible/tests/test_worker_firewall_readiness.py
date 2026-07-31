@@ -24,7 +24,7 @@ EXPECTED_OPERATOR_SHA256 = (
     "27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e"
 )
 EXPECTED_ANSIBLE_WRAPPER_SHA256 = (
-    "ead1c23f932f39ec423222f70775304be6453dcd1cd7c24a45b99699d001158e"
+    "db391e029f876269f85b0276d20ca7370f8be6179f94285b516c31d32bca128b"
 )
 
 
@@ -45,8 +45,8 @@ def validate_ansible_wrapper_contract(ansible_wrapper: str) -> None:
     for fragment in (
         '  "$REPO_ROOT/infra/replace-worker.sh" \\\n',
         '  "$REPO_ROOT/infra/wait-do-worker-firewall.sh" \\\n',
-        "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \\\n"
-        '  -s "$ANSIBLE_ROOT/tests" -v',
+        "  infra.ansible.tests.test_worker_firewall_readiness\n",
+        'run_gate env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest "$test_module" -v',
     ):
         if ansible_wrapper.count(fragment) != 1:
             raise ValueError(f"Ansible gate membership differs: {fragment}")
@@ -800,13 +800,12 @@ printf '%s\n' "$*" >>"$private_sleep_calls"
                 ),
             ),
             (
-                "Ansible test discovery removal",
+                "Ansible readiness census removal",
                 helper,
                 operator,
                 ansible_wrapper.replace(
-                    "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \\\n"
-                    '  -s "$ANSIBLE_ROOT/tests" -v\n',
-                    "true # removed Ansible test discovery\n",
+                    "  infra.ansible.tests.test_worker_firewall_readiness\n",
+                    "",
                     1,
                 ),
             ),

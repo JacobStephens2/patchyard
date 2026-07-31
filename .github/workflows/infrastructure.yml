@@ -22,6 +22,13 @@ jobs:
           # Session 16 rollback contracts execute against exact merged anchors.
           fetch-depth: 0
 
+      - name: Verify A101 readiness trust root
+        run: |
+          printf '%s\n' \
+            '2914d771d38fcdeb8434045ecb86d7a56c6c4e7804c91058cd5f2965a582f921  tools/check-a101-readiness-root.py' \
+            | sha256sum --check
+          python3 tools/check-a101-readiness-root.py
+
       - name: Install pinned OpenTofu
         uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f # v1.0.8
         with:

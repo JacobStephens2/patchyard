@@ -17,8 +17,6 @@ OPERATOR = ROOT / "infra" / "replace-worker.sh"
 
 def validate_readiness_contract(helper: str, operator: str) -> None:
     required_helper_fragments = (
-        "MAX_ATTEMPTS=24",
-        "POLL_SECONDS=2",
         "--connect-timeout 3 --max-time 3 --proto '=https'",
         '"https://api.digitalocean.com/v2/firewalls/$FIREWALL_ID"',
         '.id == $firewall_id',
@@ -37,6 +35,9 @@ def validate_readiness_contract(helper: str, operator: str) -> None:
     for fragment in required_helper_fragments:
         if helper.count(fragment) != 1:
             raise ValueError(f"readiness binding differs: {fragment}")
+    for exact_line in ("MAX_ATTEMPTS=24", "POLL_SECONDS=2"):
+        if helper.splitlines().count(exact_line) != 1:
+            raise ValueError(f"readiness bound differs: {exact_line}")
 
     state_attachment = """$firewalls[0].values.droplet_ids[0] | tostring
       ) == (
@@ -184,7 +185,10 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
         duplicate_firewall: bool = False,
     ) -> None:
         worker_id = worker_id or self.worker_id
-        firewall_worker_id = firewall_worker_id or int(worker_id)
+        if firewall_worker_id is None:
+            firewall_worker_id = (
+                int(worker_id) if worker_id.isdigit() else int(self.worker_id)
+            )
         resources: list[dict[str, object]] = [
             {
                 "address": "digitalocean_droplet.worker",
@@ -232,17 +236,23 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
             return 0
         return len(path.read_text().splitlines())
 
+    @staticmethod
+    def read_counter(path: Path) -> int:
+        if not path.exists():
+            return 0
+        return int(path.read_text().strip())
+
     def test_exact_provider_desired_state_passes_without_sleep(self) -> None:
         result = self.run_helper("ready")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("worker firewall readiness: pass", result.stdout)
-        self.assertEqual(self.count_file(self.curl_calls), 1)
+        self.assertEqual(self.read_counter(self.curl_calls), 1)
         self.assertEqual(self.count_file(self.sleep_calls), 0)
 
     def test_pending_state_is_polled_until_exact_state_is_ready(self) -> None:
         result = self.run_helper("pending-then-ready")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.count_file(self.curl_calls), 2)
+        self.assertEqual(self.read_counter(self.curl_calls), 2)
         self.assertEqual(self.count_file(self.sleep_calls), 1)
 
     def test_each_provider_binding_mismatch_exhausts_and_refuses(self) -> None:
@@ -259,7 +269,7 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
                 result = self.run_helper(mode)
                 self.assertEqual(result.returncode, 1, result.stderr)
                 self.assertIn("did not reach provider desired state", result.stderr)
-                self.assertEqual(self.count_file(self.curl_calls), 24)
+                self.assertEqual(self.read_counter(self.curl_calls), 24)
                 self.assertEqual(self.count_file(self.sleep_calls), 23)
 
     def test_inexact_state_binding_refuses_before_provider_poll(self) -> None:
@@ -274,7 +284,7 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
                 result = self.run_helper("ready")
                 self.assertEqual(result.returncode, 2)
                 self.assertIn("does not bind one firewall to one worker", result.stderr)
-                self.assertEqual(self.count_file(self.curl_calls), 0)
+                self.assertEqual(self.read_counter(self.curl_calls), 0)
 
     def test_source_and_operator_bind_every_readiness_predicate(self) -> None:
         validate_readiness_contract(HELPER.read_text(), OPERATOR.read_text())

@@ -1,7 +1,7 @@
 # A115 A101 firewall-readiness repair attempt
 
-Status: **first A78 review returned three conceded findings; bounded source
-repair and full gates complete; pending fresh A78 source review**
+Status: **fresh A78 review returned one conceded medium test-binding finding;
+A9 stop pending new bounded authorization**
 
 ## Authorization and boundary
 
@@ -331,3 +331,45 @@ the former empty-body bypass against the parent, verify it is closed in the
 repair, run all 7 focused tests and all 24 source mutations, add independent
 mutations, and return PASS or material findings. Review authorizes no live
 action.
+
+## Fresh A78 result
+
+A78 reviewed exact record commit
+`cdd931ec4545f426bf07bd53efd18673e140d346` and returned NOT A PASS with one
+medium material finding. The repaired production helper resisted every source
+attack, including four multi-value JSON orderings, empty and malformed bodies,
+HTTP failures and non-200 statuses, state and provider shape variants, stale
+response reuse, ordering bypasses, and a real bearer argv canary.
+
+The remaining defect is test binding. A78 added three behavior-changing source
+lines without removing any required fragment:
+
+- `tail -n1` after jq accepts a rejected-then-ready multi-value stream;
+- later 900-second curl timeout options override the required three-second
+  options; and
+- a later `POLL_SECONDS=600` overrides the required two-second assignment.
+
+Each mutant passed all 7 focused tests and all 24 shipped mutations.
+
+The build seat independently reproduced each mutant in a disposable worktree.
+Each again passed 7 of 7 tests. Direct local experiments returned `true` from
+the filtered multi-value stream, showed curl honoring the later timeout, and
+showed Bash's effective poll value as 600. F1 is conceded under A77 with medium
+severity sustained.
+
+The exact review and adjudication are recorded in
+`2026-07-31-a78-a101-firewall-readiness-repair-source-review.md` and
+`2026-07-31-a77-a101-firewall-readiness-repair-source-review-adjudication.md`.
+
+## A9 stop
+
+No further repair was made. The authorized repair loop is exhausted. The
+smallest next repair is test-only: add a multi-value provider fixture, assert
+every sleep argument equals `2`, require the two curl timeout options to occur
+exactly once, and add those three additive mutations.
+
+That repair, full gates, and another A78 review require a new explicit bounded
+authorization. It would not authorize a production-source change, replacement
+plan, live worker or cloud action, provider request, Console action,
+requirement-1 refresh, acceptance, requirement 3, rotation, or qualification
+change.

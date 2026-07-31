@@ -497,3 +497,27 @@ lint profiles, and all four playbook syntax checks pass.
 Fresh A78 source review remains pending. No live worker, DigitalOcean,
 Anthropic, Console, acceptance, requirement-1, requirement-3, rotation, or
 qualification-flag action occurred.
+
+## Fresh readiness review and A9 stop
+
+A78 reviewed exact record commit
+`cdd931ec4545f426bf07bd53efd18673e140d346`. The production helper was sound
+under A78's source and behavior matrix, but three additive overrides passed all
+7 focused tests and all 24 shipped mutations: a last-value jq filter, later
+900-second curl timeout options, and a later 600-second poll assignment.
+
+The build seat independently reproduced each green mutant and conceded A78 F1
+at medium severity under A77. The exact review and adjudication are
+`2026-07-31-a78-a101-firewall-readiness-repair-source-review.md` and
+`2026-07-31-a77-a101-firewall-readiness-repair-source-review-adjudication.md`.
+
+A78 disclosed one unscoped grep that displayed review boilerplate and one
+possible unauthenticated read-only DigitalOcean GET with literal placeholder
+bearer `goodtoken`. Neither used a real credential or changed provider state.
+Both are retained in the review record.
+
+The authorized repair loop is exhausted. No further source or test repair was
+made. A test-only repair, the complete gates, and another A78 review require a
+new explicit bounded authorization under A115. No worker, cloud, Anthropic,
+Console, requirement-1, acceptance, requirement-3, rotation, or
+qualification-flag action followed.

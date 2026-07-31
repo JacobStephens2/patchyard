@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -60,6 +61,7 @@ def validate_readiness_contract(helper: str, operator: str) -> None:
         "POLL_SECONDS=",
         "--connect-timeout",
         "--max-time",
+        "https://api.digitalocean.com/v2/firewalls/",
     ):
         if helper.count(singular_fragment) != 1:
             raise ValueError(
@@ -68,6 +70,19 @@ def validate_readiness_contract(helper: str, operator: str) -> None:
 
     if helper.count("sleep") != 1:
         raise ValueError("readiness sleep command is not singular")
+
+    normalized_executors = helper.replace("''", "").replace('""', "")
+    normalized_executors = re.sub(
+        r"\\(?=[A-Za-z0-9_./-])",
+        "",
+        normalized_executors,
+    )
+    curl_executors = re.findall(
+        r"(?<![A-Za-z0-9_])curl(?![A-Za-z0-9_])",
+        normalized_executors,
+    )
+    if len(curl_executors) != 1:
+        raise ValueError("readiness curl executor is not singular")
 
     state_attachment = """$firewalls[0].values.droplet_ids[0] | tostring
       ) == (
@@ -143,6 +158,11 @@ cat "$MOCK_STATE"
         curl.write_text(
             r"""#!/usr/bin/env bash
 set -euo pipefail
+
+total=0
+[[ ! -f "$MOCK_CURL_TOTAL" ]] || read -r total <"$MOCK_CURL_TOTAL"
+total=$((total + 1))
+printf '%s\n' "$total" >"$MOCK_CURL_TOTAL"
 
 actual_args=("$@")
 [[ ${#actual_args[@]} -eq 17 ]] || exit 90
@@ -268,6 +288,7 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
 
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         self.curl_calls = Path(self.temp.name) / "curl-calls"
+        self.curl_total = Path(self.temp.name) / "curl-total"
         self.sleep_calls = Path(self.temp.name) / "sleep-calls"
 
     def write_state(
@@ -316,6 +337,7 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
         self, mode: str, *, token: str = "test-token"
     ) -> subprocess.CompletedProcess[str]:
         self.curl_calls.unlink(missing_ok=True)
+        self.curl_total.unlink(missing_ok=True)
         self.sleep_calls.unlink(missing_ok=True)
         return subprocess.run(
             [str(self.helper)],
@@ -326,6 +348,7 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
                 "DO_API_TOKEN": token,
                 "MOCK_STATE": str(self.state),
                 "MOCK_CURL_CALLS": str(self.curl_calls),
+                "MOCK_CURL_TOTAL": str(self.curl_total),
                 "MOCK_SLEEP_CALLS": str(self.sleep_calls),
                 "MOCK_RESPONSE_DIR": self.temp.name,
                 "MOCK_FIREWALL_MODE": mode,
@@ -355,12 +378,14 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("worker firewall readiness: pass", result.stdout)
         self.assertEqual(self.read_counter(self.curl_calls), 1)
+        self.assertEqual(self.read_counter(self.curl_total), 1)
         self.assertEqual(self.read_lines(self.sleep_calls), [])
 
     def test_pending_state_is_polled_until_exact_state_is_ready(self) -> None:
         result = self.run_helper("pending-then-ready")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.read_counter(self.curl_calls), 2)
+        self.assertEqual(self.read_counter(self.curl_total), 2)
         self.assertEqual(self.read_lines(self.sleep_calls), ["2"])
 
     def test_each_provider_binding_mismatch_exhausts_and_refuses(self) -> None:
@@ -384,6 +409,7 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
                 self.assertEqual(result.returncode, 1, result.stderr)
                 self.assertIn("did not reach provider desired state", result.stderr)
                 self.assertEqual(self.read_counter(self.curl_calls), 24)
+                self.assertEqual(self.read_counter(self.curl_total), 24)
                 self.assertEqual(self.read_lines(self.sleep_calls), ["2"] * 23)
 
     def test_inexact_state_binding_refuses_before_provider_poll(self) -> None:
@@ -401,12 +427,14 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
                 self.assertEqual(result.returncode, 2)
                 self.assertIn("does not bind one firewall to one worker", result.stderr)
                 self.assertEqual(self.read_counter(self.curl_calls), 0)
+                self.assertEqual(self.read_counter(self.curl_total), 0)
 
     def test_malformed_bearer_refuses_before_provider_poll(self) -> None:
         result = self.run_helper("ready", token='unsafe"\nurl = "https://example.test')
         self.assertEqual(result.returncode, 2)
         self.assertIn("refused a malformed DigitalOcean provider token", result.stderr)
         self.assertEqual(self.read_counter(self.curl_calls), 0)
+        self.assertEqual(self.read_counter(self.curl_total), 0)
 
     def test_source_and_operator_bind_every_readiness_predicate(self) -> None:
         validate_readiness_contract(HELPER.read_text(), OPERATOR.read_text())
@@ -427,6 +455,39 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
             "curl HTTP failure acceptance": helper.replace(
                 "--fail --silent --show-error",
                 "--silent --show-error",
+                1,
+            ),
+            "discarded extra timeout and retry curl": helper.replace(
+                "  HTTP_STATUS=\n",
+                "  curl -q -sS -m 900 --retry 100 --retry-delay 60 "
+                "-o /dev/null \\\n"
+                '    "https://api.digitalocean.com/v2/firewalls/'
+                '${FIREWALL_ID}" || true\n'
+                "  HTTP_STATUS=\n",
+                1,
+            ),
+            "discarded response overwrite curl": helper.replace(
+                '    "https://api.digitalocean.com/v2/firewalls/'
+                '$FIREWALL_ID"); then\n',
+                '    "https://api.digitalocean.com/v2/firewalls/'
+                '$FIREWALL_ID"); then\n'
+                '    curl -q -sS -o "$RESPONSE_FILE" '
+                '"file:///var/tmp/firewall-ready.json" || true\n',
+                1,
+            ),
+            "absolute-path curl executor": helper.replace(
+                "  HTTP_STATUS=\n",
+                "  /nonexistent/curl -q -m 900 \\\n"
+                '    "https://api.digitalocean.com/v2/firewalls/'
+                '${FIREWALL_ID}" || true\n'
+                "  HTTP_STATUS=\n",
+                1,
+            ),
+            "empty-quote assembled curl executor": helper.replace(
+                "  HTTP_STATUS=\n",
+                '  cu""rl -q -m 900 "file:///var/tmp/'
+                'firewall-ready.json" || true\n'
+                "  HTTP_STATUS=\n",
                 1,
             ),
             "non-200 HTTP acceptance": helper.replace(
@@ -581,8 +642,27 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
                     result = self.run_helper("ready")
                     self.assertEqual(result.returncode, 1, result.stderr)
                     self.assertEqual(self.read_counter(self.curl_calls), 0)
+                    self.assertEqual(self.read_counter(self.curl_total), 24)
                 finally:
                     self.helper.write_text(helper)
+
+        extra_rejected_wrapper_call = helper.replace(
+            "  HTTP_STATUS=\n",
+            '  curl_with_bearer "$DO_API_TOKEN" -m 900 '
+            '"https://example.invalid/" || true\n'
+            "  HTTP_STATUS=\n",
+            1,
+        )
+        self.assertNotEqual(extra_rejected_wrapper_call, helper)
+        validate_readiness_contract(extra_rejected_wrapper_call, operator)
+        self.helper.write_text(extra_rejected_wrapper_call)
+        try:
+            result = self.run_helper("ready")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.read_counter(self.curl_calls), 1)
+            self.assertEqual(self.read_counter(self.curl_total), 2)
+        finally:
+            self.helper.write_text(helper)
 
         helper_call = '    "$REPO_ROOT/infra/wait-do-worker-firewall.sh"\n'
         qualify_call = '    "$REPO_ROOT/infra/ansible/qualify.sh"\n'

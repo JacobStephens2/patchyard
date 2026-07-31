@@ -521,3 +521,18 @@ made. A test-only repair, the complete gates, and another A78 review require a
 new explicit bounded authorization under A115. No worker, cloud, Anthropic,
 Console, requirement-1, acceptance, requirement-3, rotation, or
 qualification-flag action followed.
+
+## Additional readiness test repair
+
+Jacob authorized the three test-only A78 F1 bindings, full gates, and a new
+A78 review. The production helper, operator, and Ansible wrapper remain
+byte-identical.
+
+The repaired test adds a two-ready-object response to the fail-closed provider
+set, asserts every sleep argument is exactly two seconds, requires singular
+curl timeout options and poll assignment, and adds the three corresponding
+additive mutations. The first focused run passes all 7 tests and rejects 27
+source mutations. No repair loop was needed.
+
+Full gates and fresh A78 review remain pending. No live or provider action
+occurred.

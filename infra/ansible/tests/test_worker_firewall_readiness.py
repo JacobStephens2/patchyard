@@ -28,6 +28,7 @@ def validate_readiness_contract(helper: str, operator: str) -> None:
         "($firewalls[0].values.droplet_ids | length) == 1",
         '[[ -n "${response//[[:space:]]/}" ]] || return 1',
         "verdict=$(jq -cer",
+        '\' <<<"$response" 2>/dev/null) || return 1',
         '(type == "object")',
         '.id == $firewall_id',
         '.name == "patchyard-worker"',
@@ -50,6 +51,15 @@ def validate_readiness_contract(helper: str, operator: str) -> None:
     for exact_line in ("MAX_ATTEMPTS=24", "POLL_SECONDS=2"):
         if helper.splitlines().count(exact_line) != 1:
             raise ValueError(f"readiness bound differs: {exact_line}")
+    for singular_fragment in (
+        "POLL_SECONDS=",
+        "--connect-timeout",
+        "--max-time",
+    ):
+        if helper.count(singular_fragment) != 1:
+            raise ValueError(
+                f"readiness bound is not singular: {singular_fragment}"
+            )
 
     state_attachment = """$firewalls[0].values.droplet_ids[0] | tostring
       ) == (
@@ -201,6 +211,11 @@ case "$MOCK_FIREWALL_MODE" in
   whitespace)
     printf ' \n\t\n' >"$output"
     ;;
+  multiple-ready)
+    ready
+    ready_payload=$(<"$output")
+    printf '%s\n%s\n' "$ready_payload" "$ready_payload" >"$output"
+    ;;
   malformed)
     printf '{' >"$output"
     ;;
@@ -303,10 +318,10 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
         )
 
     @staticmethod
-    def count_file(path: Path) -> int:
+    def read_lines(path: Path) -> list[str]:
         if not path.exists():
-            return 0
-        return len(path.read_text().splitlines())
+            return []
+        return path.read_text().splitlines()
 
     @staticmethod
     def read_counter(path: Path) -> int:
@@ -319,13 +334,13 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("worker firewall readiness: pass", result.stdout)
         self.assertEqual(self.read_counter(self.curl_calls), 1)
-        self.assertEqual(self.count_file(self.sleep_calls), 0)
+        self.assertEqual(self.read_lines(self.sleep_calls), [])
 
     def test_pending_state_is_polled_until_exact_state_is_ready(self) -> None:
         result = self.run_helper("pending-then-ready")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.read_counter(self.curl_calls), 2)
-        self.assertEqual(self.count_file(self.sleep_calls), 1)
+        self.assertEqual(self.read_lines(self.sleep_calls), ["2"])
 
     def test_each_provider_binding_mismatch_exhausts_and_refuses(self) -> None:
         for mode in (
@@ -338,6 +353,7 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
             "tagged",
             "empty",
             "whitespace",
+            "multiple-ready",
             "malformed",
             "redirect-ready",
             "http-failure",
@@ -347,7 +363,7 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
                 self.assertEqual(result.returncode, 1, result.stderr)
                 self.assertIn("did not reach provider desired state", result.stderr)
                 self.assertEqual(self.read_counter(self.curl_calls), 24)
-                self.assertEqual(self.count_file(self.sleep_calls), 23)
+                self.assertEqual(self.read_lines(self.sleep_calls), ["2"] * 23)
 
     def test_inexact_state_binding_refuses_before_provider_poll(self) -> None:
         cases = (
@@ -468,6 +484,22 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
             "bearer alphabet weakening": helper.replace(
                 '[[ "$DO_API_TOKEN" =~ ^[A-Za-z0-9._-]+$ ]]',
                 '[[ "$DO_API_TOKEN" =~ .+ ]]',
+                1,
+            ),
+            "multi-value last-result filtering": helper.replace(
+                '\' <<<"$response" 2>/dev/null) || return 1',
+                '\' <<<"$response" 2>/dev/null | tail -n1) || return 1',
+                1,
+            ),
+            "later curl timeout overrides": helper.replace(
+                "    --connect-timeout 3 --max-time 3 --proto '=https' \\\n",
+                "    --connect-timeout 3 --max-time 3 --proto '=https' \\\n"
+                "    --connect-timeout 900 --max-time 900 \\\n",
+                1,
+            ),
+            "later poll interval override": helper.replace(
+                "POLL_SECONDS=2\n",
+                "POLL_SECONDS=2\nPOLL_SECONDS=600\n",
                 1,
             ),
         }

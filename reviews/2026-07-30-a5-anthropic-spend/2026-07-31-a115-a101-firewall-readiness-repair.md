@@ -1,7 +1,7 @@
 # A115 A101 firewall-readiness repair attempt
 
-Status: **fresh A78 review returned one conceded medium test-binding finding;
-A9 stop pending new bounded authorization**
+Status: **additional test-only repair passes focused behavior and 27 mutations;
+full gates and fresh A78 review pending**
 
 ## Authorization and boundary
 
@@ -373,3 +373,44 @@ authorization. It would not authorize a production-source change, replacement
 plan, live worker or cloud action, provider request, Console action,
 requirement-1 refresh, acceptance, requirement 3, rotation, or qualification
 change.
+
+## Additional test-only repair authorization
+
+Jacob explicitly authorized the proposed repair after the A9 stop. The grant
+is limited to the three A78 F1 test bindings, their mutations, the complete
+repository gates, and a new A78 review. It authorizes no production helper or
+operator change and no live action. The grant is recorded under A115 rather
+than as a new numbered ruling.
+
+## Additional test-only repair
+
+Only `infra/ansible/tests/test_worker_firewall_readiness.py` changed:
+
+1. the provider mock now emits two complete ready JSON objects in one response,
+   and the exhaustive failure set requires 24-attempt refusal;
+2. the pending-then-ready case and every exhausting failure assert the exact
+   recorded sleep values rather than only the number of sleep calls;
+3. the source validator requires the jq command-substitution close, poll
+   assignment, connect-timeout option, and transfer-timeout option to be
+   singular; and
+4. the mutation dictionary adds last-value jq filtering, later 900-second curl
+   timeout options, and a later 600-second poll assignment.
+
+The first focused run passed all 7 tests, Python compilation, and
+`git diff --check`. It rejects 27 mutations: 23 helper mutations and 4 operator
+mutations. No repair loop was needed.
+
+The production identities remain byte-identical:
+
+| File | SHA-256 |
+| --- | --- |
+| `infra/wait-do-worker-firewall.sh` | `5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba` |
+| `infra/replace-worker.sh` | `27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e` |
+| `tools/check-ansible.sh` | `ead1c23f932f39ec423222f70775304be6453dcd1cd7c24a45b99699d001158e` |
+
+The repaired test SHA-256 is
+`425db4ebcb4b89636a114120c489086f589d1d6c9ee95df6f3f7be27a6f8c821`.
+
+Full gates and fresh A78 review remain pending. No worker, DigitalOcean,
+Anthropic, Console, requirement-1, acceptance, requirement-3, rotation, or
+qualification-flag action occurred.

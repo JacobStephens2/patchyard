@@ -1,7 +1,7 @@
 # A115 A101 firewall-readiness repair attempt
 
-Status: **A78 root-of-trust findings adjudicated; authorized repair implemented
-and mutation-checked; final repository gates in progress**
+Status: **A78 root-of-trust findings adjudicated; authorized repair implemented,
+mutation-checked, and gated; pending fresh A78 review**
 
 ## Authorization and boundary
 
@@ -1111,3 +1111,38 @@ All 13 `credential_qualified` flags remain false. No credential, provider
 request, host, worker, firewall, Console setting, requirement-1 evidence,
 acceptance case, requirement-3 artifact, rotation state, or qualification flag
 changed.
+
+## Root repair application gate
+
+The first application-wrapper invocation passed all 39 browser-control tests
+with the one Docker-only skip, then exited 127 because the invoking shell did
+not include `/var/lib/conductor/.cargo/bin` in `PATH`. No source test failed and
+no repair followed. Repeating the same clean record commit with the established
+repository gate path passed the complete wrapper:
+
+- all browser-control, Rust formatting, Clippy, unit, integration, property,
+  fixture, database-contract, documentation, and triage-replay tests pass;
+- both clean release builds reproduce `factory-verify` SHA-256
+  `99e3d1da120848b5cb4198788504404bea2e2c178316f301c603a987e8795bae`;
+- checksum install and rollback pass;
+- the 1,175-record RustSec scan, cargo-deny advisory, ban, license and source
+  checks, cargo-vet, and cargo-machete pass;
+- cargo-vet reports `Vetting Succeeded (321 exempted)`; and
+- model schema, Mermaid projection, model tests, and the byte-identical
+  codebase-metrics projection pass.
+
+## Root repair A78 handoff
+
+A78 must review the exact final record commit identified in the PR handoff in a
+new detached worktree. It must verify the workflow literal matches the root
+checker, the bound execution closure is complete for the reported findings,
+all 14 modules run in fresh processes, the independent spend checker precedes
+the stale issuance boundary, and tool-version content cannot execute. It must
+run all 3 root, 7 readiness, and 27 spend tests and reproduce at least the four
+installed A1/A2/A3/A5 mutation classes.
+
+A78 should attempt source-only attacks against the workflow pin, root checker,
+test census and ordering, transitive state oracle, aggregate gate status, and
+inert pin parser. Review authorizes no network, host, worker, DigitalOcean,
+Anthropic, Console, requirement-1 refresh, acceptance, requirement-3,
+rotation, or qualification-flag action.

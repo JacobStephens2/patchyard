@@ -1,7 +1,7 @@
 # A115 A101 firewall-readiness repair attempt
 
-Status: **additional test-only repair, installed mutations, and full gates
-complete; fresh A78 review pending**
+Status: **fresh A78 review returned one medium and two low conceded findings;
+A9 stop pending new bounded authorization**
 
 ## Authorization and boundary
 
@@ -468,3 +468,39 @@ confirm the production helper and operator are byte-identical, reproduce all
 three former green mutants against the repaired test, run all 7 focused tests
 and 27 shipped mutations, add independent additive mutations, and return PASS
 or material findings. Review authorizes no live or provider action.
+
+## Effective-argv A78 result
+
+A78 reviewed exact record commit
+`96d5d0cc61e98b08193f8d3f34b7aac629fc28f3` and returned NOT A PASS:
+
+- M1 medium: short curl options, aliases, shell-function wrappers, a second
+  config, and retry options change the effective curl bound while preserving
+  every literal source assertion;
+- M2 low: `MAX_ATTEMPTS=` is not required to be singular; and
+- M3 low: an absolute extra sleep bypasses the PATH mock and passes all tests.
+
+The production helper and operator remained byte-identical, all 7 tests and 27
+shipped mutations passed on the unmodified source, and the prior three additive
+findings were closed.
+
+The build seat independently reproduced:
+
+- `-m 900` passing all 7 tests and curl honoring a later short-form timeout;
+- a duplicate `MAX_ATTEMPTS` assignment passing the structural validator; and
+- an extra absolute sleep passing all 7 tests.
+
+All three findings are conceded under A77 with A78's severities sustained. The
+exact review and adjudication are
+`2026-07-31-a78-a101-firewall-readiness-effective-argv-review.md` and
+`2026-07-31-a77-a101-firewall-readiness-effective-argv-adjudication.md`.
+
+## Effective-argv A9 stop
+
+No further repair was made. The smallest next repair remains test-only:
+validate the complete ordered curl argv in the mock, require singular
+`MAX_ATTEMPTS=`, require one sleep command, and add representative mutations
+for every class.
+
+That repair, full gates, and another A78 review require a new explicit bounded
+authorization. No production source or live action is included.

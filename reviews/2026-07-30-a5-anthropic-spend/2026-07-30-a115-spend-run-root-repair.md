@@ -554,3 +554,25 @@ lint profiles, and all four playbook syntax checks pass.
 
 Fresh A78 review remains pending. All 13 qualification flags remain false. No
 live or provider action occurred.
+
+## Effective-argv review and A9 stop
+
+A78 reviewed exact record commit
+`96d5d0cc61e98b08193f8d3f34b7aac629fc28f3` and returned NOT A PASS with one
+medium and two low findings. The prior three additive findings are closed, but
+alternate curl option forms and wrappers can still extend the effective
+timeout; the maximum-attempt assignment is not singular; and an absolute extra
+sleep bypasses the PATH mock.
+
+The build seat independently reproduced and conceded M1, M2, and M3. The exact
+records are
+`2026-07-31-a78-a101-firewall-readiness-effective-argv-review.md` and
+`2026-07-31-a77-a101-firewall-readiness-effective-argv-adjudication.md`.
+
+No further repair was made. A9 requires a new bounded test-only repair
+authorization before exact curl argv, maximum-attempt singularity, and sleep
+command singularity can be added and returned through full gates and A78.
+
+No production source, live system, provider state, Console limit,
+requirement-1 fixture, acceptance case, requirement-3 artifact, rotation state,
+or qualification flag changed.

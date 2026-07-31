@@ -1,7 +1,7 @@
 # A115 A101 firewall-readiness repair attempt
 
-Status: **source candidate written; one repair loop consumed; focused test
-harness still fails; A9 stop and escalation**
+Status: **further bounded test-harness repair passed focused mutations and full
+technical gates; pending A78 source review**
 
 ## Authorization and boundary
 
@@ -109,3 +109,107 @@ numbered ruling should record that operational grant.
 
 No live Factory, DigitalOcean, Anthropic, Console, acceptance, requirement-1,
 requirement-3, rotation, or qualification-flag action occurred.
+
+## Further bounded repair authorization
+
+Jacob explicitly authorized the requested repair after the A9 stop. The grant
+is limited to the three recorded test-harness defects: numeric mock-call
+counter interpretation, invalid worker-ID fixture construction, and exact
+attempt-count mutation matching. It also authorizes the already-declared
+focused tests, mutation checks, full gates, and A78 source review.
+
+The grant authorizes no change to the production readiness predicates, no
+replacement plan or apply, no host or cloud mutation, no provider credential
+or request, and none of the other excluded A-5 or acceptance work. It is
+recorded under A115 rather than as a new numbered ruling.
+
+## Further bounded repair
+
+The repair made exactly three test-only changes:
+
+1. curl mock calls are read as the numeric value stored in the counter file,
+   while sleep calls remain line-counted;
+2. the invalid worker-ID fixture uses a separate valid attachment value so the
+   helper, rather than fixture construction, rejects the invalid state; and
+3. fixed numeric bounds are compared as complete source lines, so changing
+   `MAX_ATTEMPTS=24` to `MAX_ATTEMPTS=240` cannot retain a prefix match.
+
+The production helper and operator did not change. Their SHA-256 values remain
+`eaad6d53ad12bd795cf640a227bc345467d8717beecd470a2ef7aa4693a58915`
+and
+`27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e`.
+The repaired test SHA-256 is
+`99ad3e964b078edc5f79240749e13758b3b2d8ced30a8f0d130e5d82b7b7cdda`.
+
+## Focused tests and source mutations
+
+All 6 readiness tests pass. They prove immediate exact-state success,
+pending-then-ready polling, 24-attempt fail-closed exhaustion for seven
+provider failure shapes, pre-provider refusal of three invalid OpenTofu state
+shapes, and exact operator ordering after two converges and before A101.
+
+The permanent source mutation harness rejects all 11 authored weakenings:
+
+1. expand the fixed attempt count from 24 to 240;
+2. remove curl's transfer timeout;
+3. weaken the exact provider firewall ID;
+4. weaken the exact provider firewall name;
+5. weaken `status=succeeded`;
+6. permit nonzero pending changes;
+7. weaken the provider worker attachment;
+8. permit a tag attachment;
+9. weaken the OpenTofu worker/firewall attachment equality;
+10. remove the readiness call from the replacement operator; and
+11. move readiness after the qualifier and therefore after A101.
+
+The combined replacement/readiness suite passes 13 of 13. All 47 Session 16
+cutover contract tests and all 25 Anthropic spend tests pass, including the
+spend checker's existing 36 structural mutations. The unmodified spend checker,
+Python compilation, Bash parsing, ShellCheck, and `git diff --check` pass.
+
+## Full repository gates
+
+Exact clean technical commit
+`ec8f2c33b332a0fbc85c9b3709e81b4e903838df` passed the complete application
+wrapper: 39 browser-control tests with the one Docker-only integration skip,
+all Rust unit, integration, property, fixture, database, and documentation
+tests, triage replay, reproducible `factory-verify` release SHA-256
+`2eae220106314f3c40626f8c39361987e64e8a7b30f72e117d6ccf615175082f`,
+checksum install/rollback, advisory, license, source, vet, dependency, model,
+and byte-exact codebase-projection checks.
+
+The infrastructure wrapper initialized and validated all three OpenTofu roots,
+then passed stack, independence, worker-runtime, and worker-qualification
+checks. It stopped only at the deliberately stale requirement-1 live
+host-contract fixture:
+
+```text
+live    bd36018284041c4ed12f2bea19248ec5f855cfa06f9d4823670a6d87d86d8e2f
+current eef6e16e54b6c0945f3874dae71063e8ef2248fea470f2fe4b2579ce22d52977
+```
+
+The complete Ansible unit discovery passed 145 of 146 tests and stopped only
+on the same exact fixture mismatch. ShellCheck includes the new helper. All
+four production Ansible lint profiles and all four playbook syntax checks pass.
+Refreshing requirement 1 after a failed replacement would falsely claim a live
+rerun, so the red live-evidence dependency remains intentional.
+
+All 13 `credential_qualified` flags remain false.
+
+## A78 review boundary
+
+A78 must review the exact final record commit in a fresh detached worktree and:
+
+1. verify that the helper binds one current OpenTofu firewall to one current
+   worker before reading provider state;
+2. verify all six provider desired-state predicates and the fixed polling/time
+   bounds;
+3. verify readiness is after both converges and before A101, with A101 still
+   one-shot and terminal;
+4. rerun the focused behavior and mutation checks, adding adversarial
+   source-only mutations where useful; and
+5. return PASS or material findings without accessing a host, applying a plan,
+   changing DigitalOcean state, or performing any Anthropic or Console action.
+
+The current worker remains quarantined. This repair does not authorize a fresh
+worker plan or live sequence.

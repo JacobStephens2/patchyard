@@ -434,3 +434,29 @@ only as a stopped failure artifact; full gates and A78 review did not begin.
 The exact candidate boundary and failure log are recorded in
 `2026-07-31-a115-a101-firewall-readiness-repair.md`. Further work requires a
 new bounded authorization recorded here rather than as a new numbered ruling.
+
+## A101 firewall-readiness harness repair and review handoff
+
+Jacob authorized the three recorded test-harness repairs. The build seat
+changed only numeric counter interpretation, invalid-ID fixture construction,
+and exact-line mutation matching; the production helper and operator remained
+byte-identical.
+
+All 6 readiness tests and all 11 new source-only weakening mutations pass. The
+combined replacement/readiness suite passes 13 of 13, all 47 Session 16 tests
+pass, and all 25 spend tests plus the spend checker pass. Exact clean technical
+commit `ec8f2c33b332a0fbc85c9b3709e81b4e903838df` passed the complete application
+wrapper, including reproducible release, dependency, advisory, model, and
+codebase-projection checks.
+
+All three OpenTofu roots validate, all four Ansible lint profiles and syntax
+checks pass, and 145 of 146 Ansible tests pass. Infrastructure and Ansible stop
+only on the deliberate requirement-1 host-contract mismatch:
+`bd36018284041c4ed12f2bea19248ec5f855cfa06f9d4823670a6d87d86d8e2f`
+live versus
+`eef6e16e54b6c0945f3874dae71063e8ef2248fea470f2fe4b2579ce22d52977`
+current. No false evidence refresh follows.
+
+The source-only repair is ready for A78 review. It authorizes no replacement
+plan, host or cloud action, provider request, Console action, acceptance,
+requirement-3 work, rotation, or qualification-flag change.

@@ -725,7 +725,7 @@ fi'''
                 "F5 readiness test census",
                 "infra/ansible/tests/test_worker_firewall_readiness.py",
                 "class WorkerFirewallReadinessContract(unittest.TestCase):",
-                "class DisabledWorkerFirewallReadinessContract(unittest.TestCase):",
+                "class WorkerFirewallReadinessContract(object):",
                 "  A101 readiness test census differs from its complete source binding",
             ),
             (

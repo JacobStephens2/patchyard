@@ -1287,7 +1287,7 @@ the conceded attacks rather than merely calling unit helpers:
 
 | Finding | Installed mutation | Exact result |
 | --- | --- | --- |
-| F1 | guarded alternate provider client plus `tools/hashlib.py` mapping the real mutant digest `9a9cb515...` to the pinned helper digest | ordinary root and spend checkers failed isolation/provenance; isolated root exposed the real digest and rejected the protected shadow |
+| F1 | guarded alternate provider client plus `tools/hashlib.py` mapping real mutant digest `9a9cb515d41233986b58bc78c8b6148e9f7c431e013ae7e3d9c37940481812c7` to the pinned helper digest | ordinary root and spend checkers failed isolation/provenance; isolated root exposed the real digest and rejected the protected shadow |
 | F2 | executable `infra/ansible/tests/__init__.py` plus a one-case passing issuance test | the file runner ran the one case without executing the initializer, while the root rejected both the initializer and changed test digest |
 | F3 | removed `if: ${{ always() }}` from the Ansible workflow step | root exited 1 with `Ansible step does not run after infrastructure failure` |
 | F4 | replaced the issuance checker with a two-line passing program | the forged checker exited 0 and the root exited 1 on its exact source identity |
@@ -1312,7 +1312,7 @@ contract. All four Ansible lint profiles then passed with zero failures and
 zero warnings; all four syntax checks passed; the final isolated trust-root
 check passed; and the wrapper returned 1 for the retained failure.
 
-## Isolated repair application gate in progress
+## Isolated repair application gate
 
 The first full application invocation passed all 39 browser-control tests with
 the one Docker-only skip, then exited 127 because the invoking shell lacked the
@@ -1326,6 +1326,23 @@ cargo-deny, cargo-vet, cargo-machete, and model validation/tests.
 and cargo-vet reported `Vetting Succeeded (321 exempted)`.
 
 That invocation reached only the expected final deterministic projection drift
-caused by the added Python runner, checks, and tests. The projection will be
-regenerated after this work record is complete, then the full wrapper will be
-rerun at the final record head before A78 handoff.
+caused by the added Python runner, checks, tests, and this work record. After
+regenerating and committing that projection, the complete application wrapper
+was rerun at exact clean record commit
+`155b2684bff7c3b12238154ef5724967675c0a79`. It returned 0. The same substantive
+results above passed again, including reproducible `factory-verify` SHA-256
+`99e3d1da120848b5cb4198788504404bea2e2c178316f301c603a987e8795bae`,
+`Vetting Succeeded (321 exempted)`, all 10 model tests, and the byte-identical
+codebase-metrics projection.
+
+## Isolated repair A78 handoff
+
+A78 must review the exact final record head identified in the PR handoff from
+a new detached worktree. It must independently test the F1-F4 attacks, verify
+the complete 33-source binding and import-path closure, prove the file runner
+does not import package initializers, and confirm the workflow runs Ansible
+after the retained infrastructure failure without masking that failure.
+
+The review may run repository source/tests only. It authorizes no network,
+live host, worker, DigitalOcean, Anthropic, Console, requirement-1 refresh,
+acceptance, requirement-3, rotation, or qualification-flag action.

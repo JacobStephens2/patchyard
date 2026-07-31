@@ -1207,3 +1207,125 @@ No new numbered ruling should record that operational grant. No live system,
 worker, provider, credential, Console limit, requirement-1 evidence,
 acceptance case, requirement-3 artifact, rotation state, or qualification flag
 changed.
+
+## Isolated Python and workflow-continuation authorization
+
+Jacob explicitly authorized the next bounded repair after the A77 stop. The
+grant covers isolated Python execution and standard-library provenance, a
+pinned isolated test runner, exact content binding for all 14 Ansible test
+files and the six previously unbound checker scripts, rejection of unexpected
+import-path Python sources, workflow continuation with retained final failure,
+F1-F4 source mutations, the full repository gates, and a new A78 review.
+
+The grant is recorded under A115 and does not mint a new ruling or reuse A119.
+It authorizes no live worker, host, DigitalOcean, Anthropic, Console,
+requirement-1 refresh, acceptance case, requirement-3 work, rotation, or
+qualification-flag action.
+
+## Isolated Python and workflow-continuation repair
+
+Exact technical commit `4402577064e0ba1055e7603fea6da4e6fb3b98d1`
+closes the conceded F1-F4 paths:
+
+- the workflow, infrastructure wrapper, Ansible wrapper, ShellCheck installer,
+  and live qualifier invoke every Python gate in this boundary with
+  `python3 -I`;
+- the workflow-rooted checker, spend checker, and new unittest runner refuse
+  non-isolated execution, require their security-sensitive imports to resolve
+  beneath the interpreter's standard-library directory, and reject a
+  repository path in `sys.path`;
+- `tools/run-isolated-unittest.py` accepts only the 14 exact test file paths
+  and loads one file per process under a synthetic non-package module name;
+- the root checker exact-digest binds 33 execution-closure sources, including
+  all 14 test files, all seven infrastructure checker files, both wrappers,
+  the runner, pin parser and data, production entry points, and readiness
+  sources;
+- the root checker requires the complete `infra/**/*.py` census, rejects every
+  repository `__init__.py`, rejects protected standard-library and dependency
+  shadow filenames, and refuses symlinked bound sources;
+- `tools/check-infra.sh` aggregates all seven static checkers, so the retained
+  issuance failure no longer hides the later preview check, while returning
+  nonzero if any checker failed; and
+- the workflow gives the Ansible step the exact `if: ${{ always() }}`
+  continuation property. The preceding infrastructure step has no
+  `continue-on-error`, so its failure remains the job's final failure.
+
+Final source identities at that commit are:
+
+| File | SHA-256 |
+| --- | --- |
+| `tools/check-a101-readiness-root.py` | `fb0a3ee170c72f7e798b09ce5d67c8aba6d0bfd7eac9583ab32522f5177fb0b4` |
+| `tools/run-isolated-unittest.py` | `9291cee8008ce693ad0c891271450606d5f547e4be0821867ac81b95d7d6572f` |
+| `tools/check-ansible.sh` | `f702dd84863bbc1973edbb41f21c95d8467cf703d6174e277418c44d92bf2d29` |
+| `tools/check-infra.sh` | `61ec9e3485ce0933ce7a5a74a81512e8438f6d8a4e00a2d018369e18a827c265` |
+| `tools/check-anthropic-spend.py` | `8c31bb1e3a1f350a4641a180642c4c43a6de0c2359ec54aad7e76c9a69767a1c` |
+| `infra/ansible/tests/test_a101_readiness_root.py` | `2f3ad2be6e2d1c5793064cb307ab7adeac7233e10e22dbdf54cd53402730fde4` |
+
+The production readiness helper and replacement operator remain byte-identical
+at
+`5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba`
+and
+`27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e`.
+All 13 `credential_qualified` flags remain false.
+
+## Isolated repair focused tests and mutations
+
+All 7 root tests, all 7 readiness tests, all 27 spend tests, and the independent
+spend checker pass. The root suite mutates each of the 33 bound sources and
+requires every mutation to fail. It also proves directly that:
+
+- the root checker, test runner, and spend checker refuse ordinary Python;
+- a repository `hashlib.py` cannot conceal a real helper mutation;
+- package initializers neither execute through the runner nor survive the
+  source census;
+- a `hashlib` poison cannot survive into a second test process;
+- removing workflow continuation fails the root checker; and
+- executable content in the tool-version data file remains inert.
+
+Four detached mutation worktrees at exact technical commit `4402577` installed
+the conceded attacks rather than merely calling unit helpers:
+
+| Finding | Installed mutation | Exact result |
+| --- | --- | --- |
+| F1 | guarded alternate provider client plus `tools/hashlib.py` mapping the real mutant digest `9a9cb515...` to the pinned helper digest | ordinary root and spend checkers failed isolation/provenance; isolated root exposed the real digest and rejected the protected shadow |
+| F2 | executable `infra/ansible/tests/__init__.py` plus a one-case passing issuance test | the file runner ran the one case without executing the initializer, while the root rejected both the initializer and changed test digest |
+| F3 | removed `if: ${{ always() }}` from the Ansible workflow step | root exited 1 with `Ansible step does not run after infrastructure failure` |
+| F4 | replaced the issuance checker with a two-line passing program | the forged checker exited 0 and the root exited 1 on its exact source identity |
+
+All four mutation assertions returned success only when the attacked gate
+returned nonzero. Their worktrees were removed and pruned. No mutation invoked
+a real network client or opened a socket.
+
+## Isolated repair infrastructure and Ansible gates
+
+At exact technical commit `4402577`, the infrastructure wrapper passed the
+workflow root, all three OpenTofu initializations and validations, stack,
+independence, worker runtime, worker qualification, and the spend checker. The
+known requirement-1 issuance fixture then failed on only its disclosed stale
+host contract. The new aggregate wrapper continued, preview runtime passed,
+and the wrapper returned 1.
+
+The Ansible wrapper ran all 156 tests in 14 independent isolated processes.
+It passed 155: all 7 root, 7 readiness, 27 spend, 95 other non-issuance, and 19
+of 20 issuance tests. The only failure was the same stale requirement-1 host
+contract. All four Ansible lint profiles then passed with zero failures and
+zero warnings; all four syntax checks passed; the final isolated trust-root
+check passed; and the wrapper returned 1 for the retained failure.
+
+## Isolated repair application gate in progress
+
+The first full application invocation passed all 39 browser-control tests with
+the one Docker-only skip, then exited 127 because the invoking shell lacked the
+installed `/var/lib/conductor/.cargo/bin` directory in `PATH`. The same clean
+commit was rerun with that established tool path. Every substantive gate
+passed: formatting, Clippy, all Rust tests, triage replay, two clean
+reproducible builds, checksum install/rollback, the 1,175-record RustSec scan,
+cargo-deny, cargo-vet, cargo-machete, and model validation/tests.
+`factory-verify` reproduced SHA-256
+`99e3d1da120848b5cb4198788504404bea2e2c178316f301c603a987e8795bae`,
+and cargo-vet reported `Vetting Succeeded (321 exempted)`.
+
+That invocation reached only the expected final deterministic projection drift
+caused by the added Python runner, checks, and tests. The projection will be
+regenerated after this work record is complete, then the full wrapper will be
+rerun at the final record head before A78 handoff.

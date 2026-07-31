@@ -72,9 +72,9 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 21477,
+      "code": 21572,
       "comments": 524,
-      "blanks": 1812,
+      "blanks": 1821,
       "files": 154,
       "languages": [
         {
@@ -135,9 +135,9 @@
         },
         {
           "language": "Python",
-          "code": 8351,
+          "code": 8446,
           "comments": 46,
-          "blanks": 658,
+          "blanks": 667,
           "files": 26
         },
         {
@@ -173,10 +173,10 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 7823,
-      "comments": 260,
-      "blanks": 751,
-      "files": 94,
+      "code": 8105,
+      "comments": 261,
+      "blanks": 783,
+      "files": 95,
       "languages": [
         {
           "language": "BASH",
@@ -229,16 +229,16 @@
         },
         {
           "language": "Python",
-          "code": 5166,
-          "comments": 43,
-          "blanks": 577,
-          "files": 26
+          "code": 5437,
+          "comments": 44,
+          "blanks": 608,
+          "files": 27
         },
         {
           "language": "Shell",
-          "code": 612,
+          "code": 622,
           "comments": 33,
-          "blanks": 100,
+          "blanks": 101,
           "files": 19
         },
         {
@@ -257,7 +257,7 @@
         },
         {
           "language": "YAML",
-          "code": 126,
+          "code": 127,
           "comments": 1,
           "blanks": 24,
           "files": 2
@@ -268,8 +268,8 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8562,
-      "comments": 17738,
-      "blanks": 5001,
+      "comments": 17839,
+      "blanks": 5022,
       "files": 178,
       "languages": [
         {
@@ -289,8 +289,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 17718,
-          "blanks": 4948,
+          "comments": 17819,
+          "blanks": 4969,
           "files": 150
         },
         {

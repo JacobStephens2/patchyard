@@ -1,7 +1,7 @@
 # A115 A101 firewall-readiness repair attempt
 
-Status: **F1-F6 structural redesign implemented, mutation-checked, and gated;
-pending fresh A78 review**
+Status: **A78 root-of-trust findings adjudicated; authorized repair implemented
+and mutation-checked; final repository gates in progress**
 
 ## Authorization and boundary
 
@@ -957,3 +957,157 @@ exemption, and the generated metrics projection.
 Review authorizes no real network client, host, worker, DigitalOcean,
 Anthropic, Console, requirement-1 refresh, acceptance, requirement-3,
 rotation, or qualification-flag action.
+
+## F1-F6 redesign A78 result
+
+A78 reviewed exact record commit
+`2a325357810837ee384a2ca22633dee8900029d2` in a fresh detached worktree and
+returned NOT A PASS. A78 verified the three production identities, all 7
+readiness tests, all 27 spend tests, the independent checker, all ten installed
+mutation classes, both F5/F6 repairs, and the limited RustSec update. It then
+reported five further findings:
+
+1. High: `infra/tofu.sh`, `converge.sh`, and `qualify.sh` remained outside the
+   complete readiness execution binding;
+2. High as reported: a preceding module in shared unittest discovery could
+   monkeypatch `hashlib.sha256` for later modules;
+3. Medium-High as reported: the repository-internal digest graph lacked an
+   external reviewed root;
+4. Medium inherited: the stale requirement-1 fixture stopped the wrapper
+   before lint and syntax checks; and
+5. Medium as reported: executable `source` of the unbound tool-version file
+   could replace every gate command with a shell function.
+
+The exact review is recorded in
+`2026-07-31-a78-a101-firewall-readiness-f1-f6-redesign-review.md`.
+
+## F1-F6 redesign A77 adjudication
+
+The build seat independently conceded the unpinned transitive oracle at High,
+conceded shared-process discovery with a Medium-High scope correction,
+conceded the need for a repository-external trust root while refuting the
+claimed all-green semantic weakening, sustained the stale requirement-1
+fixture as an inherited honest-red boundary, and conceded executable pin
+loading while raising it to High.
+
+The checkable experiments were:
+
+- a modified `tofu.sh` with inert alternate clients and substituted state
+  passed the old checker and added no discovery failure;
+- a modified issuance module forged helper hashes inside discovery, but the
+  separately launched spend checker still rejected the helper mutation;
+- rolling every old digest for alternate-client, assembled-client, and sourced
+  sibling mutations did not make the readiness contract pass - it failed on
+  curl-executor singularity; and
+- shell functions in `infra/tool-versions.env` made the old Ansible wrapper
+  exit zero without executing its tests, lints, or syntax checks.
+
+The exact dispositions and outputs are recorded in
+`2026-07-31-a77-a101-firewall-readiness-f1-f6-redesign-adjudication.md`.
+
+## Root-of-trust repair authorization
+
+Jacob explicitly authorized the bounded repair after adjudication. The grant
+covers a workflow-rooted source census, isolated and explicit test execution,
+inert tool-version parsing, aggregate Ansible gates, source mutations, the full
+repository gates, and another A78 review. It is recorded under A115 without a
+new numbered ruling.
+
+The grant authorizes no worker or firewall plan or apply, host access,
+DigitalOcean or Anthropic request, Console action, requirement-1 refresh,
+acceptance case, requirement-3 work, rotation, or qualification-flag change.
+
+## Workflow-rooted repair
+
+Technical commit `30615e8` establishes `.github/workflows/infrastructure.yml`
+as the review root. Before any executable tool setup, the workflow checks the
+literal SHA-256 of `tools/check-a101-readiness-root.py` and then executes it.
+The checker exact-digest binds:
+
+- the helper, replacement operator, `tofu.sh`, `converge.sh`, `qualify.sh`,
+  and the inventory wrapper;
+- the inert tool-version parser, the tool-version data, and the ShellCheck
+  installer;
+- the infrastructure and Ansible wrappers and the independent spend checker;
+  and
+- the root, readiness, and spend test modules.
+
+It also requires the exact set of all 14 Ansible test modules, the wrapper's
+same ordered module census, a separately launched spend checker, no open-ended
+discovery, spend-before-issuance ordering, and the workflow's literal pin of
+the checker's own current bytes.
+
+The Ansible wrapper runs every module in a fresh Python process. It runs the
+root, readiness, and spend security modules first, continues through every
+remaining module after a failure, runs all four lint and four syntax gates,
+rechecks the trust root, and returns the aggregate nonzero status. The stale
+issuance fixture therefore stays red without hiding independent results.
+
+`tools/check-infra.sh` now runs the root checker first and the independent
+spend checker before the stale issuance checker. `tools/check-ansible.sh`,
+`tools/check-infra.sh`, and `tools/install-shellcheck.sh` no longer source
+`infra/tool-versions.env`. They query `tools/read-infra-tool-version.py`, which
+accepts only the complete known key set, one inert `KEY=VALUE` assignment per
+line, exact value shapes, and a ShellCheck URL derived from the selected
+version.
+
+Exact root identities are:
+
+| File | SHA-256 |
+| --- | --- |
+| `tools/check-a101-readiness-root.py` | `2914d771d38fcdeb8434045ecb86d7a56c6c4e7804c91058cd5f2965a582f921` |
+| `tools/check-ansible.sh` | `db391e029f876269f85b0276d20ca7370f8be6179f94285b516c31d32bca128b` |
+| `tools/check-infra.sh` | `24e28cc6830725f89b889f4b1116eb019acd65208785ee6eb61e9b72f14c7d16` |
+| `tools/read-infra-tool-version.py` | `d94d97d605736d0201d0fc0517e0e780d6c346ab79ddc3bd84de7b472edeccd8` |
+| `infra/ansible/tests/test_a101_readiness_root.py` | `5d55c30b8d3b92de9bad435de8348318fad2d4d0b7c029dab88bee87f1350eb7` |
+
+The production helper and replacement operator remain byte-identical at
+`5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba`
+and
+`27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e`.
+
+## Root focused tests and installed mutations
+
+All 3 root tests, all 7 readiness tests, all 27 spend tests, and the independent
+spend checker pass. The root tests mutate each of the 15 bound sources one at a
+time and require each mutation to fail, inject executable shell content into
+the version-data file and prove no command runs, and demonstrate that a
+preceding module's `hashlib` replacement does not survive into the fresh
+readiness process.
+
+Four additional installed mutation worktrees at exact technical commit
+`30615e8` produced these results:
+
+| Finding | Installed mutation | Observed binding |
+| --- | --- | --- |
+| A1 | state-oracle override in `infra/tofu.sh` | root checker exited 1 on the exact `tofu.sh` identity |
+| A2 | issuance-module `hashlib` poison plus alternate helper client | root checker exited 1 before discovery on the helper identity |
+| A3 | altered a root-checker digest constant | workflow literal SHA-256 failed before execution; direct execution also rejected its missing workflow pin |
+| A5 | shell functions for Python, ShellCheck, lint, and syntax tools in the version file | inert parser exited 1, the marker remained absent, and the root checker rejected the data identity |
+
+All mutation worktrees were removed and pruned. No mutation invoked a real
+network client or opened a socket.
+
+## Root repair infrastructure and Ansible gates
+
+The infrastructure wrapper passes the workflow-root checker first, initializes
+and validates all three OpenTofu roots, and passes stack, independence,
+worker-runtime, worker-qualification, and the independently launched spend
+checker. It then stops on only the disclosed stale issuance host contract:
+
+```text
+live    bd36018284041c4ed12f2bea19248ec5f855cfa06f9d4823670a6d87d86d8e2f
+current eef6e16e54b6c0945f3874dae71063e8ef2248fea470f2fe4b2579ce22d52977
+```
+
+The redesigned Ansible wrapper runs 152 tests across 14 isolated modules. The
+3 root, 7 readiness, 27 spend, and 95 other non-issuance tests pass. Nineteen
+of twenty issuance tests pass; only the same stale host-contract assertion
+fails. Despite that failure, all four production lint profiles pass with zero
+failures and zero warnings, all four syntax checks pass, and the terminal root
+recheck passes. The wrapper returns nonzero for the retained stale failure.
+
+All 13 `credential_qualified` flags remain false. No credential, provider
+request, host, worker, firewall, Console setting, requirement-1 evidence,
+acceptance case, requirement-3 artifact, rotation state, or qualification flag
+changed.

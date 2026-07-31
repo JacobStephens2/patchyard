@@ -606,3 +606,25 @@ Fresh A78 review is pending. The production helper, replacement operator, and
 Ansible wrapper remain byte-identical. All 13 qualification flags remain
 false. No live, worker, firewall, provider, Console, acceptance, requirement-3,
 or rotation action occurred.
+
+## Invocation-singularity review and A9 stop
+
+A78 reviewed exact record commit
+`6e9e9821e17c8d0e3a47169e829e060a3a51eec7` and returned NOT A PASS with one
+High finding. The accepted curl vector, maximum-attempt assignment, and sleep
+command bindings work, but the mock does not count rejected curl invocations.
+A discarded extra provider call can therefore remain invisible, and an extra
+call can overwrite the provider response before the readiness verdict.
+
+The build seat independently made both A78 material mutants pass all 7 tests.
+An additive absolute-path `/nonexistent/curl` stand-in also passed all 7,
+showing that a mock-total counter alone would not cover PATH bypass.
+
+M1 is conceded at High severity under A77. The exact review and adjudication
+records are
+`2026-07-31-a78-a101-firewall-readiness-invocation-singularity-review.md` and
+`2026-07-31-a77-a101-firewall-readiness-invocation-singularity-adjudication.md`.
+
+No further repair was made. A9 requires a new bounded test-only authorization.
+No production or live action occurred, and all 13 qualification flags remain
+false.

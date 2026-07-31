@@ -1,7 +1,7 @@
 # A115 A101 firewall-readiness repair attempt
 
-Status: **authorized effective-argv test repair, installed mutations, and full
-gates complete; fresh A78 review pending**
+Status: **fresh A78 review returned one High conceded invocation-singularity
+finding; A9 stop pending new bounded authorization**
 
 ## Authorization and boundary
 
@@ -608,3 +608,33 @@ production helper and operator remain byte-identical, run all 7 focused tests
 and all 34 shipped mutations, reproduce the seven installed mutation classes,
 add independent additive mutations, and return PASS or material findings. The
 review authorizes no real curl, network, provider, worker, or Console action.
+
+## Invocation-singularity A78 result
+
+A78 reviewed exact record commit
+`6e9e9821e17c8d0e3a47169e829e060a3a51eec7` and returned NOT A PASS with one
+High finding. All 7 tests and all 34 shipped mutations passed on the unmodified
+source, and the three authorized binding classes were individually verified.
+However, an extra non-conforming curl call remains invisible because the mock
+increments its counter only after argv validation.
+
+A78 made both a discarded timeout-and-retry call and a discarded response-file
+overwrite call pass all 7 tests. The build seat independently reproduced both
+green suites, then showed that an additive absolute-path stand-in also passes
+while bypassing the PATH mock.
+
+The exact records are
+`2026-07-31-a78-a101-firewall-readiness-invocation-singularity-review.md` and
+`2026-07-31-a77-a101-firewall-readiness-invocation-singularity-adjudication.md`.
+M1 is conceded at High severity under A77.
+
+## Invocation-singularity A9 stop
+
+No further repair was made. A9 requires a new bounded test-only authorization
+before attempted and accepted curl counts, a source-level curl singularity
+binding, and representative extra-invocation mutations can be added and
+returned through full gates and A78.
+
+No production source, live system, worker, provider state, Console limit,
+requirement-1 fixture, acceptance case, requirement-3 artifact, rotation state,
+or qualification flag changed.

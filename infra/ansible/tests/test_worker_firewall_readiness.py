@@ -48,10 +48,15 @@ def validate_readiness_contract(helper: str, operator: str) -> None:
     for fragment in required_helper_fragments:
         if helper.count(fragment) != 1:
             raise ValueError(f"readiness binding differs: {fragment}")
-    for exact_line in ("MAX_ATTEMPTS=24", "POLL_SECONDS=2"):
+    for exact_line in (
+        "MAX_ATTEMPTS=24",
+        "POLL_SECONDS=2",
+        '    sleep "$POLL_SECONDS"',
+    ):
         if helper.splitlines().count(exact_line) != 1:
             raise ValueError(f"readiness bound differs: {exact_line}")
     for singular_fragment in (
+        "MAX_ATTEMPTS=",
         "POLL_SECONDS=",
         "--connect-timeout",
         "--max-time",
@@ -60,6 +65,9 @@ def validate_readiness_contract(helper: str, operator: str) -> None:
             raise ValueError(
                 f"readiness bound is not singular: {singular_fragment}"
             )
+
+    if helper.count("sleep") != 1:
+        raise ValueError("readiness sleep command is not singular")
 
     state_attachment = """$firewalls[0].values.droplet_ids[0] | tostring
       ) == (
@@ -135,25 +143,36 @@ cat "$MOCK_STATE"
         curl.write_text(
             r"""#!/usr/bin/env bash
 set -euo pipefail
-[[ "$*" == *"--config -"* ]] || exit 90
-[[ "$*" == *"--fail"* ]] || exit 91
-[[ "$*" != *"$DO_API_TOKEN"* ]] || exit 92
-config=$(cat)
-[[ "$config" == "header = \"Authorization: Bearer $DO_API_TOKEN\"" ]] || exit 93
 
-output=
-while (($#)); do
-  case "$1" in
-    --output)
-      output=${2:?}
-      shift 2
-      ;;
-    *)
-      shift
-      ;;
-  esac
+actual_args=("$@")
+[[ ${#actual_args[@]} -eq 17 ]] || exit 90
+output=${actual_args[13]}
+[[ "$output" == "$MOCK_RESPONSE_DIR"/tmp.* ]] || exit 91
+expected_args=(
+  -q
+  --config
+  -
+  --fail
+  --silent
+  --show-error
+  --connect-timeout
+  3
+  --max-time
+  3
+  --proto
+  =https
+  --output
+  "$output"
+  --write-out
+  '%{http_code}'
+  "https://api.digitalocean.com/v2/firewalls/$MOCK_FIREWALL_ID"
+)
+for index in "${!expected_args[@]}"; do
+  [[ "${actual_args[$index]}" == "${expected_args[$index]}" ]] || exit 92
 done
-[[ -n "$output" ]] || exit 94
+[[ " $* " != *" $DO_API_TOKEN "* ]] || exit 93
+config=$(cat)
+[[ "$config" == "header = \"Authorization: Bearer $DO_API_TOKEN\"" ]] || exit 94
 : >"$output"
 
 count=0
@@ -308,9 +327,11 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
                 "MOCK_STATE": str(self.state),
                 "MOCK_CURL_CALLS": str(self.curl_calls),
                 "MOCK_SLEEP_CALLS": str(self.sleep_calls),
+                "MOCK_RESPONSE_DIR": self.temp.name,
                 "MOCK_FIREWALL_MODE": mode,
                 "MOCK_FIREWALL_ID": self.firewall_id,
                 "MOCK_WORKER_ID": self.worker_id,
+                "TMPDIR": self.temp.name,
             },
             text=True,
             capture_output=True,
@@ -396,6 +417,11 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
         helper_mutations = {
             "unbounded attempt expansion": helper.replace(
                 "MAX_ATTEMPTS=24", "MAX_ATTEMPTS=240", 1
+            ),
+            "later maximum-attempt override": helper.replace(
+                "MAX_ATTEMPTS=24\n",
+                "MAX_ATTEMPTS=24\nMAX_ATTEMPTS=240\n",
+                1,
             ),
             "curl timeout removal": helper.replace(" --max-time 3", "", 1),
             "curl HTTP failure acceptance": helper.replace(
@@ -502,12 +528,61 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
                 "POLL_SECONDS=2\nPOLL_SECONDS=600\n",
                 1,
             ),
+            "absolute extra sleep": helper.replace(
+                '    sleep "$POLL_SECONDS"\n',
+                '    sleep "$POLL_SECONDS"\n    /bin/sleep 0.02\n',
+                1,
+            ),
         }
         for name, mutation in helper_mutations.items():
             with self.subTest(name=name):
                 self.assertNotEqual(mutation, helper)
                 with self.assertRaises(ValueError):
                     validate_readiness_contract(mutation, operator)
+
+        curl_argv_mutations = {
+            "short-form curl timeout override": helper.replace(
+                "    --connect-timeout 3 --max-time 3 --proto '=https' \\\n",
+                "    --connect-timeout 3 --max-time 3 --proto '=https' \\\n"
+                "    -m 900 \\\n",
+                1,
+            ),
+            "curl alias timeout wrapper": helper.replace(
+                "curl_with_bearer() {\n",
+                "shopt -s expand_aliases\n"
+                "alias curl='curl -m 900'\n\n"
+                "curl_with_bearer() {\n",
+                1,
+            ),
+            "curl function timeout wrapper": helper.replace(
+                "curl_with_bearer() {\n",
+                "curl() { command curl -m 900 \"$@\"; }\n\n"
+                "curl_with_bearer() {\n",
+                1,
+            ),
+            "additional curl config": helper.replace(
+                "    --connect-timeout 3 --max-time 3 --proto '=https' \\\n",
+                "    --connect-timeout 3 --max-time 3 --proto '=https' \\\n"
+                "    --config <(printf 'max-time = 900\\n') \\\n",
+                1,
+            ),
+            "curl retry expansion": helper.replace(
+                "    --connect-timeout 3 --max-time 3 --proto '=https' \\\n",
+                "    --connect-timeout 3 --max-time 3 --proto '=https' \\\n"
+                "    --retry 100 --retry-delay 60 --retry-all-errors \\\n",
+                1,
+            ),
+        }
+        for name, mutation in curl_argv_mutations.items():
+            with self.subTest(name=name):
+                self.assertNotEqual(mutation, helper)
+                self.helper.write_text(mutation)
+                try:
+                    result = self.run_helper("ready")
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertEqual(self.read_counter(self.curl_calls), 0)
+                finally:
+                    self.helper.write_text(helper)
 
         helper_call = '    "$REPO_ROOT/infra/wait-do-worker-firewall.sh"\n'
         qualify_call = '    "$REPO_ROOT/infra/ansible/qualify.sh"\n'

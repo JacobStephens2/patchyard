@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import hashlib
 import importlib
-import importlib.util
 from pathlib import Path
 import sys
 import sysconfig
+import tempfile
+import types
 import unittest
 
 
@@ -93,20 +94,24 @@ def main() -> int:
     assert test_file is not None
     sys.dont_write_bytecode = True
     module_name = "_patchyard_bound_test"
-    spec = importlib.util.spec_from_file_location(module_name, test_file)
-    if spec is None or spec.loader is None:
-        print("isolated unittest runner: could not load test file", file=sys.stderr)
-        return 2
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    try:
-        spec.loader.exec_module(module)
-    except Exception:
-        sys.modules.pop(module_name, None)
-        raise
-
-    suite = unittest.defaultTestLoader.loadTestsFromModule(module)
-    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    with tempfile.TemporaryDirectory(prefix="patchyard-unittest-cache-") as cache:
+        # Keep every import loader away from repository bytecode, then compile
+        # the exact opened test source instead of consulting SourceFileLoader.
+        sys.pycache_prefix = cache
+        source = test_file.read_bytes()
+        code = compile(source, str(test_file), "exec", dont_inherit=True)
+        module = types.ModuleType(module_name)
+        module.__file__ = str(test_file)
+        module.__package__ = None
+        module.__loader__ = None
+        module.__spec__ = None
+        sys.modules[module_name] = module
+        try:
+            exec(code, module.__dict__)
+            suite = unittest.defaultTestLoader.loadTestsFromModule(module)
+            result = unittest.TextTestRunner(verbosity=2).run(suite)
+        finally:
+            sys.modules.pop(module_name, None)
     return 0 if result.wasSuccessful() else 1
 
 

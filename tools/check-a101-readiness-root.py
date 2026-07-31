@@ -25,7 +25,9 @@ BOUND_SOURCES = {
     "tools/install-shellcheck.sh": "715047c90f6a877c57a5495f1bc24feecd40f365ccd8239a6dc711be22a3f535",
     "tools/check-infra.sh": "61ec9e3485ce0933ce7a5a74a81512e8438f6d8a4e00a2d018369e18a827c265",
     "tools/check-ansible.sh": "f702dd84863bbc1973edbb41f21c95d8467cf703d6174e277418c44d92bf2d29",
-    "tools/run-isolated-unittest.py": "9291cee8008ce693ad0c891271450606d5f547e4be0821867ac81b95d7d6572f",
+    "tools/run-isolated-unittest.py": "251ee05a14cf9cda69cea1499d89a49a55c3a652e6f116d0bf894e926172ef3e",
+    "tools/anthropic-spend-evidence.py": "d79d8c69d7752e70af3119846029de661bceda19e06181baccd247fa671f9d97",
+    "tools/anthropic-wif-admin.py": "89794bd6235d5b37dfa4999a792588396ece9935b17820954b75d8b055822c91",
     "tools/check-anthropic-spend.py": "8c31bb1e3a1f350a4641a180642c4c43a6de0c2359ec54aad7e76c9a69767a1c",
     "tools/check-anthropic-issuance.py": "56a84e7f5aab1f8a99003a5321ad7d6f910d72fcd35d68166958bd3495e9ee60",
     "tools/check-independence.py": "baaa2e5058862a253c5042e7ccaea4bfea8af05a93825f5ce5cf99bbd1f93782",
@@ -33,20 +35,21 @@ BOUND_SOURCES = {
     "tools/check-stack.py": "ddce869a4bd4983c35c1b246ba01b5e8b1ea25219c761ebbdb2d5b4a8194deff",
     "tools/check-worker-qualification.py": "357d756da3c83004db6766956a8c31b9682953a50b470dbb3ff7b9acb879e99a",
     "tools/check-worker-runtime.py": "db1646d9bcf738d1df35679e131b1afdb9e35af73be1859d85c8f4017385ce75",
-    "infra/ansible/tests/test_a101_readiness_root.py": "2f3ad2be6e2d1c5793064cb307ab7adeac7233e10e22dbdf54cd53402730fde4",
+    "infra/ansible/tests/test_a101_readiness_root.py": "1de8e44b08ed9d7d29d62cf3219fb809d676324bc2cd51143ec8ddcb1ece1998",
     "infra/ansible/tests/test_worker_firewall_readiness.py": "65ae6c632e521f264c26f243403901897d786efce83c4b115c98bce6cf198996",
-    "infra/ansible/tests/test_anthropic_spend.py": "3fbf232fa47c590c845b7205a34027f24451cd0c0dc857f1981f8b352f590355",
+    "infra/ansible/tests/test_anthropic_spend.py": "4e79b5fb592597c45c55eb0da8e4343dd71615679ffb4037a98b731adb93811b",
     "infra/ansible/tests/test_anthropic_issuance.py": "411f298e3214068b24467d65d7a2dccf750e05952779f072a45fba3c503b8f73",
-    "infra/ansible/tests/test_anthropic_wif_admin.py": "8022b0556ef07070069f9d88e57962291d406ab63c448c91799de84d17784cfa",
+    "infra/ansible/tests/test_anthropic_wif_admin.py": "1d53f8ffe4ef6ad55b8d7187705344836aed831337c26f310bd11538888a9670",
     "infra/ansible/tests/test_child_launcher.py": "bff549994263407f9b96ec52383b120a159de2c987e2bada49ad13a99c6cd9c0",
     "infra/ansible/tests/test_cloud_init_bootstrap.py": "c0c79b21c2f0ed236667fc8176c1c834f1753991fef35ef6a03f4a21fe6bca04",
     "infra/ansible/tests/test_dashboard_checkout.py": "3f953bb76b11d9d8f8853310fb99938437691024f59a6c55aa5b5fb5cafefcad",
-    "infra/ansible/tests/test_log_secret_scan.py": "b4bfc17273cdcafaef18dd5dc3088f0e7aa06faba3d1015cbe74804c2ec5518b",
+    "infra/ansible/tests/test_log_secret_scan.py": "c03a26dd05028c1e1986a5db544cb23feeacac9758c4cc4e275ffa90a511c880",
     "infra/ansible/tests/test_preview_capability_deployment.py": "f8b44dfa110c4f099711487729e5afd222ae6218beb487d5a31d39a6ee580481",
     "infra/ansible/tests/test_replace_worker.py": "d04bb7e7351f865ba47d9cbd3acf3633eda6c4a3d0f1e9807598282c785635fb",
     "infra/ansible/tests/test_session14_qualification.py": "4a121aeec4dff797e67f2a4d5f151c5a0a3f080cdef3499f0ab8f3fef84f41d3",
     "infra/ansible/tests/test_session15_proposer.py": "f66e21999bb5ede882371069de17256361fb7eea9738bc8fa97fcc5cf4f86a0e",
     "infra/ansible/tests/test_session16_cutover.py": "a93f1c4b4a844222473ce787ce4e5430621c3c496b049621d38e051bbe976ba3",
+    "infra/ansible/roles/control_plane/files/patchyard-log-secret-scan": "356c4a962a262f4128cd22496b068dbf4b02c8a3867214c7c31f80e1ebb11eb8",
 }
 EXPECTED_TEST_FILES = (
     "infra/ansible/tests/test_a101_readiness_root.py",
@@ -63,6 +66,29 @@ EXPECTED_TEST_FILES = (
     "infra/ansible/tests/test_session14_qualification.py",
     "infra/ansible/tests/test_session15_proposer.py",
     "infra/ansible/tests/test_session16_cutover.py",
+)
+EXPECTED_TOOL_PYTHON_FILES = (
+    "tools/aa-join.py",
+    "tools/aa-sweep.py",
+    "tools/anthropic-spend-evidence.py",
+    "tools/anthropic-wif-admin.py",
+    "tools/benchmark_harmonyagent_cerebras.py",
+    "tools/benchmark_harness_speed.py",
+    "tools/benchmark_spec_speed.py",
+    "tools/check-a101-readiness-root.py",
+    "tools/check-anthropic-issuance.py",
+    "tools/check-anthropic-spend.py",
+    "tools/check-bench.py",
+    "tools/check-independence.py",
+    "tools/check-preview-runtime.py",
+    "tools/check-seats.py",
+    "tools/check-stack.py",
+    "tools/check-worker-qualification.py",
+    "tools/check-worker-runtime.py",
+    "tools/codebase-metrics.py",
+    "tools/read-infra-tool-version.py",
+    "tools/run-isolated-unittest.py",
+    "tools/validate-lessons-report.py",
 )
 INFRA_CHECKERS = (
     "check-stack.py",
@@ -134,12 +160,70 @@ def isolation_errors() -> list[str]:
     return errors
 
 
-def workflow_step(workflow: str, name: str) -> str | None:
-    match = re.search(
-        rf"(?ms)^      - name: {re.escape(name)}\n(?P<body>.*?)(?=^      - name:|\Z)",
-        workflow,
-    )
-    return None if match is None else match.group("body")
+def expected_workflow(pin: str) -> str:
+    return """name: Infrastructure
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  infrastructure:
+    name: infrastructure
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out the reviewed revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # Session 16 rollback contracts execute against exact merged anchors.
+          fetch-depth: 0
+
+      - name: Verify A101 readiness trust root
+        run: |
+          printf '%s\\n' \\
+            '__ROOT_PIN__' \\
+            | sha256sum --check
+          python3 -I tools/check-a101-readiness-root.py
+
+      - name: Install pinned OpenTofu
+        uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f # v1.0.8
+        with:
+          tofu_version: 1.12.0
+
+      - name: Prepare Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: infra/ansible/requirements.txt
+
+      - name: Warm the Rust cache for Session 1
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Install pinned Ansible runtime
+        run: |
+          python -m pip install --requirement infra/ansible/requirements.txt
+          ansible-galaxy collection install --requirements-file infra/ansible/requirements.yml
+
+      - name: Install pinned ShellCheck
+        run: |
+          SHELLCHECK_BIN_DIR="$RUNNER_TEMP/shellcheck-bin" tools/install-shellcheck.sh
+          echo "$RUNNER_TEMP/shellcheck-bin" >> "$GITHUB_PATH"
+
+      - name: Validate OpenTofu and stack doctrine
+        run: tools/check-infra.sh
+
+      - name: Lint and syntax-check Ansible
+        if: ${{ always() }}
+        run: tools/check-ansible.sh
+""".replace("__ROOT_PIN__", pin)
 
 
 def validate() -> list[str]:
@@ -169,6 +253,17 @@ def validate() -> list[str]:
         errors.append(f"explicit Ansible test census is missing: {missing}")
     for unexpected in sorted(observed_infra_python - expected_tests):
         errors.append(f"unexpected infrastructure Python source: {unexpected}")
+
+    expected_tools = set(EXPECTED_TOOL_PYTHON_FILES)
+    observed_tools = {
+        str(path.relative_to(REPO))
+        for path in (REPO / "tools").iterdir()
+        if path.name.endswith(".py")
+    }
+    for missing in sorted(expected_tools - observed_tools):
+        errors.append(f"explicit tools Python census is missing: {missing}")
+    for unexpected in sorted(observed_tools - expected_tools):
+        errors.append(f"unexpected tools Python source: {unexpected}")
 
     for path in REPO.rglob("__init__.py"):
         if path.is_file():
@@ -276,32 +371,8 @@ def validate() -> list[str]:
         pin = f"{root_digest}  tools/check-a101-readiness-root.py"
         if workflow.count(pin) != 1:
             errors.append("infrastructure workflow does not pin this trust-root checker")
-        root_step = workflow_step(workflow, "Verify A101 readiness trust root")
-        infra_step = workflow_step(workflow, "Validate OpenTofu and stack doctrine")
-        ansible_step = workflow_step(workflow, "Lint and syntax-check Ansible")
-        if root_step is None:
-            errors.append("infrastructure workflow lacks the A101 trust-root stage")
-        elif root_step.count("python3 -I tools/check-a101-readiness-root.py") != 1:
-            errors.append("workflow trust-root execution is not isolated")
-        if infra_step is None or infra_step.count("run: tools/check-infra.sh") != 1:
-            errors.append("workflow lacks the retained infrastructure gate")
-        elif "continue-on-error" in infra_step:
-            errors.append("infrastructure workflow masks the infrastructure failure")
-        if ansible_step is None:
-            errors.append("workflow lacks the Ansible gate")
-        else:
-            if ansible_step.count("        if: ${{ always() }}") != 1:
-                errors.append("Ansible step does not run after infrastructure failure")
-            if ansible_step.count("run: tools/check-ansible.sh") != 1:
-                errors.append("workflow Ansible gate invocation differs")
-        try:
-            trust_index = workflow.index("Verify A101 readiness trust root")
-            install_index = workflow.index("Install pinned OpenTofu")
-        except ValueError:
-            errors.append("infrastructure workflow lacks trust-root ordering anchors")
-        else:
-            if trust_index >= install_index:
-                errors.append("workflow trust-root check occurs after executable setup")
+        if workflow != expected_workflow(pin):
+            errors.append("infrastructure workflow differs from its exact fail-closed binding")
     else:
         errors.append("infrastructure workflow is missing")
 

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import importlib.machinery
+import hashlib
 from pathlib import Path
-import sys
+import types
 import unittest
 
 
@@ -15,9 +15,25 @@ SCRIPT = (
     / "files"
     / "patchyard-log-secret-scan"
 )
-sys.dont_write_bytecode = True
-loader = importlib.machinery.SourceFileLoader("patchyard_log_secret_scan", str(SCRIPT))
-scan_module = loader.load_module()
+EXPECTED_SCANNER_SOURCE_SHA256 = (
+    "356c4a962a262f4128cd22496b068dbf4b02c8a3867214c7c31f80e1ebb11eb8"
+)
+
+
+def load_exact_source_module(name: str, path: Path, expected: str) -> types.ModuleType:
+    source = path.read_bytes()
+    if path.is_symlink() or hashlib.sha256(source).hexdigest() != expected:
+        raise RuntimeError(f"{path.name} differs from its exact source binding")
+    module = types.ModuleType(name)
+    module.__file__ = str(path)
+    module.__package__ = None
+    exec(compile(source, str(path), "exec", dont_inherit=True), module.__dict__)
+    return module
+
+
+scan_module = load_exact_source_module(
+    "patchyard_log_secret_scan", SCRIPT, EXPECTED_SCANNER_SOURCE_SHA256
+)
 
 
 class LogSecretScanTests(unittest.TestCase):

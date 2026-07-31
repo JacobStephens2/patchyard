@@ -2,12 +2,12 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
-import importlib.util
 import json
 import pathlib
 import re
 import subprocess
 import tempfile
+import types
 import unittest
 
 
@@ -40,10 +40,25 @@ EXPECTED_READINESS_TEST_SOURCE_SHA256 = (
     "65ae6c632e521f264c26f243403901897d786efce83c4b115c98bce6cf198996"
 )
 MODULE_PATH = ROOT / "tools/anthropic-spend-evidence.py"
-SPEC = importlib.util.spec_from_file_location("anthropic_spend_evidence", MODULE_PATH)
-assert SPEC is not None and SPEC.loader is not None
-EVIDENCE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(EVIDENCE)
+EXPECTED_EVIDENCE_SOURCE_SHA256 = (
+    "d79d8c69d7752e70af3119846029de661bceda19e06181baccd247fa671f9d97"
+)
+
+
+def load_exact_source_module(name: str, path: pathlib.Path, expected: str) -> types.ModuleType:
+    source = path.read_bytes()
+    if path.is_symlink() or hashlib.sha256(source).hexdigest() != expected:
+        raise RuntimeError(f"{path.name} differs from its exact source binding")
+    module = types.ModuleType(name)
+    module.__file__ = str(path)
+    module.__package__ = None
+    exec(compile(source, str(path), "exec", dont_inherit=True), module.__dict__)
+    return module
+
+
+EVIDENCE = load_exact_source_module(
+    "anthropic_spend_evidence", MODULE_PATH, EXPECTED_EVIDENCE_SOURCE_SHA256
+)
 
 
 def iso(value: datetime) -> str:

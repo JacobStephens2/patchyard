@@ -1,7 +1,7 @@
 # A115 A101 firewall-readiness repair attempt
 
-Status: **root-of-trust repair returned NOT A PASS; A77 adjudication complete;
-A9 stop pending a new bounded authorization**
+Status: **isolated execution-closure repair ready for exact-head A78 review;
+no live action**
 
 ## Authorization and boundary
 
@@ -1397,3 +1397,75 @@ No new numbered ruling should record that operational grant. No live system,
 worker, provider, credential, Console limit, requirement-1 evidence,
 acceptance case, requirement-3 artifact, rotation state, or qualification flag
 changed.
+
+## Isolated execution-closure repair authorization
+
+Jacob explicitly authorized one new bounded source-only sequence at the merged
+PR head. The source boundary is limited to closing the three conceded findings
+above before returning the result to A78. This is a new authorization after the
+recorded A9 stop, not an unrecorded continuation of the exhausted loop.
+
+The same grant separately authorizes planning a fresh replacement and disposal
+of quarantined worker `588858421`, but only after this source review. It grants
+no apply. This section records only the source work and changes no worker,
+firewall, plan, credential, provider, Console value, requirement-1 fixture,
+acceptance case, requirement-3 artifact, rotation state, or qualification flag.
+
+## Isolated execution-closure source repair
+
+The production readiness helper, replacement operator, and A101 qualifier are
+byte-identical to the previously reviewed candidate. The repair changes only
+the proof boundary:
+
+1. the isolated test runner redirects bytecode lookups to a fresh private
+   temporary cache and compiles the exact opened test source, so a repository
+   `.pyc` cannot replace the executed test content;
+2. the three import-executed sources are exact-digest bound by the independent
+   trust root and by their consuming test modules, which compile their exact
+   opened bytes rather than using import loaders;
+3. the trust root carries an explicit `tools/*.py` census, so a new executable
+   tools source cannot enter the test closure unnoticed; and
+4. the complete infrastructure workflow is exact-template bound, including the
+   trust-root block, job controls, infrastructure command, and continuing
+   Ansible step.
+
+## Focused gates and installed mutations
+
+The repaired baseline passed:
+
+- 11 isolated A101 trust-root tests;
+- 7 worker-firewall readiness tests;
+- 27 Anthropic spend contract tests;
+- all 3 WIF-admin and both log-scanner tests;
+- the independent A101 root and Anthropic spend checkers; and
+- Bash syntax plus `git diff --check`.
+
+The new tests install the former unchecked-hash bytecode attack: a conventional
+cache-path `.pyc` contains a forged passing test while the exact source contains
+a failing test. The runner returns 1 on `exact source executed`, and the forged
+module's marker remains absent. They also install and reject seven workflow
+masking variants: infrastructure `|| true`; job-level `continue-on-error`,
+`if: false`, and a masking default shell; Ansible-step `continue-on-error`;
+Ansible `|| true`; and trust-root `|| true`.
+Each of the three import-executed sources is separately mutated and refused
+before its changed bytes execute, and a new `tools/unbound-executable.py` is
+rejected by the census.
+
+The production readiness mutation harness was rerun. In-memory source mutation
+`.status == "succeeded"` to `.status != "succeeded"` failed on the exact
+settled-status binding, and `MAX_ATTEMPTS=24` to `MAX_ATTEMPTS=240` failed on
+the exact bounded-attempt binding. Neither weakening survived the suite.
+
+## Isolated execution-closure A78 handoff
+
+A78 must review the exact pushed head named in the PR handoff from a new
+detached worktree. It should independently reproduce the unchecked-hash
+bytecode, workflow-masking, import-source mutation, and tools-census attacks;
+verify the complete execution closure and exact command scalars; run the 11
+root, 7 readiness, and 27 spend tests plus the independent checkers; and return
+PASS or material findings.
+
+Review authorizes source inspection and local disposable mutations only. It
+authorizes no network, live host, worker, DigitalOcean, Anthropic, Console,
+requirement-1 refresh, acceptance, requirement-3, rotation, or
+qualification-flag action.

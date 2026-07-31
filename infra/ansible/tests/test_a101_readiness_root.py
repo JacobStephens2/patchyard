@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
+import py_compile
 import shutil
 import subprocess
 import tempfile
@@ -24,6 +26,8 @@ BOUND_SOURCE_PATHS = (
     "tools/check-infra.sh",
     "tools/check-ansible.sh",
     "tools/run-isolated-unittest.py",
+    "tools/anthropic-spend-evidence.py",
+    "tools/anthropic-wif-admin.py",
     "tools/check-anthropic-spend.py",
     "tools/check-anthropic-issuance.py",
     "tools/check-independence.py",
@@ -45,6 +49,7 @@ BOUND_SOURCE_PATHS = (
     "infra/ansible/tests/test_session14_qualification.py",
     "infra/ansible/tests/test_session15_proposer.py",
     "infra/ansible/tests/test_session16_cutover.py",
+    "infra/ansible/roles/control_plane/files/patchyard-log-secret-scan",
 )
 
 
@@ -206,7 +211,132 @@ class A101ReadinessTrustRootContract(unittest.TestCase):
         workflow.write_text(source.replace("        if: ${{ always() }}\n", "", 1))
         result = self.run_root()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Ansible step does not run after infrastructure failure", result.stderr)
+        self.assertIn("workflow differs from its exact fail-closed binding", result.stderr)
+
+    def test_workflow_gate_failures_cannot_be_masked(self) -> None:
+        workflow = self.repo / ".github/workflows/infrastructure.yml"
+        source = workflow.read_text()
+        mutations = {
+            "infrastructure shell suffix": source.replace(
+                "        run: tools/check-infra.sh\n",
+                "        run: tools/check-infra.sh || true\n",
+                1,
+            ),
+            "job-level continuation": source.replace(
+                "    timeout-minutes: 20\n",
+                "    timeout-minutes: 20\n    continue-on-error: true\n",
+                1,
+            ),
+            "job-level skip": source.replace(
+                "    timeout-minutes: 20\n",
+                "    timeout-minutes: 20\n    if: ${{ false }}\n",
+                1,
+            ),
+            "job-level masking shell": source.replace(
+                "    timeout-minutes: 20\n",
+                "    timeout-minutes: 20\n"
+                "    defaults:\n"
+                "      run:\n"
+                "        shell: bash -c '{0} || true'\n",
+                1,
+            ),
+            "Ansible continuation": source.replace(
+                "        if: ${{ always() }}\n",
+                "        if: ${{ always() }}\n        continue-on-error: true\n",
+                1,
+            ),
+            "Ansible shell suffix": source.replace(
+                "        run: tools/check-ansible.sh\n",
+                "        run: tools/check-ansible.sh || true\n",
+                1,
+            ),
+            "trust-root shell suffix": source.replace(
+                "          python3 -I tools/check-a101-readiness-root.py\n",
+                "          python3 -I tools/check-a101-readiness-root.py || true\n",
+                1,
+            ),
+        }
+        for name, mutation in mutations.items():
+            with self.subTest(name=name):
+                self.assertNotEqual(mutation, source)
+                workflow.write_text(mutation)
+                try:
+                    result = self.run_root()
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+                finally:
+                    workflow.write_text(source)
+
+    def test_runner_executes_source_not_unchecked_hash_bytecode(self) -> None:
+        target = self.repo / "infra/ansible/tests/test_session14_qualification.py"
+        target.write_text(
+            "import unittest\n\n"
+            "class ExactSource(unittest.TestCase):\n"
+            "    def test_source_failure(self):\n"
+            "        self.fail('exact source executed')\n"
+        )
+        marker = Path(self.temp.name) / "forged-bytecode-executed"
+        forged_source = Path(self.temp.name) / "forged.py"
+        forged_source.write_text(
+            "from pathlib import Path\n"
+            f"Path({str(marker)!r}).touch()\n"
+            "import unittest\n\n"
+            "class ForgedPass(unittest.TestCase):\n"
+            "    def test_forged_pass(self):\n"
+            "        self.assertTrue(True)\n"
+        )
+        cache = Path(importlib.util.cache_from_source(str(target)))
+        cache.parent.mkdir(parents=True)
+        py_compile.compile(
+            str(forged_source),
+            cfile=str(cache),
+            doraise=True,
+            invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH,
+        )
+
+        result = self.run_test("infra/ansible/tests/test_session14_qualification.py")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("exact source executed", result.stderr)
+        self.assertFalse(marker.exists())
+
+    def test_import_executed_sources_are_independently_bound(self) -> None:
+        cases = (
+            (
+                "tools/anthropic-spend-evidence.py",
+                "infra/ansible/tests/test_anthropic_spend.py",
+                "anthropic-spend-evidence.py differs from its exact source binding",
+            ),
+            (
+                "tools/anthropic-wif-admin.py",
+                "infra/ansible/tests/test_anthropic_wif_admin.py",
+                "anthropic-wif-admin.py differs from its exact source binding",
+            ),
+            (
+                "infra/ansible/roles/control_plane/files/patchyard-log-secret-scan",
+                "infra/ansible/tests/test_log_secret_scan.py",
+                "patchyard-log-secret-scan differs from its exact source binding",
+            ),
+        )
+        for source, test, diagnostic in cases:
+            with self.subTest(source=source):
+                path = self.repo / source
+                original = path.read_bytes()
+                path.write_bytes(original + b"\n# executable source mutation\n")
+                try:
+                    result = self.run_test(test)
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+                    self.assertIn(diagnostic, result.stderr)
+                finally:
+                    path.write_bytes(original)
+
+    def test_tools_python_census_rejects_new_executable_source(self) -> None:
+        unexpected = self.repo / "tools/unbound-executable.py"
+        unexpected.write_text("raise RuntimeError('must never execute')\n")
+        result = self.run_root()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "unexpected tools Python source: tools/unbound-executable.py",
+            result.stderr,
+        )
 
     def test_tool_version_file_is_data_not_shell(self) -> None:
         marker = Path(self.temp.name) / "executed"

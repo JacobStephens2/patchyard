@@ -1,15 +1,31 @@
-import importlib.util
+import hashlib
 import pathlib
+import types
 import unittest
 from unittest import mock
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 MODULE_PATH = ROOT / "tools/anthropic-wif-admin.py"
-SPEC = importlib.util.spec_from_file_location("anthropic_wif_admin", MODULE_PATH)
-assert SPEC is not None and SPEC.loader is not None
-ADMIN = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(ADMIN)
+EXPECTED_ADMIN_SOURCE_SHA256 = (
+    "89794bd6235d5b37dfa4999a792588396ece9935b17820954b75d8b055822c91"
+)
+
+
+def load_exact_source_module(name: str, path: pathlib.Path, expected: str) -> types.ModuleType:
+    source = path.read_bytes()
+    if path.is_symlink() or hashlib.sha256(source).hexdigest() != expected:
+        raise RuntimeError(f"{path.name} differs from its exact source binding")
+    module = types.ModuleType(name)
+    module.__file__ = str(path)
+    module.__package__ = None
+    exec(compile(source, str(path), "exec", dont_inherit=True), module.__dict__)
+    return module
+
+
+ADMIN = load_exact_source_module(
+    "anthropic_wif_admin", MODULE_PATH, EXPECTED_ADMIN_SOURCE_SHA256
+)
 
 
 class FakeAdmin:

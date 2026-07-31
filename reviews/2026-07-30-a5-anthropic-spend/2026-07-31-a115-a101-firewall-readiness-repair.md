@@ -1,7 +1,7 @@
 # A115 A101 firewall-readiness repair attempt
 
-Status: **A78 root-of-trust findings adjudicated; authorized repair implemented,
-mutation-checked, and gated; pending fresh A78 review**
+Status: **root-of-trust repair returned NOT A PASS; A77 adjudication complete;
+A9 stop pending a new bounded authorization**
 
 ## Authorization and boundary
 
@@ -1146,3 +1146,64 @@ test census and ordering, transitive state oracle, aggregate gate status, and
 inert pin parser. Review authorizes no network, host, worker, DigitalOcean,
 Anthropic, Console, requirement-1 refresh, acceptance, requirement-3,
 rotation, or qualification-flag action.
+
+## Root repair A78 result
+
+A78 reviewed exact final record commit
+`ba109ee433956bf81070ae787f43fb0159795f3f` in a fresh detached worktree and
+returned NOT A PASS:
+
+1. Critical: an uncensused `tools/hashlib.py` shadows the standard library for
+   both checker scripts, allowing an exact helper mutation to appear pinned
+   while the workflow checker checksum remains valid;
+2. High: uncensused package initializers execute inside every nominally
+   isolated test process, and eleven module sources are bound by filename but
+   not content;
+3. High: the stale `check-infra.sh` step fails before GitHub reaches the newly
+   aggregating Ansible step, so CI skips the repaired wrapper;
+4. Medium: six checker scripts executed by the wrappers remain outside the
+   root source identities; and
+5. Medium as reported: `tofu.sh` has only the workflow-rooted binder, while
+   the helper and operator retain three.
+
+A78 also verified that isolated Python mode exposes the forged helper, inert
+tool-version parsing is repaired, the Ansible wrapper aggregates honestly when
+invoked, spend precedes issuance there, census add/remove cases fail, and the
+three production identities remain unchanged. The exact review is
+`2026-07-31-a78-a101-firewall-readiness-root-review.md`.
+
+## Root repair A77 disposition
+
+The build seat independently conceded F1 at Critical, F2 and F3 at High, and
+F4 at Medium. A77 conceded F5's factual one-binder count but refuted separate
+materiality: the sole externally rooted binder rejects a normal `tofu.sh`
+mutation, and F1 is the attack that collapses it.
+
+Independent experiments reproduced:
+
+- an actual guarded alternate-client helper mutation that both checker scripts
+  accepted through a `tools/hashlib.py` shim, while `python3 -I` rejected its
+  real digest;
+- an uncensused package initializer that executed in a censused test process;
+- a trivial one-case issuance module that kept the filename census green;
+- the workflow's skipped next step after the real stale infrastructure result;
+- an unbound passing issuance checker accepted by both bound checkers; and
+- a `tofu.sh` mutation rejected by the root checker while the spend and
+  readiness suites stayed green.
+
+The exact adjudication is
+`2026-07-31-a77-a101-firewall-readiness-root-review-adjudication.md`.
+
+## Root repair A9 stop
+
+No further source repair was made. The new A78 review completed the authorized
+loop and failed, so A9 requires this stop. Further work requires a new explicit
+bounded authorization under A115 for isolated Python execution and provenance,
+complete test/checker content binding, import-path census, workflow continuation
+with final failure preservation, focused mutation checks, full gates, and a
+new clean A78 review.
+
+No new numbered ruling should record that operational grant. No live system,
+worker, provider, credential, Console limit, requirement-1 evidence,
+acceptance case, requirement-3 artifact, rotation state, or qualification flag
+changed.

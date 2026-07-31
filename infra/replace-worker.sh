@@ -124,6 +124,7 @@ case "$MODE" in
     "$REPO_ROOT/infra/tofu.sh" digitalocean apply "$PLAN_FILE"
     "$REPO_ROOT/infra/ansible/converge.sh"
     "$REPO_ROOT/infra/ansible/converge.sh"
+    "$REPO_ROOT/infra/wait-do-worker-firewall.sh"
     "$REPO_ROOT/infra/ansible/qualify.sh"
     INVENTORY_JSON=$("$REPO_ROOT/infra/ansible/inventory/tofu.sh")
     CONTROL_HOST=$(jq -r '.control_plane.hosts[0]' <<<"$INVENTORY_JSON")

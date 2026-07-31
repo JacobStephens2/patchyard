@@ -72,10 +72,10 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 20290,
-      "comments": 522,
-      "blanks": 1749,
-      "files": 151,
+      "code": 20701,
+      "comments": 524,
+      "blanks": 1785,
+      "files": 153,
       "languages": [
         {
           "language": "BASH",
@@ -135,17 +135,17 @@
         },
         {
           "language": "Python",
-          "code": 7274,
-          "comments": 45,
-          "blanks": 605,
-          "files": 24
+          "code": 7594,
+          "comments": 46,
+          "blanks": 633,
+          "files": 25
         },
         {
           "language": "Shell",
-          "code": 1427,
-          "comments": 25,
-          "blanks": 123,
-          "files": 18
+          "code": 1518,
+          "comments": 26,
+          "blanks": 131,
+          "files": 19
         },
         {
           "language": "Snakemake",
@@ -173,7 +173,7 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 7534,
+      "code": 7535,
       "comments": 255,
       "blanks": 714,
       "files": 92,
@@ -236,7 +236,7 @@
         },
         {
           "language": "Shell",
-          "code": 568,
+          "code": 569,
           "comments": 30,
           "blanks": 97,
           "files": 19
@@ -268,9 +268,9 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8562,
-      "comments": 15410,
-      "blanks": 4324,
-      "files": 163,
+      "comments": 15515,
+      "blanks": 4355,
+      "files": 164,
       "languages": [
         {
           "language": "BASH",
@@ -289,9 +289,9 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 15390,
-          "blanks": 4271,
-          "files": 135
+          "comments": 15495,
+          "blanks": 4302,
+          "files": 136
         },
         {
           "language": "Shell",

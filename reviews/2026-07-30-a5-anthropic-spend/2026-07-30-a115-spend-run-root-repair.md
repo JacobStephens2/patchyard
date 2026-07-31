@@ -409,3 +409,28 @@ No requirement-1 refresh, credential, provider request, Console action,
 behavioral acceptance, requirement-3 work, credential rotation, or
 qualification-flag change followed. The complete record is
 `2026-07-31-a115-m1m2-quarantined-successor-replacement-attempt.md`.
+
+## A101 firewall-readiness source authorization and A9 stop
+
+After A78 passed the stopped operational record and A77 adjudicated its
+forward-looking finding, Jacob authorized a bounded source-only provider
+firewall readiness precondition before A101, its tests and source mutations,
+the full gates, and another A78 review. No live action or replacement plan was
+authorized.
+
+The candidate binds the exact post-apply OpenTofu worker and firewall IDs and
+requires DigitalOcean to report that same firewall as `succeeded`, with zero
+pending changes, exactly that worker attached, and no tags, before the wrapper
+enters qualification. A101 itself remains one-shot and terminal.
+
+The first focused test run failed on Python 3.9 annotation compatibility. The
+one authorized repair corrected only that test compatibility issue. The
+repeated focused suite then failed on three test-harness defects: numeric
+counter interpretation, invalid-ID fixture construction, and a
+prefix-sensitive attempt-count mutation assertion. Under A9 the build seat
+stopped without a second repair. The candidate is preserved on the draft PR
+only as a stopped failure artifact; full gates and A78 review did not begin.
+
+The exact candidate boundary and failure log are recorded in
+`2026-07-31-a115-a101-firewall-readiness-repair.md`. Further work requires a
+new bounded authorization recorded here rather than as a new numbered ruling.

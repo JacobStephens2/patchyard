@@ -33,6 +33,7 @@ shellcheck --exclude=SC2329 --shell=bash \
   "$REPO_ROOT/infra/plan.sh" \
   "$REPO_ROOT/infra/tofu.sh" \
   "$REPO_ROOT/infra/replace-worker.sh" \
+  "$REPO_ROOT/infra/wait-do-worker-firewall.sh" \
   "$REPO_ROOT/infra/restore-drill.sh" \
   "$REPO_ROOT/infra/rollback-control.sh"
 

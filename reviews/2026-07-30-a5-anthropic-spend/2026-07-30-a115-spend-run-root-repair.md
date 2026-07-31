@@ -628,3 +628,37 @@ records are
 No further repair was made. A9 requires a new bounded test-only authorization.
 No production or live action occurred, and all 13 qualification flags remain
 false.
+
+## Invocation-singularity test repair and review handoff
+
+Jacob authorized the bounded test-only repair in the agent chat on 2026-07-31.
+The authorization is recorded under A115 here and in the readiness work
+record; no new numbered ruling was minted, and A119 remains taken.
+
+Exact technical commit
+`3ec94b419fe6fc50ba0bfc5609437a1c8f0afb07` changes only the readiness test.
+The curl mock now counts every attempted invocation before validation while
+retaining a separate accepted-call count. Exact totals bind every behavior
+path, and a normalized source-level executor check covers absolute and
+empty-quote-assembled curl spellings.
+
+All 7 focused tests pass and the suite exercises 39 source mutations. Five
+independently installed mutations - a discarded timeout/retry call, response
+overwrite call, absolute-path call, empty-quote-assembled call, and extra
+rejected wrapper call - each made the real suite exit 1. In the wrapper case,
+the accepted count remained 1 and the attempted count became 2, independently
+proving the new total is load-bearing. The disposable worktrees were removed.
+
+The complete application wrapper passed, including reproducible release,
+dependency, advisory, model, and codebase-projection gates. All three
+OpenTofu roots validate, and stack, independence, worker-runtime, and
+worker-qualification checks pass. Complete Ansible discovery passes 146 of
+147 tests; infrastructure and Ansible stop only on the deliberate
+requirement-1 host-contract mismatch. All four production Ansible lint
+profiles and all four playbook syntax checks pass.
+
+Fresh A78 review of the final record commit is pending. The production helper,
+replacement operator, and Ansible wrapper remain byte-identical. All 13
+qualification flags remain false. No live, worker, firewall, provider,
+Console, acceptance, requirement-1, requirement-3, or rotation action
+occurred.

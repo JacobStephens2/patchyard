@@ -1,7 +1,7 @@
 # A115 A101 firewall-readiness repair attempt
 
-Status: **fresh A78 review returned one High conceded invocation-singularity
-finding; A9 stop pending new bounded authorization**
+Status: **authorized invocation-singularity repair and full gates complete;
+fresh A78 review pending**
 
 ## Authorization and boundary
 
@@ -638,3 +638,109 @@ returned through full gates and A78.
 No production source, live system, worker, provider state, Console limit,
 requirement-1 fixture, acceptance case, requirement-3 artifact, rotation state,
 or qualification flag changed.
+
+## Invocation-singularity repair authorization
+
+Jacob explicitly authorized the bounded repair in the agent chat on
+2026-07-31. The grant covers attempted and accepted curl counters, a
+source-level curl-executor singularity binding, representative extra-invocation
+mutations, the full repository gates, and a new A78 review. It authorizes no
+production helper or operator change and no live, worker, firewall, provider,
+Console, requirement-1, acceptance, requirement-3, rotation, or
+qualification-flag action.
+
+The authorization is recorded under A115. It does not mint a new numbered
+ruling, and A119 remains taken.
+
+## Invocation-singularity test repair
+
+Exact technical commit
+`3ec94b419fe6fc50ba0bfc5609437a1c8f0afb07` changes only
+`infra/ansible/tests/test_worker_firewall_readiness.py`:
+
+- the curl mock increments `MOCK_CURL_TOTAL` before validating any argument,
+  so rejected attempts cannot disappear;
+- `MOCK_CURL_CALLS` remains the independently observed accepted-call counter;
+- every behavior case asserts exact accepted and attempted totals, including
+  1/1 for immediate readiness, 2/2 for pending then ready, 24/24 for every
+  exhausting refusal, and 0/0 before provider polling;
+- the source validator normalizes empty quotes and simple backslash escapes,
+  then requires one standalone raw `curl` executor; and
+- the permanent mutation harness adds two discarded calls, an absolute-path
+  call, an empty-quote assembled call, and a rejected wrapper call whose
+  accepted count remains one while its attempted count becomes two.
+
+All 7 focused tests pass. The suite exercises 39 source mutations: 29 static
+helper mutations, 5 effective-curl-argv mutations, 1 attempted-call mutation,
+and 4 operator mutations. The repaired test SHA-256 is
+`e558b7b0ceb0f041359470f8518c718bba9b5b6a1f48648c3783771b345465ee`.
+
+The production identities remain byte-identical:
+
+| File | SHA-256 |
+| --- | --- |
+| `infra/wait-do-worker-firewall.sh` | `5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba` |
+| `infra/replace-worker.sh` | `27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e` |
+| `tools/check-ansible.sh` | `ead1c23f932f39ec423222f70775304be6453dcd1cd7c24a45b99699d001158e` |
+
+## Invocation-singularity installed mutation checks
+
+The build seat installed five independent source weakenings into disposable
+detached worktrees at the technical commit and ran the real seven-test suite
+against each one:
+
+| Installed mutation | Observed binding |
+| --- | --- |
+| discarded direct provider curl with a 900-second timeout and retries | attempted-call totals doubled and the source executor/endpoint contract also rejected the addition |
+| discarded curl overwriting the response file | attempted-call totals doubled and the structural contract rejected the additional executor |
+| absolute `/nonexistent/curl` provider call | the source-level executor and provider-endpoint singularity contract rejected it |
+| empty-quote assembled `cu""rl` call | normalization exposed the second executor and the singularity contract rejected it |
+| extra rejected `curl_with_bearer` call to `https://example.invalid/` | accepted calls remained 1 while attempted calls became 2, so the exact total assertion failed independently |
+
+Every installed mutation suite exited 1. All disposable mutation worktrees
+were removed and pruned. The wrapper case demonstrates that the attempted
+counter is independently load-bearing even when the lexical executor and
+provider-endpoint bindings remain unchanged.
+
+## Invocation-singularity full gates
+
+The complete application wrapper passed with the technical source and
+regenerated codebase projection:
+
+- 39 browser-control tests passed with the one documented Linux Docker
+  integration skip;
+- formatting, Clippy, every Rust unit/integration/property/documentation test,
+  and triage replay passed;
+- two release builds reproduced `factory-verify` SHA-256
+  `2eae220106314f3c40626f8c39361987e64e8a7b30f72e117d6ccf615175082f`;
+  and
+- checksum install/rollback, audit, deny, vet, dependency, model, and
+  byte-exact codebase-projection checks passed.
+
+The infrastructure wrapper initialized and validated the DigitalOcean, AWS,
+and GitHub OpenTofu roots and passed stack, independence, worker-runtime, and
+worker-qualification checks. It stopped only on the deliberately stale
+requirement-1 host-contract fixture:
+
+```text
+live    bd36018284041c4ed12f2bea19248ec5f855cfa06f9d4823670a6d87d86d8e2f
+current eef6e16e54b6c0945f3874dae71063e8ef2248fea470f2fe4b2579ce22d52977
+```
+
+Complete Ansible discovery passed 146 of 147 tests and failed only the same
+exact assertion. All four production Ansible lint profiles and all four
+playbook syntax checks passed. Refreshing the live requirement-1 fixture
+remains outside authorization and would falsely claim a live rerun.
+
+All 13 provider qualification flags remain false. No credential, provider
+request, worker, firewall, Console limit, acceptance case, requirement-1
+evidence, requirement-3 artifact, or rotation state changed.
+
+## Invocation-singularity A78 handoff
+
+A78 must review the exact final record commit in a fresh detached worktree,
+verify the three production identities remain byte-identical, run all 7
+focused tests and all 39 shipped mutations, reproduce the five installed
+mutation classes, invent additional additive executor or counter bypasses, and
+return PASS or material findings. Review authorizes no real curl, network,
+provider, worker, firewall, or Console action.

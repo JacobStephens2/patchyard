@@ -386,8 +386,26 @@ A77 and sustained the PASS. The full review and adjudication are recorded in
 `2026-07-30-a78-quarantined-successor-replacement-plan-review.md` and
 `2026-07-30-a77-quarantined-successor-replacement-plan-adjudication.md`.
 
-No repair, plan regeneration, apply, worker mutation, requirement-1 refresh,
-credential, provider request, Console action, behavioral acceptance,
-requirement-3 work, or qualification-flag change followed. Applying the exact
-plan now requires separate explicit authority and a fresh live prerequisite
-bracket.
+No repair or plan regeneration followed the PASS.
+
+## Quarantined-successor apply authorization and stop
+
+Jacob subsequently answered, `AUTHORIZE APPLY`. This operational grant applied
+only the exact reviewed plan and its built-in wrapper sequence. OpenTofu
+created successor worker `588858421`, moved only the reviewed worker-firewall
+attachment, and destroyed operationally quarantined worker `588826948`. Both
+convergence passes passed, and the second reported zero changes on both hosts.
+The standalone control and worker qualifications passed.
+
+The wrapper then stopped nonzero when the first A101 control-to-worker
+private-VPC management probe timed out to `10.132.0.15:22`. The probe was not
+retried, and no isolation or provider phase ran. The provider later reported
+the exact firewall settled with zero pending changes and only successor
+`588858421` attached, but that later readback does not establish the timeout's
+cause. Successor `588858421` is operationally quarantined and ineligible for
+repair or reuse under the reviewed failed-successor rule.
+
+No requirement-1 refresh, credential, provider request, Console action,
+behavioral acceptance, requirement-3 work, credential rotation, or
+qualification-flag change followed. The complete record is
+`2026-07-31-a115-m1m2-quarantined-successor-replacement-attempt.md`.

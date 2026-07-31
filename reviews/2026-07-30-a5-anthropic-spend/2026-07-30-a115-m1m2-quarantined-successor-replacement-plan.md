@@ -1,7 +1,7 @@
 # A115 M1/M2 quarantined-successor replacement plan
 
-Status: **A78 passed with no material finding; not applied; separate apply
-authorization required**
+Status: **A78 passed; separately authorized apply stopped at A101 private-VPC
+transport after replacement and idempotent convergence passed**
 
 Jacob explicitly authorized "a new clean-worker replacement plan plus A78
 review." This operational grant is recorded under A115 and does not mint a new
@@ -231,8 +231,22 @@ their A77 dispositions are recorded in
 `2026-07-30-a78-quarantined-successor-replacement-plan-review.md` and
 `2026-07-30-a77-quarantined-successor-replacement-plan-adjudication.md`.
 
-No repair or plan regeneration follows the PASS. The plan remains unapplied;
-applying it requires new explicit authorization and a fresh live prerequisite
-bracket. No credential, provider request, Console action, requirement-1
-refresh, behavioral acceptance, requirement-3 work, or qualification-flag
-change occurred.
+No repair or plan regeneration followed the PASS.
+
+## Authorized apply disposition
+
+Jacob later explicitly authorized applying these exact reviewed bytes. The
+wrapper created successor worker `588858421`, moved only the reviewed firewall
+attachment, destroyed operationally quarantined worker `588826948`, converged
+twice, and passed the standalone control and worker qualifications. The second
+convergence was fully idempotent with zero changes on both hosts.
+
+The wrapper then stopped nonzero when the first A101 control-to-worker
+private-VPC probe timed out to `10.132.0.15:22`. The failed probe was not
+retried. No production isolation probe, requirement-1 refresh, Anthropic
+credential or request, Console action, behavioral acceptance, requirement-3
+work, credential rotation, or qualification-flag change followed. Successor
+`588858421` is operationally quarantined and ineligible for repair or reuse.
+The exact apply boundary, log digest, post-stop readbacks, and stop disposition
+are recorded in
+`2026-07-31-a115-m1m2-quarantined-successor-replacement-attempt.md`.

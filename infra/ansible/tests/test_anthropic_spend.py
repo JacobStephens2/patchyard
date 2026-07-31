@@ -25,7 +25,19 @@ EXPECTED_WORKER_TASKS_SOURCE_SHA256 = (
     "110cbffc6db188aafa1364e88901249290653134b7f0adc559152abf3f35df40"
 )
 EXPECTED_CHECKER_SOURCE_SHA256 = (
-    "d2d32fc90ec15acdefee8eb126f66f99fa85cf8bd82d71927548c4170b471e09"
+    "83332667d754f44a0692db7d13cf000215fd2aca4971e9b7cdeb1ded51284c08"
+)
+EXPECTED_READINESS_HELPER_SOURCE_SHA256 = (
+    "5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba"
+)
+EXPECTED_REPLACEMENT_OPERATOR_SOURCE_SHA256 = (
+    "27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e"
+)
+EXPECTED_ANSIBLE_WRAPPER_SOURCE_SHA256 = (
+    "ead1c23f932f39ec423222f70775304be6453dcd1cd7c24a45b99699d001158e"
+)
+EXPECTED_READINESS_TEST_SOURCE_SHA256 = (
+    "2976bb4e5fbc7f1434aaac3fa84b0ddc4f0b78aaf27eb7139571b2e903619b4c"
 )
 MODULE_PATH = ROOT / "tools/anthropic-spend-evidence.py"
 SPEC = importlib.util.spec_from_file_location("anthropic_spend_evidence", MODULE_PATH)
@@ -498,6 +510,35 @@ class AnthropicA117TransportContract(unittest.TestCase):
             self.checker,
         )
 
+    def test_a101_readiness_sources_are_independently_bound(self) -> None:
+        for relative, expected, constant in (
+            (
+                "infra/wait-do-worker-firewall.sh",
+                EXPECTED_READINESS_HELPER_SOURCE_SHA256,
+                "EXPECTED_READINESS_HELPER_SOURCE_SHA256",
+            ),
+            (
+                "infra/replace-worker.sh",
+                EXPECTED_REPLACEMENT_OPERATOR_SOURCE_SHA256,
+                "EXPECTED_REPLACEMENT_OPERATOR_SOURCE_SHA256",
+            ),
+            (
+                "tools/check-ansible.sh",
+                EXPECTED_ANSIBLE_WRAPPER_SOURCE_SHA256,
+                "EXPECTED_ANSIBLE_WRAPPER_SOURCE_SHA256",
+            ),
+            (
+                "infra/ansible/tests/test_worker_firewall_readiness.py",
+                EXPECTED_READINESS_TEST_SOURCE_SHA256,
+                "EXPECTED_READINESS_TEST_SOURCE_SHA256",
+            ),
+        ):
+            with self.subTest(relative=relative):
+                actual = hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
+                self.assertEqual(actual, expected)
+                self.assertIn(constant, self.checker)
+                self.assertIn(expected, self.checker)
+
     def test_spend_run_root_grants_only_required_traversal(self) -> None:
         exact = '''if $SPEND_MODE; then
   # The one-shot request runs as factory-worker. Grant that identity traversal of
@@ -622,6 +663,90 @@ fi'''
                 capture_output=True,
                 text=True,
             )
+
+    def test_checker_rejects_a101_f1_f6_structural_mutations(self) -> None:
+        mutations = (
+            (
+                "F1 alternate client",
+                "infra/wait-do-worker-firewall.sh",
+                "  HTTP_STATUS=\n",
+                "  /nonexistent/wget --timeout=900 --tries=100 -O /dev/null "
+                '"https://api.digitalocean.com/v2/droplets/'
+                '${WORKER_ID}" || true\n'
+                "  HTTP_STATUS=\n",
+                "  A101 firewall readiness helper differs from its complete source binding",
+            ),
+            (
+                "F2 parameter assembly",
+                "infra/wait-do-worker-firewall.sh",
+                "  HTTP_STATUS=\n",
+                "  A101_CLIENT=/nonexistent/cur\n"
+                '  "${A101_CLIENT}l" -m 900 --retry 100 '
+                '"https://api.digitalocean.com/v2/droplets/'
+                '${WORKER_ID}" || true\n'
+                "  HTTP_STATUS=\n",
+                "  A101 firewall readiness helper differs from its complete source binding",
+            ),
+            (
+                "F3 sourced sibling",
+                "infra/wait-do-worker-firewall.sh",
+                "for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do\n",
+                '[[ ! -f "$REPO_ROOT/infra/lib/readiness-extra.sh" ]] '
+                '|| . "$REPO_ROOT/infra/lib/readiness-extra.sh"\n\n'
+                "for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do\n",
+                "  A101 firewall readiness helper differs from its complete source binding",
+            ),
+            (
+                "F3 Bash builtin networking",
+                "infra/wait-do-worker-firewall.sh",
+                "for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do\n",
+                '[[ -z "${PATCHYARD_DEBUG_PROBE:-}" ]] '
+                "|| exec 3<>/dev/tcp/api.digitalocean.com/443\n\n"
+                "for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do\n",
+                "  A101 firewall readiness helper differs from its complete source binding",
+            ),
+            (
+                "F4 operator-wide client",
+                "infra/replace-worker.sh",
+                '    "$REPO_ROOT/infra/tofu.sh" digitalocean apply "$PLAN_FILE"\n',
+                '    "$REPO_ROOT/infra/tofu.sh" digitalocean apply "$PLAN_FILE"\n'
+                "    curl -sS -m 900 --retry 100 -o /dev/null "
+                '"https://api.digitalocean.com/v2/droplets" || true\n',
+                "  A101 worker replacement operator differs from its complete source binding",
+            ),
+            (
+                "F5 ShellCheck census",
+                "tools/check-ansible.sh",
+                '  "$REPO_ROOT/infra/wait-do-worker-firewall.sh" \\\n',
+                "",
+                "  A101 Ansible wrapper differs from its complete source binding",
+            ),
+            (
+                "F5 readiness test census",
+                "infra/ansible/tests/test_worker_firewall_readiness.py",
+                "class WorkerFirewallReadinessContract(unittest.TestCase):",
+                "class DisabledWorkerFirewallReadinessContract(unittest.TestCase):",
+                "  A101 readiness test census differs from its complete source binding",
+            ),
+            (
+                "F6 redirected attempted counter",
+                "infra/wait-do-worker-firewall.sh",
+                "  HTTP_STATUS=\n",
+                '  MOCK_CURL_TOTAL=/dev/null cu"r"l -q -m 900 '
+                '"https://api.digitalocean.com/v2/droplets/'
+                '${WORKER_ID}" || true\n'
+                "  HTTP_STATUS=\n",
+                "  A101 firewall readiness helper differs from its complete source binding",
+            ),
+        )
+        for name, relative, before, after, diagnostic in mutations:
+            with self.subTest(name=name):
+                result = self.run_checker_mutation(relative, before, after)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                diagnostics = result.stderr.splitlines()
+                self.assertTrue(diagnostics, result.stdout)
+                self.assertEqual(diagnostics[0], "Anthropic spend check: failed")
+                self.assertIn(diagnostic, diagnostics[1:])
 
     def test_checker_behaviorally_rejects_structural_weakening(self) -> None:
         mutations = (

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -14,6 +16,40 @@ import unittest
 ROOT = Path(__file__).resolve().parents[3]
 HELPER = ROOT / "infra" / "wait-do-worker-firewall.sh"
 OPERATOR = ROOT / "infra" / "replace-worker.sh"
+ANSIBLE_WRAPPER = ROOT / "tools" / "check-ansible.sh"
+EXPECTED_HELPER_SHA256 = (
+    "5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba"
+)
+EXPECTED_OPERATOR_SHA256 = (
+    "27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e"
+)
+EXPECTED_ANSIBLE_WRAPPER_SHA256 = (
+    "ead1c23f932f39ec423222f70775304be6453dcd1cd7c24a45b99699d001158e"
+)
+
+
+def validate_complete_source_identities(
+    helper: str, operator: str, ansible_wrapper: str
+) -> None:
+    for source, expected, label in (
+        (helper, EXPECTED_HELPER_SHA256, "firewall readiness helper"),
+        (operator, EXPECTED_OPERATOR_SHA256, "worker replacement operator"),
+        (ansible_wrapper, EXPECTED_ANSIBLE_WRAPPER_SHA256, "Ansible gate wrapper"),
+    ):
+        actual = hashlib.sha256(source.encode()).hexdigest()
+        if actual != expected:
+            raise ValueError(f"{label} differs from its complete source binding")
+
+
+def validate_ansible_wrapper_contract(ansible_wrapper: str) -> None:
+    for fragment in (
+        '  "$REPO_ROOT/infra/replace-worker.sh" \\\n',
+        '  "$REPO_ROOT/infra/wait-do-worker-firewall.sh" \\\n',
+        "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \\\n"
+        '  -s "$ANSIBLE_ROOT/tests" -v',
+    ):
+        if ansible_wrapper.count(fragment) != 1:
+            raise ValueError(f"Ansible gate membership differs: {fragment}")
 
 
 def validate_readiness_contract(helper: str, operator: str) -> None:
@@ -84,6 +120,12 @@ def validate_readiness_contract(helper: str, operator: str) -> None:
     if len(curl_executors) != 1:
         raise ValueError("readiness curl executor is not singular")
 
+    if re.search(r"(?m)^[ \t]*(?:source|\.)[ \t]+", helper):
+        raise ValueError("readiness helper may not source another file")
+    for builtin_network in ("/dev/tcp", "/dev/udp"):
+        if builtin_network in helper:
+            raise ValueError("readiness helper contains Bash builtin networking")
+
     state_attachment = """$firewalls[0].values.droplet_ids[0] | tostring
       ) == (
         $workers[0].values.id | tostring"""
@@ -125,6 +167,9 @@ def validate_readiness_contract(helper: str, operator: str) -> None:
     ]
     if readiness_block != f"    {helper_call}\n    ":
         raise ValueError("replacement readiness call must be direct and fatal")
+    for operator_network in ("curl", "wget", "/dev/tcp", "/dev/udp", "urllib"):
+        if operator_network in operator:
+            raise ValueError("replacement operator contains an unreviewed network client")
 
 
 class WorkerFirewallReadinessContract(unittest.TestCase):
@@ -141,6 +186,9 @@ class WorkerFirewallReadinessContract(unittest.TestCase):
 
         self.state = Path(self.temp.name) / "state.json"
         self.write_state()
+        self.curl_calls = Path(self.temp.name) / "curl-calls"
+        self.curl_total = Path(self.temp.name) / "curl-total"
+        self.sleep_calls = Path(self.temp.name) / "sleep-calls"
 
         tofu = self.root / "infra" / "tofu.sh"
         tofu.write_text(
@@ -155,14 +203,15 @@ cat "$MOCK_STATE"
         self.mock_bin = Path(self.temp.name) / "bin"
         self.mock_bin.mkdir()
         curl = self.mock_bin / "curl"
-        curl.write_text(
-            r"""#!/usr/bin/env bash
+        curl_source = r"""#!/usr/bin/env bash
 set -euo pipefail
 
+private_total=__PRIVATE_CURL_TOTAL__
+private_accepted=__PRIVATE_CURL_ACCEPTED__
 total=0
-[[ ! -f "$MOCK_CURL_TOTAL" ]] || read -r total <"$MOCK_CURL_TOTAL"
+[[ ! -f "$private_total" ]] || read -r total <"$private_total"
 total=$((total + 1))
-printf '%s\n' "$total" >"$MOCK_CURL_TOTAL"
+printf '%s\n' "$total" >"$private_total"
 
 actual_args=("$@")
 [[ ${#actual_args[@]} -eq 17 ]] || exit 90
@@ -196,9 +245,9 @@ config=$(cat)
 : >"$output"
 
 count=0
-[[ ! -f "$MOCK_CURL_CALLS" ]] || read -r count <"$MOCK_CURL_CALLS"
+[[ ! -f "$private_accepted" ]] || read -r count <"$private_accepted"
 count=$((count + 1))
-printf '%s\n' "$count" >"$MOCK_CURL_CALLS"
+printf '%s\n' "$count" >"$private_accepted"
 
 ready() {
   printf '{"firewall":{"id":"%s","name":"patchyard-worker","status":"succeeded","pending_changes":[],"droplet_ids":[%s],"tags":[]}}\n' \
@@ -274,22 +323,29 @@ case "$MOCK_FIREWALL_MODE" in
 esac
 printf '200'
 """
+        curl.write_text(
+            curl_source.replace(
+                "__PRIVATE_CURL_TOTAL__", shlex.quote(str(self.curl_total))
+            ).replace(
+                "__PRIVATE_CURL_ACCEPTED__", shlex.quote(str(self.curl_calls))
+            )
         )
         curl.chmod(0o755)
 
         sleep = self.mock_bin / "sleep"
-        sleep.write_text(
-            """#!/usr/bin/env bash
+        sleep_source = """#!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
+private_sleep_calls=__PRIVATE_SLEEP_CALLS__
+printf '%s\n' "$*" >>"$private_sleep_calls"
 """
+        sleep.write_text(
+            sleep_source.replace(
+                "__PRIVATE_SLEEP_CALLS__", shlex.quote(str(self.sleep_calls))
+            )
         )
         sleep.chmod(0o755)
 
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
-        self.curl_calls = Path(self.temp.name) / "curl-calls"
-        self.curl_total = Path(self.temp.name) / "curl-total"
-        self.sleep_calls = Path(self.temp.name) / "sleep-calls"
 
     def write_state(
         self,
@@ -347,9 +403,6 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
                 "PATH": f"{self.mock_bin}:/usr/bin:/bin",
                 "DO_API_TOKEN": token,
                 "MOCK_STATE": str(self.state),
-                "MOCK_CURL_CALLS": str(self.curl_calls),
-                "MOCK_CURL_TOTAL": str(self.curl_total),
-                "MOCK_SLEEP_CALLS": str(self.sleep_calls),
                 "MOCK_RESPONSE_DIR": self.temp.name,
                 "MOCK_FIREWALL_MODE": mode,
                 "MOCK_FIREWALL_ID": self.firewall_id,
@@ -437,11 +490,17 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
         self.assertEqual(self.read_counter(self.curl_total), 0)
 
     def test_source_and_operator_bind_every_readiness_predicate(self) -> None:
-        validate_readiness_contract(HELPER.read_text(), OPERATOR.read_text())
+        helper = HELPER.read_text()
+        operator = OPERATOR.read_text()
+        ansible_wrapper = ANSIBLE_WRAPPER.read_text()
+        validate_complete_source_identities(helper, operator, ansible_wrapper)
+        validate_readiness_contract(helper, operator)
+        validate_ansible_wrapper_contract(ansible_wrapper)
 
     def test_source_only_weakening_mutations_fail_the_contract(self) -> None:
         helper = HELPER.read_text()
         operator = OPERATOR.read_text()
+        ansible_wrapper = ANSIBLE_WRAPPER.read_text()
         helper_mutations = {
             "unbounded attempt expansion": helper.replace(
                 "MAX_ATTEMPTS=24", "MAX_ATTEMPTS=240", 1
@@ -663,6 +722,120 @@ printf '%s\n' "$*" >>"$MOCK_SLEEP_CALLS"
             self.assertEqual(self.read_counter(self.curl_total), 2)
         finally:
             self.helper.write_text(helper)
+
+        identity_mutations = (
+            (
+                "alternate absolute network client",
+                helper.replace(
+                    "  HTTP_STATUS=\n",
+                    "  /nonexistent/wget --timeout=900 --tries=100 -O /dev/null "
+                    '"https://api.digitalocean.com/v2/droplets/'
+                    '${WORKER_ID}" || true\n'
+                    "  HTTP_STATUS=\n",
+                    1,
+                ),
+                operator,
+                ansible_wrapper,
+            ),
+            (
+                "parameter-assembled absolute network client",
+                helper.replace(
+                    "  HTTP_STATUS=\n",
+                    "  A101_CLIENT=/nonexistent/cur\n"
+                    '  "${A101_CLIENT}l" -m 900 --retry 100 '
+                    '"https://api.digitalocean.com/v2/droplets/'
+                    '${WORKER_ID}" || true\n'
+                    "  HTTP_STATUS=\n",
+                    1,
+                ),
+                operator,
+                ansible_wrapper,
+            ),
+            (
+                "guarded repository sibling source",
+                helper.replace(
+                    "for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do\n",
+                    '[[ ! -f "$REPO_ROOT/infra/lib/readiness-extra.sh" ]] '
+                    '|| . "$REPO_ROOT/infra/lib/readiness-extra.sh"\n\n'
+                    "for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do\n",
+                    1,
+                ),
+                operator,
+                ansible_wrapper,
+            ),
+            (
+                "guarded Bash builtin networking",
+                helper.replace(
+                    "for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do\n",
+                    '[[ -z "${PATCHYARD_DEBUG_PROBE:-}" ]] '
+                    "|| exec 3<>/dev/tcp/api.digitalocean.com/443\n\n"
+                    "for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do\n",
+                    1,
+                ),
+                operator,
+                ansible_wrapper,
+            ),
+            (
+                "operator-wide extra network client",
+                helper,
+                operator.replace(
+                    '    "$REPO_ROOT/infra/tofu.sh" digitalocean apply '
+                    '"$PLAN_FILE"\n',
+                    '    "$REPO_ROOT/infra/tofu.sh" digitalocean apply '
+                    '"$PLAN_FILE"\n'
+                    "    curl -sS -m 900 --retry 100 -o /dev/null "
+                    '"https://api.digitalocean.com/v2/droplets" || true\n',
+                    1,
+                ),
+                ansible_wrapper,
+            ),
+            (
+                "Ansible helper ShellCheck membership removal",
+                helper,
+                operator,
+                ansible_wrapper.replace(
+                    '  "$REPO_ROOT/infra/wait-do-worker-firewall.sh" \\\n',
+                    "",
+                    1,
+                ),
+            ),
+            (
+                "Ansible test discovery removal",
+                helper,
+                operator,
+                ansible_wrapper.replace(
+                    "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \\\n"
+                    '  -s "$ANSIBLE_ROOT/tests" -v\n',
+                    "true # removed Ansible test discovery\n",
+                    1,
+                ),
+            ),
+            (
+                "helper-controlled attempted-counter redirection",
+                helper.replace(
+                    "  HTTP_STATUS=\n",
+                    '  MOCK_CURL_TOTAL=/dev/null cu"r"l -q -m 900 '
+                    '"https://api.digitalocean.com/v2/droplets/'
+                    '${WORKER_ID}" || true\n'
+                    "  HTTP_STATUS=\n",
+                    1,
+                ),
+                operator,
+                ansible_wrapper,
+            ),
+        )
+        for name, mutated_helper, mutated_operator, mutated_wrapper in (
+            identity_mutations
+        ):
+            with self.subTest(name=name):
+                self.assertNotEqual(
+                    (mutated_helper, mutated_operator, mutated_wrapper),
+                    (helper, operator, ansible_wrapper),
+                )
+                with self.assertRaises(ValueError):
+                    validate_complete_source_identities(
+                        mutated_helper, mutated_operator, mutated_wrapper
+                    )
 
         helper_call = '    "$REPO_ROOT/infra/wait-do-worker-firewall.sh"\n'
         qualify_call = '    "$REPO_ROOT/infra/ansible/qualify.sh"\n'

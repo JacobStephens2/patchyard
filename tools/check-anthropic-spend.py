@@ -29,6 +29,10 @@ LAUNCHER_PATH = REPO / "worker/runtime/patchyard-firecracker-run"
 TRANSPORT_PATH = REPO / "worker/runtime/patchyard-anthropic-one-shot"
 GUEST_PATH = REPO / "worker/image/patchyard-guest-run"
 WORKER_TASKS_PATH = REPO / "infra/ansible/roles/worker/tasks/main.yml"
+READINESS_HELPER_PATH = REPO / "infra/wait-do-worker-firewall.sh"
+REPLACEMENT_OPERATOR_PATH = REPO / "infra/replace-worker.sh"
+ANSIBLE_WRAPPER_PATH = REPO / "tools/check-ansible.sh"
+READINESS_TEST_PATH = REPO / "infra/ansible/tests/test_worker_firewall_readiness.py"
 ANTHROPIC_REQUEST = b"Anthropic provider-side spend enforcement qualification.\n"
 ANTHROPIC_PATCH = (
     b"diff --git a/anthropic-spend-qualified.txt b/anthropic-spend-qualified.txt\n"
@@ -64,6 +68,18 @@ EXPECTED_GUEST_SOURCE_SHA256 = (
 )
 EXPECTED_WORKER_TASKS_SOURCE_SHA256 = (
     "110cbffc6db188aafa1364e88901249290653134b7f0adc559152abf3f35df40"
+)
+EXPECTED_READINESS_HELPER_SOURCE_SHA256 = (
+    "5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba"
+)
+EXPECTED_REPLACEMENT_OPERATOR_SOURCE_SHA256 = (
+    "27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e"
+)
+EXPECTED_ANSIBLE_WRAPPER_SOURCE_SHA256 = (
+    "ead1c23f932f39ec423222f70775304be6453dcd1cd7c24a45b99699d001158e"
+)
+EXPECTED_READINESS_TEST_SOURCE_SHA256 = (
+    "2976bb4e5fbc7f1434aaac3fa84b0ddc4f0b78aaf27eb7139571b2e903619b4c"
 )
 EXPECTED_PROVIDER_CALL_SEQUENCE = '''  setup_provider_transport
   assert_provider_transport_preflight
@@ -203,6 +219,14 @@ if digest(GUEST_PATH) != EXPECTED_GUEST_SOURCE_SHA256:
     errors.append("post-A118 spend guest differs from its complete source binding")
 if digest(WORKER_TASKS_PATH) != EXPECTED_WORKER_TASKS_SOURCE_SHA256:
     errors.append("post-A118 worker install tasks differ from their complete source binding")
+if digest(READINESS_HELPER_PATH) != EXPECTED_READINESS_HELPER_SOURCE_SHA256:
+    errors.append("A101 firewall readiness helper differs from its complete source binding")
+if digest(REPLACEMENT_OPERATOR_PATH) != EXPECTED_REPLACEMENT_OPERATOR_SOURCE_SHA256:
+    errors.append("A101 worker replacement operator differs from its complete source binding")
+if digest(ANSIBLE_WRAPPER_PATH) != EXPECTED_ANSIBLE_WRAPPER_SOURCE_SHA256:
+    errors.append("A101 Ansible wrapper differs from its complete source binding")
+if digest(READINESS_TEST_PATH) != EXPECTED_READINESS_TEST_SOURCE_SHA256:
+    errors.append("A101 readiness test census differs from its complete source binding")
 for installed_path, label in (
     ("dest: /usr/local/sbin/patchyard-firecracker-run", "launcher"),
     ("dest: /usr/local/libexec/patchyard-anthropic-one-shot", "one-shot"),

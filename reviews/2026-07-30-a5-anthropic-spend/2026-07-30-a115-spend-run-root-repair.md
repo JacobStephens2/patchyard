@@ -662,3 +662,28 @@ replacement operator, and Ansible wrapper remain byte-identical. All 13
 qualification flags remain false. No live, worker, firewall, provider,
 Console, acceptance, requirement-1, requirement-3, or rotation action
 occurred.
+
+## Invocation-singularity repair review and A9 stop
+
+A78 reviewed exact record commit
+`b66e6dcd77b9b32dca95b279beaa30039f9f6535` and returned NOT A PASS with six
+material findings. The repair closes all 39 shipped mutation paths and the five
+installed mutation classes, but alternate clients, shell assembly, sourced or
+builtin network paths, the wider operator, wrapper coverage membership, and a
+helper-controlled counter destination remain unbound.
+
+The build seat independently reproduced and conceded all six findings under
+A77. Two local stub forms each executed 436 times while all 7 tests stayed
+green; the guarded source, guarded `/dev/tcp`, and operator mutations also
+passed; a hidden counter observed 436 discarded extra attempts; and empty
+unittest discovery returned success after zero tests.
+
+The exact records are
+`2026-07-31-a78-a101-firewall-readiness-invocation-singularity-repair-review.md`
+and
+`2026-07-31-a77-a101-firewall-readiness-invocation-singularity-repair-adjudication.md`.
+
+No further repair was made. A9 requires a new bounded authorization for the
+proposed test-and-gate structural redesign, installed mutations, full gates,
+and fresh A78 review. No production or live action occurred, and all 13
+qualification flags remain false.

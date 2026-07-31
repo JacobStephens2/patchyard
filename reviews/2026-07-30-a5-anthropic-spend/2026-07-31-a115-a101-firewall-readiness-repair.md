@@ -1,7 +1,7 @@
 # A115 A101 firewall-readiness repair attempt
 
-Status: **authorized invocation-singularity repair and full gates complete;
-fresh A78 review pending**
+Status: **fresh A78 review returned six conceded findings; A9 stop pending a
+new bounded authorization**
 
 ## Authorization and boundary
 
@@ -744,3 +744,47 @@ focused tests and all 39 shipped mutations, reproduce the five installed
 mutation classes, invent additional additive executor or counter bypasses, and
 return PASS or material findings. Review authorizes no real curl, network,
 provider, worker, firewall, or Console action.
+
+## Invocation-singularity repair A78 result
+
+A78 reviewed exact record commit
+`b66e6dcd77b9b32dca95b279beaa30039f9f6535` in a clean detached worktree and
+returned NOT A PASS with six material findings. The authorized changes
+themselves work: all 7 tests, all 39 shipped mutation paths, both exact mock
+counters, the five installed mutation classes, and all three production
+source identities were verified.
+
+The remaining gaps are broader than literal curl singularity:
+
+1. an alternate network client can bypass curl-only source and runtime gates;
+2. quote or parameter assembly can produce an absolute client path without a
+   literal curl token;
+3. a sourced sibling or Bash `/dev/tcp` builtin is outside the helper contract;
+4. the operator is unbound outside the narrow readiness interval;
+5. open-ended Ansible discovery and ShellCheck membership have no independent
+   census binding; and
+6. code under test can redirect the attempted-counter destination.
+
+The build seat independently reproduced every finding. Alternate and
+parameter-assembled local stubs each executed 436 times while all 7 tests
+passed. Guarded source, guarded `/dev/tcp`, and operator mutants also kept all
+7 tests green. A redirected hidden counter recorded 436 extra rejected mock
+attempts while the asserted counters remained exact. Empty unittest discovery
+returned 0 after running zero tests.
+
+F1 and F2 are conceded at High; F3, F4, and F5 at Medium; and F6 at Low. The
+exact review and adjudication are
+`2026-07-31-a78-a101-firewall-readiness-invocation-singularity-repair-review.md`
+and
+`2026-07-31-a77-a101-firewall-readiness-invocation-singularity-repair-adjudication.md`.
+
+## Invocation-singularity repair A9 stop
+
+No further repair was made. A new explicit bounded authorization is required
+for a test-and-gate structural redesign, installed F1-F6 mutations, the full
+repository gates, and another fresh A78 review. The operational grant must be
+recorded under A115 without a new numbered ruling.
+
+No production source, live system, worker, firewall, provider state, Console
+limit, requirement-1 fixture, acceptance case, requirement-3 artifact,
+rotation state, or qualification flag changed.

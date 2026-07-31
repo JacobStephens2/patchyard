@@ -1,7 +1,7 @@
 # A115 A101 firewall-readiness repair attempt
 
-Status: **fresh A78 review returned six conceded findings; A9 stop pending a
-new bounded authorization**
+Status: **F1-F6 structural redesign implemented, mutation-checked, and gated;
+pending fresh A78 review**
 
 ## Authorization and boundary
 
@@ -788,3 +788,172 @@ recorded under A115 without a new numbered ruling.
 No production source, live system, worker, firewall, provider state, Console
 limit, requirement-1 fixture, acceptance case, requirement-3 artifact,
 rotation state, or qualification flag changed.
+
+## F1-F6 structural-redesign authorization
+
+Jacob explicitly authorized the bounded redesign addressing F1 through F6 in
+the agent chat on 2026-07-31. The grant covers test-and-gate source changes,
+installed source mutations for all six findings, the full repository gates,
+and another clean A78 review. It does not authorize a production helper,
+replacement operator, or Ansible-wrapper change, and it authorizes no live
+worker, DigitalOcean, Anthropic, Console, requirement-1 refresh, acceptance,
+requirement-3, rotation, or qualification-flag action.
+
+The authorization is recorded under A115. It does not mint a new numbered
+ruling, and A119 remains taken.
+
+## F1-F6 structural redesign
+
+Technical commits `340728d5eb0f49109e77f1055896e019ab5ef0c5` and
+`2a1b3dd546f8747f44740ba8a74d400d2adfa75d` change only the readiness test,
+the independently executed Anthropic spend checker, and the spend checker's
+contract test.
+
+The redesign uses the existing independent gate chain rather than extending
+the production scripts:
+
+- `tools/check-infra.sh` independently executes
+  `tools/check-anthropic-spend.py`;
+- the spend checker exact-digest binds the complete helper, operator, Ansible
+  wrapper, and readiness test;
+- the spend contract test independently exact-digest binds the complete spend
+  checker and the same four readiness sources;
+- the readiness test independently exact-digest binds the complete production
+  helper, operator, and Ansible wrapper;
+- the readiness test requires the wrapper to contain the exact helper and
+  operator ShellCheck members and to discover the readiness test; and
+- the spend checker independently requires the same wrapper census, so a
+  renamed `TestCase` that makes discovery execute zero cases still fails.
+
+The helper contract now rejects undeclared sourcing, `/dev/tcp`, and
+`/dev/udp`. The operator contract rejects added network executors anywhere in
+the complete operator, not only inside the readiness interval. Mock
+measurement destinations are literal private paths embedded in the generated
+mock scripts, so code under test cannot redirect them through
+`MOCK_CURL_TOTAL`, `MOCK_CURL_CALLS`, or `MOCK_SLEEP_CALLS` environment
+variables. Complete-source identities make alternate clients, quote or
+parameter assembly, absolute executors, and later bypass definitions change a
+reviewed binding instead of relying on an incomplete shell normalizer.
+
+Exact final source identities before the A78 handoff are:
+
+| File | SHA-256 |
+| --- | --- |
+| `infra/wait-do-worker-firewall.sh` | `5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba` |
+| `infra/replace-worker.sh` | `27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e` |
+| `tools/check-ansible.sh` | `ead1c23f932f39ec423222f70775304be6453dcd1cd7c24a45b99699d001158e` |
+| `infra/ansible/tests/test_worker_firewall_readiness.py` | `2976bb4e5fbc7f1434aaac3fa84b0ddc4f0b78aaf27eb7139571b2e903619b4c` |
+| `tools/check-anthropic-spend.py` | `83332667d754f44a0692db7d13cf000215fd2aca4971e9b7cdeb1ded51284c08` |
+| `infra/ansible/tests/test_anthropic_spend.py` | `94b5d53c7b19c846322b843d3596e9a32b11294796aef97d60b698f8433397a2` |
+
+The production helper, replacement operator, and Ansible wrapper are
+byte-identical to the six-finding review. No production behavior changed.
+
+## F1-F6 focused and installed mutation checks
+
+All 7 readiness tests pass, including 47 permanent readiness mutation paths.
+All 27 Anthropic spend contract tests pass, and the independently executed
+spend checker passes. Python compilation, Bash parsing, ShellCheck, and
+`git diff --check` pass.
+
+The build seat then installed ten independent mutations into disposable
+detached worktrees with the final redesign source and ran the real gates:
+
+| Finding or binding | Installed mutation | Observed failure |
+| --- | --- | --- |
+| F1 | add an alternate `/nonexistent/wget` client | independent spend checker rejected the changed helper identity |
+| F2 | assemble `/nonexistent/cur` plus `l` as an absolute client | independent spend checker rejected the changed helper identity |
+| F3 | add a guarded sourced sibling | readiness source contract and independent checker rejected it |
+| F3 | add guarded Bash `/dev/tcp` with the guard unset | readiness source contract and independent checker rejected it without opening a socket |
+| F4 | add an unexecuted operator-wide curl | readiness operator identity and independent checker rejected it |
+| F5 | remove helper ShellCheck membership from the wrapper | readiness wrapper contract and independent checker census rejected it |
+| F5 | change the readiness class superclass from `TestCase` to `object` | direct discovery ran zero tests and exited zero, while the independent checker rejected the zero-test census |
+| F6 | prepend `MOCK_CURL_TOTAL=/dev/null` to a quote-split curl | the private counter still recorded the extra call, focused behavior failed, and the identity binding failed |
+| checker identity | make the checker's source comparison unreachable with `False and` | the direct weakened checker passed, while the spend contract suite failed six independent binding and mutation assertions |
+| test identity | re-expose a private counter path through the helper environment | readiness behavior stayed green, while the independent checker and spend contract test rejected the changed test identity |
+
+Every installed source-only weakening made at least one independently invoked
+suite exit nonzero. The two deliberately self-weakening identity mutations
+also prove that neither the checker nor its test can weaken its own new
+binding without another gate failing. All ten disposable worktrees were
+removed and pruned. No stub opened a socket and no real network client ran.
+
+## Newly published RustSec repair
+
+The first complete application-gate attempt reached and passed both
+reproducible release builds, then downloaded a new RustSec record and failed
+on `RUSTSEC-2026-0221`. The advisory database had advanced to commit
+`29b6c63d8edcc354b75d0c8895ea188208eb0e17` at
+`2026-07-31T12:06:56Z`, adding the `event-listener` unsoundness advisory.
+Both the branch and its reviewed base still contained vulnerable version
+5.4.1; the failure was independent of F1-F6.
+
+A disposable worktree proved that updating `event-listener` to patched 5.4.2
+changes only `Cargo.lock`, removes the now-unused `concurrent-queue` entry,
+passes `cargo audit --deny warnings`, and passes all workspace Rust tests.
+Jacob then explicitly authorized that lockfile-only security repair.
+
+The complete application gate next reached `cargo vet` and correctly refused
+5.4.2 because its exact bootstrap exemption still named 5.4.1. Jacob
+separately authorized the minimal companion change: move the exact
+`event-listener` exemption from 5.4.1 to 5.4.2, remove the unused
+`concurrent-queue` exemption, regenerate the mechanical metrics projection,
+and repeat the gates. The exemption remains the exact-version bootstrap record
+described in `supply-chain/README.md`; it is not an Patchyard audit claim. A
+disposable trial returned `Vetting Succeeded (321 exempted)` before the source
+was changed.
+
+Exact dependency repair commit:
+`ba22d91bca6e123bfa776c9b3127e690a9e2f909`.
+
+## F1-F6 final repository gates
+
+The complete hosted-CI application wrapper passes at the dependency-repaired
+source:
+
+- all 39 browser-control tests pass with the one documented Docker-only skip;
+- formatting, Clippy, all Rust unit, integration, property, fixture,
+  database-contract, and documentation tests, and triage replay pass;
+- both release builds reproduce `factory-verify` SHA-256
+  `99e3d1da120848b5cb4198788504404bea2e2c178316f301c603a987e8795bae`;
+- checksum install and rollback pass;
+- the 1,175-record RustSec scan, cargo-deny advisory, ban, license and source
+  checks, cargo-vet, cargo-machete, model, and byte-identical codebase metrics
+  gates pass; and
+- `cargo vet --locked` reports `Vetting Succeeded (321 exempted)`.
+
+The infrastructure wrapper initializes and validates the DigitalOcean, AWS,
+and GitHub OpenTofu roots, then passes stack, independence, worker-runtime,
+and worker-qualification checks. It stops only at the deliberately stale
+requirement-1 live host-contract fixture:
+
+```text
+live    bd36018284041c4ed12f2bea19248ec5f855cfa06f9d4823670a6d87d86d8e2f
+current eef6e16e54b6c0945f3874dae71063e8ef2248fea470f2fe4b2579ce22d52977
+```
+
+Complete Ansible discovery runs 149 tests: 148 pass and only that exact
+requirement-1 assertion fails. ShellCheck includes the helper and operator.
+All four production Ansible lint profiles pass with zero warnings, and all
+four playbook syntax checks pass. The independently executed Anthropic spend
+and preview-runtime checks pass. Refreshing the live requirement-1 fixture is
+outside this source-only authorization and would falsely claim a live rerun.
+
+All 13 `credential_qualified` flags remain false. No host, worker,
+DigitalOcean resource, credential, provider request, Console setting,
+requirement-1 evidence, acceptance case, requirement-3 artifact, rotation
+state, or qualification flag changed.
+
+## F1-F6 A78 handoff
+
+A78 must review the exact final record commit in a new detached worktree,
+confirm all six findings are closed by independent and load-bearing bindings,
+run all 7 readiness tests and all 27 spend contract tests, reproduce the ten
+installed mutation classes, and add new source-only attacks where useful.
+A78 must also confirm that the dependency repair is limited to patched
+`event-listener` 5.4.2, removal of its unused transitive dependency and exact
+exemption, and the generated metrics projection.
+
+Review authorizes no real network client, host, worker, DigitalOcean,
+Anthropic, Console, requirement-1 refresh, acceptance, requirement-3,
+rotation, or qualification-flag action.

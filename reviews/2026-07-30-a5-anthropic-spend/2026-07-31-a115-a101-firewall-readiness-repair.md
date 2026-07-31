@@ -1,7 +1,7 @@
 # A115 A101 firewall-readiness repair attempt
 
 Status: **first A78 review returned three conceded findings; bounded source
-repair authorized and focused repair tests pass; full gates pending**
+repair and full gates complete; pending fresh A78 source review**
 
 ## Authorization and boundary
 
@@ -273,3 +273,61 @@ attachment cardinality, bearer argv exposure, bearer-alphabet weakening,
 conditional readiness, and a nonfatal readiness call.
 
 No live or provider action occurred.
+
+## Repaired source identity
+
+Exact repaired record commit:
+`69b38764a47c9de7d3e9941700d7d8bb8d06baec`.
+
+| File | SHA-256 |
+| --- | --- |
+| `infra/wait-do-worker-firewall.sh` | `5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba` |
+| `infra/replace-worker.sh` | `27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e` |
+| `infra/ansible/tests/test_worker_firewall_readiness.py` | `39aab86e37321c896a80f0c182644abf2f37d124ffa62ae5039d1da5d11e00b2` |
+| `tools/check-ansible.sh` | `ead1c23f932f39ec423222f70775304be6453dcd1cd7c24a45b99699d001158e` |
+
+The operator and Ansible wrapper remain byte-identical to the first A78
+revision. Only the readiness helper, its tests, generated codebase projection,
+and review/work records changed.
+
+## Full repaired gate set
+
+The complete application wrapper passed at exact clean commit `69b3876`:
+
+- constitution and 39 browser-control tests passed, with the one documented
+  Linux Docker integration skip;
+- formatting, Clippy, all Rust unit/integration/property/documentation tests,
+  and triage replay passed;
+- two independent release builds reproduced
+  `factory-verify` SHA-256
+  `2eae220106314f3c40626f8c39361987e64e8a7b30f72e117d6ccf615175082f`;
+- checksum install and rollback, audit, deny, vet, dependency, model, and
+  byte-exact codebase-projection checks passed.
+
+The infrastructure wrapper initialized and validated the DigitalOcean, AWS,
+and GitHub OpenTofu roots and passed stack, independence, worker-runtime, and
+worker-qualification checks. It stopped only when the requirement-1 checker
+honestly reported the preexisting stale live host-contract binding:
+
+```text
+live    bd36018284041c4ed12f2bea19248ec5f855cfa06f9d4823670a6d87d86d8e2f
+current eef6e16e54b6c0945f3874dae71063e8ef2248fea470f2fe4b2579ce22d52977
+```
+
+Complete Ansible discovery passed 146 of 147 tests and failed only the same
+exact assertion. ShellCheck, all four production Ansible lint profiles, and
+all four playbook syntax checks passed. Refreshing the live requirement-1
+fixture remains outside authorization and would falsely claim a live rerun.
+
+All 13 provider `credential_qualified` values remain false. No namespaced or
+bare Anthropic credential, worker, cloud resource, provider request, Console
+limit, acceptance case, requirement-1 evidence, requirement-3 artifact, or
+rotation state changed.
+
+## Fresh A78 handoff
+
+A78 must review the final record commit in a new detached worktree, reproduce
+the former empty-body bypass against the parent, verify it is closed in the
+repair, run all 7 focused tests and all 24 source mutations, add independent
+mutations, and return PASS or material findings. Review authorizes no live
+action.

@@ -483,6 +483,17 @@ malformed bearer input. The operator validator requires one direct fatal call
 in the complete interval between the second converge and A101.
 
 The focused repair suite passes 7 of 7 tests and rejects 24 source-only
-weakenings. Full repository gates and fresh A78 review remain pending. No live
-worker, DigitalOcean, Anthropic, Console, acceptance, requirement-1,
-requirement-3, rotation, or qualification-flag action occurred.
+weakenings. Exact clean repair commit
+`69b38764a47c9de7d3e9941700d7d8bb8d06baec` passed the complete application
+wrapper, including the reproducible release, dependency, advisory, model, and
+codebase-projection gates.
+
+All three OpenTofu roots validate. Stack, independence, worker-runtime, and
+worker-qualification checks pass. Complete Ansible discovery passes 146 of 147
+tests, and infrastructure plus Ansible stop only on the deliberately stale
+requirement-1 host-contract binding. ShellCheck, all four production Ansible
+lint profiles, and all four playbook syntax checks pass.
+
+Fresh A78 source review remains pending. No live worker, DigitalOcean,
+Anthropic, Console, acceptance, requirement-1, requirement-3, rotation, or
+qualification-flag action occurred.

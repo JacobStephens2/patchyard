@@ -576,3 +576,33 @@ command singularity can be added and returned through full gates and A78.
 No production source, live system, provider state, Console limit,
 requirement-1 fixture, acceptance case, requirement-3 artifact, rotation state,
 or qualification flag changed.
+
+## Effective-argv test repair and review handoff
+
+Jacob authorized the bounded test-only repair in the agent chat on 2026-07-31.
+The authorization is recorded under A115 here and in the readiness work record;
+no new numbered ruling was minted.
+
+Technical commit `0339826785a5202d6aba8097e71dfc3d382e4df6` changes only the
+readiness test. It binds one exact ordered 17-argument curl vector, the dynamic
+private output path, the state-bound firewall URL, one `MAX_ATTEMPTS=`
+assignment, and one sleep command. All 7 tests pass and all 34 permanent source
+mutations are rejected.
+
+Seven independently installed mutations - short timeout, alias wrapper,
+function wrapper, second config, retry expansion, duplicate maximum attempts,
+and absolute sleep - each made the real suite fail. The disposable worktrees
+were removed.
+
+The complete application wrapper passed, including reproducible release,
+dependency, advisory, model, and codebase-projection gates. All three OpenTofu
+roots validate, and stack, independence, worker-runtime, and
+worker-qualification checks pass. Complete Ansible discovery passes 146 of 147
+tests; infrastructure and Ansible stop only on the deliberate requirement-1
+host-contract mismatch. ShellCheck, all four production lint profiles, and all
+four playbook syntax checks pass.
+
+Fresh A78 review is pending. The production helper, replacement operator, and
+Ansible wrapper remain byte-identical. All 13 qualification flags remain
+false. No live, worker, firewall, provider, Console, acceptance, requirement-3,
+or rotation action occurred.

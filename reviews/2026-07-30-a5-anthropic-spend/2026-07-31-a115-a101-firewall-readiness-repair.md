@@ -1,7 +1,7 @@
 # A115 A101 firewall-readiness repair attempt
 
-Status: **fresh A78 review returned one medium and two low conceded findings;
-A9 stop pending new bounded authorization**
+Status: **authorized effective-argv test repair, installed mutations, and full
+gates complete; fresh A78 review pending**
 
 ## Authorization and boundary
 
@@ -504,3 +504,107 @@ for every class.
 
 That repair, full gates, and another A78 review require a new explicit bounded
 authorization. No production source or live action is included.
+
+## Effective-argv repair authorization and boundary
+
+Jacob authorized the proposed bounded test-only repair in the agent chat on
+2026-07-31. The grant covers exact ordered curl argv, singular
+`MAX_ATTEMPTS=`, one sleep command, representative source mutations, full
+gates, and a new A78 review. It does not authorize a production helper or
+operator change, worker or firewall action, provider request, Console action,
+requirement-1 refresh, behavioral acceptance, requirement 3, rotation work, or
+qualification-flag change.
+
+No new numbered ruling was minted. The authorization is recorded here under
+A115 as required by the governance-hygiene instruction.
+
+## Effective-argv test repair
+
+Exact technical commit
+`0339826785a5202d6aba8097e71dfc3d382e4df6` changes only
+`infra/ansible/tests/test_worker_firewall_readiness.py`:
+
+- the curl mock now accepts exactly 17 ordered arguments and no extras;
+- the sole dynamic argument is constrained to the generated private response
+  path;
+- the terminal URL must use the state-bound firewall ID;
+- the validator requires exactly one `MAX_ATTEMPTS=` assignment;
+- the validator requires the exact poll sleep and one total `sleep` lexeme;
+  and
+- the permanent mutation set adds short-form timeout, alias wrapper,
+  shell-function wrapper, second config, retry expansion, duplicate maximum
+  attempts, and absolute extra sleep.
+
+All 7 focused tests pass. The suite rejects 34 source mutations: 30 helper
+mutations and 4 operator mutations. The repaired test SHA-256 is
+`b233c67f77b7fb8aca1e67b6dbbff640f225374e5d74213f81736092c6af41be`.
+
+The production identities remain byte-identical:
+
+| File | SHA-256 |
+| --- | --- |
+| `infra/wait-do-worker-firewall.sh` | `5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba` |
+| `infra/replace-worker.sh` | `27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e` |
+| `tools/check-ansible.sh` | `ead1c23f932f39ec423222f70775304be6453dcd1cd7c24a45b99699d001158e` |
+
+## Effective-argv installed mutation checks
+
+The build seat installed seven independent helper mutations in disposable
+detached worktrees at the technical commit. Every real seven-test suite
+failed:
+
+| Mutation | Observed binding |
+| --- | --- |
+| append `-m 900` | exact curl argv refused the call before counting it |
+| alias curl to prepend `-m 900` | exact curl argv refused the wrapper argument |
+| wrap curl in a shell function that prepends `-m 900` | exact curl argv refused the wrapper argument |
+| append a second curl config | exact curl argv refused the extra config and value |
+| append retry controls | exact curl argv refused all extra retry arguments |
+| append `MAX_ATTEMPTS=25` | assignment singularity and exact 24-call behavior failed |
+| append `/bin/sleep 0.02` | sleep lexical singularity failed |
+
+All seven completed runs exited 1. A preliminary 240-attempt duplicate run
+had already emitted its structural failure but was interrupted rather than
+waiting through the deliberately enlarged loop; the completed 25-attempt
+duplicate proves the same assignment class. All disposable worktrees were
+removed.
+
+## Effective-argv full gates
+
+With the technical source and regenerated codebase projection, the complete
+application wrapper passed:
+
+- all 39 browser-control tests passed with the one documented Docker-only
+  skip;
+- formatting, Clippy, every Rust unit/integration/property/documentation test,
+  and triage replay passed;
+- the release builds reproduced `factory-verify` SHA-256
+  `2eae220106314f3c40626f8c39361987e64e8a7b30f72e117d6ccf615175082f`;
+  and
+- checksum, audit, deny, vet, dependency, model, and codebase-projection gates
+  passed.
+
+The infrastructure wrapper initialized and validated all three OpenTofu roots
+and passed stack, independence, worker-runtime, and worker-qualification
+checks. It stopped only on the deliberately stale requirement-1 host-contract
+fixture:
+
+```text
+live    bd36018284041c4ed12f2bea19248ec5f855cfa06f9d4823670a6d87d86d8e2f
+current eef6e16e54b6c0945f3874dae71063e8ef2248fea470f2fe4b2579ce22d52977
+```
+
+Complete Ansible discovery passed 146 of 147 tests and failed only the same
+fixture assertion. ShellCheck, all four production Ansible lint profiles, and
+all four playbook syntax checks passed.
+
+All 13 provider qualification flags remain false. No live or provider action
+occurred.
+
+## Effective-argv A78 handoff
+
+A78 must review the final record commit in a new detached worktree, verify the
+production helper and operator remain byte-identical, run all 7 focused tests
+and all 34 shipped mutations, reproduce the seven installed mutation classes,
+add independent additive mutations, and return PASS or material findings. The
+review authorizes no real curl, network, provider, worker, or Console action.

@@ -1346,3 +1346,54 @@ after the retained infrastructure failure without masking that failure.
 The review may run repository source/tests only. It authorizes no network,
 live host, worker, DigitalOcean, Anthropic, Console, requirement-1 refresh,
 acceptance, requirement-3, rotation, or qualification-flag action.
+
+## Isolated repair A78 result
+
+A78 reviewed exact final record commit
+`a0bd964d2c8b9690af5b257fe14617096b3eb612` in a fresh detached worktree and
+returned NOT A PASS with one High and two Medium material findings:
+
+1. High: an unchecked-hash `.pyc` at a normal test cache path replaces the
+   content executed by `spec_from_file_location` while every bound `.py` digest
+   and both isolated checkers remain green;
+2. Medium: three independent workflow failure-masking mutations preserve the
+   root checker's asserted fragments; and
+3. Medium: three repository sources execute at test-module import time but are
+   outside both the exact source identities and relevant census.
+
+A78 confirmed that prior F1 standard-library shadowing and F4 unbound checker
+sources are closed, package initializers are rejected, the current workflow
+continuation and wrapper aggregation work, and the repair's numeric and gate
+claims are accurate. The exact review is
+`2026-07-31-a78-a101-isolated-python-review.md`.
+
+## Isolated repair A77 disposition
+
+The build seat independently conceded all three findings with A78's severities
+sustained. The exact adjudication is
+`2026-07-31-a77-a101-isolated-python-review-adjudication.md`.
+
+A77 reproduced:
+
+- a force-addable unchecked-hash bytecode artifact that changed the unchanged
+  issuance module from 20 tests with one honest failure to one forged passing
+  test while the root and spend checkers exited 0;
+- `tools/check-infra.sh || true`, job-level `continue-on-error: true`, and
+  Ansible-step `continue-on-error: true`, each independently accepted by the
+  root checker; and
+- an import-time mutation in unbound `anthropic-spend-evidence.py` that made a
+  changed readiness digest pass the nominally independent 27-test spend suite,
+  while the poison alone remained invisible to both separate checkers.
+
+## Isolated repair A9 stop
+
+No further source repair was made. The authorized repair completed its A78
+loop and failed, so A9 requires this stop. Further work requires a new explicit
+bounded authorization under A115 to prevent bytecode-cache execution, bind and
+census the three import-executed sources, bind exact workflow non-masking, add
+the reproduced source attacks, run the full gates, and obtain a new A78 review.
+
+No new numbered ruling should record that operational grant. No live system,
+worker, provider, credential, Console limit, requirement-1 evidence,
+acceptance case, requirement-3 artifact, rotation state, or qualification flag
+changed.

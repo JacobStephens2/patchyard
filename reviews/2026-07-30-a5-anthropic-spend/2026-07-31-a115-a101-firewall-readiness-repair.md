@@ -1,7 +1,7 @@
 # A115 A101 firewall-readiness repair attempt
 
-Status: **additional test-only repair passes focused behavior and 27 mutations;
-full gates and fresh A78 review pending**
+Status: **additional test-only repair, installed mutations, and full gates
+complete; fresh A78 review pending**
 
 ## Authorization and boundary
 
@@ -414,3 +414,57 @@ The repaired test SHA-256 is
 Full gates and fresh A78 review remain pending. No worker, DigitalOcean,
 Anthropic, Console, requirement-1, acceptance, requirement-3, rotation, or
 qualification-flag action occurred.
+
+## Installed additive mutation checks
+
+The build seat installed each A78 F1 mutation independently in a disposable
+detached worktree at exact technical commit
+`bb91d7ecd14d3284be5ee73b20c052f75f5e3fe7`. Each source-only weakening made
+the real seven-test suite fail:
+
+| Mutation | Observed failure |
+| --- | --- |
+| pipe jq output through `tail -n1` | the multi-value provider case passed open and the exact jq close binding failed |
+| append 900-second curl timeout options | the timeout singularity binding failed |
+| append `POLL_SECONDS=600` | the pending and exhaustive cases recorded `600` instead of `2`, and the poll singularity binding failed |
+
+The three mutation-suite exit statuses were all 1. The disposable worktree was
+restored byte-clean and removed.
+
+## Additional repair full gates
+
+The complete application wrapper passed at exact clean commit `bb91d7e`:
+
+- 39 browser-control tests passed with the one documented Linux Docker
+  integration skip;
+- formatting, Clippy, every Rust unit/integration/property/documentation test,
+  and triage replay passed;
+- two release builds reproduced `factory-verify` SHA-256
+  `2eae220106314f3c40626f8c39361987e64e8a7b30f72e117d6ccf615175082f`;
+- checksum install and rollback, audit, deny, vet, dependency, model, and
+  byte-exact codebase-projection gates passed.
+
+The infrastructure wrapper initialized and validated all three OpenTofu roots
+and passed stack, independence, worker-runtime, and worker-qualification
+checks. It stopped only on the deliberately stale requirement-1 live
+host-contract fixture:
+
+```text
+live    bd36018284041c4ed12f2bea19248ec5f855cfa06f9d4823670a6d87d86d8e2f
+current eef6e16e54b6c0945f3874dae71063e8ef2248fea470f2fe4b2579ce22d52977
+```
+
+Complete Ansible discovery passed 146 of 147 tests and failed only that same
+assertion. ShellCheck, all four production Ansible lint profiles, and all four
+playbook syntax checks passed.
+
+All 13 provider qualification flags remain false. The requirement-1 fixture
+was not refreshed.
+
+## Additional-repair A78 handoff
+
+A78 must review the exact final record commit in a new detached worktree,
+confirm the production helper and operator are byte-identical, reproduce all
+three former green mutants against the repaired test, run all 7 focused tests
+and 27 shipped mutations, add independent additive mutations, and return PASS
+or material findings. Review authorizes no live or provider action.

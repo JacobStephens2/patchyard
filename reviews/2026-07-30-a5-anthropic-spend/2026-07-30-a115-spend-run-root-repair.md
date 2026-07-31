@@ -536,3 +536,21 @@ source mutations. No repair loop was needed.
 
 Full gates and fresh A78 review remain pending. No live or provider action
 occurred.
+
+## Additional readiness test gates and review handoff
+
+At exact clean technical commit
+`bb91d7ecd14d3284be5ee73b20c052f75f5e3fe7`, each of the three A78 additive
+mutants was installed independently and made the seven-test suite fail. The
+mutation exit statuses were all 1.
+
+The complete application wrapper passed, including reproducible release,
+dependency, advisory, model, and codebase-projection checks. All three
+OpenTofu roots validate, and stack, independence, worker-runtime, and
+worker-qualification checks pass. Complete Ansible discovery passes 146 of
+147 tests; infrastructure and Ansible stop only on the deliberate
+requirement-1 host-contract mismatch. ShellCheck, all four production Ansible
+lint profiles, and all four playbook syntax checks pass.
+
+Fresh A78 review remains pending. All 13 qualification flags remain false. No
+live or provider action occurred.

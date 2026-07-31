@@ -3,9 +3,9 @@ set -euo pipefail
 
 REPO_ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 ANSIBLE_ROOT="$REPO_ROOT/infra/ansible"
-python3 "$REPO_ROOT/tools/check-a101-readiness-root.py"
+python3 -I "$REPO_ROOT/tools/check-a101-readiness-root.py"
 SHELLCHECK_VERSION=$(
-  python3 "$REPO_ROOT/tools/read-infra-tool-version.py" SHELLCHECK_VERSION
+  python3 -I "$REPO_ROOT/tools/read-infra-tool-version.py" SHELLCHECK_VERSION
 )
 
 gate_status=0
@@ -49,29 +49,30 @@ run_gate shellcheck --exclude=SC2329 --shell=bash \
   "$REPO_ROOT/infra/restore-drill.sh" \
   "$REPO_ROOT/infra/rollback-control.sh"
 
-run_gate python3 "$REPO_ROOT/tools/check-anthropic-spend.py"
+run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-spend.py"
 
-# Security-sensitive modules run first and every module gets a fresh Python
-# process. An earlier test therefore cannot alter hashlib or another module's
-# globals, and the trust-root checker binds this complete explicit census.
-TEST_MODULES=(
-  infra.ansible.tests.test_a101_readiness_root
-  infra.ansible.tests.test_worker_firewall_readiness
-  infra.ansible.tests.test_anthropic_spend
-  infra.ansible.tests.test_anthropic_issuance
-  infra.ansible.tests.test_anthropic_wif_admin
-  infra.ansible.tests.test_child_launcher
-  infra.ansible.tests.test_cloud_init_bootstrap
-  infra.ansible.tests.test_dashboard_checkout
-  infra.ansible.tests.test_log_secret_scan
-  infra.ansible.tests.test_preview_capability_deployment
-  infra.ansible.tests.test_replace_worker
-  infra.ansible.tests.test_session14_qualification
-  infra.ansible.tests.test_session15_proposer
-  infra.ansible.tests.test_session16_cutover
+# Security-sensitive files run first and every file gets a fresh isolated
+# Python process. The pinned runner loads each file under a synthetic,
+# non-package module name, so repository package initializers cannot execute.
+TEST_FILES=(
+  infra/ansible/tests/test_a101_readiness_root.py
+  infra/ansible/tests/test_worker_firewall_readiness.py
+  infra/ansible/tests/test_anthropic_spend.py
+  infra/ansible/tests/test_anthropic_issuance.py
+  infra/ansible/tests/test_anthropic_wif_admin.py
+  infra/ansible/tests/test_child_launcher.py
+  infra/ansible/tests/test_cloud_init_bootstrap.py
+  infra/ansible/tests/test_dashboard_checkout.py
+  infra/ansible/tests/test_log_secret_scan.py
+  infra/ansible/tests/test_preview_capability_deployment.py
+  infra/ansible/tests/test_replace_worker.py
+  infra/ansible/tests/test_session14_qualification.py
+  infra/ansible/tests/test_session15_proposer.py
+  infra/ansible/tests/test_session16_cutover.py
 )
-for test_module in "${TEST_MODULES[@]}"; do
-  run_gate env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest "$test_module" -v
+for test_file in "${TEST_FILES[@]}"; do
+  run_gate python3 -I "$REPO_ROOT/tools/run-isolated-unittest.py" \
+    "$REPO_ROOT/$test_file"
 done
 
 cd "$ANSIBLE_ROOT"
@@ -86,5 +87,5 @@ run_gate ansible-playbook --syntax-check -i inventory/ci.yml rollback-boundary.y
   -e factory_rollback_boundary=enter
 
 cd "$REPO_ROOT"
-run_gate python3 "$REPO_ROOT/tools/check-a101-readiness-root.py"
+run_gate python3 -I "$REPO_ROOT/tools/check-a101-readiness-root.py"
 exit "$gate_status"

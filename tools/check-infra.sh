@@ -3,9 +3,9 @@ set -euo pipefail
 umask 077
 
 REPO_ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
-python3 "$REPO_ROOT/tools/check-a101-readiness-root.py"
+python3 -I "$REPO_ROOT/tools/check-a101-readiness-root.py"
 OPENTOFU_VERSION=$(
-  python3 "$REPO_ROOT/tools/read-infra-tool-version.py" OPENTOFU_VERSION
+  python3 -I "$REPO_ROOT/tools/read-infra-tool-version.py" OPENTOFU_VERSION
 )
 
 if [[ "$(tofu version -json | jq -r .terraform_version)" != "$OPENTOFU_VERSION" ]]; then
@@ -33,10 +33,20 @@ for TOFU_ROOT in digitalocean aws github; do
   tofu -chdir="$REPO_ROOT/infra/$TOFU_ROOT" validate
 done
 
-python3 "$REPO_ROOT/tools/check-stack.py"
-python3 "$REPO_ROOT/tools/check-independence.py"
-python3 "$REPO_ROOT/tools/check-worker-runtime.py"
-python3 "$REPO_ROOT/tools/check-worker-qualification.py"
-python3 "$REPO_ROOT/tools/check-anthropic-spend.py"
-python3 "$REPO_ROOT/tools/check-anthropic-issuance.py"
-python3 "$REPO_ROOT/tools/check-preview-runtime.py"
+gate_status=0
+run_gate() {
+  if "$@"; then
+    return 0
+  fi
+  gate_status=1
+  return 0
+}
+
+run_gate python3 -I "$REPO_ROOT/tools/check-stack.py"
+run_gate python3 -I "$REPO_ROOT/tools/check-independence.py"
+run_gate python3 -I "$REPO_ROOT/tools/check-worker-runtime.py"
+run_gate python3 -I "$REPO_ROOT/tools/check-worker-qualification.py"
+run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-spend.py"
+run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-issuance.py"
+run_gate python3 -I "$REPO_ROOT/tools/check-preview-runtime.py"
+exit "$gate_status"

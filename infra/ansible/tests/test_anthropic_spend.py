@@ -25,7 +25,7 @@ EXPECTED_WORKER_TASKS_SOURCE_SHA256 = (
     "110cbffc6db188aafa1364e88901249290653134b7f0adc559152abf3f35df40"
 )
 EXPECTED_CHECKER_SOURCE_SHA256 = (
-    "11a87b343c3e88437b4c707acc373321f4891c71b270cd0a8e8c1095a0932b36"
+    "8c31bb1e3a1f350a4641a180642c4c43a6de0c2359ec54aad7e76c9a69767a1c"
 )
 EXPECTED_READINESS_HELPER_SOURCE_SHA256 = (
     "5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba"
@@ -34,10 +34,10 @@ EXPECTED_REPLACEMENT_OPERATOR_SOURCE_SHA256 = (
     "27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e"
 )
 EXPECTED_ANSIBLE_WRAPPER_SOURCE_SHA256 = (
-    "db391e029f876269f85b0276d20ca7370f8be6179f94285b516c31d32bca128b"
+    "f702dd84863bbc1973edbb41f21c95d8467cf703d6174e277418c44d92bf2d29"
 )
 EXPECTED_READINESS_TEST_SOURCE_SHA256 = (
-    "28f14b9bc4f7bcc49f10662b943ad0bef2e1467fbe147d1f780f04f3d3dedd2d"
+    "65ae6c632e521f264c26f243403901897d786efce83c4b115c98bce6cf198996"
 )
 MODULE_PATH = ROOT / "tools/anthropic-spend-evidence.py"
 SPEC = importlib.util.spec_from_file_location("anthropic_spend_evidence", MODULE_PATH)
@@ -657,7 +657,7 @@ fi'''
             self.assertIn(before, source)
             path.write_text(source.replace(before, after, 1))
             return subprocess.run(
-                [str(root / "tools/check-anthropic-spend.py")],
+                ["python3", "-I", str(root / "tools/check-anthropic-spend.py")],
                 cwd=root,
                 check=False,
                 capture_output=True,

@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import sysconfig
 from typing import Any
 
 
@@ -76,10 +77,10 @@ EXPECTED_REPLACEMENT_OPERATOR_SOURCE_SHA256 = (
     "27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e"
 )
 EXPECTED_ANSIBLE_WRAPPER_SOURCE_SHA256 = (
-    "db391e029f876269f85b0276d20ca7370f8be6179f94285b516c31d32bca128b"
+    "f702dd84863bbc1973edbb41f21c95d8467cf703d6174e277418c44d92bf2d29"
 )
 EXPECTED_READINESS_TEST_SOURCE_SHA256 = (
-    "28f14b9bc4f7bcc49f10662b943ad0bef2e1467fbe147d1f780f04f3d3dedd2d"
+    "65ae6c632e521f264c26f243403901897d786efce83c4b115c98bce6cf198996"
 )
 EXPECTED_PROVIDER_CALL_SEQUENCE = '''  setup_provider_transport
   assert_provider_transport_preflight
@@ -103,6 +104,38 @@ PHASES = (
     "temporary_refusal",
     "restored_acceptance",
 )
+
+
+def is_within(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def isolation_errors() -> list[str]:
+    errors: list[str] = []
+    if not sys.flags.isolated:
+        errors.append("Anthropic spend checker requires python3 -I")
+
+    stdlib = Path(sysconfig.get_path("stdlib")).resolve()
+    for module in (hashlib, json, re, sysconfig):
+        source = getattr(module, "__file__", None)
+        if source is None or not is_within(Path(source).resolve(), stdlib):
+            errors.append(
+                f"Anthropic spend checker rejected {module.__name__} provenance: "
+                f"{source!r}"
+            )
+
+    for entry in sys.path:
+        try:
+            resolved = Path(entry).resolve()
+        except OSError:
+            continue
+        if is_within(resolved, REPO):
+            errors.append(f"Anthropic spend checker has repository import path: {entry}")
+    return errors
 
 
 def digest(path: Path) -> str:
@@ -171,7 +204,7 @@ def contains_forbidden_ceiling(value: Any) -> bool:
     return False
 
 
-errors: list[str] = []
+errors: list[str] = isolation_errors()
 policy = json.loads(POLICY_PATH.read_text())
 expected_spend_policy = {
     "currency": "USD",

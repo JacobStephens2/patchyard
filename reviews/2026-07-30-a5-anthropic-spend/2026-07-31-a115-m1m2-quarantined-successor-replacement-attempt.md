@@ -180,3 +180,33 @@ runtime began, the reviewed plan independently makes every failed successor
 ineligible for repair or reuse. Worker `588858421` is therefore operationally
 quarantined by this record. Continuing requires escalation and a new explicit
 bounded sequence; this worker cannot be silently reused.
+
+## A78 operational-record review and A77 adjudication
+
+A78 reviewed exact record commit
+`d56d71e29ccac41fe4ce7e0f0e51a7681b7dcf1b` in a fresh detached worktree and
+returned **PASS with no finding against the operational record**. The reviewer
+confirmed the nonzero stop, unknown-cause wording, non-passing settled-firewall
+readback, independent operational quarantine, complete negative scope, 13
+false provider qualification flags, deliberate requirement-1 non-refresh, and
+the correct A101 target `10.132.0.15`.
+
+A78's DigitalOcean token returned HTTP 401, so its cloud review was limited to
+the committed account and internal consistency; it did not independently
+corroborate the build seat's cloud readbacks.
+
+Under A77, the build seat:
+
+- concedes the twice-seen post-replacement A101 failure shape and the
+  forward-looking need to decide a provider-firewall readiness gate before
+  another replacement;
+- refutes as unproved the stronger causal claim that firewall propagation
+  caused this July 31 timeout, because the firewall was not sampled at failure
+  and A101 was not retried; and
+- concedes that Factory has no qualified worker and that a future bounded
+  sequence must replace, not retry or repair, quarantined worker `588858421`.
+
+The complete review and disposition are recorded in
+`2026-07-31-a78-quarantined-successor-operational-record-review.md` and
+`2026-07-31-a77-quarantined-successor-operational-record-adjudication.md`.
+They authorize no repair or live action.

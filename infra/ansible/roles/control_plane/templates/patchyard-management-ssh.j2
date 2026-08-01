@@ -27,12 +27,53 @@ SSH=(
   {{ factory_manager_user }}@"$TARGET_IP"
 )
 
+readonly PROBE_MAX_ATTEMPTS=5
+readonly PROBE_RETRY_SECONDS=5
+
+probe_private_path() {
+  local attempt attempt_elapsed outcome probe_output probe_started
+  local probe_status total_elapsed total_started
+  total_started=$SECONDS
+
+  for ((attempt = 1; attempt <= PROBE_MAX_ATTEMPTS; attempt++)); do
+    probe_started=$SECONDS
+    if probe_output=$("${SSH[@]}" /usr/bin/id -un 2>&1); then
+      probe_status=0
+    else
+      probe_status=$?
+    fi
+    attempt_elapsed=$((SECONDS - probe_started))
+    total_elapsed=$((SECONDS - total_started))
+
+    if [[ "$probe_status" == 0 && "$probe_output" == {{ factory_manager_user }} ]]; then
+      printf 'A101 private-VPC probe target=%s attempt=%d/%d outcome=pass attempt_elapsed_seconds=%d total_elapsed_seconds=%d ssh_exit_status=0\n' \
+        "$TARGET" "$attempt" "$PROBE_MAX_ATTEMPTS" "$attempt_elapsed" "$total_elapsed" >&2
+      return 0
+    fi
+
+    outcome=ssh-failed
+    [[ "$probe_status" != 0 ]] || outcome=identity-mismatch
+    printf 'A101 private-VPC probe target=%s attempt=%d/%d outcome=%s attempt_elapsed_seconds=%d total_elapsed_seconds=%d ssh_exit_status=%d\n' \
+      "$TARGET" "$attempt" "$PROBE_MAX_ATTEMPTS" "$outcome" \
+      "$attempt_elapsed" "$total_elapsed" "$probe_status" >&2
+    [[ -z "$probe_output" ]] || printf 'A101 private-VPC probe target=%s attempt=%d/%d detail=%q\n' \
+      "$TARGET" "$attempt" "$PROBE_MAX_ATTEMPTS" "$probe_output" >&2
+    if ((attempt < PROBE_MAX_ATTEMPTS)); then
+      /usr/bin/sleep "$PROBE_RETRY_SECONDS"
+    fi
+  done
+
+  printf 'A101 private-VPC probe target=%s outcome=exhausted attempts=%d total_elapsed_seconds=%d\n' \
+    "$TARGET" "$PROBE_MAX_ATTEMPTS" "$total_elapsed" >&2
+  return 1
+}
+
 BREAKGLASS_RULE='rule priority="-100" family="ipv4" source address="{{ orchestration_public_cidr }}" service name="ssh" reject'
 printf -v QUOTED_BREAKGLASS_RULE '%q' "$BREAKGLASS_RULE"
 
 case "$OPERATION" in
   probe)
-    [[ "$("${SSH[@]}" /usr/bin/id -un)" == {{ factory_manager_user }} ]]
+    probe_private_path
     ;;
   qualify)
     [[ "$TARGET" == worker ]] || {

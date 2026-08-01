@@ -72,9 +72,9 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 21732,
+      "code": 21931,
       "comments": 524,
-      "blanks": 1838,
+      "blanks": 1856,
       "files": 154,
       "languages": [
         {
@@ -100,9 +100,9 @@
         },
         {
           "language": "Jinja2",
-          "code": 901,
+          "code": 936,
           "comments": 0,
-          "blanks": 53,
+          "blanks": 59,
           "files": 18
         },
         {
@@ -135,9 +135,9 @@
         },
         {
           "language": "Python",
-          "code": 8606,
+          "code": 8770,
           "comments": 46,
-          "blanks": 684,
+          "blanks": 696,
           "files": 26
         },
         {
@@ -173,7 +173,7 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 8179,
+      "code": 8180,
       "comments": 263,
       "blanks": 783,
       "files": 95,
@@ -229,7 +229,7 @@
         },
         {
           "language": "Python",
-          "code": 5511,
+          "code": 5512,
           "comments": 46,
           "blanks": 608,
           "files": 27
@@ -268,9 +268,9 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 8566,
-      "comments": 18776,
-      "blanks": 5241,
-      "files": 182,
+      "comments": 19023,
+      "blanks": 5291,
+      "files": 183,
       "languages": [
         {
           "language": "BASH",
@@ -289,9 +289,9 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 18756,
-          "blanks": 5188,
-          "files": 154
+          "comments": 19003,
+          "blanks": 5238,
+          "files": 155
         },
         {
           "language": "Python",

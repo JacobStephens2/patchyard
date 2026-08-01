@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
 import py_compile
 import shutil
@@ -13,6 +14,10 @@ ROOT = Path(__file__).resolve().parents[3]
 ROOT_CHECKER = ROOT / "tools/check-a101-readiness-root.py"
 ISOLATED_RUNNER = ROOT / "tools/run-isolated-unittest.py"
 PIN_READER = ROOT / "tools/read-infra-tool-version.py"
+MANAGEMENT_SSH_TEMPLATE = (
+    ROOT
+    / "infra/ansible/roles/control_plane/templates/patchyard-management-ssh.j2"
+)
 BOUND_SOURCE_PATHS = (
     "infra/wait-do-worker-firewall.sh",
     "infra/replace-worker.sh",
@@ -20,6 +25,7 @@ BOUND_SOURCE_PATHS = (
     "infra/ansible/converge.sh",
     "infra/ansible/qualify.sh",
     "infra/ansible/inventory/tofu.sh",
+    "infra/ansible/roles/control_plane/templates/patchyard-management-ssh.j2",
     "infra/tool-versions.env",
     "tools/read-infra-tool-version.py",
     "tools/install-shellcheck.sh",
@@ -51,6 +57,33 @@ BOUND_SOURCE_PATHS = (
     "infra/ansible/tests/test_session16_cutover.py",
     "infra/ansible/roles/control_plane/files/patchyard-log-secret-scan",
 )
+
+
+def validate_management_probe_contract(source: str) -> None:
+    required_once = (
+        "readonly PROBE_MAX_ATTEMPTS=5",
+        "readonly PROBE_RETRY_SECONDS=5",
+        "-o ConnectTimeout=5",
+        "for ((attempt = 1; attempt <= PROBE_MAX_ATTEMPTS; attempt++)); do",
+        "if ((attempt < PROBE_MAX_ATTEMPTS)); then",
+        '/usr/bin/sleep "$PROBE_RETRY_SECONDS"',
+        "outcome=exhausted attempts=%d total_elapsed_seconds=%d",
+        "\n    probe_private_path\n",
+    )
+    for fragment in required_once:
+        if source.count(fragment) != 1:
+            raise ValueError(f"management probe contract differs: {fragment}")
+
+    try:
+        probe = source.split("probe_private_path() {\n", 1)[1].split(
+            "\n}\n\nBREAKGLASS_RULE", 1
+        )[0]
+    except IndexError as error:
+        raise ValueError("management probe function boundary differs") from error
+    if probe.count("return 0") != 1 or probe.count("return 1") != 1:
+        raise ValueError("management probe does not pass once and fail exhaustion once")
+    if "|| true" in probe or "while true" in probe:
+        raise ValueError("management probe can bypass or unbound readiness")
 
 
 class A101ReadinessTrustRootContract(unittest.TestCase):
@@ -361,6 +394,149 @@ class A101ReadinessTrustRootContract(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("is not inert KEY=VALUE data", result.stderr)
         self.assertFalse(marker.exists())
+
+
+class ManagementSshReadinessContract(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.source = MANAGEMENT_SSH_TEMPLATE.read_text()
+        validate_management_probe_contract(self.source)
+
+        self.mock_ssh = self.root / "mock-ssh"
+        self.mock_ssh.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "count=0\n"
+            '[[ ! -f "$MOCK_SSH_COUNT" ]] || count=$(<"$MOCK_SSH_COUNT")\n'
+            "count=$((count + 1))\n"
+            'printf \'%d\\n\' "$count" >"$MOCK_SSH_COUNT"\n'
+            'case "$MOCK_SSH_MODE" in\n'
+            "  ready) printf 'factory-manager\\n' ;;\n"
+            "  delayed)\n"
+            "    if ((count < 3)); then\n"
+            "      echo 'ssh: connect to host 10.132.0.11 port 22: Connection timed out' >&2\n"
+            "      exit 255\n"
+            "    fi\n"
+            "    printf 'factory-manager\\n'\n"
+            "    ;;\n"
+            "  dead)\n"
+            "    echo 'ssh: connect to host 10.132.0.11 port 22: Connection timed out' >&2\n"
+            "    exit 255\n"
+            "    ;;\n"
+            "  wrong-identity) printf 'root\\n' ;;\n"
+            "  *) exit 97 ;;\n"
+            "esac\n"
+        )
+        self.mock_ssh.chmod(0o700)
+        self.mock_sleep = self.root / "mock-sleep"
+        self.mock_sleep.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            'printf \'%s\\n\' "$1" >>"$MOCK_SLEEP_CALLS"\n'
+        )
+        self.mock_sleep.chmod(0o700)
+
+    def render(self, source: str | None = None) -> Path:
+        rendered = self.source if source is None else source
+        replacements = {
+            "{{ hostvars[groups['control_plane'][0]].private_ip }}": "10.132.0.17",
+            "{{ hostvars[groups['worker'][0]].private_ip }}": "10.132.0.11",
+            "{{ factory_manager_private_key }}": "/tmp/factory-manager-key",
+            "{{ factory_manager_home }}": "/tmp/factory-manager",
+            "{{ factory_manager_user }}": "factory-manager",
+            "{{ orchestration_public_cidr }}": "142.93.121.94/32",
+            "{{ control_plane_private_cidr }}": "10.132.0.17/32",
+            "{{ worker_image_recipe_sha256 }}": "a" * 64,
+        }
+        for token, value in replacements.items():
+            rendered = rendered.replace(token, value)
+        self.assertNotIn("{{", rendered)
+        rendered = rendered.replace("/usr/bin/ssh", str(self.mock_ssh), 1)
+        rendered = rendered.replace("/usr/bin/sleep", str(self.mock_sleep), 1)
+        script = self.root / "patchyard-management-ssh"
+        script.write_text(rendered)
+        script.chmod(0o700)
+        return script
+
+    def run_probe(
+        self, mode: str
+    ) -> tuple[subprocess.CompletedProcess[str], int, list[str]]:
+        counter = self.root / f"{mode}-ssh-count"
+        sleeps = self.root / f"{mode}-sleep-calls"
+        environment = os.environ.copy()
+        environment.update(
+            MOCK_SSH_MODE=mode,
+            MOCK_SSH_COUNT=str(counter),
+            MOCK_SLEEP_CALLS=str(sleeps),
+        )
+        result = subprocess.run(
+            [str(self.render()), "worker", "probe"],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+        count = int(counter.read_text().strip()) if counter.exists() else 0
+        sleep_calls = sleeps.read_text().splitlines() if sleeps.exists() else []
+        return result, count, sleep_calls
+
+    def test_first_attempt_pass_is_observable_without_delay(self) -> None:
+        result, count, sleeps = self.run_probe("ready")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(count, 1)
+        self.assertEqual(sleeps, [])
+        self.assertRegex(
+            result.stderr,
+            r"target=worker attempt=1/5 outcome=pass "
+            r"attempt_elapsed_seconds=\d+ total_elapsed_seconds=\d+ "
+            r"ssh_exit_status=0",
+        )
+        self.assertNotIn("attempt=2/5", result.stderr)
+
+    def test_later_success_preserves_each_failed_attempt(self) -> None:
+        result, count, sleeps = self.run_probe("delayed")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(count, 3)
+        self.assertEqual(sleeps, ["5", "5"])
+        self.assertIn("attempt=1/5 outcome=ssh-failed", result.stderr)
+        self.assertIn("attempt=2/5 outcome=ssh-failed", result.stderr)
+        self.assertIn("attempt=3/5 outcome=pass", result.stderr)
+        self.assertEqual(result.stderr.count("Connection\\ timed\\ out"), 2)
+        self.assertNotIn("outcome=exhausted", result.stderr)
+
+    def test_dead_path_and_wrong_identity_exhaust_and_fail_closed(self) -> None:
+        for mode, outcome in (("dead", "ssh-failed"), ("wrong-identity", "identity-mismatch")):
+            with self.subTest(mode=mode):
+                result, count, sleeps = self.run_probe(mode)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertEqual(count, 5)
+                self.assertEqual(sleeps, ["5"] * 4)
+                for attempt in range(1, 6):
+                    self.assertIn(
+                        f"attempt={attempt}/5 outcome={outcome}", result.stderr
+                    )
+                self.assertIn(
+                    "target=worker outcome=exhausted attempts=5", result.stderr
+                )
+
+    def test_unbounded_and_exhaustion_pass_mutations_are_rejected(self) -> None:
+        mutations = {
+            "removed attempt bound": self.source.replace(
+                "attempt <= PROBE_MAX_ATTEMPTS", "", 1
+            ),
+            "exhaustion returns success": self.source.replace(
+                '  return 1\n}\n\nBREAKGLASS_RULE=',
+                '  return 0\n}\n\nBREAKGLASS_RULE=',
+                1,
+            ),
+        }
+        for name, mutation in mutations.items():
+            with self.subTest(name=name):
+                self.assertNotEqual(mutation, self.source)
+                with self.assertRaises(ValueError):
+                    validate_management_probe_contract(mutation)
 
 
 if __name__ == "__main__":

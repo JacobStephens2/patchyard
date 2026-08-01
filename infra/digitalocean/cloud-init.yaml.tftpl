@@ -12,9 +12,5 @@ users:
 ssh_pwauth: false
 disable_root: true
 package_update: true
-packages:
-  - firewalld
-  - python3
-  - sudo
 runcmd:
-  - [systemctl, enable, --now, firewalld]
+  - [bash, -ceu, "dnf -y --nobest install firewalld python3 sudo; rpm -q firewalld python3 sudo; systemctl enable --now firewalld"]

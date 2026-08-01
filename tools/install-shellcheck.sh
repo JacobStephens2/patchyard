@@ -3,7 +3,15 @@ set -euo pipefail
 umask 077
 
 REPO_ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
-source "$REPO_ROOT/infra/tool-versions.env"
+SHELLCHECK_VERSION=$(
+  python3 -I "$REPO_ROOT/tools/read-infra-tool-version.py" SHELLCHECK_VERSION
+)
+SHELLCHECK_URL=$(
+  python3 -I "$REPO_ROOT/tools/read-infra-tool-version.py" SHELLCHECK_URL
+)
+SHELLCHECK_SHA256=$(
+  python3 -I "$REPO_ROOT/tools/read-infra-tool-version.py" SHELLCHECK_SHA256
+)
 
 case "$(uname -s):$(uname -m)" in
   Linux:x86_64) ;;

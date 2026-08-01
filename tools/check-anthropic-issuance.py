@@ -34,6 +34,22 @@ ANTHROPIC_PATCH = (
     b"@@ -0,0 +1 @@\n"
     b"+anthropic-issuance-delivery-qualified\n"
 )
+EXPECTED_ISSUANCE_PROVIDER_REQUEST_BLOCK = """  # ANTHROPIC_ISSUANCE_PROVIDER_REQUEST_BEGIN
+  PROVIDER_STATUS=$(runuser -u factory-agent -- curl \\
+    --config "$AUTH_CONFIG" --silent --show-error \\
+    --connect-timeout 10 --max-time 30 \\
+    --dump-header "$PROVIDER_HEADERS" \\
+    --output "$PROVIDER_RESPONSE" --write-out '%{http_code}' \\
+    'https://api.anthropic.com/v1/models?limit=1') || PROVIDER_CURL_EXIT=$?
+  # ANTHROPIC_ISSUANCE_PROVIDER_REQUEST_END"""
+EXPECTED_LOCAL_WEB_HEALTH_BLOCK = """APP_STATUS=$(curl --silent --output /run/fieldbook-index.html \\
+  --write-out '%{http_code}' --max-time 20 http://127.0.0.1/index.php)"""
+EXPECTED_LOCAL_PARITY_PROBE_BLOCK = """PROBE_BODY=$(curl --fail --silent --max-time 20 \\
+  http://127.0.0.1/mfieldbook/patchyard_session4_probe.php)"""
+PROVIDER_CAPABLE_COMMAND = re.compile(
+    r"(?<![-A-Za-z0-9_.])(curl|wget|netcat|nc)(?=\s)|"
+    r"/dev/(?:tcp|udp)|openssl\s+s_client"
+)
 
 
 def image_recipe_sha256() -> str:
@@ -64,6 +80,20 @@ expected_policy = {
     "workspace": {
         "id": "wrkspc_000000000000000000000000",
         "name": "Patchyard Factory",
+    },
+    "spend_enforcement": {
+        "currency": "USD",
+        "model": "claude-opus-5",
+        "operational_cap_cents": 5000,
+        "qualification_cap_cents": 100,
+        "organization_monthly_limit_cents": 50000,
+        "authorization_ruling": "A115",
+        "minimum_settlement_window_seconds": 10260,
+        "qualification_phases": [
+            "operational_acceptance",
+            "temporary_refusal",
+            "restored_acceptance",
+        ],
     },
     "service_account": {
         "id": policy.get("service_account", {}).get("id"),
@@ -148,7 +178,7 @@ for required in (
     "--connect-timeout 10 --max-time 30",
     "assertion.jwt",
     "capability.json",
-    "spend_cap_cents:0",
+    "SPEND_CAP_CENTS=0",
     "remote_ssh sudo /usr/local/sbin/patchyard-firecracker-run",
     "if remote_ssh sudo pgrep",
     "worker_links=$(remote_ssh sudo ip -o link show)",
@@ -165,14 +195,18 @@ for required in (
     if required not in runner:
         errors.append(f"control-plane issuance runner is missing: {required}")
 if "{{" in runner or "RUNNER_TEMPLATE_LINE" in runner:
-    errors.append("control-plane issuance runner still normalizes executable template data")
+    errors.append(
+        "control-plane issuance runner still normalizes executable template data"
+    )
 for forbidden in (
     'grep -R -F -q -- "$ACCESS_TOKEN"',
     'grep -R -F -q -- "$ASSERTION"',
     "ACCESS_TOKEN=",
 ):
     if forbidden in runner:
-        errors.append(f"control-plane issuance runner exposes a credential in argv: {forbidden}")
+        errors.append(
+            f"control-plane issuance runner exposes a credential in argv: {forbidden}"
+        )
 
 for required in (
     'dd if=/dev/stdin of="$CAPABILITY" bs=65536 count=1 iflag=fullblock',
@@ -202,9 +236,21 @@ for required in (
 ):
     if required not in guest:
         errors.append(f"guest issuance fixture is missing: {required}")
-credential_branch = guest.index('if [[ "$CREDENTIAL_REQUIRED" == true ]]')
+provider_free_guest = guest
+for label, request_block in (
+    ("Anthropic issuance", EXPECTED_ISSUANCE_PROVIDER_REQUEST_BLOCK),
+    ("loopback web health", EXPECTED_LOCAL_WEB_HEALTH_BLOCK),
+    ("loopback parity probe", EXPECTED_LOCAL_PARITY_PROBE_BLOCK),
+):
+    if provider_free_guest.count(request_block) != 1:
+        errors.append(f"{label} request differs from its exact one-call binding")
+    else:
+        provider_free_guest = provider_free_guest.replace(request_block, "", 1)
+if PROVIDER_CAPABLE_COMMAND.search(provider_free_guest):
+    errors.append("issuance guest contains a network-capable call outside exact blocks")
+credential_branch = guest.index('if [[ "$CREDENTIAL_DELIVERED_TO_GUEST" == true ]]')
 provider_branch = guest.index(
-    'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]'
+    'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then'
 )
 credential_unmount = guest.index("  umount /credential", credential_branch)
 block_read_only = guest.index(
@@ -255,7 +301,10 @@ for required in (
 runner_install = control_tasks.split(
     "- name: Install the Anthropic issuance-and-delivery qualification runner", 1
 )[1].split("\n- name:", 1)[0]
-if "ansible.builtin.copy" not in runner_install or "ansible.builtin.template" in runner_install:
+if (
+    "ansible.builtin.copy" not in runner_install
+    or "ansible.builtin.template" in runner_install
+):
     errors.append("Anthropic issuance runner is not installed byte-for-byte")
 if "anthropic-wif-signing.pem" in worker_tasks:
     errors.append("worker desired state references the control-plane signing key")
@@ -303,6 +352,7 @@ else:
         "production_parity_sha256",
         "provider",
         "provider_call",
+        "qualification_phase",
         "qualification_requirement",
         "request_sha256",
         "run_id",
@@ -352,6 +402,8 @@ else:
         errors.append("live result provider is not Anthropic")
     if result.get("qualification_requirement") != "issuance-delivery":
         errors.append("live result is not requirement 1")
+    if result.get("qualification_phase") != "none":
+        errors.append("live issuance result has an unexpected qualification phase")
     if result.get("git_remote_count") != 0:
         errors.append("live guest received a Git remote")
     if result.get("credential_removed_before_output") is not True:

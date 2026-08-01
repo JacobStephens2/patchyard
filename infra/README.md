@@ -77,6 +77,13 @@ droplet exists. New/replacement hosts receive the current template; Ansible owns
 the converged identity metadata. This prevents a comment or bootstrap-package
 change from silently turning into a host replacement.
 
+The bootstrap installs its three prerequisites in one fail-fast
+`dnf --nobest` transaction, then verifies their RPM presence before enabling
+firewalld. Rocky image and repository mirrors can briefly expose a newer
+`python3` build before the matching `python-unversioned-command` build;
+allowing the solver to retain the coherent installed version avoids choosing
+the un-installable newest package without erasing or skipping dependencies.
+
 DigitalOcean planning fails closed if any live cloud firewall targets a desired
 host tag. This prevents a tag-attached firewall's rule union from silently
 widening either host before a reviewer sees the resource plan.
@@ -107,10 +114,19 @@ then apply that exact encrypted plan:
 ```bash
 REPLACE_DIR=$(mktemp -d /tmp/patchyard-replace.XXXXXX)
 infra/replace-worker.sh plan "$REPLACE_DIR"
-# Human reviews $REPLACE_DIR/worker-replacement.tfplan.txt.
+# Human reviews the plaintext plan and records both printed SHA-256 values.
 PATCHYARD_REPLACE_APPROVED=yes \
+PATCHYARD_REPLACE_APPROVED_SHA256=<reviewed-encrypted-plan-sha256> \
+PATCHYARD_REPLACE_APPROVED_REVISION="$(git rev-parse HEAD)" \
   infra/replace-worker.sh apply "$REPLACE_DIR/worker-replacement.tfplan"
 ```
+
+Normal replacement remains restricted to a merged revision. A115's explicitly
+authorized pre-merge qualification may add
+`PATCHYARD_REPLACE_A115_UNMERGED_APPROVED=yes`; the exact reviewed revision
+and plan digest remain mandatory. Apply validates every converge secret input
+before changing the droplet, then rechecks the plan digest immediately before
+the cloud apply.
 
 The script replaces only `digitalocean_droplet.worker`, converges twice, and
 runs host qualification, the production Firecracker isolation probe, and

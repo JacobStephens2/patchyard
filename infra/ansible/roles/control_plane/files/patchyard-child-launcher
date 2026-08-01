@@ -64,6 +64,20 @@ path_contract() {
   [[ "$actual" == "$owner:$mode" ]]
 }
 
+final_exit_status() {
+  local child_status=$1
+  if [[ "$TEARDOWN_COMPLETE" != true && "$child_status" -eq 0 ]]; then
+    printf '1\n'
+  else
+    printf '%s\n' "$child_status"
+  fi
+}
+
+mark_teardown_failed() {
+  TEARDOWN_COMPLETE=false
+  STATE=teardown_failed
+}
+
 count_child_processes() {
   local cgroup pid count=0
   cgroup=$(/usr/bin/systemctl show \
@@ -210,7 +224,7 @@ output_claims() {
 
 write_terminal() {
   local outputs
-  outputs=$(output_claims)
+  outputs=$(output_claims) || return 1
   jq -n \
     --arg job_id "$JOB_ID" \
     --arg kind "$KIND" \
@@ -260,10 +274,10 @@ write_terminal() {
         firewall_rules: $firewall_rules,
         preview_capabilities: $preview_capabilities
       }
-    }' >"$TERMINAL_TEMP"
-  chmod 0600 "$TERMINAL_TEMP"
-  chown "$MANAGER_UID:$MANAGER_GID" "$TERMINAL_TEMP"
-  mv -T "$TERMINAL_TEMP" "$JOB/terminal.json"
+    }' >"$TERMINAL_TEMP" || return 1
+  chmod 0600 "$TERMINAL_TEMP" || return 1
+  chown "$MANAGER_UID:$MANAGER_GID" "$TERMINAL_TEMP" || return 1
+  mv -T "$TERMINAL_TEMP" "$JOB/terminal.json" || return 1
 }
 
 finish() {
@@ -282,8 +296,9 @@ finish() {
   if ! revoke_preview_capability; then
     PREVIEW_CAPABILITIES=1
   fi
-  rm -f -- "$OUTPUT/failure.json"
-  rm -rf -- "$JOB/secret" "$OUTPUT/capture" "$ISOLATION_DIRECTORY"
+  rm -f -- "$OUTPUT/failure.json" || mark_teardown_failed
+  rm -rf -- "$JOB/secret" "$OUTPUT/capture" "$ISOLATION_DIRECTORY" \
+    || mark_teardown_failed
   remove_network
   if [[ -n "$REVIEW_WORKSPACE" ]] && ! chmod 0700 "$REVIEW_WORKSPACE"; then
     STAGING_PATHS=1
@@ -307,22 +322,28 @@ finish() {
   if [[ "$PROCESSES" -ne 0 || "$MOUNTS" -ne 0 || "$NAMESPACES" -ne 0 \
     || "$SECRET_FILES" -ne 0 || "$STAGING_PATHS" -ne 0 \
     || "$FIREWALL_RULES" -ne 0 || "$PREVIEW_CAPABILITIES" -ne 0 ]]; then
-    TEARDOWN_COMPLETE=false
-    STATE=teardown_failed
+    mark_teardown_failed
   fi
 
   if [[ "$STATE" != completed ]]; then
-    find "$OUTPUT" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+    find "$OUTPUT" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + \
+      || mark_teardown_failed
   fi
-  chown -R "$MANAGER_UID:$MANAGER_GID" "$JOB"
-  find "$JOB" -type d -exec chmod 0700 {} +
-  find "$JOB" -type f -exec chmod 0600 {} +
-  if [[ -n "$JOB_ID" && -n "$KIND" && -n "$REQUEST_SHA256" ]]; then
-    write_terminal
-  fi
+  chown -R "$MANAGER_UID:$MANAGER_GID" "$JOB" || mark_teardown_failed
+  find "$JOB" -type d -exec chmod 0700 {} + || mark_teardown_failed
+  find "$JOB" -type f -exec chmod 0600 {} + || mark_teardown_failed
   if [[ -n "$NETWORK_LOCK" ]]; then
-    flock -u "$NETWORK_LOCK" >/dev/null 2>&1 || true
+    flock -u "$NETWORK_LOCK" >/dev/null 2>&1 || mark_teardown_failed
+    NETWORK_LOCK=
   fi
+  if [[ -n "$JOB_ID" && -n "$KIND" && -n "$REQUEST_SHA256" ]]; then
+    if ! write_terminal; then
+      mark_teardown_failed
+      rm -f -- "$TERMINAL_TEMP" || mark_teardown_failed
+      write_terminal || mark_teardown_failed
+    fi
+  fi
+  rc=$(final_exit_status "$rc")
   exit "$rc"
 }
 

@@ -39,6 +39,15 @@ jq -e '
   and .organization.name == "Example Company"
   and .workspace.id == "wrkspc_000000000000000000000000"
   and .workspace.name == "Patchyard Factory"
+  and .spend_enforcement.currency == "USD"
+  and .spend_enforcement.model == "claude-opus-5"
+  and .spend_enforcement.operational_cap_cents == 5000
+  and .spend_enforcement.qualification_cap_cents == 100
+  and .spend_enforcement.organization_monthly_limit_cents == 50000
+  and .spend_enforcement.authorization_ruling == "A115"
+  and .spend_enforcement.minimum_settlement_window_seconds == 10260
+  and .spend_enforcement.qualification_phases == [
+    "operational_acceptance", "temporary_refusal", "restored_acceptance"]
   and .issuer.issuer_url == "https://factory.example.com/workload-identity"
   and .issuer.check_jti == true
   and .issuer.max_jwt_lifetime_seconds == 300
@@ -55,10 +64,42 @@ if [[ "$ACTION" == jwks ]]; then
   exit 0
 fi
 
-[[ "$ACTION" == run && $# -eq 3 ]] || {
-  echo "usage: $0 jwks | run SNAPSHOT_DIR OUTPUT_DIR" >&2
-  exit 2
-}
+case "$ACTION" in
+  run)
+    [[ $# -eq 3 ]]
+    QUALIFICATION_REQUIREMENT=issuance-delivery
+    SPEND_CAP_CENTS=0
+    RUN_PREFIX=anthropic-i1
+    ;;
+  run-spend-operational)
+    [[ $# -eq 3 ]]
+    QUALIFICATION_REQUIREMENT=provider-spend-enforcement
+    QUALIFICATION_PHASE=operational_acceptance
+    SPEND_CAP_CENTS=$(jq -r .spend_enforcement.operational_cap_cents "$CONFIG")
+    RUN_PREFIX=anthropic-s2-operational
+    ;;
+  run-spend-refusal)
+    [[ $# -eq 3 ]]
+    QUALIFICATION_REQUIREMENT=provider-spend-enforcement
+    QUALIFICATION_PHASE=temporary_refusal
+    SPEND_CAP_CENTS=$(jq -r .spend_enforcement.qualification_cap_cents "$CONFIG")
+    RUN_PREFIX=anthropic-s2-refusal
+    ;;
+  run-spend-restored)
+    [[ $# -eq 3 ]]
+    QUALIFICATION_REQUIREMENT=provider-spend-enforcement
+    QUALIFICATION_PHASE=restored_acceptance
+    SPEND_CAP_CENTS=$(jq -r .spend_enforcement.operational_cap_cents "$CONFIG")
+    RUN_PREFIX=anthropic-s2-restored
+    ;;
+  *)
+    echo "usage: $0 jwks | run SNAPSHOT_DIR OUTPUT_DIR | run-spend-{operational,refusal,restored} SNAPSHOT_DIR OUTPUT_DIR" >&2
+    exit 2
+    ;;
+esac
+if [[ "$QUALIFICATION_REQUIREMENT" == issuance-delivery ]]; then
+  QUALIFICATION_PHASE=none
+fi
 SNAPSHOT_DIR=$(readlink -f -- "$2")
 OUTPUT_DIR=$3
 [[ "$SNAPSHOT_DIR" == /* && "$OUTPUT_DIR" == /* ]]
@@ -100,7 +141,7 @@ SSH_ARGS=(
   -o UserKnownHostsFile=/var/lib/patchyard-manager/.ssh/known_hosts
   -o ConnectTimeout=10
 )
-RUN_ID="anthropic-i1-$(date -u +%Y%m%d)-$(openssl rand -hex 5)"
+RUN_ID="$RUN_PREFIX-$(date -u +%Y%m%d)-$(openssl rand -hex 5)"
 REMOTE_ROOT="/var/tmp/patchyard-incoming/$RUN_ID"
 RUN_TEMP=$(mktemp -d /run/patchyard-anthropic/issuance.XXXXXX)
 FIXTURE_REPO="$RUN_TEMP/repo"
@@ -142,14 +183,30 @@ LAUNCHER_HASH_RECORD=$(remote_ssh sudo sha256sum -- \
 [[ "$LAUNCHER_HASH_RECORD" =~ ^([0-9a-f]{64})[[:space:]]{2}/usr/local/sbin/patchyard-firecracker-run$ ]]
 LAUNCHER_SOURCE_SHA256=${BASH_REMATCH[1]}
 [[ "$LAUNCHER_SOURCE_SHA256" == "$EXPECTED_LAUNCHER_SHA256" ]]
+if [[ "$QUALIFICATION_REQUIREMENT" == provider-spend-enforcement ]]; then
+  EXPECTED_TRANSPORT_SOURCE="$CHECKOUT_ROOT/worker/runtime/patchyard-anthropic-one-shot"
+  [[ -f "$EXPECTED_TRANSPORT_SOURCE" && ! -L "$EXPECTED_TRANSPORT_SOURCE" ]]
+  EXPECTED_TRANSPORT_SHA256=$(sha256sum "$EXPECTED_TRANSPORT_SOURCE" | cut -d' ' -f1)
+  TRANSPORT_HASH_RECORD=$(remote_ssh sudo sha256sum -- \
+    /usr/local/libexec/patchyard-anthropic-one-shot)
+  [[ "$TRANSPORT_HASH_RECORD" =~ ^([0-9a-f]{64})[[:space:]]{2}/usr/local/libexec/patchyard-anthropic-one-shot$ ]]
+  TRANSPORT_SOURCE_SHA256=${BASH_REMATCH[1]}
+  [[ "$TRANSPORT_SOURCE_SHA256" == "$EXPECTED_TRANSPORT_SHA256" ]]
+fi
 HOST_CONTRACT_SHA256=$(
-  printf '%s  %s\n%s  %s\n' \
-    "$RUNNER_SOURCE_SHA256" worker/qualification/patchyard-run-anthropic-issuance \
-    "$LAUNCHER_SOURCE_SHA256" worker/runtime/patchyard-firecracker-run \
-    | sha256sum | cut -d' ' -f1
+  {
+    printf '%s  %s\n%s  %s\n' \
+      "$RUNNER_SOURCE_SHA256" worker/qualification/patchyard-run-anthropic-issuance \
+      "$LAUNCHER_SOURCE_SHA256" worker/runtime/patchyard-firecracker-run
+    if [[ "$QUALIFICATION_REQUIREMENT" == provider-spend-enforcement ]]; then
+      printf '%s  %s\n' \
+        "$TRANSPORT_SOURCE_SHA256" worker/runtime/patchyard-anthropic-one-shot
+    fi
+  } | sha256sum | cut -d' ' -f1
 )
-unset EXPECTED_RUNNER_SOURCE EXPECTED_LAUNCHER_SOURCE \
-  EXPECTED_LAUNCHER_SHA256 LAUNCHER_HASH_RECORD
+unset EXPECTED_RUNNER_SOURCE EXPECTED_LAUNCHER_SOURCE EXPECTED_TRANSPORT_SOURCE \
+  EXPECTED_LAUNCHER_SHA256 EXPECTED_TRANSPORT_SHA256 \
+  LAUNCHER_HASH_RECORD TRANSPORT_HASH_RECORD
 
 JWKS="$RUN_TEMP/jwks.json"
 public_jwks >"$JWKS"
@@ -238,14 +295,25 @@ jq -n \
   --arg service_account_id "$(jq -r .service_account.id "$CONFIG")" \
   --arg rule_id "$(jq -r .rule.id "$CONFIG")" \
   --arg workspace_id "$(jq -r .workspace.id "$CONFIG")" \
-  '{schema_version:1,provider:"anthropic",qualification_requirement:"issuance-delivery",
-    $capability_id,secret:$exchange[0].access_token,spend_cap_cents:0,$issued_at,$expires_at,
+  --arg qualification_requirement "$QUALIFICATION_REQUIREMENT" \
+  --arg qualification_phase "$QUALIFICATION_PHASE" \
+  --arg authorization_ruling "$(jq -r .spend_enforcement.authorization_ruling "$CONFIG")" \
+  --argjson spend_cap_cents "$SPEND_CAP_CENTS" \
+  '{schema_version:1,provider:"anthropic",$qualification_requirement,
+    $qualification_phase,$authorization_ruling,$capability_id,
+    secret:$exchange[0].access_token,$spend_cap_cents,$issued_at,$expires_at,
     token_type:$exchange[0].token_type,scope:$exchange[0].scope,
     expires_in:$exchange[0].expires_in,$exchange_request_id,
     $service_account_id,$rule_id,$workspace_id}' >"$RUN_TEMP/capability.json"
 
 install -d -m 0700 "$FIXTURE_REPO"
-printf 'anthropic-issuance-delivery-base\n' >"$FIXTURE_REPO/base.txt"
+if [[ "$QUALIFICATION_REQUIREMENT" == issuance-delivery ]]; then
+  printf 'anthropic-issuance-delivery-base\n' >"$FIXTURE_REPO/base.txt"
+  printf 'Anthropic issuance and delivery qualification.\n' >"$RUN_TEMP/request.md"
+else
+  printf 'anthropic-provider-spend-enforcement-base\n' >"$FIXTURE_REPO/base.txt"
+  printf 'Anthropic provider-side spend enforcement qualification.\n' >"$RUN_TEMP/request.md"
+fi
 git -C "$FIXTURE_REPO" init --quiet
 git -C "$FIXTURE_REPO" config user.name 'Patchyard Factory Anthropic fixture'
 git -C "$FIXTURE_REPO" config user.email 'factory@example.invalid'
@@ -253,7 +321,6 @@ git -C "$FIXTURE_REPO" add base.txt
 GIT_AUTHOR_DATE=2000-01-01T00:00:00Z GIT_COMMITTER_DATE=2000-01-01T00:00:00Z \
   git -C "$FIXTURE_REPO" commit --quiet -m 'Anthropic issuance fixture'
 BASE_SHA=$(git -C "$FIXTURE_REPO" rev-parse HEAD)
-printf 'Anthropic issuance and delivery qualification.\n' >"$RUN_TEMP/request.md"
 git -C "$FIXTURE_REPO" archive --format=tar "$BASE_SHA" \
   | gzip -n -9 >"$RUN_TEMP/source.tar.gz"
 
@@ -270,10 +337,15 @@ jq -n \
   --arg snapshot_manifest_sha256 "$SNAPSHOT_MANIFEST_SHA256" \
   --arg capability_sha256 "$CAPABILITY_SHA256" \
   --arg host_contract_sha256 "$HOST_CONTRACT_SHA256" \
+  --arg qualification_requirement "$QUALIFICATION_REQUIREMENT" \
+  --arg qualification_phase "$QUALIFICATION_PHASE" \
+  --arg authorization_ruling "$(jq -r .spend_enforcement.authorization_ruling "$CONFIG")" \
+  --argjson spend_cap_cents "$SPEND_CAP_CENTS" \
   '{schema_version:1,$run_id,$base_sha,$source_archive_sha256,$request_sha256,
     $snapshot_sql_sha256,$snapshot_manifest_sha256,provider:"anthropic",
-    mode:"provider-qualification",qualification_requirement:"issuance-delivery",
-    credential_required:true,$capability_sha256,$host_contract_sha256,spend_cap_cents:0}' \
+    mode:"provider-qualification",$qualification_requirement,$qualification_phase,
+    $authorization_ruling,
+    credential_required:true,$capability_sha256,$host_contract_sha256,$spend_cap_cents}' \
   >"$RUN_TEMP/run.json"
 
 remote_ssh install -d -m 0700 "$REMOTE_ROOT/snapshot"
@@ -291,7 +363,7 @@ if ! remote_ssh sudo /usr/local/sbin/patchyard-firecracker-run \
   <"$RUN_TEMP/capability.json" \
   >"$RUN_TEMP/launcher.stdout" 2>"$RUN_TEMP/launcher.stderr"; then
   SANITIZED_WORKER_DIAGNOSTIC=$(LC_ALL=C grep -E \
-    '^(result filesystem integrity check failed|incomplete guest result: file_count=[0-9]{1,3} expected_mask=(none|[cers]{1,4})|guest returned incomplete status=[a-z0-9,-]{1,128}|result entry type rejected|guest returned failure status=[a-z0-9,-]{1,128}|factory worker run failed: stage=[a-z0-9-]{1,64} line=([0-9]{1,6}|unknown) status=[0-9]{1,3})$' \
+    '^(anthropic-spend-(provider-(transport-failed-[a-z0-9-]+|transport-preflight-rejected-ipv6|response-rejected-[a-z0-9-]+)|transport-cardinality-rejected-([0-9]{1,20}-){4}[0-9]{1,20}|temporary-cap-refusal-not-observed)|result filesystem integrity check failed|incomplete guest result: file_count=[0-9]{1,3} expected_mask=(none|[cers]{1,4})|guest returned incomplete status=[a-z0-9,-]{1,128}|result entry type rejected|guest returned failure status=[a-z0-9,-]{1,128}|factory worker run failed: stage=[a-z0-9-]{1,64} line=([0-9]{1,6}|unknown) status=[0-9]{1,3})$' \
     "$RUN_TEMP/launcher.stderr" | head -20 || true)
   if [[ -n "$SANITIZED_WORKER_DIAGNOSTIC" ]]; then
     printf '%s\n' "$SANITIZED_WORKER_DIAGNOSTIC" >&2
@@ -324,9 +396,14 @@ unset ACCESS_TOKEN_NEEDLE ASSERTION
 jq -e \
   --arg run_id "$RUN_ID" --arg issued_at "$ISSUED_AT" --arg expires_at "$EXPIRES_AT" \
   --arg exchange_request_id "$EXCHANGE_REQUEST_ID" \
-  --arg host_contract_sha256 "$HOST_CONTRACT_SHA256" '
+  --arg host_contract_sha256 "$HOST_CONTRACT_SHA256" \
+  --arg qualification_requirement "$QUALIFICATION_REQUIREMENT" \
+  --arg qualification_phase "$QUALIFICATION_PHASE" \
+  --arg authorization_ruling "$(jq -r .spend_enforcement.authorization_ruling "$CONFIG")" \
+  --argjson spend_cap_cents "$SPEND_CAP_CENTS" '
   .schema_version == 1 and .run_id == $run_id and .provider == "anthropic"
-  and .qualification_requirement == "issuance-delivery"
+  and .qualification_requirement == $qualification_requirement
+  and .qualification_phase == $qualification_phase
   and (.observed_rootfs_sha256 | test("^[0-9a-f]{64}$"))
   and (has("rootfs_sha256") | not)
   and .host_contract_sha256 == $host_contract_sha256
@@ -335,10 +412,48 @@ jq -e \
   and .delivery.capability_drive_read_only == true
   and .delivery.capability_drive_unmounted_before_provider_call == true
   and .delivery.credential_removed_before_output == true
-  and .provider_call.endpoint == "/v1/models?limit=1"
-  and .provider_call.http_status == 200
-  and (.provider_call.request_id | test("^req_[A-Za-z0-9]+$"))
-  and .host_teardown == {processes:0,taps:0,nftables_tables:0,run_directories:0,credential_files:0}
+  and (if $qualification_requirement == "issuance-delivery" then
+    .provider_call.endpoint == "/v1/models?limit=1"
+    and .provider_call.http_status == 200
+    and (.provider_call.request_id | test("^req_[A-Za-z0-9]+$"))
+  else
+    .authorization_ruling == $authorization_ruling
+    and .provider_observation.expected_workspace_cap_cents == $spend_cap_cents
+    and .provider_observation.request_attempts == 1
+    and .provider_observation.endpoint == "/v1/messages"
+    and (.provider_observation.request_id | test("^req_[A-Za-z0-9]+$"))
+    and .delivery == {worker_host_tmpfs:true,credential_delivered_to_guest:false,
+      credential_removed_before_guest_boot:true,assertion_delivered:false,
+      signing_key_delivered:false,admin_credential_delivered:false}
+    and .provider_transport.schema_version == 1
+    and .provider_transport.authorization_ruling == "A117"
+    and .provider_transport.mechanism == "host-one-shot-network-namespace-v1"
+    and .provider_transport.http_version == "1.0"
+    and .provider_transport.connection_close == true
+    and .provider_transport.admitted_conntrack_ids == 1
+    and .provider_transport.admitted_new_connections == 1
+    and .provider_transport.rejected_new_connections == 0
+    and .provider_transport.rejected_connection_packets == 0
+    and .provider_transport.guest_provider_allowlist_entries == 0
+    and .provider_transport.namespace_ipv6_disabled == true
+    and .provider_transport.credential_removed_before_guest_boot == true
+    and (.provider_transport.client_sha256 | test("^[0-9a-f]{64}$"))
+    and (if $qualification_phase == "temporary_refusal" then
+      .provider_observation.outcome == "refused"
+      and (.provider_observation.http_status == 400
+        or .provider_observation.http_status == 403)
+    else
+      .provider_observation.outcome == "accepted"
+      and .provider_observation.http_status == 200
+    end)
+  end)
+  and (if $qualification_requirement == "provider-spend-enforcement" then
+    .host_teardown == {processes:0,taps:0,nftables_tables:0,run_directories:0,
+      credential_files:0,guest_provider_egress_packets:0}
+  else
+    .host_teardown == {processes:0,taps:0,nftables_tables:0,run_directories:0,
+      credential_files:0}
+  end)
   and (has("secret") | not) and (has("access_token") | not)
 ' "$RUN_TEMP/result/evidence.json" >/dev/null
 
@@ -367,15 +482,25 @@ if grep -Eq '(^|[[:space:]])ef[0-9a-f]{8}:' <<<"$worker_links"; then
   exit 1
 fi
 worker_nft_tables=$(remote_ssh sudo nft list tables)
-if grep -Eq '(^|[[:space:]])table inet eta_fc_[0-9a-f]{10}($|[[:space:]])' \
+if grep -Eq '(^|[[:space:]])table inet eta_f[cp]_[0-9a-f]{10}($|[[:space:]])' \
   <<<"$worker_nft_tables"; then
-  echo "Firecracker nftables residue remains" >&2
+  echo "worker nftables residue remains" >&2
   exit 1
 fi
-unset process_status worker_links worker_nft_tables
+worker_namespaces=$(remote_ssh sudo ip netns list)
+if grep -Eq '(^|[[:space:]])efp[0-9a-f]{10}($|[[:space:]])' \
+  <<<"$worker_namespaces"; then
+  echo "provider network namespace residue remains" >&2
+  exit 1
+fi
+if grep -Eq '(^|[[:space:]])efh[0-9a-f]{8}[@:]' <<<"$worker_links"; then
+  echo "provider veth residue remains" >&2
+  exit 1
+fi
+unset process_status worker_links worker_nft_tables worker_namespaces
 
 chown -R factory-web:factory "$RUN_TEMP/result"
 find "$RUN_TEMP/result" -type d -exec chmod 0750 {} +
 find "$RUN_TEMP/result" -type f -exec chmod 0640 {} +
 mv -- "$RUN_TEMP/result" "$OUTPUT_DIR"
-echo "anthropic_issuance_result=$OUTPUT_DIR run_id=$RUN_ID"
+echo "anthropic_qualification_result=$OUTPUT_DIR run_id=$RUN_ID requirement=$QUALIFICATION_REQUIREMENT"

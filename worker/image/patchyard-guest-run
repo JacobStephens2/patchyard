@@ -6,9 +6,27 @@ RESULT_MOUNTED=false
 INPUT_MOUNTED=false
 WORK_MOUNTED=false
 WEBROOT_MOUNTED=false
-CREDENTIAL_MOUNTED=false
 STATUS=error
 FAILURE=guest-runner-failed
+CAPABILITY_FILE=
+PROVIDER_TEMP=
+
+remove_provider_credential() {
+  local cleanup_failed=0
+  if mountpoint -q /credential; then
+    umount /credential || cleanup_failed=1
+  fi
+  if [[ -n "$PROVIDER_TEMP" ]]; then
+    rm -rf -- "$PROVIDER_TEMP" || cleanup_failed=1
+    [[ ! -e "$PROVIDER_TEMP" && ! -L "$PROVIDER_TEMP" ]] || cleanup_failed=1
+  fi
+  rm -rf -- /run/patchyard-capability || cleanup_failed=1
+  [[ ! -e /run/patchyard-capability \
+    && ! -L /run/patchyard-capability ]] || cleanup_failed=1
+  CAPABILITY_FILE=
+  PROVIDER_TEMP=
+  return "$cleanup_failed"
+}
 
 poweroff_guest() {
   sync
@@ -17,14 +35,18 @@ poweroff_guest() {
 
 finish() {
   local rc=$?
+  local credential_cleanup_failed=0
   set +e
+  remove_provider_credential || credential_cleanup_failed=1
   if $RESULT_MOUNTED; then
-    if [[ "$STATUS" != success ]]; then
+    if [[ "$credential_cleanup_failed" -ne 0 ]]; then
+      find /result -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+      rc=1
+    elif [[ "$STATUS" != success ]]; then
       printf '%s\n' "$FAILURE" > /result/status
     fi
     sync /result
   fi
-  $CREDENTIAL_MOUNTED && umount /credential
   $WEBROOT_MOUNTED && umount /var/www/html
   $WORK_MOUNTED && umount /work
   $INPUT_MOUNTED && umount /input
@@ -113,29 +135,7 @@ if [[ -s /input/provider-hosts ]]; then
 fi
 
 CREDENTIAL_REQUIRED=$(jq -r .credential_required "$MANIFEST")
-CAPABILITY_FILE=
-CREDENTIAL_DRIVE_READ_ONLY=false
-if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
-  [[ -e /dev/disk/by-label/ETA_CREDENTIAL ]]
-  CREDENTIAL_DEVICE=$(readlink -f -- /dev/disk/by-label/ETA_CREDENTIAL)
-  [[ "$CREDENTIAL_DEVICE" == /dev/* ]]
-  [[ "$(blockdev --getro "$CREDENTIAL_DEVICE")" == 1 ]]
-  install -d -m 0700 /credential /run/patchyard-capability
-  mount -o ro,nosuid,nodev,noexec "$CREDENTIAL_DEVICE" /credential
-  CREDENTIAL_MOUNTED=true
-  findmnt -n -o OPTIONS /credential | tr ',' '\n' | grep -Fxq ro
-  if touch /credential/write-probe 2>/dev/null; then
-    FAILURE=credential-drive-writable
-    exit 1
-  fi
-  CREDENTIAL_DRIVE_READ_ONLY=true
-  install -m 0400 -o factory-agent -g factory-agent \
-    /credential/capability.json /run/patchyard-capability/capability.json
-  umount /credential
-  CREDENTIAL_MOUNTED=false
-  CAPABILITY_FILE=/run/patchyard-capability/capability.json
-fi
-
+CREDENTIAL_DELIVERED_TO_GUEST=$CREDENTIAL_REQUIRED
 if [[ "$MODE" == adversarial-qualification ]]; then
   [[ "$PROVIDER" == openai && "$CREDENTIAL_REQUIRED" == false ]]
   [[ -f /work/base.txt ]]
@@ -209,6 +209,145 @@ if [[ "$MODE" == adversarial-qualification ]]; then
   exit 0
 fi
 
+
+if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
+ && jq -e '.qualification_requirement == "provider-spend-enforcement"' \
+   "$MANIFEST" >/dev/null; then
+  CREDENTIAL_DELIVERED_TO_GUEST=false
+fi
+CREDENTIAL_DRIVE_READ_ONLY=false
+if [[ "$CREDENTIAL_DELIVERED_TO_GUEST" == true ]]; then
+  [[ -e /dev/disk/by-label/ETA_CREDENTIAL ]]
+  CREDENTIAL_DEVICE=$(readlink -f -- /dev/disk/by-label/ETA_CREDENTIAL)
+  [[ "$CREDENTIAL_DEVICE" == /dev/* ]]
+  [[ "$(blockdev --getro "$CREDENTIAL_DEVICE")" == 1 ]]
+  install -d -m 0700 /credential /run/patchyard-capability
+  mount -o ro,nosuid,nodev,noexec "$CREDENTIAL_DEVICE" /credential
+  findmnt -n -o OPTIONS /credential | tr ',' '\n' | grep -Fxq ro
+  if touch /credential/write-probe 2>/dev/null; then
+    FAILURE=credential-drive-writable
+    exit 1
+  fi
+  CREDENTIAL_DRIVE_READ_ONLY=true
+  install -m 0400 -o factory-agent -g factory-agent \
+    /credential/capability.json /run/patchyard-capability/capability.json
+  umount /credential
+  CAPABILITY_FILE=/run/patchyard-capability/capability.json
+fi
+
+if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]] \
+  && jq -e '.qualification_requirement == "provider-spend-enforcement"' \
+    "$MANIFEST" >/dev/null; then
+  [[ "$CREDENTIAL_REQUIRED" == true ]]
+  [[ "$CREDENTIAL_DELIVERED_TO_GUEST" == false ]]
+  [[ "$CREDENTIAL_DRIVE_READ_ONLY" == false ]]
+  [[ ! -e /dev/disk/by-label/ETA_CREDENTIAL ]]
+  [[ ! -s /input/provider-hosts ]]
+  [[ -f /work/base.txt ]]
+  [[ -f /input/issuance.json && -f /input/provider-observation.json ]]
+  [[ -f /input/provider-transport.json ]]
+  QUALIFICATION_PHASE=$(jq -r .qualification_phase "$MANIFEST")
+  SPEND_CAP_CENTS=$(jq -r .spend_cap_cents "$MANIFEST")
+
+  jq -e '
+    (keys | sort) == ["exchange_request_id","expires_at","expires_in","issued_at",
+      "rule_id","scope","service_account_id","token_type","workspace_id"]
+    and (.issued_at | fromdateiso8601 | type == "number")
+    and (.expires_at | fromdateiso8601 | type == "number")
+    and (.expires_in | type == "number" and . >= 60 and . <= 300)
+    and (.exchange_request_id | test("^req_[A-Za-z0-9]+$"))
+    and .token_type == "Bearer" and .scope == "workspace:inference"
+    and (.service_account_id | test("^svac_[A-Za-z0-9]+$"))
+    and (.rule_id | test("^fdrl_[A-Za-z0-9]+$"))
+    and (.workspace_id | test("^wrkspc_[A-Za-z0-9]+$"))
+  ' /input/issuance.json >/dev/null
+  jq -e '
+    (keys | sort) == ["admitted_conntrack_ids","admitted_new_connections",
+      "authorization_ruling","client_sha256","connection_close",
+      "credential_removed_before_guest_boot","guest_provider_allowlist_entries",
+      "http_version","mechanism","namespace_ipv6_disabled","rejected_connection_packets",
+      "rejected_new_connections","schema_version"]
+    and .schema_version == 1 and .authorization_ruling == "A117"
+    and .mechanism == "host-one-shot-network-namespace-v1"
+    and .http_version == "1.0" and .connection_close == true
+    and .admitted_conntrack_ids == 1 and .admitted_new_connections == 1
+    and .rejected_new_connections == 0 and .rejected_connection_packets == 0
+    and .guest_provider_allowlist_entries == 0
+    and .namespace_ipv6_disabled == true
+    and .credential_removed_before_guest_boot == true
+    and (.client_sha256 | test("^[0-9a-f]{64}$"))
+  ' /input/provider-transport.json >/dev/null
+  jq -e --arg phase "$QUALIFICATION_PHASE" --argjson cap "$SPEND_CAP_CENTS" '
+    .endpoint == "/v1/messages" and .request_attempts == 1
+    and .expected_workspace_cap_cents == $cap
+    and (.observed_at | fromdateiso8601 | type == "number")
+    and (.request_id | test("^req_[A-Za-z0-9]+$"))
+    and (.request_body_sha256 | test("^[0-9a-f]{64}$"))
+    and (if $phase == "temporary_refusal" then
+      .outcome == "refused" and (.http_status == 400 or .http_status == 403)
+      and .response_type == "error"
+      and (.provider_error.error_type | test("^[a-z_]{1,64}$"))
+      and (.provider_error.error_type != "rate_limit_error")
+      and (.provider_error.error_type != "overloaded_error")
+    else
+      .outcome == "accepted" and .http_status == 200
+      and .response_type == "message" and .model == "claude-opus-5"
+      and (.usage.input_tokens | type == "number" and . >= 1)
+      and (.usage.output_tokens | type == "number" and . >= 1)
+    end)
+  ' /input/provider-observation.json >/dev/null
+  jq -e --slurpfile issuance /input/issuance.json '
+    ($issuance[0].issued_at | fromdateiso8601)
+      <= (.observed_at | fromdateiso8601)
+    and (.observed_at | fromdateiso8601)
+      < ($issuance[0].expires_at | fromdateiso8601)
+  ' /input/provider-observation.json >/dev/null
+
+  FAILURE=anthropic-spend-qualification-patch-failed
+  printf 'anthropic-provider-spend-enforcement-qualified\n' \
+    >/work/anthropic-spend-qualified.txt
+  chown factory-agent:factory-agent /work/anthropic-spend-qualified.txt
+  runuser -u factory-agent -- git -C /work add -N .
+  runuser -u factory-agent -- git -C /work diff --binary --full-index \
+    >/result/change.patch
+  [[ -s /result/change.patch ]]
+  printf '%s\n' \
+    'Validated the host-owned A117 one-shot receipt after the bearer and provider network namespace were removed; the spend guest had neither credential nor provider allowlist.' \
+    >/result/rationale.txt
+
+  FAILURE=anthropic-spend-qualification-evidence-failed
+  PATCH_SHA=$(sha256sum /result/change.patch | cut -d' ' -f1)
+  ISSUANCE=$(jq -c . /input/issuance.json)
+  PROVIDER_OBSERVATION=$(jq -c . /input/provider-observation.json)
+  PROVIDER_TRANSPORT=$(jq -c . /input/provider-transport.json)
+  jq -n \
+    --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
+    --arg request_sha256 "$REQUEST_SHA" --arg patch_sha256 "$PATCH_SHA" \
+    --arg observed_rootfs_sha256 "$ROOTFS_SHA" \
+    --arg image_recipe_sha256 "$IMAGE_RECIPE_SHA" \
+    --arg production_parity_sha256 "$PRODUCTION_PARITY_SHA" \
+    --arg host_contract_sha256 "$HOST_CONTRACT_SHA" \
+    --arg qualification_phase "$QUALIFICATION_PHASE" \
+    --argjson issuance "$ISSUANCE" \
+    --argjson provider_observation "$PROVIDER_OBSERVATION" \
+    --argjson provider_transport "$PROVIDER_TRANSPORT" \
+    '{schema_version:1,$run_id,$base_sha,$request_sha256,provider:"anthropic",
+      qualification_requirement:"provider-spend-enforcement",
+      authorization_ruling:"A115",$qualification_phase,$patch_sha256,
+      $observed_rootfs_sha256,$image_recipe_sha256,$production_parity_sha256,
+      git_remote_count:0,$host_contract_sha256,credential_removed_before_output:true,
+      $issuance,
+      delivery:{worker_host_tmpfs:true,credential_delivered_to_guest:false,
+        credential_removed_before_guest_boot:true,assertion_delivered:false,
+        signing_key_delivered:false,admin_credential_delivered:false},
+      $provider_transport,$provider_observation}' \
+    >/result/evidence.json
+  printf 'success\n' >/result/status
+  STATUS=success
+  FAILURE=
+  exit 0
+fi
+
 if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then
   [[ "$CREDENTIAL_REQUIRED" == true && -n "$CAPABILITY_FILE" ]]
   [[ -f /work/base.txt ]]
@@ -218,11 +357,13 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then
     exit 1
   fi
   jq -e '
-    (keys | sort) == ["capability_id","exchange_request_id","expires_at","expires_in",
-      "issued_at","provider","qualification_requirement","rule_id","schema_version",
-      "scope","secret","service_account_id","spend_cap_cents","token_type","workspace_id"]
+    (keys | sort) == ["authorization_ruling","capability_id","exchange_request_id",
+      "expires_at","expires_in","issued_at","provider","qualification_phase",
+      "qualification_requirement","rule_id","schema_version","scope","secret",
+      "service_account_id","spend_cap_cents","token_type","workspace_id"]
     and .schema_version == 1 and .provider == "anthropic"
     and .qualification_requirement == "issuance-delivery"
+    and .qualification_phase == "none"
     and (.secret | test("^sk-ant-oat01-[A-Za-z0-9_-]+$") and length <= 8192)
     and .spend_cap_cents == 0 and .token_type == "Bearer"
     and .scope == "workspace:inference"
@@ -250,12 +391,14 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then
 
   FAILURE=anthropic-provider-call-failed
   PROVIDER_CURL_EXIT=0
+  # ANTHROPIC_ISSUANCE_PROVIDER_REQUEST_BEGIN
   PROVIDER_STATUS=$(runuser -u factory-agent -- curl \
     --config "$AUTH_CONFIG" --silent --show-error \
     --connect-timeout 10 --max-time 30 \
     --dump-header "$PROVIDER_HEADERS" \
     --output "$PROVIDER_RESPONSE" --write-out '%{http_code}' \
     'https://api.anthropic.com/v1/models?limit=1') || PROVIDER_CURL_EXIT=$?
+  # ANTHROPIC_ISSUANCE_PROVIDER_REQUEST_END
   rm -f -- "$AUTH_CONFIG" "$CAPABILITY_FILE"
   CAPABILITY_FILE=
   rmdir /run/patchyard-capability
@@ -312,7 +455,8 @@ if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then
     --arg workspace_id "$WORKSPACE_ID" --arg provider_request_id "$PROVIDER_REQUEST_ID" \
     --arg model_id "$MODEL_ID" --argjson expires_in "$EXPIRES_IN" \
     '{schema_version:1,$run_id,$base_sha,$request_sha256,provider:"anthropic",
-      qualification_requirement:"issuance-delivery",$patch_sha256,$observed_rootfs_sha256,
+      qualification_requirement:"issuance-delivery",qualification_phase:"none",
+      $patch_sha256,$observed_rootfs_sha256,
       $image_recipe_sha256,$production_parity_sha256,git_remote_count:0,
       $host_contract_sha256,
       credential_removed_before_output:true,

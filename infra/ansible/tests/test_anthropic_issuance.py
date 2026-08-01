@@ -114,7 +114,9 @@ class AnthropicIssuanceContract(unittest.TestCase):
             (
                 self.runner,
                 self.launcher.replace(
-                    '-f "$CAPABILITY_NEEDLE" --', '-- "$CAPABILITY_SECRET"', 1
+                    '-f "$CAPABILITY_NEEDLE" -- "$RESULT_EXTRACT"',
+                    '-- "$CAPABILITY_SECRET" "$RESULT_EXTRACT"',
+                    1,
                 ),
             ),
         )
@@ -127,6 +129,49 @@ class AnthropicIssuanceContract(unittest.TestCase):
         block_probe = self.guest.index('blockdev --getro "$CREDENTIAL_DEVICE"')
         mount = self.guest.index('mount -o ro,nosuid,nodev,noexec "$CREDENTIAL_DEVICE"')
         self.assertLess(block_probe, mount)
+
+    def test_issuance_checker_rejects_an_extra_guest_network_client(self) -> None:
+        import shutil
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory) / "repo"
+            shutil.copytree(
+                ROOT,
+                root,
+                ignore=shutil.ignore_patterns(".git", "target", "node_modules"),
+            )
+            result_path = (
+                root
+                / "research/isolation/results/anthropic-issuance-delivery.json"
+            )
+            result_path.unlink()
+            checker = root / "tools/check-anthropic-issuance.py"
+            baseline = subprocess.run(
+                [str(checker), "--allow-missing-results"],
+                cwd=root,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(baseline.returncode, 0, baseline.stderr)
+
+            guest = root / "worker/image/patchyard-guest-run"
+            guest.write_text(
+                guest.read_text()
+                + "\ncurl https://api.anthropic.com/v1/models?limit=1\n"
+            )
+            mutated = subprocess.run(
+                [str(checker), "--allow-missing-results"],
+                cwd=root,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(mutated.returncode, 0)
+            self.assertIn(
+                "network-capable call outside exact blocks", mutated.stderr
+            )
 
     def test_teardown_cannot_publish_after_a_failed_assertion(self) -> None:
         cleanup = self.launcher.split("remove_runtime() {", 1)[1].split("\n}", 1)[0]
@@ -245,7 +290,7 @@ class AnthropicIssuanceContract(unittest.TestCase):
         self.assertNotIn("rootfs_sha256", evidence)
 
         branch = self.guest.split(
-            'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]',
+            'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then',
             1,
         )[1].split('\nif [[ "$MODE" == provider-qualification ]]', 1)[0]
         self.assertIn('--arg observed_rootfs_sha256 "$ROOTFS_SHA"', branch)
@@ -315,10 +360,12 @@ class AnthropicIssuanceContract(unittest.TestCase):
         self.assertNotEqual(public.returncode, 0)
 
     def test_guest_removes_bearer_before_writing_results(self) -> None:
-        credential_start = self.guest.index('if [[ "$CREDENTIAL_REQUIRED" == true ]]')
+        credential_start = self.guest.index(
+            'if [[ "$CREDENTIAL_DELIVERED_TO_GUEST" == true ]]'
+        )
         credential_unmount = self.guest.index("  umount /credential", credential_start)
         branch = self.guest.split(
-            'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]',
+            'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then',
             1,
         )[1].split('\nif [[ "$MODE" == provider-qualification ]]', 1)[0]
         self.assertLess(
@@ -352,11 +399,19 @@ class AnthropicIssuanceContract(unittest.TestCase):
         )
 
     def test_live_positive_call_is_non_generative(self) -> None:
-        self.assertIn("https://api.anthropic.com/v1/models?limit=1", self.guest)
-        self.assertNotIn("/v1/messages", self.guest)
+        branch = self.guest.split(
+            'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then',
+            1,
+        )[1].split('\nif [[ "$MODE" == provider-qualification ]]', 1)[0]
+        self.assertIn("https://api.anthropic.com/v1/models?limit=1", branch)
+        self.assertNotIn("/v1/messages", branch)
 
     def test_provider_denial_diagnostic_is_bounded_and_credential_free(self) -> None:
-        diagnostic = self.guest.split("PROVIDER_CURL_EXIT=0", 1)[1].split(
+        issuance = self.guest.split(
+            'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then',
+            1,
+        )[1].split('\nif [[ "$MODE" == provider-qualification ]]', 1)[0]
+        diagnostic = issuance.split("PROVIDER_CURL_EXIT=0", 1)[1].split(
             "jq -e '.data | type", 1
         )[0]
         self.assertIn(".error.type", diagnostic)
@@ -378,7 +433,7 @@ class AnthropicIssuanceContract(unittest.TestCase):
 
     def test_unprivileged_provider_call_has_a_private_writable_directory(self) -> None:
         branch = self.guest.split(
-            'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]',
+            'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then',
             1,
         )[1].split('\nif [[ "$MODE" == provider-qualification ]]', 1)[0]
         self.assertIn(

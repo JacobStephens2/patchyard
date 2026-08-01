@@ -72,17 +72,17 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 18005,
-      "comments": 498,
-      "blanks": 1625,
-      "files": 147,
+      "code": 21931,
+      "comments": 524,
+      "blanks": 1856,
+      "files": 154,
       "languages": [
         {
           "language": "BASH",
-          "code": 4983,
-          "comments": 115,
-          "blanks": 363,
-          "files": 39
+          "code": 5817,
+          "comments": 121,
+          "blanks": 400,
+          "files": 40
         },
         {
           "language": "Forge Config",
@@ -100,9 +100,9 @@
         },
         {
           "language": "Jinja2",
-          "code": 901,
+          "code": 936,
           "comments": 0,
-          "blanks": 53,
+          "blanks": 59,
           "files": 18
         },
         {
@@ -122,8 +122,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 240,
-          "blanks": 62,
+          "comments": 252,
+          "blanks": 64,
           "files": 6
         },
         {
@@ -135,17 +135,17 @@
         },
         {
           "language": "Python",
-          "code": 5866,
-          "comments": 39,
-          "blanks": 523,
-          "files": 21
+          "code": 8770,
+          "comments": 46,
+          "blanks": 696,
+          "files": 26
         },
         {
           "language": "Shell",
-          "code": 1391,
-          "comments": 25,
-          "blanks": 121,
-          "files": 18
+          "code": 1537,
+          "comments": 26,
+          "blanks": 133,
+          "files": 19
         },
         {
           "language": "Snakemake",
@@ -163,9 +163,9 @@
         },
         {
           "language": "YAML",
-          "code": 3452,
+          "code": 3459,
           "comments": 17,
-          "blanks": 354,
+          "blanks": 355,
           "files": 22
         }
       ]
@@ -173,10 +173,10 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 6141,
-      "comments": 247,
-      "blanks": 635,
-      "files": 90,
+      "code": 8180,
+      "comments": 263,
+      "blanks": 783,
+      "files": 95,
       "languages": [
         {
           "language": "BASH",
@@ -229,16 +229,16 @@
         },
         {
           "language": "Python",
-          "code": 3535,
-          "comments": 33,
-          "blanks": 465,
-          "files": 22
+          "code": 5512,
+          "comments": 46,
+          "blanks": 608,
+          "files": 27
         },
         {
           "language": "Shell",
-          "code": 567,
-          "comments": 30,
-          "blanks": 97,
+          "code": 622,
+          "comments": 33,
+          "blanks": 101,
           "files": 19
         },
         {
@@ -257,9 +257,9 @@
         },
         {
           "language": "YAML",
-          "code": 120,
+          "code": 127,
           "comments": 1,
-          "blanks": 23,
+          "blanks": 24,
           "files": 2
         }
       ]
@@ -267,31 +267,38 @@
     {
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
-      "code": 8356,
-      "comments": 10300,
-      "blanks": 2939,
-      "files": 114,
+      "code": 8566,
+      "comments": 19680,
+      "blanks": 5447,
+      "files": 186,
       "languages": [
         {
           "language": "BASH",
-          "code": 232,
+          "code": 269,
           "comments": 18,
           "blanks": 21,
-          "files": 15
+          "files": 19
         },
         {
           "language": "JSON",
-          "code": 7761,
+          "code": 7930,
           "comments": 0,
           "blanks": 1,
-          "files": 30
+          "files": 33
         },
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 10280,
-          "blanks": 2886,
-          "files": 88
+          "comments": 19660,
+          "blanks": 5394,
+          "files": 158
+        },
+        {
+          "language": "Python",
+          "code": 4,
+          "comments": 0,
+          "blanks": 0,
+          "files": 1
         },
         {
           "language": "Shell",

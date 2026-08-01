@@ -50,4 +50,4 @@ cleanup_breakglass_probe
 trap - EXIT
 echo "A101 management transport: pass"
 
-python3 "$REPO_ROOT/tools/check-independence.py"
+python3 -I "$REPO_ROOT/tools/check-independence.py"

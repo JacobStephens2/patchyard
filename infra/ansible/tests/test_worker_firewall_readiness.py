@@ -24,7 +24,7 @@ EXPECTED_OPERATOR_SHA256 = (
     "27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e"
 )
 EXPECTED_ANSIBLE_WRAPPER_SHA256 = (
-    "f702dd84863bbc1973edbb41f21c95d8467cf703d6174e277418c44d92bf2d29"
+    "68c32d300bdd2884d8e106a947fe6595231b3ddd4dd976f2cf7360b1c4572bab"
 )
 
 
@@ -867,6 +867,56 @@ printf '%s\n' "$*" >>"$private_sleep_calls"
                 self.assertNotEqual(mutation, operator)
                 with self.assertRaises((ValueError, IndexError)):
                     validate_readiness_contract(helper, mutation)
+
+
+class AnsibleGateAggregationContract(unittest.TestCase):
+    @staticmethod
+    def run_aggregate(gates: str) -> subprocess.CompletedProcess[str]:
+        wrapper = ANSIBLE_WRAPPER.read_text()
+        aggregate_start = wrapper.index("gate_status=0\n")
+        aggregate_end = wrapper.index(
+            "\n\nACTUAL_SHELLCHECK_VERSION", aggregate_start
+        )
+        aggregate = wrapper[aggregate_start:aggregate_end]
+        terminal_call = (
+            'run_gate python3 -I '
+            '"$REPO_ROOT/tools/check-a101-readiness-root.py"\n'
+        )
+        footer = wrapper.split(terminal_call, 1)[1]
+        return subprocess.run(
+            ["bash", "-c", f"set -euo pipefail\n{aggregate}\n{gates}\n{footer}"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+
+    def test_failure_tail_names_gate_after_later_passes(self) -> None:
+        result = self.run_aggregate(
+            "failing_unit_test() { echo 'unit test: fail'; return 1; }\n"
+            "later_gate() { echo 'playbook: rollback-boundary.yml'; }\n"
+            "run_gate failing_unit_test\n"
+            "run_gate later_gate"
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(
+            result.stdout.splitlines()[-3:],
+            [
+                "playbook: rollback-boundary.yml",
+                "Failed Ansible gates:",
+                "  failing_unit_test",
+            ],
+        )
+
+    def test_passing_aggregate_emits_no_summary_bytes(self) -> None:
+        result = self.run_aggregate(
+            "first_gate() { echo 'first gate: pass'; }\n"
+            "final_gate() { echo 'final gate: pass'; }\n"
+            "run_gate first_gate\n"
+            "run_gate final_gate"
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "first gate: pass\nfinal gate: pass\n")
 
 
 if __name__ == "__main__":

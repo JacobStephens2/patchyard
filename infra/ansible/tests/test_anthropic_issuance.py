@@ -1,6 +1,7 @@
 import hashlib
 import json
 import pathlib
+import shlex
 import subprocess
 import unittest
 
@@ -470,6 +471,296 @@ class AnthropicIssuanceContract(unittest.TestCase):
         self.assertNotIn("launcher.stdout", diagnostic)
         self.assertNotIn("ACCESS_TOKEN", diagnostic)
         self.assertNotIn("ASSERTION", diagnostic)
+
+    def test_runner_err_trap_names_a_failed_bare_assertion(self) -> None:
+        import tempfile
+
+        original = (
+            '[[ -f "$CONFIG" && ! -L "$CONFIG" && -f "$SIGNING_KEY" '
+            '&& ! -L "$SIGNING_KEY" ]]'
+        )
+        forced = "[[ forced-bare-assertion == pass ]]"
+        self.assertEqual(self.runner.count(original), 1)
+        mutated = self.runner.replace(original, forced, 1)
+        forced_line = mutated[: mutated.index(forced)].count("\n") + 1
+
+        with tempfile.TemporaryDirectory() as directory:
+            runner = pathlib.Path(directory) / "runner"
+            runner.write_text(mutated)
+            runner.chmod(0o700)
+            result = subprocess.run(
+                ["bash", str(runner), "jwks"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(
+            result.stderr,
+            "anthropic_qualification_runner_failed "
+            f"status=1 line={forced_line} "
+            "command=\\[\\[\\ forced-bare-assertion\\ ==\\ pass\\ \\]\\]\n",
+        )
+
+    def test_validation_names_clause_and_preserves_boundary_checked_evidence(
+        self,
+    ) -> None:
+        import tempfile
+
+        bearer_scan = self.runner.index(
+            'if grep -R -F -q -f "$ACCESS_TOKEN_NEEDLE" --'
+        )
+        assertion_scan = self.runner.index(
+            'if grep -R -F -q -f "$RUN_TEMP/assertion.jwt" --'
+        )
+        needle_removal = self.runner.index(
+            'rm -f -- "$ACCESS_TOKEN_NEEDLE" "$RUN_TEMP/assertion.jwt"'
+        )
+        preservation = self.runner.index(
+            "FAILED_EVIDENCE_ROOT=/run/patchyard-anthropic/failed"
+        )
+        self.assertLess(bearer_scan, assertion_scan)
+        self.assertLess(assertion_scan, needle_removal)
+        self.assertLess(needle_removal, preservation)
+        self.assertIn(
+            'install -d -m 0700 -o root -g root --', self.runner[preservation:]
+        )
+        self.assertIn(
+            'install -m 0600 -o root -g root --', self.runner[preservation:]
+        )
+
+        issuance_fixture = json.loads(
+            (
+                ROOT / "research/isolation/results/anthropic-issuance-delivery.json"
+            ).read_text()
+        )
+        spend_fixture = json.loads(json.dumps(issuance_fixture))
+        spend_fixture["qualification_requirement"] = "provider-spend-enforcement"
+        spend_fixture["qualification_phase"] = "operational_acceptance"
+        spend_fixture["authorization_ruling"] = "A115"
+        spend_fixture.pop("provider_call")
+        spend_fixture["delivery"] = {
+            "worker_host_tmpfs": True,
+            "credential_delivered_to_guest": False,
+            "credential_removed_before_guest_boot": True,
+            "assertion_delivered": False,
+            "signing_key_delivered": False,
+            "admin_credential_delivered": False,
+        }
+        spend_fixture["provider_transport"] = {
+            "schema_version": 1,
+            "authorization_ruling": "A117",
+            "mechanism": "host-one-shot-network-namespace-v1",
+            "http_version": "1.0",
+            "connection_close": True,
+            "admitted_conntrack_ids": 1,
+            "admitted_new_connections": 1,
+            "rejected_new_connections": 0,
+            "rejected_connection_packets": 0,
+            "guest_provider_allowlist_entries": 0,
+            "namespace_ipv6_disabled": True,
+            "credential_removed_before_guest_boot": True,
+            "client_sha256": "a" * 64,
+        }
+        spend_fixture["provider_observation"] = {
+            "expected_workspace_cap_cents": 5000,
+            "request_attempts": 1,
+            "endpoint": "/v1/messages",
+            "request_id": "req_Synthetic",
+            "outcome": "accepted",
+            "http_status": 200,
+        }
+        spend_fixture["host_teardown"] = {
+            "processes": 0,
+            "taps": 0,
+            "nftables_tables": 0,
+            "run_directories": 0,
+            "credential_files": 0,
+            "guest_provider_egress_packets": 0,
+        }
+        preamble = self.runner.split(
+            "\nCONFIG=/etc/patchyard/anthropic-wif.json", 1
+        )[0]
+        validation = "FAILED_EVIDENCE_ROOT=" + self.runner.split(
+            "FAILED_EVIDENCE_ROOT=", 1
+        )[1].split("\n\nremote_ssh rm", 1)[0]
+
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = pathlib.Path(directory)
+            run_temp = temporary / "run"
+            result_dir = run_temp / "result"
+            result_dir.mkdir(parents=True)
+            evidence_path = result_dir / "evidence.json"
+            policy_path = temporary / "anthropic-wif.json"
+            policy_path.write_text(
+                json.dumps({"spend_enforcement": {"authorization_ruling": "A115"}})
+                + "\n"
+            )
+            failed_root = temporary / "failed"
+            validation = validation.replace(
+                "FAILED_EVIDENCE_ROOT=/run/patchyard-anthropic/failed",
+                f"FAILED_EVIDENCE_ROOT={shlex.quote(str(failed_root))}",
+                1,
+            ).replace(" -o root -g root", "", 2)
+            harness = temporary / "validation-harness"
+
+            def run_validation(
+                evidence: dict[str, object], spend_cap_cents: int
+            ) -> subprocess.CompletedProcess[str]:
+                evidence_path.write_text(json.dumps(evidence) + "\n")
+                assignments = {
+                    "CONFIG": policy_path,
+                    "RUN_TEMP": run_temp,
+                    "RUN_ID": evidence["run_id"],
+                    "ISSUED_AT": evidence["issuance"]["issued_at"],
+                    "EXPIRES_AT": evidence["issuance"]["expires_at"],
+                    "EXCHANGE_REQUEST_ID": evidence["issuance"][
+                        "exchange_request_id"
+                    ],
+                    "HOST_CONTRACT_SHA256": evidence["host_contract_sha256"],
+                    "QUALIFICATION_REQUIREMENT": evidence[
+                        "qualification_requirement"
+                    ],
+                    "QUALIFICATION_PHASE": evidence["qualification_phase"],
+                    "SPEND_CAP_CENTS": spend_cap_cents,
+                }
+                harness.write_text(
+                    preamble
+                    + "\n"
+                    + "\n".join(
+                        f"{name}={shlex.quote(str(value))}"
+                        for name, value in assignments.items()
+                    )
+                    + "\n"
+                    + validation
+                    + "\n"
+                )
+                harness.chmod(0o700)
+                return subprocess.run(
+                    ["bash", str(harness)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+
+            passing = run_validation(issuance_fixture, 0)
+            self.assertEqual(passing.returncode, 0, passing.stderr)
+            self.assertEqual(passing.stdout, "")
+            self.assertEqual(passing.stderr, "")
+            self.assertFalse(failed_root.exists())
+
+            spend_passing = run_validation(spend_fixture, 5000)
+            self.assertEqual(spend_passing.returncode, 0, spend_passing.stderr)
+            self.assertEqual(spend_passing.stdout, "")
+            self.assertEqual(spend_passing.stderr, "")
+            self.assertFalse(failed_root.exists())
+
+            spend_with_capability_flags = json.loads(json.dumps(spend_fixture))
+            spend_with_capability_flags["delivery"].update(
+                {
+                    "capability_drive_read_only": True,
+                    "capability_drive_unmounted_before_provider_call": True,
+                    "credential_removed_before_output": True,
+                }
+            )
+            rejected = run_validation(spend_with_capability_flags, 5000)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertEqual(
+                rejected.stderr.splitlines()[0],
+                "anthropic_evidence_validation_failed "
+                "clause=delivery.spend_contract jq_status=1",
+            )
+
+            without_capability_flags = json.loads(json.dumps(issuance_fixture))
+            for field in (
+                "capability_drive_read_only",
+                "capability_drive_unmounted_before_provider_call",
+                "credential_removed_before_output",
+            ):
+                without_capability_flags["delivery"].pop(field)
+            rejected = run_validation(without_capability_flags, 0)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertEqual(
+                rejected.stderr.splitlines()[0],
+                "anthropic_evidence_validation_failed "
+                "clause=delivery.capability_drive_read_only jq_status=1",
+            )
+
+            for field in (
+                "capability_drive_read_only",
+                "capability_drive_unmounted_before_provider_call",
+                "credential_removed_before_output",
+            ):
+                with self.subTest(missing_issuance_delivery_field=field):
+                    mutated = json.loads(json.dumps(issuance_fixture))
+                    mutated["delivery"].pop(field)
+                    rejected = run_validation(mutated, 0)
+                    self.assertNotEqual(rejected.returncode, 0)
+                    self.assertEqual(
+                        rejected.stderr.splitlines()[0],
+                        "anthropic_evidence_validation_failed "
+                        f"clause=delivery.{field} jq_status=1",
+                    )
+
+            endpoint_mutation = json.loads(json.dumps(issuance_fixture))
+            endpoint_mutation["provider_call"]["endpoint"] = "/v1/messages"
+            mutated_bytes = (json.dumps(endpoint_mutation) + "\n").encode()
+            failing = run_validation(endpoint_mutation, 0)
+            preserved = failed_root / issuance_fixture["run_id"] / "evidence.json"
+
+            self.assertNotEqual(failing.returncode, 0)
+            self.assertEqual(failing.stdout, "")
+            diagnostics = failing.stderr.splitlines()
+            self.assertEqual(
+                diagnostics[0],
+                "anthropic_evidence_validation_failed "
+                "clause=provider_call.endpoint jq_status=1",
+            )
+            self.assertEqual(
+                diagnostics[1], f"anthropic_evidence_preserved path={preserved}"
+            )
+            self.assertRegex(
+                diagnostics[2],
+                r"^anthropic_qualification_runner_failed status=1 line=[0-9]+ "
+                r"command=return\\ \\\"\\\$jq_status\\\"$",
+            )
+            self.assertEqual(preserved.read_bytes(), mutated_bytes)
+            self.assertEqual(failed_root.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(preserved.parent.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(preserved.stat().st_mode & 0o777, 0o600)
+
+    def test_existing_output_directory_precondition_is_named(self) -> None:
+        import tempfile
+
+        block = self.runner.split('if [[ -e "$OUTPUT_DIR" ]]; then', 1)[1].split(
+            "\nfi", 1
+        )[0]
+        self.assertIn("anthropic_qualification_output_directory_exists", block)
+        with tempfile.TemporaryDirectory() as directory:
+            output = pathlib.Path(directory) / "already-there"
+            output.mkdir()
+            probe = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    "set -euo pipefail\n"
+                    f"OUTPUT_DIR={shlex.quote(str(output))}\n"
+                    'if [[ -e "$OUTPUT_DIR" ]]; then\n'
+                    + block
+                    + "\nfi\n",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(probe.returncode, 1)
+        self.assertEqual(probe.stdout, "")
+        self.assertEqual(
+            probe.stderr,
+            f"anthropic_qualification_output_directory_exists path={output}\n",
+        )
 
 
 if __name__ == "__main__":

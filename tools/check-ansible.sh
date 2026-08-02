@@ -9,10 +9,14 @@ SHELLCHECK_VERSION=$(
 )
 
 gate_status=0
+failed_gates=()
 run_gate() {
   if "$@"; then
     return 0
   fi
+  local failed_gate
+  printf -v failed_gate '%q ' "$@"
+  failed_gates+=("${failed_gate% }")
   gate_status=1
   return 0
 }
@@ -88,4 +92,8 @@ run_gate ansible-playbook --syntax-check -i inventory/ci.yml rollback-boundary.y
 
 cd "$REPO_ROOT"
 run_gate python3 -I "$REPO_ROOT/tools/check-a101-readiness-root.py"
+if ((${#failed_gates[@]} > 0)); then
+  printf 'Failed Ansible gates:\n' >&2
+  printf '  %s\n' "${failed_gates[@]}" >&2
+fi
 exit "$gate_status"

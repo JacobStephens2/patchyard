@@ -195,9 +195,9 @@ impl DashboardStore {
             upload_quota_clock: None,
         }
     }
-    pub fn with_upload_quota_clock(mut self, now: OffsetDateTime) -> Self {
+    #[doc(hidden)]
+    pub fn set_test_upload_clock(&mut self, now: OffsetDateTime) {
         self.upload_quota_clock = Some(now);
-        self
     }
 
     #[must_use]

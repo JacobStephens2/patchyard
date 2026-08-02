@@ -675,7 +675,7 @@ async fn upload_rate_and_daily_user_quotas_are_transactional() -> Result<(), Box
 
     let quota_now = time::OffsetDateTime::UNIX_EPOCH + Duration::from_secs(15 * 60);
     let mut quota_state = harness.state.clone();
-    quota_state.store = quota_state.store.with_upload_quota_clock(quota_now);
+    quota_state.store.set_test_upload_clock(quota_now);
     let quota_app = router(quota_state);
     let quota_identity = seed_identity(&harness.admin, AccountRole::Submitter).await?;
     let quota_seed = "INSERT INTO factory.upload_admissions (id,user_id,state,content_length,reserved_bytes,admitted_at,expires_at) SELECT gen_random_uuid(),$1,'admitted',1,1,TIMESTAMPTZ '1970-01-01 00:00:00+00',clock_timestamp()+interval '1 hour' FROM generate_series(1,20)";

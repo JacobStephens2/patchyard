@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# The single-quoted jq predicates below intentionally expand inside jq, not Bash.
+# shellcheck disable=SC2016
+set -eEuo pipefail
 umask 077
+
+report_runner_error() {
+  local status=$1 line=$2 command=$3
+  printf 'anthropic_qualification_runner_failed status=%s line=%s command=%q\n' \
+    "$status" "$line" "$command" >&2
+  return "$status"
+}
+trap 'report_runner_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
 
 CONFIG=/etc/patchyard/anthropic-wif.json
 SIGNING_KEY=/etc/patchyard/anthropic-wif-signing.pem
@@ -104,7 +114,11 @@ SNAPSHOT_DIR=$(readlink -f -- "$2")
 OUTPUT_DIR=$3
 [[ "$SNAPSHOT_DIR" == /* && "$OUTPUT_DIR" == /* ]]
 [[ -f "$SNAPSHOT_DIR/snapshot.sql.gz" && -f "$SNAPSHOT_DIR/snapshot.json" ]]
-[[ ! -e "$OUTPUT_DIR" ]]
+if [[ -e "$OUTPUT_DIR" ]]; then
+  printf 'anthropic_qualification_output_directory_exists path=%q\n' \
+    "$OUTPUT_DIR" >&2
+  exit 1
+fi
 
 jq -e '
   (.service_account.id | test("^svac_[A-Za-z0-9]+$"))
@@ -393,69 +407,157 @@ fi
 rm -f -- "$ACCESS_TOKEN_NEEDLE" "$RUN_TEMP/assertion.jwt"
 unset ACCESS_TOKEN_NEEDLE ASSERTION
 
-jq -e \
-  --arg run_id "$RUN_ID" --arg issued_at "$ISSUED_AT" --arg expires_at "$EXPIRES_AT" \
-  --arg exchange_request_id "$EXCHANGE_REQUEST_ID" \
-  --arg host_contract_sha256 "$HOST_CONTRACT_SHA256" \
-  --arg qualification_requirement "$QUALIFICATION_REQUIREMENT" \
-  --arg qualification_phase "$QUALIFICATION_PHASE" \
-  --arg authorization_ruling "$(jq -r .spend_enforcement.authorization_ruling "$CONFIG")" \
-  --argjson spend_cap_cents "$SPEND_CAP_CENTS" '
-  .schema_version == 1 and .run_id == $run_id and .provider == "anthropic"
-  and .qualification_requirement == $qualification_requirement
-  and .qualification_phase == $qualification_phase
-  and (.observed_rootfs_sha256 | test("^[0-9a-f]{64}$"))
-  and (has("rootfs_sha256") | not)
-  and .host_contract_sha256 == $host_contract_sha256
-  and .issuance.issued_at == $issued_at and .issuance.expires_at == $expires_at
-  and .issuance.exchange_request_id == $exchange_request_id
-  and .delivery.capability_drive_read_only == true
-  and .delivery.capability_drive_unmounted_before_provider_call == true
-  and .delivery.credential_removed_before_output == true
-  and (if $qualification_requirement == "issuance-delivery" then
-    .provider_call.endpoint == "/v1/models?limit=1"
-    and .provider_call.http_status == 200
-    and (.provider_call.request_id | test("^req_[A-Za-z0-9]+$"))
+FAILED_EVIDENCE_ROOT=/run/patchyard-anthropic/failed
+preserve_failed_evidence() {
+  local failed_run_dir="$FAILED_EVIDENCE_ROOT/$RUN_ID"
+  install -d -m 0700 -o root -g root -- \
+    "$FAILED_EVIDENCE_ROOT" "$failed_run_dir"
+  install -m 0600 -o root -g root -- \
+    "$RUN_TEMP/result/evidence.json" "$failed_run_dir/evidence.json"
+  printf 'anthropic_evidence_preserved path=%s\n' \
+    "$failed_run_dir/evidence.json" >&2
+}
+
+EVIDENCE_VALIDATION_ARGS=(
+  --arg run_id "$RUN_ID"
+  --arg issued_at "$ISSUED_AT"
+  --arg expires_at "$EXPIRES_AT"
+  --arg exchange_request_id "$EXCHANGE_REQUEST_ID"
+  --arg host_contract_sha256 "$HOST_CONTRACT_SHA256"
+  --arg qualification_requirement "$QUALIFICATION_REQUIREMENT"
+  --arg qualification_phase "$QUALIFICATION_PHASE"
+  --arg authorization_ruling \
+    "$(jq -r .spend_enforcement.authorization_ruling "$CONFIG")"
+  --argjson spend_cap_cents "$SPEND_CAP_CENTS"
+)
+validate_evidence_clause() {
+  local clause=$1 predicate=$2 jq_status
+  if jq -e "${EVIDENCE_VALIDATION_ARGS[@]}" "$predicate" \
+    "$RUN_TEMP/result/evidence.json" >/dev/null; then
+    return 0
   else
-    .authorization_ruling == $authorization_ruling
-    and .provider_observation.expected_workspace_cap_cents == $spend_cap_cents
-    and .provider_observation.request_attempts == 1
-    and .provider_observation.endpoint == "/v1/messages"
-    and (.provider_observation.request_id | test("^req_[A-Za-z0-9]+$"))
-    and .delivery == {worker_host_tmpfs:true,credential_delivered_to_guest:false,
-      credential_removed_before_guest_boot:true,assertion_delivered:false,
-      signing_key_delivered:false,admin_credential_delivered:false}
-    and .provider_transport.schema_version == 1
-    and .provider_transport.authorization_ruling == "A117"
-    and .provider_transport.mechanism == "host-one-shot-network-namespace-v1"
-    and .provider_transport.http_version == "1.0"
-    and .provider_transport.connection_close == true
-    and .provider_transport.admitted_conntrack_ids == 1
-    and .provider_transport.admitted_new_connections == 1
-    and .provider_transport.rejected_new_connections == 0
-    and .provider_transport.rejected_connection_packets == 0
-    and .provider_transport.guest_provider_allowlist_entries == 0
-    and .provider_transport.namespace_ipv6_disabled == true
-    and .provider_transport.credential_removed_before_guest_boot == true
-    and (.provider_transport.client_sha256 | test("^[0-9a-f]{64}$"))
-    and (if $qualification_phase == "temporary_refusal" then
-      .provider_observation.outcome == "refused"
-      and (.provider_observation.http_status == 400
-        or .provider_observation.http_status == 403)
-    else
-      .provider_observation.outcome == "accepted"
-      and .provider_observation.http_status == 200
-    end)
-  end)
-  and (if $qualification_requirement == "provider-spend-enforcement" then
+    jq_status=$?
+  fi
+  printf 'anthropic_evidence_validation_failed clause=%s jq_status=%s\n' \
+    "$clause" "$jq_status" >&2
+  preserve_failed_evidence
+  return "$jq_status"
+}
+
+validate_evidence_clause schema_version '.schema_version == 1'
+validate_evidence_clause run_id '.run_id == $run_id'
+validate_evidence_clause provider '.provider == "anthropic"'
+validate_evidence_clause qualification_requirement \
+  '.qualification_requirement == $qualification_requirement'
+validate_evidence_clause qualification_phase \
+  '.qualification_phase == $qualification_phase'
+validate_evidence_clause observed_rootfs_sha256.format \
+  '(.observed_rootfs_sha256 | test("^[0-9a-f]{64}$"))'
+validate_evidence_clause rootfs_sha256.absent '(has("rootfs_sha256") | not)'
+validate_evidence_clause host_contract_sha256 \
+  '.host_contract_sha256 == $host_contract_sha256'
+validate_evidence_clause issuance.issued_at '.issuance.issued_at == $issued_at'
+validate_evidence_clause issuance.expires_at '.issuance.expires_at == $expires_at'
+validate_evidence_clause issuance.exchange_request_id \
+  '.issuance.exchange_request_id == $exchange_request_id'
+validate_evidence_clause delivery.capability_drive_read_only \
+  '.delivery.capability_drive_read_only == true'
+validate_evidence_clause delivery.capability_drive_unmounted_before_provider_call \
+  '.delivery.capability_drive_unmounted_before_provider_call == true'
+validate_evidence_clause delivery.credential_removed_before_output \
+  '.delivery.credential_removed_before_output == true'
+validate_evidence_clause provider_call.endpoint '
+  if $qualification_requirement == "issuance-delivery" then
+    .provider_call.endpoint == "/v1/models?limit=1"
+  else true end'
+validate_evidence_clause provider_call.http_status '
+  if $qualification_requirement == "issuance-delivery" then
+    .provider_call.http_status == 200
+  else true end'
+validate_evidence_clause provider_call.request_id.format '
+  if $qualification_requirement == "issuance-delivery" then
+    (.provider_call.request_id | test("^req_[A-Za-z0-9]+$"))
+  else true end'
+validate_evidence_clause authorization_ruling '
+  if $qualification_requirement == "issuance-delivery" then true
+  else .authorization_ruling == $authorization_ruling end'
+validate_evidence_clause provider_observation.expected_workspace_cap_cents '
+  if $qualification_requirement == "issuance-delivery" then true
+  else .provider_observation.expected_workspace_cap_cents == $spend_cap_cents end'
+validate_evidence_clause provider_observation.request_attempts '
+  if $qualification_requirement == "issuance-delivery" then true
+  else .provider_observation.request_attempts == 1 end'
+validate_evidence_clause provider_observation.endpoint '
+  if $qualification_requirement == "issuance-delivery" then true
+  else .provider_observation.endpoint == "/v1/messages" end'
+validate_evidence_clause provider_observation.request_id.format '
+  if $qualification_requirement == "issuance-delivery" then true
+  else (.provider_observation.request_id | test("^req_[A-Za-z0-9]+$")) end'
+validate_evidence_clause delivery.spend_contract '
+  if $qualification_requirement == "issuance-delivery" then true
+  else .delivery == {worker_host_tmpfs:true,credential_delivered_to_guest:false,
+    credential_removed_before_guest_boot:true,assertion_delivered:false,
+    signing_key_delivered:false,admin_credential_delivered:false} end'
+validate_evidence_clause provider_transport.schema_version '
+  if $qualification_requirement == "issuance-delivery" then true
+  else .provider_transport.schema_version == 1 end'
+validate_evidence_clause provider_transport.authorization_ruling '
+  if $qualification_requirement == "issuance-delivery" then true
+  else .provider_transport.authorization_ruling == "A117" end'
+validate_evidence_clause provider_transport.mechanism '
+  if $qualification_requirement == "issuance-delivery" then true
+  else .provider_transport.mechanism == "host-one-shot-network-namespace-v1" end'
+validate_evidence_clause provider_transport.http_version '
+  if $qualification_requirement == "issuance-delivery" then true
+  else .provider_transport.http_version == "1.0" end'
+validate_evidence_clause provider_transport.connection_close '
+  if $qualification_requirement == "issuance-delivery" then true
+  else .provider_transport.connection_close == true end'
+validate_evidence_clause provider_transport.admitted_conntrack_ids '
+  if $qualification_requirement == "issuance-delivery" then true
+  else .provider_transport.admitted_conntrack_ids == 1 end'
+validate_evidence_clause provider_transport.admitted_new_connections '
+  if $qualification_requirement == "issuance-delivery" then true
+  else .provider_transport.admitted_new_connections == 1 end'
+validate_evidence_clause provider_transport.rejected_new_connections '
+  if $qualification_requirement == "issuance-delivery" then true
+  else .provider_transport.rejected_new_connections == 0 end'
+validate_evidence_clause provider_transport.rejected_connection_packets '
+  if $qualification_requirement == "issuance-delivery" then true
+  else .provider_transport.rejected_connection_packets == 0 end'
+validate_evidence_clause provider_transport.guest_provider_allowlist_entries '
+  if $qualification_requirement == "issuance-delivery" then true
+  else .provider_transport.guest_provider_allowlist_entries == 0 end'
+validate_evidence_clause provider_transport.namespace_ipv6_disabled '
+  if $qualification_requirement == "issuance-delivery" then true
+  else .provider_transport.namespace_ipv6_disabled == true end'
+validate_evidence_clause provider_transport.credential_removed_before_guest_boot '
+  if $qualification_requirement == "issuance-delivery" then true
+  else .provider_transport.credential_removed_before_guest_boot == true end'
+validate_evidence_clause provider_transport.client_sha256.format '
+  if $qualification_requirement == "issuance-delivery" then true
+  else (.provider_transport.client_sha256 | test("^[0-9a-f]{64}$")) end'
+validate_evidence_clause provider_observation.outcome '
+  if $qualification_requirement == "issuance-delivery" then true
+  elif $qualification_phase == "temporary_refusal" then
+    .provider_observation.outcome == "refused"
+  else .provider_observation.outcome == "accepted" end'
+validate_evidence_clause provider_observation.http_status '
+  if $qualification_requirement == "issuance-delivery" then true
+  elif $qualification_phase == "temporary_refusal" then
+    (.provider_observation.http_status == 400
+      or .provider_observation.http_status == 403)
+  else .provider_observation.http_status == 200 end'
+validate_evidence_clause host_teardown '
+  if $qualification_requirement == "provider-spend-enforcement" then
     .host_teardown == {processes:0,taps:0,nftables_tables:0,run_directories:0,
       credential_files:0,guest_provider_egress_packets:0}
   else
     .host_teardown == {processes:0,taps:0,nftables_tables:0,run_directories:0,
       credential_files:0}
-  end)
-  and (has("secret") | not) and (has("access_token") | not)
-' "$RUN_TEMP/result/evidence.json" >/dev/null
+  end'
+validate_evidence_clause secret.absent '(has("secret") | not)'
+validate_evidence_clause access_token.absent '(has("access_token") | not)'
 
 remote_ssh rm -r -- "$REMOTE_ROOT"
 REMOTE_CREATED=false

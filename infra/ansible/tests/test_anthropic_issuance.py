@@ -1,6 +1,7 @@
 import hashlib
 import json
 import pathlib
+import shlex
 import subprocess
 import unittest
 
@@ -470,6 +471,195 @@ class AnthropicIssuanceContract(unittest.TestCase):
         self.assertNotIn("launcher.stdout", diagnostic)
         self.assertNotIn("ACCESS_TOKEN", diagnostic)
         self.assertNotIn("ASSERTION", diagnostic)
+
+    def test_runner_err_trap_names_a_failed_bare_assertion(self) -> None:
+        import tempfile
+
+        original = (
+            '[[ -f "$CONFIG" && ! -L "$CONFIG" && -f "$SIGNING_KEY" '
+            '&& ! -L "$SIGNING_KEY" ]]'
+        )
+        forced = "[[ forced-bare-assertion == pass ]]"
+        self.assertEqual(self.runner.count(original), 1)
+        mutated = self.runner.replace(original, forced, 1)
+        forced_line = mutated[: mutated.index(forced)].count("\n") + 1
+
+        with tempfile.TemporaryDirectory() as directory:
+            runner = pathlib.Path(directory) / "runner"
+            runner.write_text(mutated)
+            runner.chmod(0o700)
+            result = subprocess.run(
+                ["bash", str(runner), "jwks"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(
+            result.stderr,
+            "anthropic_qualification_runner_failed "
+            f"status=1 line={forced_line} "
+            "command=\\[\\[\\ forced-bare-assertion\\ ==\\ pass\\ \\]\\]\n",
+        )
+
+    def test_validation_names_clause_and_preserves_boundary_checked_evidence(
+        self,
+    ) -> None:
+        import tempfile
+
+        bearer_scan = self.runner.index(
+            'if grep -R -F -q -f "$ACCESS_TOKEN_NEEDLE" --'
+        )
+        assertion_scan = self.runner.index(
+            'if grep -R -F -q -f "$RUN_TEMP/assertion.jwt" --'
+        )
+        needle_removal = self.runner.index(
+            'rm -f -- "$ACCESS_TOKEN_NEEDLE" "$RUN_TEMP/assertion.jwt"'
+        )
+        preservation = self.runner.index(
+            "FAILED_EVIDENCE_ROOT=/run/patchyard-anthropic/failed"
+        )
+        self.assertLess(bearer_scan, assertion_scan)
+        self.assertLess(assertion_scan, needle_removal)
+        self.assertLess(needle_removal, preservation)
+        self.assertIn(
+            'install -d -m 0700 -o root -g root --', self.runner[preservation:]
+        )
+        self.assertIn(
+            'install -m 0600 -o root -g root --', self.runner[preservation:]
+        )
+
+        evidence = json.loads(
+            (
+                ROOT / "research/isolation/results/anthropic-issuance-delivery.json"
+            ).read_text()
+        )
+        preamble = self.runner.split(
+            "\nCONFIG=/etc/patchyard/anthropic-wif.json", 1
+        )[0]
+        validation = "FAILED_EVIDENCE_ROOT=" + self.runner.split(
+            "FAILED_EVIDENCE_ROOT=", 1
+        )[1].split("\n\nremote_ssh rm", 1)[0]
+
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = pathlib.Path(directory)
+            run_temp = temporary / "run"
+            result_dir = run_temp / "result"
+            result_dir.mkdir(parents=True)
+            evidence_path = result_dir / "evidence.json"
+            evidence_path.write_text(json.dumps(evidence) + "\n")
+            policy_path = temporary / "anthropic-wif.json"
+            policy_path.write_text(
+                json.dumps({"spend_enforcement": {"authorization_ruling": "A115"}})
+                + "\n"
+            )
+            failed_root = temporary / "failed"
+            validation = validation.replace(
+                "FAILED_EVIDENCE_ROOT=/run/patchyard-anthropic/failed",
+                f"FAILED_EVIDENCE_ROOT={shlex.quote(str(failed_root))}",
+                1,
+            ).replace(" -o root -g root", "", 2)
+            assignments = {
+                "CONFIG": policy_path,
+                "RUN_TEMP": run_temp,
+                "RUN_ID": evidence["run_id"],
+                "ISSUED_AT": evidence["issuance"]["issued_at"],
+                "EXPIRES_AT": evidence["issuance"]["expires_at"],
+                "EXCHANGE_REQUEST_ID": evidence["issuance"]["exchange_request_id"],
+                "HOST_CONTRACT_SHA256": evidence["host_contract_sha256"],
+                "QUALIFICATION_REQUIREMENT": evidence["qualification_requirement"],
+                "QUALIFICATION_PHASE": evidence["qualification_phase"],
+                "SPEND_CAP_CENTS": 0,
+            }
+            harness = temporary / "validation-harness"
+            harness.write_text(
+                preamble
+                + "\n"
+                + "\n".join(
+                    f"{name}={shlex.quote(str(value))}"
+                    for name, value in assignments.items()
+                )
+                + "\n"
+                + validation
+                + "\n"
+            )
+            harness.chmod(0o700)
+
+            passing = subprocess.run(
+                ["bash", str(harness)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(passing.returncode, 0, passing.stderr)
+            self.assertEqual(passing.stdout, "")
+            self.assertEqual(passing.stderr, "")
+            self.assertFalse(failed_root.exists())
+
+            evidence["provider_call"]["endpoint"] = "/v1/messages"
+            mutated_bytes = (json.dumps(evidence) + "\n").encode()
+            evidence_path.write_bytes(mutated_bytes)
+            failing = subprocess.run(
+                ["bash", str(harness)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            preserved = failed_root / evidence["run_id"] / "evidence.json"
+
+            self.assertNotEqual(failing.returncode, 0)
+            self.assertEqual(failing.stdout, "")
+            diagnostics = failing.stderr.splitlines()
+            self.assertEqual(
+                diagnostics[0],
+                "anthropic_evidence_validation_failed "
+                "clause=provider_call.endpoint jq_status=1",
+            )
+            self.assertEqual(
+                diagnostics[1], f"anthropic_evidence_preserved path={preserved}"
+            )
+            self.assertRegex(
+                diagnostics[2],
+                r"^anthropic_qualification_runner_failed status=1 line=[0-9]+ "
+                r"command=return\\ \\\"\\\$jq_status\\\"$",
+            )
+            self.assertEqual(preserved.read_bytes(), mutated_bytes)
+            self.assertEqual(failed_root.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(preserved.parent.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(preserved.stat().st_mode & 0o777, 0o600)
+
+    def test_existing_output_directory_precondition_is_named(self) -> None:
+        import tempfile
+
+        block = self.runner.split('if [[ -e "$OUTPUT_DIR" ]]; then', 1)[1].split(
+            "\nfi", 1
+        )[0]
+        self.assertIn("anthropic_qualification_output_directory_exists", block)
+        with tempfile.TemporaryDirectory() as directory:
+            output = pathlib.Path(directory) / "already-there"
+            output.mkdir()
+            probe = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    "set -euo pipefail\n"
+                    f"OUTPUT_DIR={shlex.quote(str(output))}\n"
+                    'if [[ -e "$OUTPUT_DIR" ]]; then\n'
+                    + block
+                    + "\nfi\n",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(probe.returncode, 1)
+        self.assertEqual(probe.stdout, "")
+        self.assertEqual(
+            probe.stderr,
+            f"anthropic_qualification_output_directory_exists path={output}\n",
+        )
 
 
 if __name__ == "__main__":

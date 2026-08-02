@@ -36,6 +36,7 @@ pub const UPLOAD_ADMISSION_LIFETIME: Duration = Duration::from_secs(5 * 60);
 #[derive(Clone, Debug)]
 pub struct DashboardStore {
     pool: PgPool,
+    upload_quota_clock: Option<OffsetDateTime>,
 }
 
 #[derive(Clone, Debug)]
@@ -184,12 +185,19 @@ impl DashboardStore {
             .acquire_timeout(Duration::from_secs(10))
             .connect(database_url)
             .await?;
-        Ok(Self { pool })
+        Ok(Self::from_pool(pool))
     }
 
     #[must_use]
     pub fn from_pool(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            upload_quota_clock: None,
+        }
+    }
+    pub fn with_upload_quota_clock(mut self, now: OffsetDateTime) -> Self {
+        self.upload_quota_clock = Some(now);
+        self
     }
 
     #[must_use]
@@ -542,11 +550,12 @@ impl DashboardStore {
             SELECT count(*)::bigint
             FROM factory.upload_admissions
             WHERE user_id=$1
-              AND admitted_at > clock_timestamp() - make_interval(secs => $2)
+              AND admitted_at > COALESCE($3,clock_timestamp()) - make_interval(secs => $2)
             "#,
         )
         .bind(principal.id)
         .bind(rate_seconds)
+        .bind(self.upload_quota_clock)
         .fetch_one(&mut *transaction)
         .await?;
         if recent_attempts >= UPLOAD_RATE_LIMIT {
@@ -581,12 +590,13 @@ impl DashboardStore {
             WHERE user_id=$1
               AND state IN ('admitted','completed')
               AND admitted_at >= (
-                  date_trunc('day', clock_timestamp() AT TIME ZONE 'UTC')
+                  date_trunc('day', COALESCE($2,clock_timestamp()) AT TIME ZONE 'UTC')
                   AT TIME ZONE 'UTC'
               )
             "#,
         )
         .bind(principal.id)
+        .bind(self.upload_quota_clock)
         .fetch_one(&mut *transaction)
         .await?;
         let upload_count: i64 = usage.try_get("upload_count")?;

@@ -32,6 +32,7 @@ struct Identity {
 
 struct Harness {
     app: Router,
+    state: AppState,
     admin: PgPool,
     _checkout: TempDir,
     _artifacts: TempDir,
@@ -114,7 +115,8 @@ async fn harness(hostile_body: &str) -> Result<Option<Harness>, Box<dyn Error>> 
     )
     .await?;
     Ok(Some(Harness {
-        app: router(state),
+        app: router(state.clone()),
+        state,
         admin,
         _checkout: checkout,
         _artifacts: artifacts,
@@ -671,28 +673,16 @@ async fn upload_rate_and_daily_user_quotas_are_transactional() -> Result<(), Box
     .await?;
     assert_eq!(rate_reason, "rate-limit");
 
+    let quota_now = time::OffsetDateTime::UNIX_EPOCH + Duration::from_secs(15 * 60);
+    let mut quota_state = harness.state.clone();
+    quota_state.store = quota_state.store.with_upload_quota_clock(quota_now);
+    let quota_app = router(quota_state);
     let quota_identity = seed_identity(&harness.admin, AccountRole::Submitter).await?;
-    for _ in 0..20 {
-        sqlx::query(
-            r#"
-            INSERT INTO factory.upload_admissions (
-                id,user_id,state,content_length,reserved_bytes,
-                admitted_at,expires_at
-            ) VALUES (
-                $1,$2,'admitted',1,1,
-                date_trunc('day',clock_timestamp() AT TIME ZONE 'UTC')
-                    AT TIME ZONE 'UTC',
-                clock_timestamp()+interval '1 hour'
-            )
-            "#,
-        )
-        .bind(Uuid::new_v4())
-        .bind(quota_identity.id)
-        .execute(&harness.admin)
-        .await?;
-    }
+    let quota_seed = "INSERT INTO factory.upload_admissions (id,user_id,state,content_length,reserved_bytes,admitted_at,expires_at) SELECT gen_random_uuid(),$1,'admitted',1,1,TIMESTAMPTZ '1970-01-01 00:00:00+00',clock_timestamp()+interval '1 hour' FROM generate_series(1,20)";
+    let query = sqlx::query(quota_seed).bind(quota_identity.id);
+    sqlx::Executor::execute(&harness.admin, query).await?;
     let quota_limited = call(
-        &harness.app,
+        &quota_app,
         Method::POST,
         "/new",
         Some(&quota_identity),

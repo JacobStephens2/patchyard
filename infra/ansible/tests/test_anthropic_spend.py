@@ -2,6 +2,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
+import io
 import json
 import pathlib
 import re
@@ -25,7 +26,7 @@ EXPECTED_WORKER_TASKS_SOURCE_SHA256 = (
     "110cbffc6db188aafa1364e88901249290653134b7f0adc559152abf3f35df40"
 )
 EXPECTED_CHECKER_SOURCE_SHA256 = (
-    "0b08f5fd24d06ae99e8335ded62bb51f81bfad5140823da1bd63fd515027557b"
+    "8385148b0808470627d4ad1100ebe3184fcfeb2037398117c06df3d6cd8ee186"
 )
 EXPECTED_READINESS_HELPER_SOURCE_SHA256 = (
     "5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba"
@@ -41,7 +42,7 @@ EXPECTED_READINESS_TEST_SOURCE_SHA256 = (
 )
 MODULE_PATH = ROOT / "tools/anthropic-spend-evidence.py"
 EXPECTED_EVIDENCE_SOURCE_SHA256 = (
-    "d79d8c69d7752e70af3119846029de661bceda19e06181baccd247fa671f9d97"
+    "7e67a597f7170fdad0f6e81ff8fd6e96aafd55a7c599417f2dec2577035e6666"
 )
 A120_CALIBRATION_ITEMS = 16_000
 A120_CALIBRATION_COPIES = 2
@@ -229,6 +230,31 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
         self.assertEqual(
             EVIDENCE.minor_units_to_usd(Decimal("768.168")), Decimal("7.68168")
         )
+
+    def test_snapshot_rejects_absent_workspace_cost_row(self) -> None:
+        payload = {
+            "data": [
+                {
+                    "results": [
+                        {"workspace_id": None, "currency": "USD", "amount": "12.3"}
+                    ]
+                }
+            ],
+            "has_more": False,
+            "next_page": None,
+        }
+        original_token = EVIDENCE.admin_token
+        original_open = EVIDENCE.urllib.request.urlopen
+        try:
+            EVIDENCE.admin_token = lambda _profile: "test-token"
+            EVIDENCE.urllib.request.urlopen = lambda *_args, **_kwargs: io.StringIO(
+                json.dumps(payload)
+            )
+            with self.assertRaisesRegex(ValueError, "no Factory workspace row"):
+                EVIDENCE.fetch_workspace_cost("test-profile", "workspace")
+        finally:
+            EVIDENCE.admin_token = original_token
+            EVIDENCE.urllib.request.urlopen = original_open
 
     def test_finalizer_allows_observed_zero_incremental_spend_after_settlement(
         self,

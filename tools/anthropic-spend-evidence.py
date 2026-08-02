@@ -100,6 +100,7 @@ def fetch_workspace_cost(profile: str, workspace_id: str) -> dict[str, Any]:
         "group_by[]": "workspace_id",
     }
     amount_minor_units = Decimal(0)
+    matched_workspace = False
     page: str | None = None
     while True:
         query = dict(params)
@@ -119,6 +120,7 @@ def fetch_workspace_cost(profile: str, workspace_id: str) -> dict[str, Any]:
             for result in bucket.get("results", []):
                 if result.get("workspace_id") != workspace_id:
                     continue
+                matched_workspace = True
                 if result.get("currency") != "USD":
                     raise ValueError("Anthropic returned a non-USD Factory cost")
                 amount_minor_units += Decimal(result["amount"])
@@ -127,6 +129,8 @@ def fetch_workspace_cost(profile: str, workspace_id: str) -> dict[str, Any]:
             break
         if not isinstance(page, str) or not page:
             raise ValueError("Anthropic cost report pagination is malformed")
+    if not matched_workspace:
+        raise ValueError("Anthropic Cost Report returned no Factory workspace row")
     return {
         "schema_version": 1,
         "provider": "anthropic",

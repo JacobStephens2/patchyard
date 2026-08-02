@@ -24,22 +24,27 @@ BOUND_SOURCES = {
     "infra/tool-versions.env": "63fa7fa217d98d914a73394c98b41f97571c5c776b3a9b2d4c51d95e56ab917f",
     "tools/read-infra-tool-version.py": "d94d97d605736d0201d0fc0517e0e780d6c346ab79ddc3bd84de7b472edeccd8",
     "tools/install-shellcheck.sh": "715047c90f6a877c57a5495f1bc24feecd40f365ccd8239a6dc711be22a3f535",
-    "tools/check-infra.sh": "61ec9e3485ce0933ce7a5a74a81512e8438f6d8a4e00a2d018369e18a827c265",
-    "tools/check-ansible.sh": "68c32d300bdd2884d8e106a947fe6595231b3ddd4dd976f2cf7360b1c4572bab",
-    "tools/run-isolated-unittest.py": "251ee05a14cf9cda69cea1499d89a49a55c3a652e6f116d0bf894e926172ef3e",
+    "tools/check-infra.sh": "3e8904f9880fb4944d0b42e1a40c0ee71913299146a8ce1cf1e3feaad5da8909",
+    "tools/check-ansible.sh": "309e411f2e81b93c3d74a35a4fd03f475d045d2d25bae1048f7f14480c812eca",
+    "tools/run-isolated-unittest.py": "008dec140748405df5a52a6a97f690ed514f36598663673ed07e57c5bc1ed523",
     "tools/anthropic-spend-evidence.py": "7e67a597f7170fdad0f6e81ff8fd6e96aafd55a7c599417f2dec2577035e6666",
     "tools/anthropic-wif-admin.py": "89794bd6235d5b37dfa4999a792588396ece9935b17820954b75d8b055822c91",
-    "tools/check-anthropic-spend.py": "68b86bf24b979422eedbb3b21fc33fb9f99682bcc6d8dd842576c7ecd143d424",
+    "tools/anthropic-wif-lifecycle.py": "1434313f972f00a9e5ff4892e746a4066a2f9942375a91aaeb0550371a52374b",
+    "tools/anthropic-wif-lifecycle-admin.py": "59f54f4abe9cf83b1dd47fdb3303df1125abc7ce09f5df286debc5bd6b6cefdd",
+    "tools/check-anthropic-expiry.py": "06aae6606e3770e68f26f984c8c79cbcd578f25c264ad3d604ebab19e6592976",
+    "tools/check-anthropic-spend.py": "b4122ae729c738b19af0ed5c807d268951f5d019b083057bed4179567369a087",
     "tools/check-anthropic-issuance.py": "56a84e7f5aab1f8a99003a5321ad7d6f910d72fcd35d68166958bd3495e9ee60",
+    "tools/check-anthropic-revocation.py": "860a20230e92a0045234935d29aa58362a08efe4d577b920555a73d7939edbfc",
     "tools/check-independence.py": "baaa2e5058862a253c5042e7ccaea4bfea8af05a93825f5ce5cf99bbd1f93782",
     "tools/check-preview-runtime.py": "2f9a6e994c3d50e7e1f729546b3180330c4ccf0d471ee5b75f016cbbc95292be",
     "tools/check-stack.py": "ddce869a4bd4983c35c1b246ba01b5e8b1ea25219c761ebbdb2d5b4a8194deff",
     "tools/check-worker-qualification.py": "357d756da3c83004db6766956a8c31b9682953a50b470dbb3ff7b9acb879e99a",
     "tools/check-worker-runtime.py": "db1646d9bcf738d1df35679e131b1afdb9e35af73be1859d85c8f4017385ce75",
-    "infra/ansible/tests/test_a101_readiness_root.py": "f5ba257a6769acd9729ad6676a7e9c1fc5ff7b714ede7167df23bdfdcdbe656a",
-    "infra/ansible/tests/test_worker_firewall_readiness.py": "4c23f6e35b8a5fa7eeaae07d35b80862270b59acc24729c67d0d43f3e43bf866",
-    "infra/ansible/tests/test_anthropic_spend.py": "022faa5fc2ce8c0b1943b662296033777f4697f8a0cf8507f826c719cab76f84",
+    "infra/ansible/tests/test_a101_readiness_root.py": "b0b076203bbaaa70058b7fa7a6529dbe0c027147f390f6766cf1bfeb1ad5f6a3",
+    "infra/ansible/tests/test_worker_firewall_readiness.py": "8c5ac7c98d947c3ecf56f3e1f4b8ef5d6ec429f7d1fbb384e5d13630df24895c",
+    "infra/ansible/tests/test_anthropic_spend.py": "37a07079e8fd951aba75b397a5ce176f57fcbe757d2009a941dc7f36294fcb5d",
     "infra/ansible/tests/test_anthropic_issuance.py": "1cd6f3b71df6987c94a3bb02447aebfbb7106a8cfb412f0d751c2ddc76a7f882",
+    "infra/ansible/tests/test_anthropic_lifecycle.py": "ab25c25c0643305a219896a3c7803e04dde13963530e931fd43c10517adfc45e",
     "infra/ansible/tests/test_anthropic_wif_admin.py": "1d53f8ffe4ef6ad55b8d7187705344836aed831337c26f310bd11538888a9670",
     "infra/ansible/tests/test_child_launcher.py": "bff549994263407f9b96ec52383b120a159de2c987e2bada49ad13a99c6cd9c0",
     "infra/ansible/tests/test_cloud_init_bootstrap.py": "c0c79b21c2f0ed236667fc8176c1c834f1753991fef35ef6a03f4a21fe6bca04",
@@ -57,6 +62,7 @@ EXPECTED_TEST_FILES = (
     "infra/ansible/tests/test_worker_firewall_readiness.py",
     "infra/ansible/tests/test_anthropic_spend.py",
     "infra/ansible/tests/test_anthropic_issuance.py",
+    "infra/ansible/tests/test_anthropic_lifecycle.py",
     "infra/ansible/tests/test_anthropic_wif_admin.py",
     "infra/ansible/tests/test_child_launcher.py",
     "infra/ansible/tests/test_cloud_init_bootstrap.py",
@@ -73,11 +79,15 @@ EXPECTED_TOOL_PYTHON_FILES = (
     "tools/aa-sweep.py",
     "tools/anthropic-spend-evidence.py",
     "tools/anthropic-wif-admin.py",
+    "tools/anthropic-wif-lifecycle-admin.py",
+    "tools/anthropic-wif-lifecycle.py",
     "tools/benchmark_harmonyagent_cerebras.py",
     "tools/benchmark_harness_speed.py",
     "tools/benchmark_spec_speed.py",
     "tools/check-a101-readiness-root.py",
+    "tools/check-anthropic-expiry.py",
     "tools/check-anthropic-issuance.py",
+    "tools/check-anthropic-revocation.py",
     "tools/check-anthropic-spend.py",
     "tools/check-bench.py",
     "tools/check-independence.py",
@@ -98,6 +108,8 @@ INFRA_CHECKERS = (
     "check-worker-qualification.py",
     "check-anthropic-spend.py",
     "check-anthropic-issuance.py",
+    "check-anthropic-expiry.py",
+    "check-anthropic-revocation.py",
     "check-preview-runtime.py",
 )
 PROTECTED_MODULE_FILES = {
@@ -328,15 +340,29 @@ def validate() -> list[str]:
         issuance_call = (
             'run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-issuance.py"'
         )
+        expiry_call = (
+            'run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-expiry.py"'
+        )
+        revocation_call = (
+            'run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-revocation.py"'
+        )
         preview_call = 'run_gate python3 -I "$REPO_ROOT/tools/check-preview-runtime.py"'
         try:
             spend_index = infra_wrapper.index(spend_call)
             issuance_index = infra_wrapper.index(issuance_call)
+            expiry_index = infra_wrapper.index(expiry_call)
+            revocation_index = infra_wrapper.index(revocation_call)
             preview_index = infra_wrapper.index(preview_call)
         except ValueError:
             errors.append("infrastructure wrapper lacks a required Anthropic/preview checker")
         else:
-            if not spend_index < issuance_index < preview_index:
+            if not (
+                spend_index
+                < issuance_index
+                < expiry_index
+                < revocation_index
+                < preview_index
+            ):
                 errors.append("infrastructure aggregate checker ordering differs")
         if infra_wrapper.splitlines()[-1:] != ['exit "$gate_status"']:
             errors.append("infrastructure wrapper does not preserve aggregate failure")

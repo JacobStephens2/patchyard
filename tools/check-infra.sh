@@ -48,5 +48,7 @@ run_gate python3 -I "$REPO_ROOT/tools/check-worker-runtime.py"
 run_gate python3 -I "$REPO_ROOT/tools/check-worker-qualification.py"
 run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-spend.py"
 run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-issuance.py"
+run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-expiry.py" --allow-missing-results
+run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-revocation.py" --allow-missing-results
 run_gate python3 -I "$REPO_ROOT/tools/check-preview-runtime.py"
 exit "$gate_status"

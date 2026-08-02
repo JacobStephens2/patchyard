@@ -460,12 +460,18 @@ validate_evidence_clause issuance.issued_at '.issuance.issued_at == $issued_at'
 validate_evidence_clause issuance.expires_at '.issuance.expires_at == $expires_at'
 validate_evidence_clause issuance.exchange_request_id \
   '.issuance.exchange_request_id == $exchange_request_id'
-validate_evidence_clause delivery.capability_drive_read_only \
-  '.delivery.capability_drive_read_only == true'
-validate_evidence_clause delivery.capability_drive_unmounted_before_provider_call \
-  '.delivery.capability_drive_unmounted_before_provider_call == true'
-validate_evidence_clause delivery.credential_removed_before_output \
-  '.delivery.credential_removed_before_output == true'
+validate_evidence_clause delivery.capability_drive_read_only '
+  if $qualification_requirement == "issuance-delivery" then
+    .delivery.capability_drive_read_only == true
+  else true end'
+validate_evidence_clause delivery.capability_drive_unmounted_before_provider_call '
+  if $qualification_requirement == "issuance-delivery" then
+    .delivery.capability_drive_unmounted_before_provider_call == true
+  else true end'
+validate_evidence_clause delivery.credential_removed_before_output '
+  if $qualification_requirement == "issuance-delivery" then
+    .delivery.credential_removed_before_output == true
+  else true end'
 validate_evidence_clause provider_call.endpoint '
   if $qualification_requirement == "issuance-delivery" then
     .provider_call.endpoint == "/v1/models?limit=1"

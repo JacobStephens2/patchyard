@@ -49,6 +49,11 @@ PROVIDER_HEADERS="$RAW/messages.headers"
 PROVIDER_RESPONSE="$RAW/messages.json"
 PROVIDER_REQUEST="$RAW/request.json"
 PROMPT_TEXT="$RAW/prompt.txt"
+readonly PROMPT_CALIBRATION_ITEMS=16000
+readonly PROMPT_CALIBRATION_COPIES=2
+readonly MINIMUM_UNCACHED_INPUT_TOKENS=300000
+readonly EXPECTED_PROMPT_SHA256=9a7a2d6d96cb17ddb78331fcc2a9ee5475310a65e9dc906c2db1548ac1154c21
+readonly EXPECTED_PROVIDER_REQUEST_SHA256=b3751a164cde71cbca2fe5de05d3fc8a836649e46114c616cdaf4a210bdfccf4
 
 remove_private_material() {
   local rc=$?
@@ -69,11 +74,31 @@ trap remove_private_material EXIT
   printf 'header = "anthropic-version: 2023-06-01"\n'
   printf 'header = "content-type: application/json"\n'
 } >"$AUTH_CONFIG"
-printf '%s\n' \
-  'Patchyard Factory spend-cap denial probe. Reply with one character.' \
-  >"$PROMPT_TEXT"
-jq -cRs '{model:"claude-opus-5",max_tokens:1,
-  messages:[{role:"user",content:.}]}' "$PROMPT_TEXT" >"$PROVIDER_REQUEST"
+/usr/bin/awk -v items="$PROMPT_CALIBRATION_ITEMS" 'BEGIN {
+  print "Synthetic Patchyard Factory provider spend-enforcement input."
+  for (i = 0; i < items; i++) printf "patchyard-spend-%06d ", i
+  print "\nReply with one character."
+}' >"$PROMPT_TEXT"
+[[ "$(sha256sum "$PROMPT_TEXT" | cut -d' ' -f1)" == "$EXPECTED_PROMPT_SHA256" ]]
+jq -cn --rawfile prompt "$PROMPT_TEXT" \
+  --argjson copies "$PROMPT_CALIBRATION_COPIES" '
+  {model:"claude-opus-5",max_tokens:1,
+    messages:[{role:"user",content:
+      [range(0; $copies) | {type:"text",text:$prompt}]}]}' \
+  >"$PROVIDER_REQUEST"
+[[ "$(sha256sum "$PROVIDER_REQUEST" | cut -d' ' -f1)" \
+  == "$EXPECTED_PROVIDER_REQUEST_SHA256" ]]
+jq -e --argjson copies "$PROMPT_CALIBRATION_COPIES" \
+  --rawfile prompt "$PROMPT_TEXT" '
+  (keys | sort) == ["max_tokens","messages","model"]
+  and .model == "claude-opus-5" and .max_tokens == 1
+  and (.messages | length == 1) and .messages[0].role == "user"
+  and (.messages[0] | keys | sort) == ["content","role"]
+  and (.messages[0].content | length == $copies)
+  and all(.messages[0].content[];
+    (keys | sort) == ["text","type"] and .type == "text"
+    and .text == $prompt)
+' "$PROVIDER_REQUEST" >/dev/null
 chown factory-worker:factory-worker \
   "$AUTH_CONFIG" "$PROMPT_TEXT" "$PROVIDER_REQUEST"
 chmod 0400 "$AUTH_CONFIG" "$PROMPT_TEXT" "$PROVIDER_REQUEST"
@@ -171,6 +196,14 @@ anthropic_error_envelope_is_compatible() {
   ' "$PROVIDER_RESPONSE" >/dev/null
 }
 
+anthropic_acceptance_meets_a120_floor() {
+  jq -e --argjson floor "$MINIMUM_UNCACHED_INPUT_TOKENS" '
+    .usage.input_tokens >= $floor
+    and .usage.cache_creation_input_tokens == 0
+    and .usage.cache_read_input_tokens == 0
+  ' "$PROVIDER_RESPONSE" >/dev/null
+}
+
 read_provider_request_id() {
   PROVIDER_REQUEST_ID=$(awk 'tolower($1) == "request-id:" {
     gsub("\r", "", $2); print $2; exit
@@ -216,7 +249,11 @@ if [[ "$PROVIDER_STATUS" == 200 ]]; then
     exit 1
   fi
   if [[ "$QUALIFICATION_PHASE" == temporary_refusal ]]; then
-    echo 'anthropic-spend-temporary-cap-refusal-not-observed' >&2
+    echo 'anthropic-spend-provider-response-rejected-200-provider-accepted-workspace-scope-qualified-negative' >&2
+    exit 1
+  fi
+  if ! anthropic_acceptance_meets_a120_floor; then
+    echo 'anthropic-spend-provider-response-rejected-200-cached-or-below-cost-floor' >&2
     exit 1
   fi
   jq -n \

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the Anthropic A-5 requirement-2 A115 successor contract."""
+"""Check the Anthropic A-5 requirement-2 A115/A120 successor contract."""
 
 from __future__ import annotations
 
@@ -29,6 +29,8 @@ RUNNER_PATH = REPO / "worker/qualification/patchyard-run-anthropic-issuance"
 LAUNCHER_PATH = REPO / "worker/runtime/patchyard-firecracker-run"
 TRANSPORT_PATH = REPO / "worker/runtime/patchyard-anthropic-one-shot"
 GUEST_PATH = REPO / "worker/image/patchyard-guest-run"
+EVIDENCE_PATH = REPO / "tools/anthropic-spend-evidence.py"
+PROCEDURE_PATH = REPO / "docs/anthropic-spend-enforcement.md"
 WORKER_TASKS_PATH = REPO / "infra/ansible/roles/worker/tasks/main.yml"
 READINESS_HELPER_PATH = REPO / "infra/wait-do-worker-firewall.sh"
 REPLACEMENT_OPERATOR_PATH = REPO / "infra/replace-worker.sh"
@@ -45,10 +47,51 @@ ANTHROPIC_PATCH = (
     b"@@ -0,0 +1 @@\n"
     b"+anthropic-provider-spend-enforcement-qualified\n"
 )
+CALIBRATION_ITEM_COUNT = 16_000
+CALIBRATION_COPIES = 2
+HISTORICAL_UNCACHED_INPUT_TOKENS_PER_BODY = 192_037
+PRECOMPUTED_UNCACHED_INPUT_TOKENS = (
+    HISTORICAL_UNCACHED_INPUT_TOKENS_PER_BODY * CALIBRATION_COPIES
+)
+MINIMUM_UNCACHED_INPUT_TOKENS = 300_000
+A119_INPUT_USD_PER_MILLION_TOKENS = Decimal("5")
+MINIMUM_UNCACHED_INPUT_COST_USD = (
+    Decimal(MINIMUM_UNCACHED_INPUT_TOKENS)
+    * A119_INPUT_USD_PER_MILLION_TOKENS
+    / Decimal(1_000_000)
+)
+CALIBRATION_PROMPT = (
+    "Synthetic Patchyard Factory provider spend-enforcement input.\n"
+    + "".join(
+        f"patchyard-spend-{index:06d} "
+        for index in range(CALIBRATION_ITEM_COUNT)
+    )
+    + "\nReply with one character.\n"
+)
 ANTHROPIC_PROVIDER_BODY = (
-    b'{"model":"claude-opus-5","max_tokens":1,"messages":['
-    b'{"role":"user","content":"Patchyard Factory spend-cap denial probe. '
-    b'Reply with one character.\\n"}]}\n'
+    json.dumps(
+        {
+            "model": "claude-opus-5",
+            "max_tokens": 1,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": CALIBRATION_PROMPT}
+                        for _ in range(CALIBRATION_COPIES)
+                    ],
+                }
+            ],
+        },
+        separators=(",", ":"),
+    ).encode()
+    + b"\n"
+)
+EXPECTED_CALIBRATION_PROMPT_SHA256 = (
+    "9a7a2d6d96cb17ddb78331fcc2a9ee5475310a65e9dc906c2db1548ac1154c21"
+)
+EXPECTED_PROVIDER_BODY_SHA256 = (
+    "b3751a164cde71cbca2fe5de05d3fc8a836649e46114c616cdaf4a210bdfccf4"
 )
 EXPECTED_AUTH_CONFIG_BLOCK = '''{
   printf 'header = "Authorization: Bearer %s"\\n' "$(jq -r .secret "$CAPABILITY")"
@@ -62,7 +105,7 @@ EXPECTED_RUNNER_SOURCE_SHA256 = (
     "45ff683fdd9c9226e6fa07c5ea1de52bb7581f77eb231c42ea6c05c256feaa87"
 )
 EXPECTED_TRANSPORT_SOURCE_SHA256 = (
-    "72d62bfec46d4ba50c5e61ec07736d1e39a890007ada10de02e99c4a894db66c"
+    "41a5416acb2df277f7268d24f51fc4569b539ffe408df73ad6c6468bdb7bcd36"
 )
 EXPECTED_GUEST_SOURCE_SHA256 = (
     "229346fb350297b298c1b752188c0f7762ef9d5de77572156843070fecfcc654"
@@ -82,6 +125,9 @@ EXPECTED_ANSIBLE_WRAPPER_SOURCE_SHA256 = (
 EXPECTED_READINESS_TEST_SOURCE_SHA256 = (
     "65ae6c632e521f264c26f243403901897d786efce83c4b115c98bce6cf198996"
 )
+EXPECTED_EVIDENCE_SOURCE_SHA256 = (
+    "d79d8c69d7752e70af3119846029de661bceda19e06181baccd247fa671f9d97"
+)
 EXPECTED_PROVIDER_CALL_SEQUENCE = '''  setup_provider_transport
   assert_provider_transport_preflight
   "$ANTHROPIC_ONE_SHOT" "$PROVIDER_NETNS" "$CAPABILITY" "$PROVIDER_STAGE"'''
@@ -98,6 +144,33 @@ else
 fi'''
 EXPECTED_IPV6_PREFLIGHT_COMPARISON = (
     'if [[ "$ipv6_all" != 1 || "$ipv6_default" != 1 || "$ipv6_eth0" != 1 ]]; then'
+)
+EXPECTED_A120_FLOOR_FUNCTION = '''anthropic_acceptance_meets_a120_floor() {
+  jq -e --argjson floor "$MINIMUM_UNCACHED_INPUT_TOKENS" '
+    .usage.input_tokens >= $floor
+    and .usage.cache_creation_input_tokens == 0
+    and .usage.cache_read_input_tokens == 0
+  ' "$PROVIDER_RESPONSE" >/dev/null
+}'''
+EXPECTED_A120_ACCEPTANCE_GUARD = '''  if ! anthropic_acceptance_meets_a120_floor; then
+    echo 'anthropic-spend-provider-response-rejected-200-cached-or-below-cost-floor' >&2
+    exit 1
+  fi'''
+EXPECTED_A120_QUALIFIED_NEGATIVE_STOP = '''  if [[ "$QUALIFICATION_PHASE" == temporary_refusal ]]; then
+    echo 'anthropic-spend-provider-response-rejected-200-provider-accepted-workspace-scope-qualified-negative' >&2
+    exit 1
+  fi'''
+EXPECTED_PRE_ACTIVATION_SETTLEMENT_GUARD = '''    if pre_activation_settlement_window < minimum_window:
+        raise ValueError("pre-activation cost has not completed the settlement window")'''
+EXPECTED_POST_REFUSAL_SETTLEMENT_GUARD = '''    if settlement_window < minimum_window:
+        raise ValueError("post-refusal cost has not completed the settlement window")'''
+EXPECTED_FIRST_ACCEPTANCE_STOP_TEXT = (
+    "If the settled amount is $1.00 or less, stop. A second or larger acceptance "
+    "is not authorized."
+)
+EXPECTED_QUALIFIED_NEGATIVE_STOP_TEXT = (
+    "This is a qualified negative for workspace-scope enforcement: stop without "
+    "the restored provider request or any repair request"
 )
 PHASES = (
     "operational_acceptance",
@@ -241,11 +314,14 @@ runner = RUNNER_PATH.read_text()
 launcher = LAUNCHER_PATH.read_text()
 transport = TRANSPORT_PATH.read_text()
 guest = GUEST_PATH.read_text()
+evidence_source = EVIDENCE_PATH.read_text()
+procedure = PROCEDURE_PATH.read_text()
+normalized_procedure = " ".join(procedure.split())
 worker_tasks = WORKER_TASKS_PATH.read_text()
 if digest(RUNNER_PATH) != EXPECTED_RUNNER_SOURCE_SHA256:
     errors.append("post-A118 issuance runner differs from its complete source binding")
 if digest(TRANSPORT_PATH) != EXPECTED_TRANSPORT_SOURCE_SHA256:
-    errors.append("A118 one-shot transport differs from its complete source binding")
+    errors.append("A120 one-shot transport differs from its complete source binding")
 if digest(LAUNCHER_PATH) != EXPECTED_LAUNCHER_SOURCE_SHA256:
     errors.append("post-A118 launcher differs from its complete source binding")
 if digest(GUEST_PATH) != EXPECTED_GUEST_SOURCE_SHA256:
@@ -260,6 +336,55 @@ if digest(ANSIBLE_WRAPPER_PATH) != EXPECTED_ANSIBLE_WRAPPER_SOURCE_SHA256:
     errors.append("A101 Ansible wrapper differs from its complete source binding")
 if digest(READINESS_TEST_PATH) != EXPECTED_READINESS_TEST_SOURCE_SHA256:
     errors.append("A101 readiness test census differs from its complete source binding")
+if digest(EVIDENCE_PATH) != EXPECTED_EVIDENCE_SOURCE_SHA256:
+    errors.append("A120 evidence finalizer differs from its complete source binding")
+
+if hashlib.sha256(CALIBRATION_PROMPT.encode()).hexdigest() != (
+    EXPECTED_CALIBRATION_PROMPT_SHA256
+):
+    errors.append("A120 calibration prompt differs from its reviewed byte binding")
+if hashlib.sha256(ANTHROPIC_PROVIDER_BODY).hexdigest() != EXPECTED_PROVIDER_BODY_SHA256:
+    errors.append("A120 provider body differs from its reviewed byte binding")
+if PRECOMPUTED_UNCACHED_INPUT_TOKENS != 384_074:
+    errors.append("A120 historical tokenization precomputation differs from its binding")
+if (
+    MINIMUM_UNCACHED_INPUT_TOKENS != 300_000
+    or MINIMUM_UNCACHED_INPUT_TOKENS >= PRECOMPUTED_UNCACHED_INPUT_TOKENS
+    or MINIMUM_UNCACHED_INPUT_TOKENS <= 200_000
+    or MINIMUM_UNCACHED_INPUT_COST_USD != Decimal("1.5")
+):
+    errors.append("A120 conservative uncached-input cost floor is not above $1.00")
+for required in (
+    f"readonly PROMPT_CALIBRATION_ITEMS={CALIBRATION_ITEM_COUNT}",
+    f"readonly PROMPT_CALIBRATION_COPIES={CALIBRATION_COPIES}",
+    f"readonly MINIMUM_UNCACHED_INPUT_TOKENS={MINIMUM_UNCACHED_INPUT_TOKENS}",
+    f"readonly EXPECTED_PROMPT_SHA256={EXPECTED_CALIBRATION_PROMPT_SHA256}",
+    f"readonly EXPECTED_PROVIDER_REQUEST_SHA256={EXPECTED_PROVIDER_BODY_SHA256}",
+):
+    if transport.count(required) != 1:
+        errors.append("A120 request body falls below or differs from the cost-floor binding")
+if transport.count(EXPECTED_A120_FLOOR_FUNCTION) != 1:
+    errors.append("A120 uncached-input floor predicate differs from its binding")
+if transport.count(EXPECTED_A120_ACCEPTANCE_GUARD) != 1:
+    errors.append("A120 uncached-input acceptance guard is missing")
+if transport.count(EXPECTED_A120_QUALIFIED_NEGATIVE_STOP) != 1:
+    errors.append("A120 provider-acceptance qualified-negative stop is missing")
+elif (
+    transport.count(EXPECTED_A120_ACCEPTANCE_GUARD) == 1
+    and transport.index(EXPECTED_A120_QUALIFIED_NEGATIVE_STOP)
+    > transport.index(EXPECTED_A120_ACCEPTANCE_GUARD)
+):
+    errors.append(
+        "A120 provider acceptance can be misclassified before the qualified-negative stop"
+    )
+if evidence_source.count(EXPECTED_PRE_ACTIVATION_SETTLEMENT_GUARD) != 1:
+    errors.append("A120 pre-activation settlement floor guard is missing")
+if evidence_source.count(EXPECTED_POST_REFUSAL_SETTLEMENT_GUARD) != 1:
+    errors.append("A120 post-refusal settlement floor guard is missing")
+if EXPECTED_FIRST_ACCEPTANCE_STOP_TEXT not in normalized_procedure:
+    errors.append("A120 first-acceptance settled-cost stop is missing from the procedure")
+if EXPECTED_QUALIFIED_NEGATIVE_STOP_TEXT not in normalized_procedure:
+    errors.append("A120 qualified-negative stop is missing from the procedure")
 for installed_path, label in (
     ("dest: /usr/local/sbin/patchyard-firecracker-run", "launcher"),
     ("dest: /usr/local/libexec/patchyard-anthropic-one-shot", "one-shot"),
@@ -350,8 +475,12 @@ if re.search(
 if transport.count("https://api.anthropic.com/v1/messages") != 1:
     errors.append("A117 trusted transport contains another Messages destination")
 for required in (
-    "jq -cRs",
-    "Patchyard Factory spend-cap denial probe. Reply with one character.",
+    '/usr/bin/awk -v items="$PROMPT_CALIBRATION_ITEMS"',
+    'for (i = 0; i < items; i++) printf "patchyard-spend-%06d ", i',
+    'jq -cn --rawfile prompt "$PROMPT_TEXT"',
+    "[range(0; $copies) | {type:\"text\",text:$prompt}]",
+    '== "$EXPECTED_PROMPT_SHA256"',
+    '== "$EXPECTED_PROVIDER_REQUEST_SHA256"',
     "anthropic_response_is_single_json_object",
     "classify_anthropic_error_shape",
     "anthropic_error_envelope_is_compatible",
@@ -361,6 +490,8 @@ for required in (
 ):
     if required not in transport:
         errors.append(f"A117 trusted transport is missing: {required}")
+if b"cache_control" in ANTHROPIC_PROVIDER_BODY:
+    errors.append("A120 request body enables prompt caching")
 
 if "https://api.anthropic.com/v1/messages" in guest:
     errors.append("A117 spend guest still contains the provider destination")
@@ -510,6 +641,37 @@ if initial.get("fixture") != {
     ],
 }:
     errors.append("initial July fixture record differs from the live failure")
+initial_usage = initial.get("usage_measurement", {})
+if initial_usage != {
+    "source": "Anthropic Usage Report API",
+    "observed_at": "2026-07-29T22:35:24Z",
+    "model": "claude-opus-5",
+    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 0,
+    "buckets": [
+        {
+            "starting_at": "2026-07-29T22:24:00Z",
+            "ending_at": "2026-07-29T22:25:00Z",
+            "uncached_input_tokens": 960185,
+            "output_tokens": 5,
+        },
+        {
+            "starting_at": "2026-07-29T22:25:00Z",
+            "ending_at": "2026-07-29T22:26:00Z",
+            "uncached_input_tokens": 576111,
+            "output_tokens": 3,
+        },
+    ],
+    "total_uncached_input_tokens": 1536296,
+    "total_output_tokens": 8,
+}:
+    errors.append("A120 historical uncached-token calibration differs from evidence")
+elif (
+    initial_usage["total_uncached_input_tokens"]
+    // initial["fixture"]["accepted_requests"]
+    != HISTORICAL_UNCACHED_INPUT_TOKENS_PER_BODY
+):
+    errors.append("A120 historical per-body tokenization arithmetic is malformed")
 initial_cost = initial.get("cost_measurement", {})
 if initial_cost != {
     "source": "Anthropic Cost Report API",
@@ -730,16 +892,23 @@ if RESULT_PATH.exists():
                 != {"top_level_keys", "error_keys"}
             ):
                 errors.append("A115 refusal is not a bounded provider denial")
-        elif (
-            observation.get("outcome") != "accepted"
-            or observation.get("http_status") != 200
-            or observation.get("response_type") != "message"
-            or observation.get("model") != "claude-opus-5"
-        ):
-            errors.append(f"A115 {phase} is not an accepted positive control")
+        else:
+            usage = observation.get("usage", {})
+            if (
+                observation.get("outcome") != "accepted"
+                or observation.get("http_status") != 200
+                or observation.get("response_type") != "message"
+                or observation.get("model") != "claude-opus-5"
+                or not isinstance(usage, dict)
+                or not isinstance(usage.get("input_tokens"), int)
+                or usage.get("input_tokens", 0) < MINIMUM_UNCACHED_INPUT_TOKENS
+            ):
+                errors.append(
+                    f"A120 {phase} is not an uncached cost-floor acceptance"
+                )
     expected_body_hash = hashlib.sha256(ANTHROPIC_PROVIDER_BODY).hexdigest()
     if provider_body_hashes != {expected_body_hash}:
-        errors.append("A115 phase request bodies differ from the exact bound body")
+        errors.append("A120 phase request bodies differ from the exact bound body")
     if len(set(exchange_ids)) != 3 or len(issuance_windows) != 3:
         errors.append("A115 phases do not bind three distinct WIF exchanges")
     elif any(
@@ -874,5 +1043,5 @@ if errors:
         print(f"  {error}", file=sys.stderr)
     raise SystemExit(1)
 
-status = "with live A115 result" if RESULT_PATH.exists() else "A115 successor preflight"
+status = "with live A115/A120 result" if RESULT_PATH.exists() else "A120 source preflight"
 print(f"Anthropic spend check: pass ({status}; historical failures retained)")

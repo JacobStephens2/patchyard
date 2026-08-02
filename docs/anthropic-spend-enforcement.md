@@ -2,15 +2,16 @@
 
 ## Qualification contract
 
-A115 supersedes the unsuccessful PR #78 one-probe contract. Anthropic
-requirement 2 now qualifies only through a controlled three-phase provider
+A120 amends A115's baseline mechanism after the August rollover. Anthropic
+requirement 2 qualifies only through a controlled three-phase provider
 sequence in the dedicated `Patchyard Factory` workspace
 (`wrkspc_000000000000000000000000`):
 
-1. Anthropic accepts one minimal Messages request while the workspace monthly
-   limit is the reviewed operational $50.00.
-2. After that request's cost is settled, only the Factory workspace limit is
-   lowered to $1.00, below the already-settled workspace spend. Anthropic
+1. Anthropic accepts one pre-sized Messages request while the workspace
+   monthly limit is the reviewed operational $50.00. Its uncached input alone
+   has a reviewed conservative cost floor of $1.50.
+2. After that request's cost is settled above $1.00, only the Factory workspace
+   limit is lowered to $1.00, below the now-settled workspace spend. Anthropic
    refuses one byte-identical request.
 3. The workspace limit is restored to $50.00. After the refusal has had a full
    settlement window, Anthropic accepts the same request again.
@@ -24,6 +25,36 @@ nonbinding, and no other workspace changes. The two accepted requests bracket
 the refusal and exclude credential, request-validity, model-availability, and
 organization-limit causes. HTTP 429, `rate_limit_error`, and
 `overloaded_error` are rejected rather than attributed to spend enforcement.
+
+### Fixed body, token floor, and cache exclusion
+
+The transport constructs one 800,306-byte body with SHA-256
+`b3751a164cde71cbca2fe5de05d3fc8a836649e46114c616cdaf4a210bdfccf4`.
+Its user message contains two text blocks, each byte-identical to the exact
+400,083-byte synthetic prompt used by the July eight-request attempt. That
+attempt recorded 1,536,296 uncached input tokens for eight accepted,
+byte-identical calls and zero cache-read or cache-creation tokens: 192,037
+uncached input tokens per call. Two independently delimited copies therefore
+pre-compute to 384,074 uncached input tokens. The source binds a deliberately
+lower conservative floor of 300,000 tokens, leaving 84,074 tokens of margin
+against the same-model calibration. At A119's $5 per million input-token
+price, the bound floor is $1.50, $0.50 above the temporary value. Output is
+still limited to one token and is not part of the floor. The 384,074-token
+projection is also below Opus 5's documented default 1-million-token
+[context window](https://platform.claude.com/docs/en/about-claude/models/choosing-a-model),
+so it requires no context-window beta or model change.
+
+Prompt caching cannot reduce that floor. Anthropic's
+[prompt-caching contract](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
+enables automatic caching through a top-level `cache_control` field and
+explicit caching through a content-block `cache_control` field. The exact
+three-key request body contains neither, uses no tools or server-side loop,
+and the exact header-only curl configuration cannot enable caching. As a
+postcondition rather than a sizing experiment, each expected positive-control
+response must report both `cache_creation_input_tokens` and
+`cache_read_input_tokens` as zero and at least 300,000 ordinary input tokens.
+Failure stops the run after that one request; it never authorizes a resized
+retry. The same fixed body is used in all three phases.
 
 The refusal evidence contains only its HTTP status, request ID, response type,
 error type, a SHA-256 of the message, a bounded key-shape descriptor, and a
@@ -45,26 +76,29 @@ the bracketing sequence qualifies.
 
 The fixture uses the Anthropic Cost Report API for the dedicated workspace. Its
 minor-unit amounts are converted to USD. Because Anthropic reporting was
-observed to take about 2 hours 51 minutes during the first attempt, A115 binds
+observed to take about 2 hours 51 minutes during the first attempt, A120 retains
 a minimum 10,260-second settlement window both before cap activation and after
-the refusal. The first window prevents late phase-1 cost from being counted as
-refusal cost. These are settlement floors, not overshoot ceilings.
+the refusal. The first window proves that the self-seeding phase-1 charge
+settled above $1.00 and prevents late phase-1 cost from being counted as refusal
+cost. These are settlement floors, not overshoot ceilings.
 
 The final evidence records separate figures:
 
-- `settled_spend_before_activation_usd` - workspace month-to-date spend before
-  lowering the cap;
+- `settled_spend_before_activation_usd` - workspace month-to-date spend,
+  including the first named acceptance, before lowering the cap;
 - `preexisting_excess_at_activation_usd` - that settled amount minus $1.00;
+  the field name means pre-existing at cap activation, not inherited from a
+  prior request or month;
 - `settled_spend_after_refusal_usd` - workspace spend after the full settlement
   window; and
 - `incremental_spend_before_refusal_usd` - the latter minus the former.
 
 Only `incremental_spend_before_refusal_usd` is the observed enforcement
-overshoot. It may be zero, and it has no preset ceiling. Pre-activation spend
-must remain below the $50.00 positive-control value so the first acceptance is
-not ambiguous. That eligibility condition is applied to spend that already
-exists before activation; it is not a limit on the recorded incremental
-figure. Post-refusal settled spend has no $50.00 schema ceiling. If the
+overshoot. It may be zero, and it has no preset ceiling. The settled first
+acceptance must put pre-activation spend strictly above $1.00 and below the
+$50.00 positive-control value. If it settles at $1.00 or less, the sequence
+stops before the temporary cap or second provider request; no larger retry is
+authorized. Post-refusal settled spend has no $50.00 schema ceiling. If the
 positive controls or timing become ambiguous, the result is unqualified and
 the figures are never relabelled to make it pass.
 
@@ -104,9 +138,10 @@ fixed client in a dedicated host network namespace, disables IPv6 before
 link-up, independently reads the namespace and interface controls, and admits
 one conntrack ID. Retransmits on that ID remain possible; every later
 connection is rejected.
-The client uses HTTP/1.0, `Connection: close`, one fixed Messages URL, one
-deterministic one-token body, no redirect, and no retry. Before accepting the
-result, the launcher independently reads one admitted-new packet, zero
+The client uses HTTP/1.0, `Connection: close`, one fixed Messages URL, the
+digest-bound two-block body above, a one-token output limit, no redirect, and
+no retry. Before accepting the result, the launcher independently reads one
+admitted-new packet, zero
 rejected packets, one admitted conntrack ID, zero rejected conntrack IDs, and
 one used source from the kernel. A mismatch preserves all five values in a
 bounded diagnostic. It then
@@ -140,12 +175,20 @@ guest surface.
 Requirement 1 separately pins its exact Models request and two loopback calls,
 then rejects a remaining provider-capable guest command.
 
-A provider response that does not meet the bounded A115 phase contract fails
+A provider response that does not meet the bounded A115/A120 phase contract fails
 with a response-stage diagnostic, not the obsolete `denial-not-observed` label.
 Empty bodies fail as `empty-body`; whitespace, malformed JSON, multiple
 documents, and other non-single-object inputs fail before jq can treat an
 absent document as a successful predicate. A missing request-ID header retains
 the observed HTTP status and bounded response-shape class in the diagnostic.
+Provider acceptance in the temporary-refusal phase emits the bounded
+`anthropic-spend-provider-response-rejected-200-provider-accepted-workspace-scope-qualified-negative`
+diagnostic and exits nonzero before the positive-control usage postcondition.
+Under A120, acceptance itself is the qualified negative for workspace-scope
+enforcement even if its usage breakdown is unexpected; it is not permission to
+retry. In the operational and restored phases, an accepted response with fewer
+than 300,000 ordinary input tokens or any cache-read or cache-creation tokens
+fails immediately.
 
 The A114 child-launcher repair also treats output purge, ownership and mode
 normalization, network-lock release, and terminal publication failures as
@@ -155,20 +198,19 @@ failure forces a nonzero process exit even if the child itself succeeded.
 
 ## Attended live procedure
 
-This procedure starts only after A78 has reviewed the successor source and the
-clean-worker replacement plan. Never clear or reuse a `BOUNDARY_TAINTED`
-worker. Never add a standing Anthropic inference key to Factory state or
-`/srv/orchestration/env.tpl`, and never introduce a bare
-`ANTHROPIC_API_KEY`.
+This procedure is not live-authorized by the A120 source task. It starts only
+after A78 has reviewed the changed source and Jacob has ruled the requirements
+3+ freeze order. Never clear or reuse a `BOUNDARY_TAINTED` worker. Never add a
+standing Anthropic inference key to Factory state or
+`/srv/orchestration/env.tpl`, and never introduce a bare `ANTHROPIC_API_KEY`.
 
 The sequence is month-scoped. All provider, cap, and settled-cost observations
-must occur in one Anthropic monthly billing period. For the authorized attempt,
-July's already-settled $7.68168 makes it possible to lower the temporary value
-below settled spend without generating a ramp. If the month rolls over before
-the sequence completes, or if the current month-to-date baseline is no longer
-above $1.00 and below $50.00, stop and escalate to Jacob for a new ruling. Do
-not create spend to manufacture a baseline, change the $1.00 binding, or reuse
-the failed eight-request ramp.
+must occur in one Anthropic monthly billing period. A pre-existing
+month-to-date baseline is neither required nor permitted as a hidden fourth
+request: the first named acceptance creates the baseline. If the month rolls
+over before the sequence completes, stop. Do not change the $1.00 binding,
+resize after a live call, add a seed call, or reuse the failed eight-request
+ramp.
 
 Keep the dedicated workspace idle except for the three named phase requests
 from the first acceptance until the post-refusal cost snapshot. The two full
@@ -197,8 +239,9 @@ be no wider than five minutes. Do not record or claim an enforcement-mode
 selector that the Console does not expose.
 
 1. Confirm the organization limit is $500.00 and the workspace limit is
-   $50.00. Record the bounded operational readback. Run the first positive
-   control:
+   $50.00. Record the bounded operational readback. Confirm the installed
+   transport matches the reviewed A120 source, then run the one fixed-size
+   first acceptance exactly once:
 
    ```bash
    sudo /usr/local/sbin/patchyard-run-anthropic-issuance \
@@ -216,7 +259,11 @@ selector that the Console does not expose.
      --output /run/patchyard-anthropic/settled-before.json
    ```
 
-   The settled amount must exceed $1.00 and remain below $50.00.
+   The settled amount must exceed $1.00 and remain below $50.00. If the settled
+   amount is $1.00 or less, stop. A second or larger acceptance is not
+   authorized. Do not lower the cap or issue another credential. A result at
+   or above $50.00 is also terminal because the operational positive control
+   is ambiguous.
 
 3. Change only the Patchyard Factory workspace limit to $1.00. Confirm the
    organization limit remains $500.00 and record the bounded temporary
@@ -231,7 +278,16 @@ selector that the Console does not expose.
 
 4. Immediately restore only the Factory workspace limit to $50.00. Confirm the
    organization limit remains $500.00 and record the bounded restored
-   readback. Do not wait to restore the operational cap.
+   readback. Do not wait to restore the operational cap. If the refusal command
+   emitted
+   `anthropic-spend-provider-response-rejected-200-provider-accepted-workspace-scope-qualified-negative`,
+   preserve that exact sanitized diagnostic, its source revision, the temporary
+   and restored cap readbacks, and the command's UTC bounds as the terminal
+   record. This is a qualified negative for workspace-scope enforcement: stop
+   without the restored provider request or any repair request, and escalate
+   for Jacob's
+   ruling between a Factory-scoped organization (Option 4) and a replacement
+   first pair (Option 6). No differently sized call is authorized.
 
 5. Wait at least 10,260 seconds after the provider refusal and until Cost
    Report is settled. Capture the post-refusal snapshot. Then run the restored
@@ -259,17 +315,21 @@ selector that the Console does not expose.
      --output research/isolation/results/anthropic-spend-enforcement.json
    ```
 
-7. Rerun requirement 1 because the shared guest image, runner, and launcher have
-   changed. Copy only its sanitized evidence. Run both Anthropic checkers, the
-   full repository gates, and the prescribed mutations. Delete the root-only
-   temporary snapshots and readbacks after the committed evidence passes.
+7. Run both Anthropic checkers, the full repository gates, and the prescribed
+   mutations. Delete the root-only temporary snapshots and readbacks after the
+   committed evidence passes. A120 changes only the one-shot transport; the
+   issuance runner, Firecracker launcher, and guest image remain byte-identical.
+   Requirement 1's qualified
+   `eef6e16e54b6c0945f3874dae71063e8ef2248fea470f2fe4b2579ce22d52977`
+   host contract is therefore not stale and is not refreshed by this change.
 
-If any phase fails, preserve the sanitized failure log and use at most the one
-A9 live-attempt repair loop authorized by A115. A116 through A118 and the later
-A118-findings work-record authorization cover only pre-attempt source work;
-none added a provider request or another live repair loop. Then escalate rather
-than making another provider request.
+If any phase fails, preserve the sanitized failure log. The two A120 terminal
+outcomes above authorize no repair request. Other failures remain subject to at
+most the one A9 live-attempt repair loop authorized by A115; then escalate
+rather than making another provider request. A116 through A118 and the later
+A118-findings work-record authorization cover only pre-attempt source work and
+added no provider request or live repair loop.
 
-Requirement 2 remains unqualified until the completed A115 result lands.
+Requirement 2 remains unqualified until the completed A115/A120 result lands.
 Behavioral acceptance remains paused, all 13 `credential_qualified` flags stay
 false, and requirement 3 must not begin.

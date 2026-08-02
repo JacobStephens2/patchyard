@@ -25,7 +25,7 @@ EXPECTED_WORKER_TASKS_SOURCE_SHA256 = (
     "110cbffc6db188aafa1364e88901249290653134b7f0adc559152abf3f35df40"
 )
 EXPECTED_CHECKER_SOURCE_SHA256 = (
-    "8c31bb1e3a1f350a4641a180642c4c43a6de0c2359ec54aad7e76c9a69767a1c"
+    "ee2d5c47891501ee87d5a4bf83af5bcc618dd8e2ddb6acbba3fd2a6519b49bd0"
 )
 EXPECTED_READINESS_HELPER_SOURCE_SHA256 = (
     "5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba"
@@ -43,6 +43,11 @@ MODULE_PATH = ROOT / "tools/anthropic-spend-evidence.py"
 EXPECTED_EVIDENCE_SOURCE_SHA256 = (
     "d79d8c69d7752e70af3119846029de661bceda19e06181baccd247fa671f9d97"
 )
+A120_CALIBRATION_ITEMS = 16_000
+A120_CALIBRATION_COPIES = 2
+A120_MINIMUM_UNCACHED_INPUT_TOKENS = 300_000
+A120_PROMPT_SHA256 = "9a7a2d6d96cb17ddb78331fcc2a9ee5475310a65e9dc906c2db1548ac1154c21"
+A120_BODY_SHA256 = "b3751a164cde71cbca2fe5de05d3fc8a836649e46114c616cdaf4a210bdfccf4"
 
 
 def load_exact_source_module(name: str, path: pathlib.Path, expected: str) -> types.ModuleType:
@@ -141,7 +146,7 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
             observation.update(
                 {
                     "model": "claude-opus-5",
-                    "usage": {"input_tokens": 18, "output_tokens": 1},
+                    "usage": {"input_tokens": 300000, "output_tokens": 1},
                 }
             )
         else:
@@ -389,6 +394,103 @@ class AnthropicA117TransportContract(unittest.TestCase):
             "anthropic_error_envelope_is_compatible",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a120_body_is_fixed_above_the_reviewed_uncached_cost_floor(self) -> None:
+        prompt = (
+            "Synthetic Patchyard Factory provider spend-enforcement input.\n"
+            + "".join(
+                f"patchyard-spend-{index:06d} "
+                for index in range(A120_CALIBRATION_ITEMS)
+            )
+            + "\nReply with one character.\n"
+        )
+        body = (
+            json.dumps(
+                {
+                    "model": "claude-opus-5",
+                    "max_tokens": 1,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt}
+                                for _ in range(A120_CALIBRATION_COPIES)
+                            ],
+                        }
+                    ],
+                },
+                separators=(",", ":"),
+            ).encode()
+            + b"\n"
+        )
+        self.assertEqual(len(prompt.encode()), 400083)
+        self.assertEqual(hashlib.sha256(prompt.encode()).hexdigest(), A120_PROMPT_SHA256)
+        self.assertEqual(len(body), 800306)
+        self.assertEqual(hashlib.sha256(body).hexdigest(), A120_BODY_SHA256)
+        self.assertNotIn(b"cache_control", body)
+        self.assertIn(
+            f"readonly PROMPT_CALIBRATION_COPIES={A120_CALIBRATION_COPIES}",
+            self.transport,
+        )
+        self.assertIn(
+            f"readonly MINIMUM_UNCACHED_INPUT_TOKENS="
+            f"{A120_MINIMUM_UNCACHED_INPUT_TOKENS}",
+            self.transport,
+        )
+
+    def test_a120_acceptance_requires_uncached_tokens_at_the_floor(self) -> None:
+        predicate = self.function("anthropic_acceptance_meets_a120_floor")
+        for input_tokens, cache_creation, cache_read, expected in (
+            (300000, 0, 0, 0),
+            (299999, 0, 0, 1),
+            (300000, 1, 0, 1),
+            (300000, 0, 1, 1),
+        ):
+            with self.subTest(
+                input_tokens=input_tokens,
+                cache_creation=cache_creation,
+                cache_read=cache_read,
+            ):
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as handle:
+                    json.dump(
+                        {
+                            "usage": {
+                                "input_tokens": input_tokens,
+                                "cache_creation_input_tokens": cache_creation,
+                                "cache_read_input_tokens": cache_read,
+                            }
+                        },
+                        handle,
+                    )
+                    handle.flush()
+                    script = "\n".join(
+                        (
+                            "set -euo pipefail",
+                            f"MINIMUM_UNCACHED_INPUT_TOKENS="
+                            f"{A120_MINIMUM_UNCACHED_INPUT_TOKENS}",
+                            predicate,
+                            'PROVIDER_RESPONSE="$1"',
+                            "anthropic_acceptance_meets_a120_floor",
+                        )
+                    )
+                    result = subprocess.run(
+                        ["bash", "-c", script, "bash", handle.name],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+                self.assertEqual(result.returncode, expected, result.stderr)
+
+    def test_a120_temporary_acceptance_is_a_terminal_qualified_negative(self) -> None:
+        stop = '''  if [[ "$QUALIFICATION_PHASE" == temporary_refusal ]]; then
+    echo 'anthropic-spend-provider-response-rejected-200-provider-accepted-workspace-scope-qualified-negative' >&2
+    exit 1
+  fi'''
+        self.assertEqual(self.transport.count(stop), 1)
+        self.assertLess(
+            self.transport.index(stop),
+            self.transport.index("  if ! anthropic_acceptance_meets_a120_floor; then"),
+        )
 
     def test_one_shot_client_is_fixed_to_one_closed_http10_transfer(self) -> None:
         request = self.transport.split(
@@ -678,6 +780,63 @@ fi'''
                 capture_output=True,
                 text=True,
             )
+
+    def test_checker_rejects_required_a120_mutations(self) -> None:
+        mutations = (
+            (
+                "body below cost floor",
+                "worker/runtime/patchyard-anthropic-one-shot",
+                "readonly PROMPT_CALIBRATION_COPIES=2",
+                "readonly PROMPT_CALIBRATION_COPIES=1",
+                "  A120 request body falls below or differs from the cost-floor binding",
+            ),
+            (
+                "second request in one phase",
+                "worker/runtime/patchyard-anthropic-one-shot",
+                '      --data-binary "@$PROVIDER_REQUEST" \\\n'
+                "      'https://api.anthropic.com/v1/messages'",
+                '      --data-binary "@$PROVIDER_REQUEST" \\\n'
+                "      'https://api.anthropic.com/v1/messages' \\\n"
+                '      --next --data-binary "@$PROVIDER_REQUEST" \\\n'
+                "      'https://api.anthropic.com/v1/messages'",
+                "  A117 one-shot transfer permits another transfer: --next",
+            ),
+            (
+                "removed pre-activation settlement floor",
+                "tools/anthropic-spend-evidence.py",
+                "    if pre_activation_settlement_window < minimum_window:\n",
+                "    if False and pre_activation_settlement_window < minimum_window:\n",
+                "  A120 pre-activation settlement floor guard is missing",
+            ),
+            (
+                "missing qualified-negative stop",
+                "worker/runtime/patchyard-anthropic-one-shot",
+                '''  if [[ "$QUALIFICATION_PHASE" == temporary_refusal ]]; then
+    echo 'anthropic-spend-provider-response-rejected-200-provider-accepted-workspace-scope-qualified-negative' >&2
+    exit 1
+  fi''',
+                '''  if [[ "$QUALIFICATION_PHASE" == temporary_refusal ]]; then
+    echo 'anthropic-spend-provider-response-rejected-200-provider-accepted-workspace-scope-qualified-negative' >&2
+    :
+  fi''',
+                "  A120 provider-acceptance qualified-negative stop is missing",
+            ),
+            (
+                "missing first-acceptance settled-cost stop",
+                "docs/anthropic-spend-enforcement.md",
+                "If the settled\n   amount is $1.00 or less, stop.",
+                "If the settled\n   amount is $1.00 or less, continue.",
+                "  A120 first-acceptance settled-cost stop is missing from the procedure",
+            ),
+        )
+        for name, relative, before, after, diagnostic in mutations:
+            with self.subTest(name=name):
+                result = self.run_checker_mutation(relative, before, after)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertEqual(
+                    result.stderr.splitlines()[0], "Anthropic spend check: failed"
+                )
+                self.assertIn(diagnostic, result.stderr.splitlines()[1:])
 
     def test_checker_rejects_a101_f1_f6_structural_mutations(self) -> None:
         mutations = (
@@ -1046,7 +1205,7 @@ fi'''
         )
         expected_diagnostic = {
             "worker/runtime/patchyard-anthropic-one-shot": (
-                "  A118 one-shot transport differs from its complete source binding"
+                "  A120 one-shot transport differs from its complete source binding"
             ),
             "worker/runtime/patchyard-firecracker-run": (
                 "  post-A118 launcher differs from its complete source binding"

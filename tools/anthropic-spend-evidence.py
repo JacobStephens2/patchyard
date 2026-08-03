@@ -19,6 +19,9 @@ import urllib.request
 ROOT = Path(__file__).resolve().parent.parent
 POLICY_PATH = ROOT / "policy" / "anthropic-wif.json"
 BASE_URL = "https://api.anthropic.com"
+COST_REPORT_DAILY_LIMIT = 31
+A121_LEGACY_PRE_ACTIVATION_UTC_DAY = "2026-08-02"
+A121_LEGACY_PRE_ACTIVATION_COST_USD = Decimal("3.84074")
 PHASES = (
     "operational_acceptance",
     "temporary_refusal",
@@ -60,6 +63,23 @@ def parse_time(value: Any) -> datetime:
     return parsed
 
 
+def utc_day(value: datetime) -> str:
+    return value.astimezone(timezone.utc).date().isoformat()
+
+
+def utc_day_closed(request_at: datetime, captured_at: datetime) -> bool:
+    return utc_day(captured_at) > utc_day(request_at)
+
+
+def cost_bucket_utc_day(bucket: dict[str, Any]) -> str:
+    try:
+        return utc_day(parse_time(bucket["starting_at"]))
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(
+            "Anthropic Cost Report returned a malformed daily bucket"
+        ) from error
+
+
 def decimal_value(value: Any) -> Decimal:
     if not isinstance(value, str):
         raise ValueError("decimal figure is not a string")
@@ -98,9 +118,11 @@ def fetch_workspace_cost(profile: str, workspace_id: str) -> dict[str, Any]:
         "starting_at": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "ending_at": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "group_by[]": "workspace_id",
+        "limit": COST_REPORT_DAILY_LIMIT,
     }
     amount_minor_units = Decimal(0)
     matched_workspace = False
+    workspace_cost_utc_days: set[str] = set()
     page: str | None = None
     while True:
         query = dict(params)
@@ -117,10 +139,12 @@ def fetch_workspace_cost(profile: str, workspace_id: str) -> dict[str, Any]:
         with urllib.request.urlopen(request, timeout=30) as response:
             payload = json.load(response)
         for bucket in payload.get("data", []):
+            bucket_day = cost_bucket_utc_day(bucket)
             for result in bucket.get("results", []):
                 if result.get("workspace_id") != workspace_id:
                     continue
                 matched_workspace = True
+                workspace_cost_utc_days.add(bucket_day)
                 if result.get("currency") != "USD":
                     raise ValueError("Anthropic returned a non-USD Factory cost")
                 amount_minor_units += Decimal(result["amount"])
@@ -132,7 +156,7 @@ def fetch_workspace_cost(profile: str, workspace_id: str) -> dict[str, Any]:
     if not matched_workspace:
         raise ValueError("Anthropic Cost Report returned no Factory workspace row")
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "provider": "anthropic",
         "workspace_id": workspace_id,
         "captured_at": iso_now(),
@@ -142,6 +166,7 @@ def fetch_workspace_cost(profile: str, workspace_id: str) -> dict[str, Any]:
         },
         "currency": "USD",
         "cost_usd": decimal_text(minor_units_to_usd(amount_minor_units)),
+        "workspace_cost_utc_days": sorted(workspace_cost_utc_days),
     }
 
 
@@ -154,8 +179,8 @@ def load_json(path: Path) -> dict[str, Any]:
 
 def validate_snapshot(
     snapshot: dict[str, Any], workspace_id: str
-) -> tuple[Decimal, datetime]:
-    if set(snapshot) != {
+) -> tuple[Decimal, datetime, frozenset[str] | None]:
+    common_keys = {
         "schema_version",
         "provider",
         "workspace_id",
@@ -163,11 +188,17 @@ def validate_snapshot(
         "reporting_window",
         "currency",
         "cost_usd",
-    }:
+    }
+    schema_version = snapshot.get("schema_version")
+    expected_keys = (
+        common_keys
+        if schema_version == 1
+        else common_keys | {"workspace_cost_utc_days"}
+    )
+    if schema_version not in {1, 2} or set(snapshot) != expected_keys:
         raise ValueError("cost snapshot has an unexpected shape")
     if (
-        snapshot["schema_version"] != 1
-        or snapshot["provider"] != "anthropic"
+        snapshot["provider"] != "anthropic"
         or snapshot["workspace_id"] != workspace_id
         or snapshot["currency"] != "USD"
     ):
@@ -179,7 +210,24 @@ def validate_snapshot(
         raise ValueError("cost snapshot amount or time is malformed") from error
     if amount < 0:
         raise ValueError("cost snapshot amount is negative")
-    return amount, captured
+    if schema_version == 1:
+        return amount, captured, None
+    raw_days = snapshot["workspace_cost_utc_days"]
+    if not isinstance(raw_days, list) or not raw_days:
+        raise ValueError("cost snapshot has no workspace-attributed UTC day")
+    try:
+        parsed_days = [datetime.strptime(day, "%Y-%m-%d") for day in raw_days]
+    except (TypeError, ValueError) as error:
+        raise ValueError("cost snapshot has a malformed workspace UTC day") from error
+    if (
+        raw_days != sorted(set(raw_days))
+        or any(
+            day != parsed.strftime("%Y-%m-%d")
+            for day, parsed in zip(raw_days, parsed_days)
+        )
+    ):
+        raise ValueError("cost snapshot workspace UTC days are not unique and ordered")
+    return amount, captured, frozenset(raw_days)
 
 
 def validate_cap_readbacks(
@@ -477,8 +525,12 @@ def finalize(
         raise ValueError("A115 phase bearer lifetimes overlap")
 
     workspace_id = policy["workspace"]["id"]
-    before_amount, before_time = validate_snapshot(settled_before, workspace_id)
-    after_amount, after_time = validate_snapshot(settled_after, workspace_id)
+    before_amount, before_time, before_workspace_days = validate_snapshot(
+        settled_before, workspace_id
+    )
+    after_amount, after_time, after_workspace_days = validate_snapshot(
+        settled_after, workspace_id
+    )
     readbacks, cap_times = validate_cap_readbacks(readbacks, policy)
     operational_cap = (
         Decimal(policy["spend_enforcement"]["operational_cap_cents"]) / 100
@@ -507,12 +559,41 @@ def finalize(
     pre_activation_settlement_window = int(
         (before_time - observed["operational_acceptance"]).total_seconds()
     )
+    pre_activation_utc_day = utc_day(observed["operational_acceptance"])
+    post_refusal_utc_day = utc_day(observed["temporary_refusal"])
+    if not utc_day_closed(observed["operational_acceptance"], before_time):
+        raise ValueError(
+            "pre-activation snapshot was captured before the request UTC day closed"
+        )
+    if before_workspace_days is None:
+        if (
+            pre_activation_utc_day != A121_LEGACY_PRE_ACTIVATION_UTC_DAY
+            or before_amount != A121_LEGACY_PRE_ACTIVATION_COST_USD
+        ):
+            raise ValueError(
+                "legacy pre-activation snapshot is not the measured A121 snapshot"
+            )
+    elif pre_activation_utc_day not in before_workspace_days:
+        raise ValueError(
+            "pre-activation Cost Report lacks the Factory row for the request UTC day"
+        )
+    if not utc_day_closed(observed["temporary_refusal"], after_time):
+        raise ValueError(
+            "post-refusal snapshot was captured before the request UTC day closed"
+        )
+    if after_workspace_days is None or post_refusal_utc_day not in after_workspace_days:
+        raise ValueError(
+            "post-refusal Cost Report lacks the Factory row for the request UTC day"
+        )
     if pre_activation_settlement_window < minimum_window:
         raise ValueError("pre-activation cost has not completed the settlement window")
     if settlement_window < minimum_window:
         raise ValueError("post-refusal cost has not completed the settlement window")
     month_keys = {
-        (value.year, value.month)
+        (
+            value.astimezone(timezone.utc).year,
+            value.astimezone(timezone.utc).month,
+        )
         for value in (
             *observed.values(),
             before_time,
@@ -534,7 +615,7 @@ def finalize(
     preexisting = before_amount - temporary_cap
     incremental = after_amount - before_amount
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "provider": "anthropic",
         "qualification_requirement": "provider-spend-enforcement",
         "authorization_ruling": "A115",
@@ -560,6 +641,8 @@ def finalize(
             "incremental_spend_before_refusal_usd": decimal_text(incremental),
             "before_captured_at": settled_before["captured_at"],
             "after_captured_at": settled_after["captured_at"],
+            "pre_activation_workspace_cost_utc_day": pre_activation_utc_day,
+            "post_refusal_workspace_cost_utc_day": post_refusal_utc_day,
             "settlement_window_seconds": settlement_window,
             "pre_activation_settlement_window_seconds": pre_activation_settlement_window,
             "attribution": "A115_acceptance_refusal_acceptance_workspace_only_cap_change",

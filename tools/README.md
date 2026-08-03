@@ -16,6 +16,10 @@ their own.
 | `install-rust-tools.sh` | Install checksum-pinned cargo-audit, cargo-deny, cargo-vet, and cargo-machete binaries |
 | `install-shellcheck.sh` | Install the checksum-pinned ShellCheck used for privileged boundary scripts |
 | `smoke-github-app.sh` | Mint a narrowed App token and prove repository scoping without printing credentials |
+| `anthropic-wif-lifecycle.py` | Root-only A113 expiry, exchange, public-JWKS, key-activation, and rollback harness; never emits a bearer or assertion |
+| `anthropic-wif-lifecycle-admin.py` | Attended fail-closed rule disable/restore and inline-JWKS overlap/retire/rollback administration |
+| `check-anthropic-expiry.py` | Validate the source-only expiry contract or its future credential-free live fixture |
+| `check-anthropic-revocation.py` | Validate the source-only federation-revocation/key-rotation contract or its future credential-free live fixture |
 | `aa-sweep.py` | Artificial Analysis catalog snapshot + move report |
 | `check-bench.py` | Validate `docs/bench.json` (schema + invariants) and sync the generated Pairs table in `docs/bench.md` (`--write` to regenerate; no flag = drift check) |
 | `check-seats.py` | Cross-check `docs/bench.md` § Seat preference orders against `bench.json` + the A61 allowlist (membership, preferred harness, floors, rank ordering, speed values; `--strict` fails on warnings) |

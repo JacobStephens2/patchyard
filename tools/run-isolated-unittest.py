@@ -20,6 +20,7 @@ EXPECTED_TEST_FILES = (
     "test_worker_firewall_readiness.py",
     "test_anthropic_spend.py",
     "test_anthropic_issuance.py",
+    "test_anthropic_lifecycle.py",
     "test_anthropic_wif_admin.py",
     "test_child_launcher.py",
     "test_cloud_init_bootstrap.py",

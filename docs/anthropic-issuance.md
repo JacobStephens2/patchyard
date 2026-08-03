@@ -89,15 +89,16 @@ existing Anthropic issuer. Requirement 1 does not implement that rotation:
 `tools/anthropic-wif-admin.py` intentionally rejects an existing issuer whose
 JWKS differs and cannot plan or apply an issuer update.
 
-The provider-update procedure and retired-key denial proof are deferred to the
-Anthropic revocation requirement, not dropped. Until that requirement lands,
-a replacement control plane with a new key is not qualified for Anthropic
-issuance. Keep acceptance paused, do not attempt an issuer change under this
-procedure, and expect the admin tool and token exchange to fail closed on the
-key mismatch.
+The source-only provider-update, overlap, rollback, activation, and retired-key
+denial path is now documented in `docs/anthropic-lifecycle.md`. It has not been
+executed and does not authorize an issuer change. Until that attended procedure
+passes under separate authorization, a replacement control plane with a new
+key is not qualified for Anthropic issuance. Keep acceptance paused and expect
+the bootstrap admin tool and token exchange to fail closed on the key mismatch.
 
 The host qualifier proves key ownership, mode, and public-JWK derivation. It
 cannot prove that Anthropic currently trusts that JWK; only the provider
-exchange supplies that proof. Rotation is complete only after the deferred
-revocation work proves a positive exchange with the replacement key and a
-provider denial for an assertion signed by the retired key.
+exchange supplies that proof. Rotation is complete only after the lifecycle
+procedure proves replacement-key exchange and Models positives, atomically
+activates that key, and records a provider denial for a fresh assertion signed
+by the retired key.

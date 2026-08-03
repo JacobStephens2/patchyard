@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Check the Anthropic A-5 requirement-2 A115/A120 successor contract."""
+"""Check the Anthropic A-5 requirement-2 A115/A120/A121 contract."""
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
@@ -60,6 +60,8 @@ MINIMUM_UNCACHED_INPUT_COST_USD = (
     * A119_INPUT_USD_PER_MILLION_TOKENS
     / Decimal(1_000_000)
 )
+A121_LEGACY_PRE_ACTIVATION_UTC_DAY = "2026-08-02"
+A121_LEGACY_PRE_ACTIVATION_COST_USD = Decimal("3.84074")
 CALIBRATION_PROMPT = (
     "Synthetic Patchyard Factory provider spend-enforcement input.\n"
     + "".join(
@@ -126,7 +128,7 @@ EXPECTED_READINESS_TEST_SOURCE_SHA256 = (
     "8c5ac7c98d947c3ecf56f3e1f4b8ef5d6ec429f7d1fbb384e5d13630df24895c"
 )
 EXPECTED_EVIDENCE_SOURCE_SHA256 = (
-    "7e67a597f7170fdad0f6e81ff8fd6e96aafd55a7c599417f2dec2577035e6666"
+    "54807ae321b1a41046fc6a0a4fa585167b0d7d8e7cfd6f43a41cb34899ece978"
 )
 EXPECTED_PROVIDER_CALL_SEQUENCE = '''  setup_provider_transport
   assert_provider_transport_preflight
@@ -164,6 +166,19 @@ EXPECTED_PRE_ACTIVATION_SETTLEMENT_GUARD = '''    if pre_activation_settlement_w
         raise ValueError("pre-activation cost has not completed the settlement window")'''
 EXPECTED_POST_REFUSAL_SETTLEMENT_GUARD = '''    if settlement_window < minimum_window:
         raise ValueError("post-refusal cost has not completed the settlement window")'''
+EXPECTED_PRE_ACTIVATION_DAY_CLOSE_GUARD = '''    if not utc_day_closed(observed["operational_acceptance"], before_time):
+        raise ValueError(
+            "pre-activation snapshot was captured before the request UTC day closed"
+        )'''
+EXPECTED_POST_REFUSAL_DAY_CLOSE_GUARD = '''    if not utc_day_closed(observed["temporary_refusal"], after_time):
+        raise ValueError(
+            "post-refusal snapshot was captured before the request UTC day closed"
+        )'''
+EXPECTED_COST_REPORT_PAGINATION_GUARD = '''        page = payload.get("next_page")
+        if not payload.get("has_more"):
+            break
+        if not isinstance(page, str) or not page:
+            raise ValueError("Anthropic cost report pagination is malformed")'''
 EXPECTED_FIRST_ACCEPTANCE_STOP_TEXT = (
     "If the settled amount is $1.00 or less, stop. A second or larger acceptance "
     "is not authorized."
@@ -237,6 +252,14 @@ def parse_time(value: Any) -> datetime:
     if parsed.tzinfo is None:
         raise ValueError("timestamp has no timezone")
     return parsed
+
+
+def utc_day(value: datetime) -> str:
+    return value.astimezone(timezone.utc).date().isoformat()
+
+
+def utc_day_closed(request_at: datetime, captured_at: datetime) -> bool:
+    return utc_day(captured_at) > utc_day(request_at)
 
 
 def decimal_value(value: Any) -> Decimal:
@@ -337,7 +360,7 @@ if digest(ANSIBLE_WRAPPER_PATH) != EXPECTED_ANSIBLE_WRAPPER_SOURCE_SHA256:
 if digest(READINESS_TEST_PATH) != EXPECTED_READINESS_TEST_SOURCE_SHA256:
     errors.append("A101 readiness test census differs from its complete source binding")
 if digest(EVIDENCE_PATH) != EXPECTED_EVIDENCE_SOURCE_SHA256:
-    errors.append("A120 evidence finalizer differs from its complete source binding")
+    errors.append("A121 evidence finalizer differs from its complete source binding")
 
 if hashlib.sha256(CALIBRATION_PROMPT.encode()).hexdigest() != (
     EXPECTED_CALIBRATION_PROMPT_SHA256
@@ -381,6 +404,16 @@ if evidence_source.count(EXPECTED_PRE_ACTIVATION_SETTLEMENT_GUARD) != 1:
     errors.append("A120 pre-activation settlement floor guard is missing")
 if evidence_source.count(EXPECTED_POST_REFUSAL_SETTLEMENT_GUARD) != 1:
     errors.append("A120 post-refusal settlement floor guard is missing")
+if evidence_source.count(EXPECTED_PRE_ACTIVATION_DAY_CLOSE_GUARD) != 1:
+    errors.append("A121 pre-activation UTC-day-close guard is missing")
+if evidence_source.count(EXPECTED_POST_REFUSAL_DAY_CLOSE_GUARD) != 1:
+    errors.append("A121 post-refusal UTC-day-close guard is missing")
+if (
+    evidence_source.count("COST_REPORT_DAILY_LIMIT = 31") != 1
+    or evidence_source.count('"limit": COST_REPORT_DAILY_LIMIT') != 1
+    or evidence_source.count(EXPECTED_COST_REPORT_PAGINATION_GUARD) != 1
+):
+    errors.append("A121 Cost Report query can silently truncate daily buckets")
 if EXPECTED_FIRST_ACCEPTANCE_STOP_TEXT not in normalized_procedure:
     errors.append("A120 first-acceptance settled-cost stop is missing from the procedure")
 if EXPECTED_QUALIFIED_NEGATIVE_STOP_TEXT not in normalized_procedure:
@@ -782,7 +815,7 @@ if RESULT_PATH.exists():
     }:
         errors.append("A115 live result has an unexpected top-level shape")
     if (
-        result.get("schema_version") != 2
+        result.get("schema_version") != 3
         or result.get("provider") != "anthropic"
         or result.get("qualification_requirement") != "provider-spend-enforcement"
         or result.get("authorization_ruling") != "A115"
@@ -982,6 +1015,8 @@ if RESULT_PATH.exists():
                 "incremental_spend_before_refusal_usd",
                 "before_captured_at",
                 "after_captured_at",
+                "pre_activation_workspace_cost_utc_day",
+                "post_refusal_workspace_cost_utc_day",
                 "settlement_window_seconds",
                 "pre_activation_settlement_window_seconds",
                 "attribution",
@@ -993,6 +1028,19 @@ if RESULT_PATH.exists():
             or preexisting != before_amount - Decimal(1)
             or incremental != after_amount - before_amount
             or incremental < 0
+            or cost["pre_activation_workspace_cost_utc_day"]
+            != utc_day(provider_times["operational_acceptance"])
+            or (
+                cost["pre_activation_workspace_cost_utc_day"]
+                == A121_LEGACY_PRE_ACTIVATION_UTC_DAY
+                and before_amount != A121_LEGACY_PRE_ACTIVATION_COST_USD
+            )
+            or cost["post_refusal_workspace_cost_utc_day"]
+            != utc_day(provider_times["temporary_refusal"])
+            or not utc_day_closed(
+                provider_times["operational_acceptance"], before_time
+            )
+            or not utc_day_closed(provider_times["temporary_refusal"], after_time)
             or cost["settlement_window_seconds"]
             != int((after_time - provider_times["temporary_refusal"]).total_seconds())
             or cost["settlement_window_seconds"] < 10260
@@ -1023,11 +1071,19 @@ if RESULT_PATH.exists():
             after_time,
             *(time for interval in cap_intervals.values() for time in interval),
         }
-        if len({(value.year, value.month) for value in event_times}) != 1:
+        if len(
+            {
+                (
+                    value.astimezone(timezone.utc).year,
+                    value.astimezone(timezone.utc).month,
+                )
+                for value in event_times
+            }
+        ) != 1:
             raise ValueError
     except (KeyError, InvalidOperation, TypeError, ValueError):
         errors.append(
-            "A115 cost separation, settlement, or phase ordering is malformed"
+            "A121 cost separation, day-close settlement, or phase ordering is malformed"
         )
     if contains_forbidden_ceiling(result):
         errors.append("A115 result encodes a forbidden preset overshoot ceiling")
@@ -1043,5 +1099,5 @@ if errors:
         print(f"  {error}", file=sys.stderr)
     raise SystemExit(1)
 
-status = "with live A115/A120 result" if RESULT_PATH.exists() else "A120 source preflight"
+status = "with live A115/A120/A121 result" if RESULT_PATH.exists() else "A121 source preflight"
 print(f"Anthropic spend check: pass ({status}; historical failures retained)")

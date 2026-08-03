@@ -26,7 +26,7 @@ EXPECTED_WORKER_TASKS_SOURCE_SHA256 = (
     "110cbffc6db188aafa1364e88901249290653134b7f0adc559152abf3f35df40"
 )
 EXPECTED_CHECKER_SOURCE_SHA256 = (
-    "b4122ae729c738b19af0ed5c807d268951f5d019b083057bed4179567369a087"
+    "fafd6d2c07f0dfbe024381a8299476e1b2dcdc8830227c390b99697e944bff01"
 )
 EXPECTED_READINESS_HELPER_SOURCE_SHA256 = (
     "5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba"
@@ -42,7 +42,7 @@ EXPECTED_READINESS_TEST_SOURCE_SHA256 = (
 )
 MODULE_PATH = ROOT / "tools/anthropic-spend-evidence.py"
 EXPECTED_EVIDENCE_SOURCE_SHA256 = (
-    "7e67a597f7170fdad0f6e81ff8fd6e96aafd55a7c599417f2dec2577035e6666"
+    "54807ae321b1a41046fc6a0a4fa585167b0d7d8e7cfd6f43a41cb34899ece978"
 )
 A120_CALIBRATION_ITEMS = 16_000
 A120_CALIBRATION_COPIES = 2
@@ -86,28 +86,34 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
                 "minimum_settlement_window_seconds": 10260,
             },
         }
-        self.start = datetime(2026, 7, 30, tzinfo=timezone.utc)
+        self.start = datetime(2026, 8, 2, 14, 51, tzinfo=timezone.utc)
         self.operational = self.worker("operational_acceptance", 2, "accepted")
-        self.refusal = self.worker("temporary_refusal", 183, "refused")
-        self.restored = self.worker("restored_acceptance", 361, "accepted")
-        self.before = self.snapshot(180, "7.68168")
-        self.after = self.snapshot(360, "7.70234")
+        self.refusal = self.worker("temporary_refusal", 563, "refused")
+        self.restored = self.worker("restored_acceptance", 2001, "accepted")
+        self.before = self.snapshot(560, "3.84074", 2)
+        self.after = self.snapshot(2000, "3.86140", 2, 563)
         self.caps = {
             "schema_version": 2,
             "provider": "anthropic",
             "organization_id": "org",
             "workspace_id": "workspace",
             "operational_acceptance": self.cap(0, "50.00"),
-            "temporary_refusal": self.cap(181, "1.00"),
-            "restored_acceptance": self.cap(184, "50.00"),
+            "temporary_refusal": self.cap(561, "1.00"),
+            "restored_acceptance": self.cap(564, "50.00"),
         }
 
     def timestamp(self, minute: int, second: int = 0) -> str:
         return iso(self.start + timedelta(minutes=minute, seconds=second))
 
-    def snapshot(self, minute: int, amount: str) -> dict[str, object]:
-        return {
-            "schema_version": 1,
+    def snapshot(
+        self,
+        minute: int,
+        amount: str,
+        *workspace_minutes: int,
+        legacy: bool = False,
+    ) -> dict[str, object]:
+        snapshot: dict[str, object] = {
+            "schema_version": 1 if legacy else 2,
             "provider": "anthropic",
             "workspace_id": "workspace",
             "captured_at": self.timestamp(minute),
@@ -118,6 +124,16 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
             "currency": "USD",
             "cost_usd": amount,
         }
+        if not legacy:
+            snapshot["workspace_cost_utc_days"] = sorted(
+                {
+                    (self.start + timedelta(minutes=workspace_minute))
+                    .date()
+                    .isoformat()
+                    for workspace_minute in workspace_minutes
+                }
+            )
+        return snapshot
 
     def cap(self, minute: int, workspace_limit: str) -> dict[str, str]:
         return {
@@ -222,8 +238,14 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
         self,
     ) -> None:
         measurement = self.finalize()["cost_measurement"]
-        self.assertEqual(measurement["preexisting_excess_at_activation_usd"], "6.68168")
+        self.assertEqual(measurement["preexisting_excess_at_activation_usd"], "2.84074")
         self.assertEqual(measurement["incremental_spend_before_refusal_usd"], "0.02066")
+        self.assertEqual(
+            measurement["pre_activation_workspace_cost_utc_day"], "2026-08-02"
+        )
+        self.assertEqual(
+            measurement["post_refusal_workspace_cost_utc_day"], "2026-08-03"
+        )
         self.assertNotIn("ceiling", measurement)
 
     def test_cost_report_minor_units_are_converted_to_usd(self) -> None:
@@ -235,6 +257,8 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
         payload = {
             "data": [
                 {
+                    "starting_at": "2026-08-01T00:00:00Z",
+                    "ending_at": "2026-08-02T00:00:00Z",
                     "results": [
                         {"workspace_id": None, "currency": "USD", "amount": "12.3"}
                     ]
@@ -256,6 +280,81 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
             EVIDENCE.admin_token = original_token
             EVIDENCE.urllib.request.urlopen = original_open
 
+    def test_snapshot_exhausts_default_sized_pages_before_deciding_no_row(
+        self,
+    ) -> None:
+        first_page = {
+            "data": [
+                {
+                    "starting_at": iso(
+                        datetime(2026, 7, 25, tzinfo=timezone.utc)
+                        + timedelta(days=offset)
+                    ),
+                    "ending_at": iso(
+                        datetime(2026, 7, 26, tzinfo=timezone.utc)
+                        + timedelta(days=offset)
+                    ),
+                    "results": [
+                        {
+                            "workspace_id": "another-workspace",
+                            "currency": "USD",
+                            "amount": "1",
+                        }
+                    ],
+                }
+                for offset in range(7)
+            ],
+            "has_more": True,
+            "next_page": "after-default-seven",
+        }
+        second_page = {
+            "data": [
+                {
+                    "starting_at": "2026-08-01T00:00:00Z",
+                    "ending_at": "2026-08-02T00:00:00Z",
+                    "results": [
+                        {
+                            "workspace_id": "workspace",
+                            "currency": "USD",
+                            "amount": "384.074",
+                        }
+                    ],
+                }
+            ],
+            "has_more": False,
+            "next_page": None,
+        }
+        pages = [first_page, second_page]
+        requests: list[str] = []
+
+        def urlopen(request: object, **_kwargs: object) -> io.StringIO:
+            requests.append(request.full_url)
+            return io.StringIO(json.dumps(pages.pop(0)))
+
+        original_token = EVIDENCE.admin_token
+        original_open = EVIDENCE.urllib.request.urlopen
+        try:
+            EVIDENCE.admin_token = lambda _profile: "test-token"
+            EVIDENCE.urllib.request.urlopen = urlopen
+            snapshot = EVIDENCE.fetch_workspace_cost("test-profile", "workspace")
+        finally:
+            EVIDENCE.admin_token = original_token
+            EVIDENCE.urllib.request.urlopen = original_open
+
+        self.assertEqual(pages, [])
+        self.assertEqual(len(requests), 2)
+        first_query = EVIDENCE.urllib.parse.parse_qs(
+            EVIDENCE.urllib.parse.urlparse(requests[0]).query
+        )
+        second_query = EVIDENCE.urllib.parse.parse_qs(
+            EVIDENCE.urllib.parse.urlparse(requests[1]).query
+        )
+        self.assertEqual(first_query["limit"], ["31"])
+        self.assertNotIn("page", first_query)
+        self.assertEqual(second_query["page"], ["after-default-seven"])
+        self.assertEqual(snapshot["cost_usd"], "3.84074")
+        self.assertEqual(snapshot["workspace_cost_utc_days"], ["2026-08-01"])
+
     def test_finalizer_allows_observed_zero_incremental_spend_after_settlement(
         self,
     ) -> None:
@@ -268,8 +367,27 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not lowered below"):
             self.finalize()
 
-    def test_finalizer_rejects_incomplete_settlement_window(self) -> None:
-        self.after["captured_at"] = self.timestamp(300)
+    def test_finalizer_rejects_snapshot_before_refusal_utc_day_closed(self) -> None:
+        self.after = self.snapshot(800, "3.86140", 2)
+        with self.assertRaisesRegex(ValueError, "before the request UTC day closed"):
+            self.finalize()
+
+    def test_finalizer_accepts_measured_legacy_pre_activation_snapshot(self) -> None:
+        self.before = self.snapshot(560, "3.84074", legacy=True)
+        self.assertEqual(self.finalize()["schema_version"], 3)
+
+    def test_finalizer_rejects_other_legacy_pre_activation_snapshot(self) -> None:
+        self.before = self.snapshot(560, "3.84075", legacy=True)
+        with self.assertRaisesRegex(ValueError, "not the measured A121 snapshot"):
+            self.finalize()
+
+    def test_finalizer_rejects_post_refusal_under_elapsed_floor_after_day_close(
+        self,
+    ) -> None:
+        self.refusal = self.worker("temporary_refusal", 1988, "refused")
+        self.caps["restored_acceptance"] = self.cap(1989, "50.00")
+        self.after = self.snapshot(1990, "3.86140", 2, 1988)
+        self.restored = self.worker("restored_acceptance", 1993, "accepted")
         with self.assertRaisesRegex(ValueError, "settlement window"):
             self.finalize()
 
@@ -315,22 +433,26 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
             self.finalize()
 
     def test_finalizer_rejects_pre_activation_under_settlement_floor(self) -> None:
-        self.before["captured_at"] = self.timestamp(100)
-        self.caps["temporary_refusal"] = self.cap(101, "1.00")
-        self.refusal = self.worker("temporary_refusal", 103, "refused")
+        self.caps["operational_acceptance"] = self.cap(546, "50.00")
+        self.operational = self.worker("operational_acceptance", 548, "accepted")
+        self.before = self.snapshot(550, "3.84074", 548)
+        self.caps["temporary_refusal"] = self.cap(551, "1.00")
+        self.refusal = self.worker("temporary_refusal", 553, "refused")
+        self.caps["restored_acceptance"] = self.cap(554, "50.00")
+        self.after = self.snapshot(2000, "3.86140", 548, 553)
         with self.assertRaisesRegex(ValueError, "pre-activation cost"):
             self.finalize()
 
     def test_finalizer_rejects_month_boundary(self) -> None:
-        self.start = datetime(2026, 7, 31, 21, tzinfo=timezone.utc)
+        self.start = datetime(2026, 8, 30, 14, 51, tzinfo=timezone.utc)
         self.operational = self.worker("operational_acceptance", 2, "accepted")
-        self.before = self.snapshot(180, "7.68168")
+        self.before = self.snapshot(560, "3.84074", 2)
         self.caps["operational_acceptance"] = self.cap(0, "50.00")
-        self.caps["temporary_refusal"] = self.cap(181, "1.00")
-        self.refusal = self.worker("temporary_refusal", 183, "refused")
-        self.caps["restored_acceptance"] = self.cap(184, "50.00")
-        self.after = self.snapshot(360, "7.70234")
-        self.restored = self.worker("restored_acceptance", 361, "accepted")
+        self.caps["temporary_refusal"] = self.cap(561, "1.00")
+        self.refusal = self.worker("temporary_refusal", 563, "refused")
+        self.caps["restored_acceptance"] = self.cap(564, "50.00")
+        self.after = self.snapshot(2000, "3.86140", 2, 563)
+        self.restored = self.worker("restored_acceptance", 2001, "accepted")
         with self.assertRaisesRegex(ValueError, "monthly billing boundary"):
             self.finalize()
 
@@ -338,7 +460,7 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
         self.after["cost_usd"] = "55.00"
         measurement = self.finalize()["cost_measurement"]
         self.assertEqual(
-            measurement["incremental_spend_before_refusal_usd"], "47.31832"
+            measurement["incremental_spend_before_refusal_usd"], "51.15926"
         )
 
 
@@ -807,7 +929,7 @@ fi'''
                 text=True,
             )
 
-    def test_checker_rejects_required_a120_mutations(self) -> None:
+    def test_checker_rejects_required_a120_a121_mutations(self) -> None:
         mutations = (
             (
                 "body below cost floor",
@@ -833,6 +955,22 @@ fi'''
                 "    if pre_activation_settlement_window < minimum_window:\n",
                 "    if False and pre_activation_settlement_window < minimum_window:\n",
                 "  A120 pre-activation settlement floor guard is missing",
+            ),
+            (
+                "removed post-refusal UTC-day-close condition",
+                "tools/anthropic-spend-evidence.py",
+                '    if not utc_day_closed(observed["temporary_refusal"], after_time):\n',
+                "    if False and not utc_day_closed(\n"
+                '        observed["temporary_refusal"], after_time\n'
+                "    ):\n",
+                "  A121 post-refusal UTC-day-close guard is missing",
+            ),
+            (
+                "single-page Cost Report read",
+                "tools/anthropic-spend-evidence.py",
+                '        if not payload.get("has_more"):\n',
+                '        if True or not payload.get("has_more"):\n',
+                "  A121 Cost Report query can silently truncate daily buckets",
             ),
             (
                 "missing qualified-negative stop",

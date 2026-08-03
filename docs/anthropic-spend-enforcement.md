@@ -2,8 +2,9 @@
 
 ## Qualification contract
 
-A120 amends A115's baseline mechanism after the August rollover. Anthropic
-requirement 2 qualifies only through a controlled three-phase provider
+A120 amends A115's baseline mechanism after the August rollover, and A121
+amends its settlement condition after the measured August 2-3 rollover.
+Anthropic requirement 2 qualifies only through a controlled three-phase provider
 sequence in the dedicated `Patchyard Factory` workspace
 (`wrkspc_000000000000000000000000`):
 
@@ -13,8 +14,9 @@ sequence in the dedicated `Patchyard Factory` workspace
 2. After that request's cost is settled above $1.00, only the Factory workspace
    limit is lowered to $1.00, below the now-settled workspace spend. Anthropic
    refuses one byte-identical request.
-3. The workspace limit is restored to $50.00. After the refusal has had a full
-   settlement window, Anthropic accepts the same request again.
+3. The workspace limit is restored to $50.00. After the refusal's UTC day has
+   closed, its workspace-attributed Cost Report row exists, and the subordinate
+   10,260-second floor has elapsed, Anthropic accepts the same request again.
 
 Each phase uses a fresh five-minute WIF bearer for the same Factory service
 account, rule, workspace, model, and endpoint. The worker host makes exactly
@@ -74,13 +76,33 @@ the bracketing sequence qualifies.
 
 ## Spend accounting
 
-The fixture uses the Anthropic Cost Report API for the dedicated workspace. Its
-minor-unit amounts are converted to USD. Because Anthropic reporting was
-observed to take about 2 hours 51 minutes during the first attempt, A120 retains
-a minimum 10,260-second settlement window both before cap activation and after
-the refusal. The first window proves that the self-seeding phase-1 charge
-settled above $1.00 and prevents late phase-1 cost from being counted as refusal
-cost. These are settlement floors, not overshoot ceilings.
+The fixture uses the Anthropic Cost Report API's daily buckets for the dedicated
+workspace. Its minor-unit amounts are converted to USD. A121 requires each
+snapshot to be captured only after the UTC day containing the request it
+accounts for has closed and to contain a Factory workspace row for that exact
+day. Sixteen probes over 9.07 hours on August 2 returned no such row; the exact
+`$3.84074` row appeared 13 minutes after UTC day close. Elapsed time alone is
+therefore not settlement evidence.
+
+Each month-to-date query sets the maximum daily `limit` of 31 and still exhausts
+`has_more`/`next_page` through the terminal page. This prevents the API's
+default seven daily buckets from silently truncating a month-length read. A
+read with no Factory workspace row fails closed rather than producing a zero
+snapshot. Snapshot schema 2 records every UTC day for which the complete read
+returned a Factory row.
+
+The already-captured pre-activation snapshot is schema 1 because it predates
+A121. The finalizer accepts that one legacy shape only for the measured August
+2 request at the exact `$3.84074`; its row and rollover are the observations
+that caused A121. No other schema-1 snapshot is admissible, and the pending
+post-refusal snapshot must use schema 2 and name the refusal's UTC day.
+
+The 10,260-second minimum remains subordinate to the UTC-day-close condition,
+both before cap activation and after the refusal, so a request immediately
+before midnight cannot be treated as settled immediately after midnight. The
+first window proves that the self-seeding phase-1 charge settled above $1.00 and
+prevents late phase-1 cost from being counted as refusal cost. These are
+settlement floors, not overshoot ceilings.
 
 The final evidence records separate figures:
 
@@ -89,9 +111,14 @@ The final evidence records separate figures:
 - `preexisting_excess_at_activation_usd` - that settled amount minus $1.00;
   the field name means pre-existing at cap activation, not inherited from a
   prior request or month;
-- `settled_spend_after_refusal_usd` - workspace spend after the full settlement
-  window; and
+- `settled_spend_after_refusal_usd` - workspace spend after both settlement
+  conditions; and
 - `incremental_spend_before_refusal_usd` - the latter minus the former.
+
+The measurement also records
+`pre_activation_workspace_cost_utc_day` and
+`post_refusal_workspace_cost_utc_day`; each must equal its corresponding
+provider request's UTC day.
 
 Only `incremental_spend_before_refusal_usd` is the observed enforcement
 overshoot. It may be zero, and it has no preset ceiling. The settled first
@@ -198,14 +225,16 @@ failure forces a nonzero process exit even if the child itself succeeded.
 
 ## Attended live procedure
 
-This procedure is not live-authorized by the A120 source task. It starts only
+This A121 amendment is source-only and authorizes no live action. The remaining
+procedure resumes only
 after A78 has reviewed the changed source and Jacob has ruled the requirements
 3+ freeze order. Never clear or reuse a `BOUNDARY_TAINTED` worker. Never add a
 standing Anthropic inference key to Factory state or
 `/srv/orchestration/env.tpl`, and never introduce a bare `ANTHROPIC_API_KEY`.
 
-The sequence is month-scoped. All provider, cap, and settled-cost observations
-must occur in one Anthropic monthly billing period. A pre-existing
+The sequence is inherently a multi-UTC-day procedure but remains month-scoped.
+All provider, cap, and settled-cost observations must occur in one Anthropic
+monthly billing period. A pre-existing
 month-to-date baseline is neither required nor permitted as a hidden fourth
 request: the first named acceptance creates the baseline. If the month rolls
 over before the sequence completes, stop. Do not change the $1.00 binding,
@@ -213,8 +242,9 @@ resize after a live call, add a seed call, or reuse the failed eight-request
 ramp.
 
 Keep the dedicated workspace idle except for the three named phase requests
-from the first acceptance until the post-refusal cost snapshot. The two full
-settlement windows and that exclusive-workspace interval make the Cost Report
+from the first acceptance until the post-refusal cost snapshot. The two
+day-close conditions, subordinate elapsed floors, and that exclusive-workspace
+interval make the Cost Report
 difference the observed refusal increment rather than an upper bound that may
 contain a late positive-control charge.
 
@@ -235,8 +265,9 @@ has this shape:
 The complete `cap-readbacks.json` is schema version 2, identifies the
 organization and workspace, and has `operational_acceptance`,
 `temporary_refusal`, and `restored_acceptance` objects. Each UTC bracket must
-be no wider than five minutes. Do not record or claim an enforcement-mode
-selector that the Console does not expose.
+be no wider than five minutes. A wider bracket is void and must be retaken; its
+timestamps are never adjusted after capture. Do not record or claim an
+enforcement-mode selector that the Console does not expose.
 
 1. Confirm the organization limit is $500.00 and the workspace limit is
    $50.00. Record the bounded operational readback. Confirm the installed
@@ -250,14 +281,17 @@ selector that the Console does not expose.
      /var/lib/patchyard/artifacts/anthropic-spend-operational
    ```
 
-2. Wait at least 10,260 seconds after the first acceptance and until Cost
-   Report contains the positive-control charge, then capture the settled
-   pre-activation snapshot:
+2. Do not capture the pre-activation snapshot until the UTC day containing the
+   first acceptance has closed, at least 10,260 seconds have elapsed, and Cost
+   Report contains a Factory workspace row for that request day:
 
    ```bash
    tools/anthropic-spend-evidence.py snapshot \
      --output /run/patchyard-anthropic/settled-before.json
    ```
+
+   For the in-flight August sequence this step is already complete. Preserve
+   its measured schema-1 snapshot; do not refresh or rewrite it.
 
    The settled amount must exceed $1.00 and remain below $50.00. If the settled
    amount is $1.00 or less, stop. A second or larger acceptance is not
@@ -289,9 +323,10 @@ selector that the Console does not expose.
    ruling between a Factory-scoped organization (Option 4) and a replacement
    first pair (Option 6). No differently sized call is authorized.
 
-5. Wait at least 10,260 seconds after the provider refusal and until Cost
-   Report is settled. Capture the post-refusal snapshot. Then run the restored
-   positive control:
+5. Do not capture the post-refusal snapshot until the UTC day containing the
+   provider refusal has closed, at least 10,260 seconds have elapsed, and Cost
+   Report contains a Factory workspace row for that request day. Then run the
+   restored positive control:
 
    ```bash
    tools/anthropic-spend-evidence.py snapshot \
@@ -317,8 +352,10 @@ selector that the Console does not expose.
 
 7. Run both Anthropic checkers, the full repository gates, and the prescribed
    mutations. Delete the root-only temporary snapshots and readbacks after the
-   committed evidence passes. A120 changes only the one-shot transport; the
-   issuance runner, Firecracker launcher, and guest image remain byte-identical.
+   committed evidence passes. A121's behavioral changes are confined to the
+   offline spend checker, evidence finalizer, tests, and procedure; the issuance
+   runner, Firecracker launcher, one-shot transport, and guest image remain
+   byte-identical.
    Requirement 1's qualified
    `eef6e16e54b6c0945f3874dae71063e8ef2248fea470f2fe4b2579ce22d52977`
    host contract is therefore not stale and is not refreshed by this change.
@@ -330,6 +367,7 @@ rather than making another provider request. A116 through A118 and the later
 A118-findings work-record authorization cover only pre-attempt source work and
 added no provider request or live repair loop.
 
-Requirement 2 remains unqualified until the completed A115/A120 result lands.
+Requirement 2 remains unqualified until the completed A115/A120/A121 result
+lands.
 Behavioral acceptance remains paused, all 13 `credential_qualified` flags stay
 false, and requirement 3 must not begin.

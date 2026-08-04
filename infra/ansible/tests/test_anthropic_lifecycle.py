@@ -20,10 +20,10 @@ EXPIRY_CHECKER = ROOT / "tools/check-anthropic-expiry.py"
 REVOCATION_CHECKER = ROOT / "tools/check-anthropic-revocation.py"
 POLICY_PATH = ROOT / "policy/anthropic-wif.json"
 EXPECTED_HARNESS_SOURCE_SHA256 = (
-    "1434313f972f00a9e5ff4892e746a4066a2f9942375a91aaeb0550371a52374b"
+    "4ad46c0d7d3d822a1903bd6df37a8b44a98a0e1a89ca7d6a815e806b07c8a528"
 )
 EXPECTED_ADMIN_SOURCE_SHA256 = (
-    "59f54f4abe9cf83b1dd47fdb3303df1125abc7ce09f5df286debc5bd6b6cefdd"
+    "9381bbf1fd2d892ac35c60c70262aa6e333b85f6e1c6dbea61ce665398d4fb2d"
 )
 ERROR_SHAPE = {
     "top_level_keys": ["error", "request_id", "type"],
@@ -316,6 +316,65 @@ class AnthropicLifecycleAdminContract(unittest.TestCase):
         self.assertEqual(readback["status"], "observed")
         self.assertEqual(readback["state"]["workspace_ids"], [])
 
+    def test_rule_mutation_discards_benign_provider_fields_by_name(self) -> None:
+        class AddedRuleField(FakeAdmin):
+            def request(self, method, path, body=None):
+                response = super().request(method, path, body)
+                if method == "DELETE":
+                    response["payload"]["provider_note"] = "rule-value-must-not-cross"
+                return response
+
+        event = ADMIN.rule_operation(
+            AddedRuleField(self.policy, self.current),
+            self.policy,
+            "rule-disable",
+            self.run_id,
+            True,
+        )
+        self.assertEqual(event["discarded_response_fields"], ["provider_note"])
+        self.assertNotIn("rule-value-must-not-cross", json.dumps(event))
+
+    def test_provider_jwk_discards_benign_additional_fields_by_name(self) -> None:
+        class AddedJwkField(FakeAdmin):
+            def issuer(self):
+                issuer = super().issuer()
+                for key in issuer["jwks"]["keys"]:
+                    key["provider_note"] = "jwk-value-must-not-cross"
+                return issuer
+
+        event = ADMIN.issuer_operation(
+            AddedJwkField(self.policy, self.current),
+            self.policy,
+            "issuer-stage",
+            self.run_id,
+            True,
+            self.replacement,
+            self.current,
+        )
+        self.assertEqual(event["discarded_response_fields"], ["provider_note"])
+        self.assertNotIn("jwk-value-must-not-cross", json.dumps(event))
+
+    def test_provider_jwk_rejects_credential_shaped_additional_field(self) -> None:
+        class CredentialJwkField(FakeAdmin):
+            def issuer(self):
+                issuer = super().issuer()
+                issuer["jwks"]["keys"][0]["provider_note"] = (
+                    "sk-ant-oat01-synthetic-rejected-value"
+                )
+                return issuer
+
+        with self.assertRaisesRegex(ADMIN.AdminError, "credential-shaped") as observed:
+            ADMIN.issuer_operation(
+                CredentialJwkField(self.policy, self.current),
+                self.policy,
+                "issuer-stage",
+                self.run_id,
+                True,
+                self.replacement,
+                self.current,
+            )
+        self.assertNotIn("synthetic-rejected-value", str(observed.exception))
+
 
 class AnthropicLifecycleHarnessContract(unittest.TestCase):
     def setUp(self) -> None:
@@ -340,6 +399,121 @@ class AnthropicLifecycleHarnessContract(unittest.TestCase):
             "payload": payload,
             "observed_at": iso(when + timedelta(microseconds=1)),
         }
+
+    def exchange(self, payload: dict[str, object]):
+        with mock.patch.object(
+            HARNESS,
+            "mint_assertion",
+            return_value=("assertion-value", deepcopy(self.key)),
+        ):
+            return HARNESS.accepted_exchange(
+                self.policy,
+                pathlib.Path("/not/read"),
+                self.run_id,
+                request=lambda *args, **kwargs: self.response(200, payload, 0),
+            )
+
+    def exchange_payload(self) -> dict[str, object]:
+        return {
+            "access_token": "sk-ant-oat01-test-bearer",
+            "expires_in": 300,
+            "scope": "workspace:inference",
+            "token_type": "Bearer",
+        }
+
+    def test_exchange_discards_real_additional_field_names_without_values(self) -> None:
+        payload = self.exchange_payload()
+        payload.update(
+            {
+                "next_challenge": "challenge-value-must-not-cross",
+                "next_challenge_expires_in": 271828,
+                "workspace_id": "workspace-value-must-not-cross",
+            }
+        )
+        result, token = self.exchange(payload)
+        self.assertEqual(token, "sk-ant-oat01-test-bearer")
+        self.assertEqual(
+            result["exchange"]["discarded_response_fields"],
+            ["next_challenge", "next_challenge_expires_in", "workspace_id"],
+        )
+        serialized = json.dumps(result)
+        self.assertNotIn("challenge-value-must-not-cross", serialized)
+        self.assertNotIn("workspace-value-must-not-cross", serialized)
+        self.assertNotIn("271828", serialized)
+        self.assertNotIn("test-bearer", serialized)
+
+    def test_exchange_rejects_anthropic_credential_in_additional_field(self) -> None:
+        payload = self.exchange_payload()
+        payload["provider_extra"] = "sk-ant-oat01-synthetic-rejected-value"
+        with self.assertRaisesRegex(
+            HARNESS.LifecycleError, "credential-shaped"
+        ) as observed:
+            self.exchange(payload)
+        self.assertNotIn("synthetic-rejected-value", str(observed.exception))
+
+    def test_exchange_rejects_jwt_in_additional_field(self) -> None:
+        payload = self.exchange_payload()
+        payload["provider_extra"] = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.signature"
+        with self.assertRaisesRegex(
+            HARNESS.LifecycleError, "credential-shaped"
+        ) as observed:
+            self.exchange(payload)
+        self.assertNotIn("eyJhbGci", str(observed.exception))
+
+    def test_exchange_rejects_high_entropy_additional_field(self) -> None:
+        payload = self.exchange_payload()
+        payload["provider_extra"] = (
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-" * 2
+        )
+        with self.assertRaisesRegex(HARNESS.LifecycleError, "credential-shaped"):
+            self.exchange(payload)
+
+    def test_exchange_rejects_each_missing_documented_field(self) -> None:
+        for field in ("access_token", "expires_in", "scope", "token_type"):
+            with self.subTest(field=field):
+                payload = self.exchange_payload()
+                del payload[field]
+                with self.assertRaisesRegex(
+                    HARNESS.LifecycleError, "missing documented fields"
+                ):
+                    self.exchange(payload)
+
+    def test_exchange_preserves_every_documented_field_predicate(self) -> None:
+        cases = {
+            "wrong token type": ("token_type", "Basic", "exchange token type"),
+            "wrong scope": ("scope", "workspace:admin", "exchange scope"),
+            "short expiry": (
+                "expires_in",
+                59,
+                "exchange lifetime is outside one to five minutes",
+            ),
+            "long expiry": (
+                "expires_in",
+                301,
+                "exchange lifetime is outside one to five minutes",
+            ),
+            "boolean expiry": (
+                "expires_in",
+                True,
+                "exchange lifetime is not an integer",
+            ),
+            "wrong token prefix": (
+                "access_token",
+                "not-an-anthropic-token",
+                "bounded WIF bearer type",
+            ),
+            "non-string token": (
+                "access_token",
+                123,
+                "bounded WIF bearer type",
+            ),
+        }
+        for name, (field, value, diagnostic) in cases.items():
+            with self.subTest(name=name):
+                payload = self.exchange_payload()
+                payload[field] = value
+                with self.assertRaisesRegex(HARNESS.LifecycleError, diagnostic):
+                    self.exchange(payload)
 
     def test_expiry_reuses_one_bearer_once_after_expiry_and_never_records_it(self) -> None:
         calls: list[tuple[str, str, object, object]] = []
@@ -520,6 +694,7 @@ class EvidenceFixtures:
             "expires_in": 300,
             "token_type": "Bearer",
             "scope": "workspace:inference",
+            "discarded_response_fields": [],
             "service_account_id": self.policy["service_account"]["id"],
             "rule_id": self.policy["rule"]["id"],
             "workspace_id": self.policy["workspace"]["id"],
@@ -642,6 +817,7 @@ class EvidenceFixtures:
             "readback": self.receipt("GET", readback, event_time),
             "state_before": deepcopy(before),
             "state_after": deepcopy(after),
+            "discarded_response_fields": [],
             "source": {
                 "policy_sha256": self.policy_sha,
                 "admin_tool_sha256": self.admin_sha,

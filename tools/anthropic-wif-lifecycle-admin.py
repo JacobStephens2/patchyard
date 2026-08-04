@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -32,6 +33,9 @@ MAX_RESPONSE_BYTES = 1_000_000
 RUN_ID_PATTERN = re.compile(r"anthropic-l3-[0-9]{8}-[0-9a-f]{10}")
 REQUEST_ID_PATTERN = re.compile(r"req_[A-Za-z0-9]+")
 KID_PATTERN = re.compile(r"patchyard-[0-9a-f]{16}")
+JWT_PATTERN = re.compile(
+    r"eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
+)
 
 
 class AdminError(RuntimeError):
@@ -101,6 +105,57 @@ def require_equal(actual: Any, expected: Any, label: str) -> None:
         raise AdminError(
             f"{label} differs: expected {expected!r}, observed {actual!r}"
         )
+
+
+def credential_shaped(value: Any) -> bool:
+    pending = [value]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if isinstance(current, str):
+            if current.startswith("sk-ant-") or JWT_PATTERN.fullmatch(current):
+                return True
+            if len(current) >= 64:
+                counts: dict[str, int] = {}
+                for character in current:
+                    counts[character] = counts.get(character, 0) + 1
+                entropy = -sum(
+                    (count / len(current)) * math.log2(count / len(current))
+                    for count in counts.values()
+                )
+                if entropy >= 4.0:
+                    return True
+        elif isinstance(current, dict):
+            identity = id(current)
+            if identity not in seen:
+                seen.add(identity)
+                pending.extend(current.keys())
+                pending.extend(current.values())
+        elif isinstance(current, list):
+            identity = id(current)
+            if identity not in seen:
+                seen.add(identity)
+                pending.extend(current)
+    return False
+
+
+def documented_response_fields(
+    payload: Any, documented: tuple[str, ...], label: str
+) -> tuple[dict[str, Any], list[str]]:
+    if not isinstance(payload, dict):
+        raise AdminError(f"{label} is not a JSON object")
+    missing = sorted(set(documented) - set(payload))
+    if missing:
+        raise AdminError(f"{label} is missing documented fields: {missing!r}")
+    discarded = sorted(set(payload) - set(documented))
+    for field in discarded:
+        if credential_shaped(field):
+            raise AdminError(f"{label} has an unsafe additional field name")
+        if credential_shaped(payload[field]):
+            raise AdminError(
+                f"{label} additional field {field!r} is credential-shaped"
+            )
+    return {field: payload[field] for field in documented}, discarded
 
 
 def credential_free_env() -> dict[str, str]:
@@ -393,6 +448,24 @@ def canonical_keys(keys: Any, expected_count: int) -> list[dict[str, Any]]:
     return ordered
 
 
+def canonical_provider_keys(
+    keys: Any, expected_count: int
+) -> tuple[list[dict[str, Any]], list[str]]:
+    if not isinstance(keys, list) or len(keys) != expected_count:
+        raise AdminError(f"inline JWKS must contain exactly {expected_count} key(s)")
+    documented_keys = []
+    discarded: set[str] = set()
+    for key in keys:
+        documented, additional = documented_response_fields(
+            key,
+            ("alg", "e", "kid", "kty", "n", "use"),
+            "provider JWK",
+        )
+        documented_keys.append(documented)
+        discarded.update(additional)
+    return canonical_keys(documented_keys, expected_count), sorted(discarded)
+
+
 def load_replacement_jwk(path: Path) -> dict[str, Any]:
     if not path.is_absolute() or path.is_symlink():
         raise AdminError("replacement JWKS must be an absolute non-symlink path")
@@ -411,7 +484,7 @@ def load_replacement_jwk(path: Path) -> dict[str, Any]:
 
 def validate_issuer(
     value: dict[str, Any], policy: dict[str, Any], expected_keys: list[dict[str, Any]]
-) -> None:
+) -> tuple[list[dict[str, Any]], list[str]]:
     require_equal(value.get("id"), policy["issuer"]["id"], "issuer ID")
     require_equal(value.get("name"), policy["issuer"]["name"], "issuer name")
     require_equal(value.get("issuer_url"), policy["issuer"]["issuer_url"], "issuer URL")
@@ -426,15 +499,20 @@ def validate_issuer(
     if not isinstance(jwks, dict):
         raise AdminError("issuer JWKS is not an object")
     require_equal(jwks.get("type"), "inline", "issuer JWKS type")
+    keys, discarded = canonical_provider_keys(jwks.get("keys"), len(expected_keys))
     require_equal(
-        canonical_keys(jwks.get("keys"), len(expected_keys)),
+        keys,
         canonical_keys(expected_keys, len(expected_keys)),
         "issuer inline keys",
     )
+    return keys, discarded
 
 
-def issuer_state(value: dict[str, Any]) -> dict[str, Any]:
-    keys = canonical_keys(value["jwks"]["keys"], len(value["jwks"]["keys"]))
+def issuer_state(
+    value: dict[str, Any], keys: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
+    if keys is None:
+        keys = canonical_keys(value["jwks"]["keys"], len(value["jwks"]["keys"]))
     return {
         "issuer_id": value["id"],
         "jwks_type": "inline",
@@ -445,15 +523,24 @@ def issuer_state(value: dict[str, Any]) -> dict[str, Any]:
 
 def read_issuer(
     api: Any, policy: dict[str, Any], expected_keys: list[dict[str, Any]]
-) -> tuple[dict[str, Any], dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
     path = issuer_path(policy)
     response = api.request("GET", path)
     require_equal(response["status"], 200, "issuer read status")
-    validate_issuer(response["payload"], policy, expected_keys)
-    return response["payload"], receipt(response, "GET", path)
+    keys, discarded = validate_issuer(response["payload"], policy, expected_keys)
+    return (
+        issuer_state(response["payload"], keys),
+        receipt(response, "GET", path),
+        discarded,
+    )
 
 
-def plan_result(action: str, before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+def plan_result(
+    action: str,
+    before: dict[str, Any],
+    after: dict[str, Any],
+    discarded_response_fields: list[str] | None = None,
+) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "provider": "anthropic",
@@ -462,6 +549,7 @@ def plan_result(action: str, before: dict[str, Any], after: dict[str, Any]) -> d
         "ready": True,
         "state_before": before,
         "state_after": after,
+        "discarded_response_fields": discarded_response_fields or [],
     }
 
 
@@ -472,6 +560,7 @@ def admin_event(
     readback: dict[str, Any],
     before: dict[str, Any],
     after: dict[str, Any],
+    discarded_response_fields: list[str],
 ) -> dict[str, Any]:
     return {
         "schema_version": 1,
@@ -483,6 +572,7 @@ def admin_event(
         "readback": readback,
         "state_before": before,
         "state_after": after,
+        "discarded_response_fields": discarded_response_fields,
         "source": source_binding(),
     }
 
@@ -506,13 +596,19 @@ def rule_operation(
             "type": "federation_rule_workspace_deleted",
             "workspace_id": workspace,
         }
+        exact_response = True
         event_type = "rule_disabled"
     elif action == "rule-restore":
         expected_before, expected_after = [], [workspace]
         method = "POST"
         path = f"{rule_path(policy)}/workspaces"
         body = {"workspace_id": workspace}
-        response_contract = None
+        response_contract = {
+            "federation_rule_id": policy["rule"]["id"],
+            "type": "federation_rule_workspace",
+            "workspace_id": workspace,
+        }
+        exact_response = False
         event_type = "rule_restored"
     else:
         raise AdminError("unsupported rule action")
@@ -528,8 +624,10 @@ def rule_operation(
         progress("provider_mutation_requested")
     response = api.request(method, path, body)
     require_equal(response["status"], 200, "rule mutation status")
-    payload = response["payload"]
-    if response_contract is not None:
+    payload, discarded = documented_response_fields(
+        response["payload"], tuple(response_contract), "rule mutation response"
+    )
+    if exact_response:
         require_equal(payload, response_contract, "rule-disable response")
     else:
         require_equal(payload.get("federation_rule_id"), policy["rule"]["id"], "restore rule ID")
@@ -548,6 +646,7 @@ def rule_operation(
         readback,
         before,
         rule_state(after_value, policy),
+        discarded,
     )
 
 
@@ -569,17 +668,22 @@ def issuer_operation(
     value = initial_response["payload"]
     jwks = value.get("jwks", {})
     require_equal(jwks.get("type"), "inline", "issuer JWKS type")
+    discarded_response_fields: set[str] = set()
     if action == "issuer-stage":
-        current = canonical_keys(jwks.get("keys"), 1)
-        validate_issuer(value, policy, current)
+        current, discarded = canonical_provider_keys(jwks.get("keys"), 1)
+        _, validated_discarded = validate_issuer(value, policy, current)
+        discarded_response_fields.update(discarded)
+        discarded_response_fields.update(validated_discarded)
         require_equal(current, [expected_current_jwk], "expected current issuer key")
         if jwk_descriptor(current[0]) == jwk_descriptor(replacement_jwk):
             raise AdminError("replacement key is not distinct from the current key")
         target = canonical_keys([current[0], replacement_jwk], 2)
         event_type = "issuer_rotation_staged"
     elif action == "issuer-rollback-stage":
-        current = canonical_keys(jwks.get("keys"), 2)
-        validate_issuer(value, policy, current)
+        current, discarded = canonical_provider_keys(jwks.get("keys"), 2)
+        _, validated_discarded = validate_issuer(value, policy, current)
+        discarded_response_fields.update(discarded)
+        discarded_response_fields.update(validated_discarded)
         require_equal(
             current,
             canonical_keys([expected_current_jwk, replacement_jwk], 2),
@@ -588,8 +692,10 @@ def issuer_operation(
         target = [expected_current_jwk]
         event_type = "issuer_rotation_rolled_back"
     elif action == "issuer-retire":
-        current = canonical_keys(jwks.get("keys"), 2)
-        validate_issuer(value, policy, current)
+        current, discarded = canonical_provider_keys(jwks.get("keys"), 2)
+        _, validated_discarded = validate_issuer(value, policy, current)
+        discarded_response_fields.update(discarded)
+        discarded_response_fields.update(validated_discarded)
         require_equal(
             current,
             canonical_keys([expected_current_jwk, replacement_jwk], 2),
@@ -605,14 +711,16 @@ def issuer_operation(
         target = [matching[0]]
         event_type = "issuer_retired_key"
     elif action == "issuer-restore-overlap":
-        current = canonical_keys(jwks.get("keys"), 1)
-        validate_issuer(value, policy, current)
+        current, discarded = canonical_provider_keys(jwks.get("keys"), 1)
+        _, validated_discarded = validate_issuer(value, policy, current)
+        discarded_response_fields.update(discarded)
+        discarded_response_fields.update(validated_discarded)
         require_equal(current, [replacement_jwk], "expected replacement-only issuer key")
         target = canonical_keys([expected_current_jwk, replacement_jwk], 2)
         event_type = "issuer_retired_key_restored"
     else:
         raise AdminError("unsupported issuer action")
-    before = issuer_state(value)
+    before = issuer_state(value, current)
     after = {
         "issuer_id": policy["issuer"]["id"],
         "jwks_type": "inline",
@@ -620,16 +728,18 @@ def issuer_operation(
         "archived": False,
     }
     if not apply:
-        return plan_result(action, before, after)
+        return plan_result(action, before, after, sorted(discarded_response_fields))
     if progress is not None:
         progress("provider_mutation_requested")
     response = api.request("POST", path, {"jwks": {"type": "inline", "keys": target}})
     require_equal(response["status"], 200, "issuer mutation status")
-    validate_issuer(response["payload"], policy, target)
+    _, mutation_discarded = validate_issuer(response["payload"], policy, target)
+    discarded_response_fields.update(mutation_discarded)
     mutation = receipt(response, "POST", path)
     if progress is not None:
         progress("provider_mutation_accepted")
-    after_value, readback = read_issuer(api, policy, target)
+    after, readback, readback_discarded = read_issuer(api, policy, target)
+    discarded_response_fields.update(readback_discarded)
     if progress is not None:
         progress("provider_readback_accepted")
     return admin_event(
@@ -638,7 +748,8 @@ def issuer_operation(
         mutation,
         readback,
         before,
-        issuer_state(after_value),
+        after,
+        sorted(discarded_response_fields),
     )
 
 
@@ -750,12 +861,15 @@ def post_failure_readback(
         keys = value.get("jwks", {}).get("keys")
         if not isinstance(keys, list) or not 1 <= len(keys) <= 2:
             raise AdminError("failure issuer readback has an unsafe key count")
-        canonical = canonical_keys(keys, len(keys))
-        validate_issuer(value, policy, canonical)
+        canonical, discarded = canonical_provider_keys(keys, len(keys))
+        _, validated_discarded = validate_issuer(value, policy, canonical)
         return {
             "status": "observed",
             "receipt": receipt(response, "GET", path),
-            "state": issuer_state(value),
+            "discarded_response_fields": sorted(
+                set(discarded) | set(validated_discarded)
+            ),
+            "state": issuer_state(value, canonical),
         }
     except (AdminError, OSError, json.JSONDecodeError) as error:
         return {
@@ -845,8 +959,13 @@ def main() -> int:
             require_equal(response["status"], 200, "issuer read status")
             issuer = response["payload"]
             jwks = issuer.get("jwks", {})
-            current = canonical_keys(jwks.get("keys"), 1)
+            current, discarded = canonical_provider_keys(jwks.get("keys"), 1)
             validate_issuer(issuer, policy, current)
+            if discarded:
+                print(
+                    f"discarded provider JWK fields: {discarded!r}",
+                    file=sys.stderr,
+                )
             result = {"keys": current}
         elif args.action.startswith("rule-"):
             result = rule_operation(

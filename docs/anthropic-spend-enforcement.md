@@ -2,8 +2,9 @@
 
 ## Qualification contract
 
-A120 amends A115's baseline mechanism after the August rollover, and A121
-amends its settlement condition after the measured August 2-3 rollover.
+A120 amends A115's baseline mechanism after the August rollover, A121 amends
+its settlement condition after the measured August 2-3 rollover, and A122
+distinguishes a completely covered zero-spend day from an unreported day.
 Anthropic requirement 2 qualifies only through a controlled three-phase provider
 sequence in the dedicated `Patchyard Factory` workspace
 (`wrkspc_000000000000000000000000`):
@@ -15,8 +16,10 @@ sequence in the dedicated `Patchyard Factory` workspace
    limit is lowered to $1.00, below the now-settled workspace spend. Anthropic
    refuses one byte-identical request.
 3. The workspace limit is restored to $50.00. After the refusal's UTC day has
-   closed, its workspace-attributed Cost Report row exists, and the subordinate
-   10,260-second floor has elapsed, Anthropic accepts the same request again.
+   closed, the Cost Report window completely covers that day, and the
+   subordinate 10,260-second floor has elapsed, Anthropic accepts the same
+   request again. A row on that day is summed when present; no row on the
+   closed, completely covered day is a measured zero.
 
 Each phase uses a fresh five-minute WIF bearer for the same Factory service
 account, rule, workspace, model, and endpoint. The worker host makes exactly
@@ -79,23 +82,47 @@ the bracketing sequence qualifies.
 The fixture uses the Anthropic Cost Report API's daily buckets for the dedicated
 workspace. Its minor-unit amounts are converted to USD. A121 requires each
 snapshot to be captured only after the UTC day containing the request it
-accounts for has closed and to contain a Factory workspace row for that exact
-day. Sixteen probes over 9.07 hours on August 2 returned no such row; the exact
-`$3.84074` row appeared 13 minutes after UTC day close. Elapsed time alone is
-therefore not settlement evidence.
+accounts for has closed. The pre-activation snapshot must also contain a
+Factory workspace row for the operational acceptance's exact day, because that
+positive control necessarily billed. Sixteen probes over 9.07 hours on August
+2 returned no such row; the exact `$3.84074` row appeared 13 minutes after UTC
+day close. Elapsed time alone is therefore not settlement evidence.
+
+A122 deliberately makes the post-refusal condition asymmetric. The refusal's
+UTC day must be closed and must appear in `complete_utc_days`, meaning the
+reporting window spans its complete 00:00:00Z-24:00:00Z extent and the day had
+closed by `captured_at`. It need not appear in `workspace_cost_utc_days`: a
+successful refusal can bill no tokens and therefore produce no row. Absence on
+that closed, completely covered day is measured zero. If the row is present,
+its amount remains part of the month-to-date sum and therefore of the measured
+increment. Absence on an open or partially covered day remains unknown and
+fails closed. Both snapshots must start at the same reporting instant so their
+month-to-date totals have the same basis. The post-refusal aggregate must still
+contain the operational acceptance day's necessarily billed row; otherwise a
+truncated read could drop the baseline while a later, larger row masks the loss.
 
 Each month-to-date query sets the maximum daily `limit` of 31 and still exhausts
 `has_more`/`next_page` through the terminal page. This prevents the API's
 default seven daily buckets from silently truncating a month-length read. A
-read with no Factory workspace row fails closed rather than producing a zero
-snapshot. Snapshot schema 2 records every UTC day for which the complete read
-returned a Factory row.
+read with no Factory workspace row anywhere still fails closed rather than
+producing a zero snapshot. Snapshot schema 3 records both
+`workspace_cost_utc_days`, every UTC day for which the complete read returned a
+Factory row, and `complete_utc_days`, every closed UTC day fully spanned by the
+reporting window. The validator recomputes the latter from the window and
+capture time and rejects a mismatch; a day still in progress is never complete.
+The finalizer also requires the two reporting windows to share their start and
+anchors the post-refusal aggregate to the positive-control row.
 
 The already-captured pre-activation snapshot is schema 1 because it predates
 A121. The finalizer accepts that one legacy shape only for the measured August
 2 request at the exact `$3.84074`; its row and rollover are the observations
-that caused A121. No other schema-1 snapshot is admissible, and the pending
-post-refusal snapshot must use schema 2 and name the refusal's UTC day.
+that caused A121. No other schema-1 snapshot is admissible. The already-captured
+post-refusal snapshot is schema 2 because it predates A122. For schema 2 only,
+the finalizer deterministically derives complete days from its recorded
+reporting window and capture time; all new snapshots use schema 3 and carry the
+same derived list explicitly. Schema 2 still requires at least one Factory row,
+so this compatibility path does not revive the false-zero snapshot rejected by
+PR 86.
 
 The 10,260-second minimum remains subordinate to the UTC-day-close condition,
 both before cap activation and after the refusal, so a request immediately
@@ -117,8 +144,14 @@ The final evidence records separate figures:
 
 The measurement also records
 `pre_activation_workspace_cost_utc_day` and
-`post_refusal_workspace_cost_utc_day`; each must equal its corresponding
-provider request's UTC day.
+`post_refusal_workspace_cost_utc_day`; each identifies its corresponding
+provider request's UTC day. The latter remains the accounting interval name and
+does not assert that a row occurred on a successfully refused request's day.
+Result schema 4 durably carries the post-refusal reporting window,
+`post_refusal_complete_utc_days`, and
+`post_refusal_workspace_cost_utc_days`. The committed result therefore preserves
+both why the refusal day is completely measured and which days actually had
+rows after the root-only input snapshots are deleted.
 
 Only `incremental_spend_before_refusal_usd` is the observed enforcement
 overshoot. It may be zero, and it has no preset ceiling. The settled first
@@ -225,7 +258,7 @@ failure forces a nonzero process exit even if the child itself succeeded.
 
 ## Attended live procedure
 
-This A121 amendment is source-only and authorizes no live action. The remaining
+This A122 amendment is source-only and authorizes no live action. The remaining
 procedure resumes only
 after A78 has reviewed the changed source and Jacob has ruled the requirements
 3+ freeze order. Never clear or reuse a `BOUNDARY_TAINTED` worker. Never add a
@@ -324,9 +357,12 @@ enforcement-mode selector that the Console does not expose.
    first pair (Option 6). No differently sized call is authorized.
 
 5. Do not capture the post-refusal snapshot until the UTC day containing the
-   provider refusal has closed, at least 10,260 seconds have elapsed, and Cost
-   Report contains a Factory workspace row for that request day. Then run the
-   restored positive control:
+   provider refusal has closed, at least 10,260 seconds have elapsed, and the
+   Cost Report reporting window completely covers that request day. A row for
+   that day is optional; a no-row day is zero only when it is closed and named
+   in `complete_utc_days`. The read must still return the operational
+   acceptance day's Factory row, and its reporting-window start must match the
+   pre-activation snapshot. Then run the restored positive control:
 
    ```bash
    tools/anthropic-spend-evidence.py snapshot \
@@ -336,6 +372,11 @@ enforcement-mode selector that the Console does not expose.
      /var/lib/patchyard/snapshots/current \
      /var/lib/patchyard/artifacts/anthropic-spend-restored
    ```
+
+   For the in-flight August sequence the post-refusal snapshot is already
+   captured as schema 2. Preserve it without refresh or rewrite; its recorded
+   August 1-4 reporting window completely covers the August 3 refusal day, and
+   its only Factory row remains August 2.
 
 6. Finalize the credential-free evidence:
 
@@ -352,10 +393,12 @@ enforcement-mode selector that the Console does not expose.
 
 7. Run both Anthropic checkers, the full repository gates, and the prescribed
    mutations. Delete the root-only temporary snapshots and readbacks after the
-   committed evidence passes. A121's behavioral changes are confined to the
-   offline spend checker, evidence finalizer, tests, and procedure; the issuance
-   runner, Firecracker launcher, one-shot transport, and guest image remain
-   byte-identical.
+   committed evidence passes; result schema 4 retains the credential-free
+   post-refusal window, complete-day list, and row-day list needed to recheck
+   A122 without those inputs. A122's behavioral changes are confined to the
+   offline spend checker, evidence finalizer, tests, and procedure; the
+   issuance runner, Firecracker launcher, one-shot transport, and guest image
+   remain byte-identical.
    Requirement 1's qualified
    `eef6e16e54b6c0945f3874dae71063e8ef2248fea470f2fe4b2579ce22d52977`
    host contract is therefore not stale and is not refreshed by this change.
@@ -367,7 +410,7 @@ rather than making another provider request. A116 through A118 and the later
 A118-findings work-record authorization cover only pre-attempt source work and
 added no provider request or live repair loop.
 
-Requirement 2 remains unqualified until the completed A115/A120/A121 result
+Requirement 2 remains unqualified until the completed A115/A120/A121/A122 result
 lands.
 Behavioral acceptance remains paused, all 13 `credential_qualified` flags stay
 false, and requirement 3 must not begin.

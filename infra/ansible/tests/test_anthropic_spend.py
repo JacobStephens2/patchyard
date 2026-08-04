@@ -26,7 +26,7 @@ EXPECTED_WORKER_TASKS_SOURCE_SHA256 = (
     "110cbffc6db188aafa1364e88901249290653134b7f0adc559152abf3f35df40"
 )
 EXPECTED_CHECKER_SOURCE_SHA256 = (
-    "fafd6d2c07f0dfbe024381a8299476e1b2dcdc8830227c390b99697e944bff01"
+    "f3698347dd125a8816b2c5467bbd0a418013fc3481f40382688ec14e41f5f91f"
 )
 EXPECTED_READINESS_HELPER_SOURCE_SHA256 = (
     "5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba"
@@ -42,7 +42,7 @@ EXPECTED_READINESS_TEST_SOURCE_SHA256 = (
 )
 MODULE_PATH = ROOT / "tools/anthropic-spend-evidence.py"
 EXPECTED_EVIDENCE_SOURCE_SHA256 = (
-    "54807ae321b1a41046fc6a0a4fa585167b0d7d8e7cfd6f43a41cb34899ece978"
+    "494cba4a628e592004dc975ead283aa32fe1fbfe6236c6d6a4a7c7d7ee733099"
 )
 A120_CALIBRATION_ITEMS = 16_000
 A120_CALIBRATION_COPIES = 2
@@ -111,20 +111,28 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
         amount: str,
         *workspace_minutes: int,
         legacy: bool = False,
+        schema_version: int = 3,
     ) -> dict[str, object]:
+        if legacy:
+            schema_version = 1
+        captured = self.start + timedelta(minutes=minute)
+        window_start = self.start.replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+        window_end = captured + timedelta(seconds=30)
         snapshot: dict[str, object] = {
-            "schema_version": 1 if legacy else 2,
+            "schema_version": schema_version,
             "provider": "anthropic",
             "workspace_id": "workspace",
-            "captured_at": self.timestamp(minute),
+            "captured_at": iso(captured),
             "reporting_window": {
-                "starting_at": self.timestamp(0),
-                "ending_at": self.timestamp(minute, 30),
+                "starting_at": iso(window_start),
+                "ending_at": iso(window_end),
             },
             "currency": "USD",
             "cost_usd": amount,
         }
-        if not legacy:
+        if schema_version >= 2:
             snapshot["workspace_cost_utc_days"] = sorted(
                 {
                     (self.start + timedelta(minutes=workspace_minute))
@@ -132,6 +140,10 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
                     .isoformat()
                     for workspace_minute in workspace_minutes
                 }
+            )
+        if schema_version >= 3:
+            snapshot["complete_utc_days"] = EVIDENCE.completely_covered_utc_days(
+                window_start, window_end, captured
             )
         return snapshot
 
@@ -253,6 +265,25 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
             EVIDENCE.minor_units_to_usd(Decimal("768.168")), Decimal("7.68168")
         )
 
+    def test_complete_utc_days_require_full_window_and_closed_day(self) -> None:
+        complete = EVIDENCE.completely_covered_utc_days(
+            datetime(2026, 8, 1, 12, tzinfo=timezone.utc),
+            datetime(2026, 8, 4, 0, 1, tzinfo=timezone.utc),
+            datetime(2026, 8, 4, 0, 0, 30, tzinfo=timezone.utc),
+        )
+        self.assertEqual(complete, ["2026-08-02", "2026-08-03"])
+        ends_early = EVIDENCE.completely_covered_utc_days(
+            datetime(2026, 8, 1, tzinfo=timezone.utc),
+            datetime(2026, 8, 3, 23, 59, 59, tzinfo=timezone.utc),
+            datetime(2026, 8, 4, 1, tzinfo=timezone.utc),
+        )
+        self.assertEqual(ends_early, ["2026-08-01", "2026-08-02"])
+
+    def test_snapshot_rejects_claimed_complete_day_outside_full_window(self) -> None:
+        self.after["complete_utc_days"].append("2026-08-04")
+        with self.assertRaisesRegex(ValueError, "differ from its closed reporting window"):
+            self.finalize()
+
     def test_snapshot_rejects_absent_workspace_cost_row(self) -> None:
         payload = {
             "data": [
@@ -310,8 +341,8 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
         second_page = {
             "data": [
                 {
-                    "starting_at": "2026-08-01T00:00:00Z",
-                    "ending_at": "2026-08-02T00:00:00Z",
+                    "starting_at": "2026-08-02T00:00:00Z",
+                    "ending_at": "2026-08-03T00:00:00Z",
                     "results": [
                         {
                             "workspace_id": "workspace",
@@ -319,7 +350,18 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
                             "amount": "384.074",
                         }
                     ],
-                }
+                },
+                {
+                    "starting_at": "2026-08-03T00:00:00Z",
+                    "ending_at": "2026-08-04T00:00:00Z",
+                    "results": [
+                        {
+                            "workspace_id": "workspace",
+                            "currency": "USD",
+                            "amount": "2.066",
+                        }
+                    ],
+                },
             ],
             "has_more": False,
             "next_page": None,
@@ -352,29 +394,118 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
         self.assertEqual(first_query["limit"], ["31"])
         self.assertNotIn("page", first_query)
         self.assertEqual(second_query["page"], ["after-default-seven"])
-        self.assertEqual(snapshot["cost_usd"], "3.84074")
-        self.assertEqual(snapshot["workspace_cost_utc_days"], ["2026-08-01"])
+        self.assertEqual(Decimal(snapshot["cost_usd"]), Decimal("3.86140"))
+        self.assertEqual(
+            snapshot["workspace_cost_utc_days"], ["2026-08-02", "2026-08-03"]
+        )
+        self.assertEqual(snapshot["schema_version"], 3)
+        expected_complete = EVIDENCE.completely_covered_utc_days(
+            EVIDENCE.parse_time(snapshot["reporting_window"]["starting_at"]),
+            EVIDENCE.parse_time(snapshot["reporting_window"]["ending_at"]),
+            EVIDENCE.parse_time(snapshot["captured_at"]),
+        )
+        self.assertEqual(snapshot["complete_utc_days"], expected_complete)
+        self.assertNotIn(
+            EVIDENCE.utc_day(EVIDENCE.parse_time(snapshot["captured_at"])),
+            snapshot["complete_utc_days"],
+        )
 
     def test_finalizer_allows_observed_zero_incremental_spend_after_settlement(
         self,
     ) -> None:
+        self.after["workspace_cost_utc_days"] = ["2026-08-02"]
         self.after["cost_usd"] = self.before["cost_usd"]
         measurement = self.finalize()["cost_measurement"]
         self.assertEqual(measurement["incremental_spend_before_refusal_usd"], "0.00000")
+
+    def test_finalizer_accepts_actual_schema_2_closed_refusal_day_without_row(
+        self,
+    ) -> None:
+        self.before = self.snapshot(560, "3.84074", legacy=True)
+        self.after = self.snapshot(
+            2000,
+            "3.84074",
+            2,
+            schema_version=2,
+        )
+        measurement = self.finalize()["cost_measurement"]
+        self.assertEqual(measurement["settled_spend_after_refusal_usd"], "3.84074")
+        self.assertEqual(measurement["incremental_spend_before_refusal_usd"], "0.00000")
+        self.assertEqual(
+            measurement["post_refusal_cost_report_window"],
+            self.after["reporting_window"],
+        )
+        self.assertEqual(
+            measurement["post_refusal_complete_utc_days"],
+            ["2026-08-01", "2026-08-02", "2026-08-03"],
+        )
+        self.assertEqual(
+            measurement["post_refusal_workspace_cost_utc_days"], ["2026-08-02"]
+        )
+
+    def test_finalizer_rejects_no_factory_rows_even_when_refusal_day_is_complete(
+        self,
+    ) -> None:
+        self.after["workspace_cost_utc_days"] = []
+        with self.assertRaisesRegex(ValueError, "no workspace-attributed UTC day"):
+            self.finalize()
+
+    def test_finalizer_rejects_pre_activation_day_without_factory_row(self) -> None:
+        self.before["workspace_cost_utc_days"] = ["2026-08-01"]
+        with self.assertRaisesRegex(ValueError, "pre-activation Cost Report lacks"):
+            self.finalize()
+
+    def test_finalizer_rejects_after_snapshot_missing_pre_activation_row(
+        self,
+    ) -> None:
+        self.after["workspace_cost_utc_days"] = ["2026-08-03"]
+        self.after["cost_usd"] = "7.00000"
+        with self.assertRaisesRegex(
+            ValueError, "post-refusal Cost Report lacks.*pre-activation UTC day"
+        ):
+            self.finalize()
+
+    def test_finalizer_rejects_mismatched_reporting_window_starts(self) -> None:
+        self.after["reporting_window"]["starting_at"] = "2026-08-02T00:00:00Z"
+        self.after["complete_utc_days"] = ["2026-08-02", "2026-08-03"]
+        with self.assertRaisesRegex(
+            ValueError, "do not share a reporting-window start"
+        ):
+            self.finalize()
+
+    def test_finalizer_sums_present_refusal_day_row_into_overshoot(self) -> None:
+        self.after["complete_utc_days"] = [
+            "2026-08-01",
+            "2026-08-02",
+            "2026-08-03",
+        ]
+        self.assertIn("2026-08-03", self.after["workspace_cost_utc_days"])
+        measurement = self.finalize()["cost_measurement"]
+        self.assertEqual(measurement["incremental_spend_before_refusal_usd"], "0.02066")
 
     def test_finalizer_rejects_baseline_not_above_temporary_cap(self) -> None:
         self.before["cost_usd"] = "0.99"
         with self.assertRaisesRegex(ValueError, "not lowered below"):
             self.finalize()
 
-    def test_finalizer_rejects_snapshot_before_refusal_utc_day_closed(self) -> None:
+    def test_finalizer_rejects_open_refusal_utc_day_without_factory_row(self) -> None:
         self.after = self.snapshot(800, "3.86140", 2)
         with self.assertRaisesRegex(ValueError, "before the request UTC day closed"):
             self.finalize()
 
+    def test_finalizer_rejects_closed_refusal_day_outside_reporting_window(
+        self,
+    ) -> None:
+        self.after = self.snapshot(2000, "3.84074", 2, schema_version=2)
+        self.after["reporting_window"]["ending_at"] = "2026-08-03T23:00:00Z"
+        with self.assertRaisesRegex(
+            ValueError, "does not completely cover the request UTC day"
+        ):
+            self.finalize()
+
     def test_finalizer_accepts_measured_legacy_pre_activation_snapshot(self) -> None:
         self.before = self.snapshot(560, "3.84074", legacy=True)
-        self.assertEqual(self.finalize()["schema_version"], 3)
+        self.assertEqual(self.finalize()["schema_version"], 4)
 
     def test_finalizer_rejects_other_legacy_pre_activation_snapshot(self) -> None:
         self.before = self.snapshot(560, "3.84075", legacy=True)
@@ -929,7 +1060,108 @@ fi'''
                 text=True,
             )
 
-    def test_checker_rejects_required_a120_a121_mutations(self) -> None:
+    def checker_ready_result(self) -> dict[str, object]:
+        fixture = AnthropicSpendEvidenceContract()
+        fixture.setUp()
+        result = deepcopy(fixture.finalize())
+        policy = json.loads((ROOT / "policy/anthropic-wif.json").read_text())
+        organization_id = policy["organization"]["id"]
+        workspace_id = policy["workspace"]["id"]
+        service_account_id = policy["service_account"]["id"]
+        rule_id = policy["rule"]["id"]
+
+        def digest(path: pathlib.Path) -> str:
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+
+        image_path = ROOT / "worker/image"
+        image_records = [
+            f"{digest(path)}  {path.relative_to(image_path)}\n"
+            for path in sorted(path for path in image_path.rglob("*") if path.is_file())
+        ]
+        image_recipe = hashlib.sha256("".join(image_records).encode()).hexdigest()
+        host_paths = (
+            ROOT / "worker/qualification/patchyard-run-anthropic-issuance",
+            ROOT / "worker/runtime/patchyard-firecracker-run",
+            ROOT / "worker/runtime/patchyard-anthropic-one-shot",
+        )
+        host_records = [
+            f"{digest(path)}  {path.relative_to(ROOT)}\n" for path in host_paths
+        ]
+        host_contract = hashlib.sha256("".join(host_records).encode()).hexdigest()
+        reproducible = {
+            "request_sha256": (
+                "ce878144cf842b99bab3cea547ce8c64ed0386c17e8d12fecee6dc2ad59ca6e2"
+            ),
+            "patch_sha256": (
+                "909c2d57670e517581e7a56de08db6947973027a96d295793dc4a1b5c6168e1f"
+            ),
+            "production_parity_sha256": digest(
+                ROOT / "worker/image/production-parity.json"
+            ),
+            "image_recipe_sha256": image_recipe,
+            "host_contract_sha256": host_contract,
+        }
+        transport_digest = digest(
+            ROOT / "worker/runtime/patchyard-anthropic-one-shot"
+        )
+
+        result["organization_id"] = organization_id
+        result["workspace_id"] = workspace_id
+        result["service_account_id"] = service_account_id
+        result["request_binding"]["request_body_sha256"] = A120_BODY_SHA256
+        for evidence in result["phases"].values():
+            for field, value in reproducible.items():
+                evidence[field] = value
+            evidence["issuance"]["service_account_id"] = service_account_id
+            evidence["issuance"]["rule_id"] = rule_id
+            evidence["issuance"]["workspace_id"] = workspace_id
+            evidence["provider_transport"]["client_sha256"] = transport_digest
+            evidence["provider_observation"][
+                "request_body_sha256"
+            ] = A120_BODY_SHA256
+        return result
+
+    def test_checker_validates_durable_a122_result_without_snapshots(self) -> None:
+        import shutil
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory) / "repo"
+            shutil.copytree(
+                ROOT,
+                root,
+                ignore=shutil.ignore_patterns(".git", "target", "node_modules"),
+            )
+            result_path = (
+                root
+                / "research/isolation/results/anthropic-spend-enforcement.json"
+            )
+            result = self.checker_ready_result()
+            result_path.write_text(json.dumps(result, indent=2) + "\n")
+            command = [
+                "python3",
+                "-I",
+                str(root / "tools/check-anthropic-spend.py"),
+            ]
+            baseline = subprocess.run(
+                command, cwd=root, check=False, capture_output=True, text=True
+            )
+            self.assertEqual(baseline.returncode, 0, baseline.stderr)
+
+            result["cost_measurement"]["post_refusal_complete_utc_days"].remove(
+                "2026-08-03"
+            )
+            result_path.write_text(json.dumps(result, indent=2) + "\n")
+            mutation = subprocess.run(
+                command, cwd=root, check=False, capture_output=True, text=True
+            )
+            self.assertNotEqual(mutation.returncode, 0)
+            self.assertIn(
+                "A122 cost separation, day-close settlement, or phase ordering "
+                "is malformed",
+                mutation.stderr,
+            )
+
+    def test_checker_rejects_required_a120_a121_a122_mutations(self) -> None:
         mutations = (
             (
                 "body below cost floor",
@@ -971,6 +1203,50 @@ fi'''
                 '        if not payload.get("has_more"):\n',
                 '        if True or not payload.get("has_more"):\n',
                 "  A121 Cost Report query can silently truncate daily buckets",
+            ),
+            (
+                "snapshot with no Factory rows",
+                "tools/anthropic-spend-evidence.py",
+                "    if not matched_workspace:\n",
+                "    if False and not matched_workspace:\n",
+                "  A122 snapshot no-rows fail-closed guard is missing",
+            ),
+            (
+                "pre-activation day without a Factory row",
+                "tools/anthropic-spend-evidence.py",
+                "    elif pre_activation_utc_day not in before_workspace_days:\n",
+                "    elif False and pre_activation_utc_day not in before_workspace_days:\n",
+                "  A122 pre-activation Factory-row guard is missing",
+            ),
+            (
+                "post-refusal day without complete coverage",
+                "tools/anthropic-spend-evidence.py",
+                "    if after_complete_days is None or post_refusal_utc_day not in after_complete_days:\n",
+                "    if False and (\n"
+                "        after_complete_days is None\n"
+                "        or post_refusal_utc_day not in after_complete_days\n"
+                "    ):\n",
+                "  A122 post-refusal complete-day guard is missing",
+            ),
+            (
+                "mismatched cost reporting windows",
+                "tools/anthropic-spend-evidence.py",
+                "    if before_window_start != after_window_start:\n",
+                "    if False and before_window_start != after_window_start:\n",
+                "  A122 cost snapshots can use different reporting windows",
+            ),
+            (
+                "post-refusal aggregate without the billed baseline row",
+                "tools/anthropic-spend-evidence.py",
+                "    if (\n"
+                "        after_workspace_days is None\n"
+                "        or pre_activation_utc_day not in after_workspace_days\n"
+                "    ):\n",
+                "    if False and (\n"
+                "        after_workspace_days is None\n"
+                "        or pre_activation_utc_day not in after_workspace_days\n"
+                "    ):\n",
+                "  A122 post-refusal aggregate baseline-row guard is missing",
             ),
             (
                 "missing qualified-negative stop",

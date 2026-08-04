@@ -45,13 +45,8 @@ DELIVERY = {
 }
 
 
-def iso_now() -> str:
-    return (
-        datetime.now(timezone.utc)
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
+def iso_time(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def parse_time(value: Any) -> datetime:
@@ -69,6 +64,24 @@ def utc_day(value: datetime) -> str:
 
 def utc_day_closed(request_at: datetime, captured_at: datetime) -> bool:
     return utc_day(captured_at) > utc_day(request_at)
+
+
+def completely_covered_utc_days(
+    starting_at: datetime, ending_at: datetime, captured_at: datetime
+) -> list[str]:
+    """Return closed UTC days whose complete extent is inside the report window."""
+    start = starting_at.astimezone(timezone.utc)
+    end = ending_at.astimezone(timezone.utc)
+    captured = captured_at.astimezone(timezone.utc)
+    day = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    if day < start:
+        day += timedelta(days=1)
+    coverage_end = min(end, captured)
+    complete: list[str] = []
+    while day + timedelta(days=1) <= coverage_end:
+        complete.append(day.date().isoformat())
+        day += timedelta(days=1)
+    return complete
 
 
 def cost_bucket_utc_day(bucket: dict[str, Any]) -> str:
@@ -111,7 +124,10 @@ def admin_token(profile: str) -> str:
 
 def fetch_workspace_cost(profile: str, workspace_id: str) -> dict[str, Any]:
     token = admin_token(profile)
-    now = datetime.now(timezone.utc)
+    # Bind closure to query start so a midnight-crossing read cannot promote an
+    # open day to complete after its response was assembled.
+    captured_at = datetime.now(timezone.utc).replace(microsecond=0)
+    now = captured_at
     start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     end = now + timedelta(minutes=1)
     params = {
@@ -133,7 +149,7 @@ def fetch_workspace_cost(profile: str, workspace_id: str) -> dict[str, Any]:
             headers={
                 "authorization": f"Bearer {token}",
                 "anthropic-version": "2023-06-01",
-                "user-agent": "patchyard-anthropic-spend-evidence/2",
+                "user-agent": "patchyard-anthropic-spend-evidence/3",
             },
         )
         with urllib.request.urlopen(request, timeout=30) as response:
@@ -156,10 +172,10 @@ def fetch_workspace_cost(profile: str, workspace_id: str) -> dict[str, Any]:
     if not matched_workspace:
         raise ValueError("Anthropic Cost Report returned no Factory workspace row")
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "provider": "anthropic",
         "workspace_id": workspace_id,
-        "captured_at": iso_now(),
+        "captured_at": iso_time(captured_at),
         "reporting_window": {
             "starting_at": params["starting_at"],
             "ending_at": params["ending_at"],
@@ -167,6 +183,11 @@ def fetch_workspace_cost(profile: str, workspace_id: str) -> dict[str, Any]:
         "currency": "USD",
         "cost_usd": decimal_text(minor_units_to_usd(amount_minor_units)),
         "workspace_cost_utc_days": sorted(workspace_cost_utc_days),
+        "complete_utc_days": completely_covered_utc_days(
+            parse_time(params["starting_at"]),
+            parse_time(params["ending_at"]),
+            captured_at,
+        ),
     }
 
 
@@ -179,7 +200,14 @@ def load_json(path: Path) -> dict[str, Any]:
 
 def validate_snapshot(
     snapshot: dict[str, Any], workspace_id: str
-) -> tuple[Decimal, datetime, frozenset[str] | None]:
+) -> tuple[
+    Decimal,
+    datetime,
+    frozenset[str] | None,
+    frozenset[str] | None,
+    datetime,
+    datetime,
+]:
     common_keys = {
         "schema_version",
         "provider",
@@ -190,12 +218,12 @@ def validate_snapshot(
         "cost_usd",
     }
     schema_version = snapshot.get("schema_version")
-    expected_keys = (
-        common_keys
-        if schema_version == 1
-        else common_keys | {"workspace_cost_utc_days"}
-    )
-    if schema_version not in {1, 2} or set(snapshot) != expected_keys:
+    expected_keys = {
+        1: common_keys,
+        2: common_keys | {"workspace_cost_utc_days"},
+        3: common_keys | {"workspace_cost_utc_days", "complete_utc_days"},
+    }.get(schema_version)
+    if expected_keys is None or set(snapshot) != expected_keys:
         raise ValueError("cost snapshot has an unexpected shape")
     if (
         snapshot["provider"] != "anthropic"
@@ -210,8 +238,24 @@ def validate_snapshot(
         raise ValueError("cost snapshot amount or time is malformed") from error
     if amount < 0:
         raise ValueError("cost snapshot amount is negative")
+
+    window = snapshot["reporting_window"]
+    if not isinstance(window, dict) or set(window) != {"starting_at", "ending_at"}:
+        raise ValueError("cost snapshot reporting window is malformed")
+    try:
+        window_start = parse_time(window["starting_at"])
+        window_end = parse_time(window["ending_at"])
+    except (TypeError, ValueError) as error:
+        raise ValueError("cost snapshot reporting window is malformed") from error
+    if window_start >= window_end or window_start > captured:
+        raise ValueError("cost snapshot reporting window is malformed")
     if schema_version == 1:
-        return amount, captured, None
+        return amount, captured, None, None, window_start, window_end
+
+    covered_days = frozenset(
+        completely_covered_utc_days(window_start, window_end, captured)
+    )
+
     raw_days = snapshot["workspace_cost_utc_days"]
     if not isinstance(raw_days, list) or not raw_days:
         raise ValueError("cost snapshot has no workspace-attributed UTC day")
@@ -227,7 +271,35 @@ def validate_snapshot(
         )
     ):
         raise ValueError("cost snapshot workspace UTC days are not unique and ordered")
-    return amount, captured, frozenset(raw_days)
+    if schema_version == 3:
+        raw_complete_days = snapshot["complete_utc_days"]
+        if not isinstance(raw_complete_days, list):
+            raise ValueError("cost snapshot complete UTC days are malformed")
+        try:
+            parsed_complete_days = [
+                datetime.strptime(day, "%Y-%m-%d") for day in raw_complete_days
+            ]
+        except (TypeError, ValueError) as error:
+            raise ValueError("cost snapshot complete UTC days are malformed") from error
+        if (
+            raw_complete_days != sorted(set(raw_complete_days))
+            or any(
+                day != parsed.strftime("%Y-%m-%d")
+                for day, parsed in zip(raw_complete_days, parsed_complete_days)
+            )
+            or frozenset(raw_complete_days) != covered_days
+        ):
+            raise ValueError(
+                "cost snapshot complete UTC days differ from its closed reporting window"
+            )
+    return (
+        amount,
+        captured,
+        frozenset(raw_days),
+        covered_days,
+        window_start,
+        window_end,
+    )
 
 
 def validate_cap_readbacks(
@@ -525,12 +597,22 @@ def finalize(
         raise ValueError("A115 phase bearer lifetimes overlap")
 
     workspace_id = policy["workspace"]["id"]
-    before_amount, before_time, before_workspace_days = validate_snapshot(
-        settled_before, workspace_id
-    )
-    after_amount, after_time, after_workspace_days = validate_snapshot(
-        settled_after, workspace_id
-    )
+    (
+        before_amount,
+        before_time,
+        before_workspace_days,
+        _before_complete_days,
+        before_window_start,
+        _before_window_end,
+    ) = validate_snapshot(settled_before, workspace_id)
+    (
+        after_amount,
+        after_time,
+        after_workspace_days,
+        after_complete_days,
+        after_window_start,
+        _after_window_end,
+    ) = validate_snapshot(settled_after, workspace_id)
     readbacks, cap_times = validate_cap_readbacks(readbacks, policy)
     operational_cap = (
         Decimal(policy["spend_enforcement"]["operational_cap_cents"]) / 100
@@ -539,6 +621,9 @@ def finalize(
         Decimal(policy["spend_enforcement"]["qualification_cap_cents"]) / 100
     )
     minimum_window = policy["spend_enforcement"]["minimum_settlement_window_seconds"]
+
+    if before_window_start != after_window_start:
+        raise ValueError("cost snapshots do not share a reporting-window start")
 
     if not (
         cap_times["operational_acceptance"][1]
@@ -581,9 +666,17 @@ def finalize(
         raise ValueError(
             "post-refusal snapshot was captured before the request UTC day closed"
         )
-    if after_workspace_days is None or post_refusal_utc_day not in after_workspace_days:
+    if after_complete_days is None or post_refusal_utc_day not in after_complete_days:
         raise ValueError(
-            "post-refusal Cost Report lacks the Factory row for the request UTC day"
+            "post-refusal Cost Report does not completely cover the request UTC day"
+        )
+    if (
+        after_workspace_days is None
+        or pre_activation_utc_day not in after_workspace_days
+    ):
+        raise ValueError(
+            "post-refusal Cost Report lacks the Factory row for the "
+            "pre-activation UTC day"
         )
     if pre_activation_settlement_window < minimum_window:
         raise ValueError("pre-activation cost has not completed the settlement window")
@@ -615,7 +708,7 @@ def finalize(
     preexisting = before_amount - temporary_cap
     incremental = after_amount - before_amount
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "provider": "anthropic",
         "qualification_requirement": "provider-spend-enforcement",
         "authorization_ruling": "A115",
@@ -643,6 +736,9 @@ def finalize(
             "after_captured_at": settled_after["captured_at"],
             "pre_activation_workspace_cost_utc_day": pre_activation_utc_day,
             "post_refusal_workspace_cost_utc_day": post_refusal_utc_day,
+            "post_refusal_cost_report_window": settled_after["reporting_window"],
+            "post_refusal_complete_utc_days": sorted(after_complete_days),
+            "post_refusal_workspace_cost_utc_days": sorted(after_workspace_days),
             "settlement_window_seconds": settlement_window,
             "pre_activation_settlement_window_seconds": pre_activation_settlement_window,
             "attribution": "A115_acceptance_refusal_acceptance_workspace_only_cap_change",

@@ -493,6 +493,16 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "before the request UTC day closed"):
             self.finalize()
 
+    def test_finalizer_rejects_closed_refusal_day_outside_reporting_window(
+        self,
+    ) -> None:
+        self.after = self.snapshot(2000, "3.84074", 2, schema_version=2)
+        self.after["reporting_window"]["ending_at"] = "2026-08-03T23:00:00Z"
+        with self.assertRaisesRegex(
+            ValueError, "does not completely cover the request UTC day"
+        ):
+            self.finalize()
+
     def test_finalizer_accepts_measured_legacy_pre_activation_snapshot(self) -> None:
         self.before = self.snapshot(560, "3.84074", legacy=True)
         self.assertEqual(self.finalize()["schema_version"], 4)
@@ -1048,6 +1058,107 @@ fi'''
                 check=False,
                 capture_output=True,
                 text=True,
+            )
+
+    def checker_ready_result(self) -> dict[str, object]:
+        fixture = AnthropicSpendEvidenceContract()
+        fixture.setUp()
+        result = deepcopy(fixture.finalize())
+        policy = json.loads((ROOT / "policy/anthropic-wif.json").read_text())
+        organization_id = policy["organization"]["id"]
+        workspace_id = policy["workspace"]["id"]
+        service_account_id = policy["service_account"]["id"]
+        rule_id = policy["rule"]["id"]
+
+        def digest(path: pathlib.Path) -> str:
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+
+        image_path = ROOT / "worker/image"
+        image_records = [
+            f"{digest(path)}  {path.relative_to(image_path)}\n"
+            for path in sorted(path for path in image_path.rglob("*") if path.is_file())
+        ]
+        image_recipe = hashlib.sha256("".join(image_records).encode()).hexdigest()
+        host_paths = (
+            ROOT / "worker/qualification/patchyard-run-anthropic-issuance",
+            ROOT / "worker/runtime/patchyard-firecracker-run",
+            ROOT / "worker/runtime/patchyard-anthropic-one-shot",
+        )
+        host_records = [
+            f"{digest(path)}  {path.relative_to(ROOT)}\n" for path in host_paths
+        ]
+        host_contract = hashlib.sha256("".join(host_records).encode()).hexdigest()
+        reproducible = {
+            "request_sha256": (
+                "ce878144cf842b99bab3cea547ce8c64ed0386c17e8d12fecee6dc2ad59ca6e2"
+            ),
+            "patch_sha256": (
+                "909c2d57670e517581e7a56de08db6947973027a96d295793dc4a1b5c6168e1f"
+            ),
+            "production_parity_sha256": digest(
+                ROOT / "worker/image/production-parity.json"
+            ),
+            "image_recipe_sha256": image_recipe,
+            "host_contract_sha256": host_contract,
+        }
+        transport_digest = digest(
+            ROOT / "worker/runtime/patchyard-anthropic-one-shot"
+        )
+
+        result["organization_id"] = organization_id
+        result["workspace_id"] = workspace_id
+        result["service_account_id"] = service_account_id
+        result["request_binding"]["request_body_sha256"] = A120_BODY_SHA256
+        for evidence in result["phases"].values():
+            for field, value in reproducible.items():
+                evidence[field] = value
+            evidence["issuance"]["service_account_id"] = service_account_id
+            evidence["issuance"]["rule_id"] = rule_id
+            evidence["issuance"]["workspace_id"] = workspace_id
+            evidence["provider_transport"]["client_sha256"] = transport_digest
+            evidence["provider_observation"][
+                "request_body_sha256"
+            ] = A120_BODY_SHA256
+        return result
+
+    def test_checker_validates_durable_a122_result_without_snapshots(self) -> None:
+        import shutil
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory) / "repo"
+            shutil.copytree(
+                ROOT,
+                root,
+                ignore=shutil.ignore_patterns(".git", "target", "node_modules"),
+            )
+            result_path = (
+                root
+                / "research/isolation/results/anthropic-spend-enforcement.json"
+            )
+            result = self.checker_ready_result()
+            result_path.write_text(json.dumps(result, indent=2) + "\n")
+            command = [
+                "python3",
+                "-I",
+                str(root / "tools/check-anthropic-spend.py"),
+            ]
+            baseline = subprocess.run(
+                command, cwd=root, check=False, capture_output=True, text=True
+            )
+            self.assertEqual(baseline.returncode, 0, baseline.stderr)
+
+            result["cost_measurement"]["post_refusal_complete_utc_days"].remove(
+                "2026-08-03"
+            )
+            result_path.write_text(json.dumps(result, indent=2) + "\n")
+            mutation = subprocess.run(
+                command, cwd=root, check=False, capture_output=True, text=True
+            )
+            self.assertNotEqual(mutation.returncode, 0)
+            self.assertIn(
+                "A122 cost separation, day-close settlement, or phase ordering "
+                "is malformed",
+                mutation.stderr,
             )
 
     def test_checker_rejects_required_a120_a121_a122_mutations(self) -> None:

@@ -42,7 +42,7 @@ BOUND_SOURCES = {
     "tools/check-worker-runtime.py": "db1646d9bcf738d1df35679e131b1afdb9e35af73be1859d85c8f4017385ce75",
     "infra/ansible/tests/test_a101_readiness_root.py": "b0b076203bbaaa70058b7fa7a6529dbe0c027147f390f6766cf1bfeb1ad5f6a3",
     "infra/ansible/tests/test_worker_firewall_readiness.py": "8c5ac7c98d947c3ecf56f3e1f4b8ef5d6ec429f7d1fbb384e5d13630df24895c",
-    "infra/ansible/tests/test_anthropic_spend.py": "5bb4216c0ad6d4fe3af2bec18f26600823d8f67f51753d64899fb706ebfae0ae",
+    "infra/ansible/tests/test_anthropic_spend.py": "ae4ee1afb0627f92cccb180926357e792f687ccd1487ffc57ebc44277d426fd1",
     "infra/ansible/tests/test_anthropic_issuance.py": "1cd6f3b71df6987c94a3bb02447aebfbb7106a8cfb412f0d751c2ddc76a7f882",
     "infra/ansible/tests/test_anthropic_lifecycle.py": "ab25c25c0643305a219896a3c7803e04dde13963530e931fd43c10517adfc45e",
     "infra/ansible/tests/test_anthropic_wif_admin.py": "1d53f8ffe4ef6ad55b8d7187705344836aed831337c26f310bd11538888a9670",

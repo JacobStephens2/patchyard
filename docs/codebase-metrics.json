@@ -267,10 +267,10 @@
     {
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
-      "code": 8727,
+      "code": 9034,
       "comments": 20964,
       "blanks": 5769,
-      "files": 193,
+      "files": 194,
       "languages": [
         {
           "language": "BASH",
@@ -281,10 +281,10 @@
         },
         {
           "language": "JSON",
-          "code": 7930,
+          "code": 8237,
           "comments": 0,
           "blanks": 1,
-          "files": 33
+          "files": 34
         },
         {
           "language": "Markdown",

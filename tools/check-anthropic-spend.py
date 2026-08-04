@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
@@ -128,7 +128,7 @@ EXPECTED_READINESS_TEST_SOURCE_SHA256 = (
     "8c5ac7c98d947c3ecf56f3e1f4b8ef5d6ec429f7d1fbb384e5d13630df24895c"
 )
 EXPECTED_EVIDENCE_SOURCE_SHA256 = (
-    "000f2f5fcfdb5822396d7885e6a4aba82d3ad475e017fd5c032b1dc5a4710b51"
+    "494cba4a628e592004dc975ead283aa32fe1fbfe6236c6d6a4a7c7d7ee733099"
 )
 EXPECTED_PROVIDER_CALL_SEQUENCE = '''  setup_provider_transport
   assert_provider_transport_preflight
@@ -183,6 +183,16 @@ EXPECTED_PRE_ACTIVATION_ROW_GUARD = '''    elif pre_activation_utc_day not in be
 EXPECTED_POST_REFUSAL_COVERAGE_GUARD = '''    if after_complete_days is None or post_refusal_utc_day not in after_complete_days:
         raise ValueError(
             "post-refusal Cost Report does not completely cover the request UTC day"
+        )'''
+EXPECTED_MATCHED_COST_WINDOW_START_GUARD = '''    if before_window_start != after_window_start:
+        raise ValueError("cost snapshots do not share a reporting-window start")'''
+EXPECTED_POST_REFUSAL_BASELINE_ROW_GUARD = '''    if (
+        after_workspace_days is None
+        or pre_activation_utc_day not in after_workspace_days
+    ):
+        raise ValueError(
+            "post-refusal Cost Report lacks the Factory row for the "
+            "pre-activation UTC day"
         )'''
 EXPECTED_COST_REPORT_PAGINATION_GUARD = '''        page = payload.get("next_page")
         if not payload.get("has_more"):
@@ -274,6 +284,35 @@ def utc_day(value: datetime) -> str:
 
 def utc_day_closed(request_at: datetime, captured_at: datetime) -> bool:
     return utc_day(captured_at) > utc_day(request_at)
+
+
+def completely_covered_utc_days(
+    starting_at: datetime, ending_at: datetime, captured_at: datetime
+) -> list[str]:
+    start = starting_at.astimezone(timezone.utc)
+    end = ending_at.astimezone(timezone.utc)
+    captured = captured_at.astimezone(timezone.utc)
+    day = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    if day < start:
+        day += timedelta(days=1)
+    coverage_end = min(end, captured)
+    complete: list[str] = []
+    while day + timedelta(days=1) <= coverage_end:
+        complete.append(day.date().isoformat())
+        day += timedelta(days=1)
+    return complete
+
+
+def utc_day_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        raise ValueError("UTC day list is malformed")
+    parsed = [datetime.strptime(day, "%Y-%m-%d") for day in value]
+    if value != sorted(set(value)) or any(
+        day != parsed_day.strftime("%Y-%m-%d")
+        for day, parsed_day in zip(value, parsed)
+    ):
+        raise ValueError("UTC day list is malformed")
+    return value
 
 
 def decimal_value(value: Any) -> Decimal:
@@ -428,6 +467,10 @@ if evidence_source.count(EXPECTED_PRE_ACTIVATION_ROW_GUARD) != 1:
     errors.append("A122 pre-activation Factory-row guard is missing")
 if evidence_source.count(EXPECTED_POST_REFUSAL_COVERAGE_GUARD) != 1:
     errors.append("A122 post-refusal complete-day guard is missing")
+if evidence_source.count(EXPECTED_MATCHED_COST_WINDOW_START_GUARD) != 1:
+    errors.append("A122 cost snapshots can use different reporting windows")
+if evidence_source.count(EXPECTED_POST_REFUSAL_BASELINE_ROW_GUARD) != 1:
+    errors.append("A122 post-refusal aggregate baseline-row guard is missing")
 if (
     evidence_source.count("COST_REPORT_DAILY_LIMIT = 31") != 1
     or evidence_source.count('"limit": COST_REPORT_DAILY_LIMIT') != 1
@@ -837,7 +880,7 @@ if RESULT_PATH.exists():
     }:
         errors.append("A115 live result has an unexpected top-level shape")
     if (
-        result.get("schema_version") != 3
+        result.get("schema_version") != 4
         or result.get("provider") != "anthropic"
         or result.get("qualification_requirement") != "provider-spend-enforcement"
         or result.get("authorization_ruling") != "A115"
@@ -1026,6 +1069,18 @@ if RESULT_PATH.exists():
         incremental = decimal_value(cost["incremental_spend_before_refusal_usd"])
         before_time = parse_time(cost["before_captured_at"])
         after_time = parse_time(cost["after_captured_at"])
+        post_window = cost["post_refusal_cost_report_window"]
+        if not isinstance(post_window, dict) or set(post_window) != {
+            "starting_at",
+            "ending_at",
+        }:
+            raise ValueError
+        post_window_start = parse_time(post_window["starting_at"])
+        post_window_end = parse_time(post_window["ending_at"])
+        post_complete_days = utc_day_list(cost["post_refusal_complete_utc_days"])
+        post_workspace_days = utc_day_list(
+            cost["post_refusal_workspace_cost_utc_days"]
+        )
         if (
             set(cost)
             != {
@@ -1039,6 +1094,9 @@ if RESULT_PATH.exists():
                 "after_captured_at",
                 "pre_activation_workspace_cost_utc_day",
                 "post_refusal_workspace_cost_utc_day",
+                "post_refusal_cost_report_window",
+                "post_refusal_complete_utc_days",
+                "post_refusal_workspace_cost_utc_days",
                 "settlement_window_seconds",
                 "pre_activation_settlement_window_seconds",
                 "attribution",
@@ -1059,6 +1117,16 @@ if RESULT_PATH.exists():
             )
             or cost["post_refusal_workspace_cost_utc_day"]
             != utc_day(provider_times["temporary_refusal"])
+            or post_window_start >= post_window_end
+            or post_window_start > after_time
+            or post_complete_days
+            != completely_covered_utc_days(
+                post_window_start, post_window_end, after_time
+            )
+            or cost["post_refusal_workspace_cost_utc_day"]
+            not in post_complete_days
+            or cost["pre_activation_workspace_cost_utc_day"]
+            not in post_workspace_days
             or not utc_day_closed(
                 provider_times["operational_acceptance"], before_time
             )

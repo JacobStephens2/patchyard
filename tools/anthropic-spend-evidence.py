@@ -205,6 +205,8 @@ def validate_snapshot(
     datetime,
     frozenset[str] | None,
     frozenset[str] | None,
+    datetime,
+    datetime,
 ]:
     common_keys = {
         "schema_version",
@@ -236,8 +238,6 @@ def validate_snapshot(
         raise ValueError("cost snapshot amount or time is malformed") from error
     if amount < 0:
         raise ValueError("cost snapshot amount is negative")
-    if schema_version == 1:
-        return amount, captured, None, None
 
     window = snapshot["reporting_window"]
     if not isinstance(window, dict) or set(window) != {"starting_at", "ending_at"}:
@@ -249,6 +249,9 @@ def validate_snapshot(
         raise ValueError("cost snapshot reporting window is malformed") from error
     if window_start >= window_end or window_start > captured:
         raise ValueError("cost snapshot reporting window is malformed")
+    if schema_version == 1:
+        return amount, captured, None, None, window_start, window_end
+
     covered_days = frozenset(
         completely_covered_utc_days(window_start, window_end, captured)
     )
@@ -289,7 +292,14 @@ def validate_snapshot(
             raise ValueError(
                 "cost snapshot complete UTC days differ from its closed reporting window"
             )
-    return amount, captured, frozenset(raw_days), covered_days
+    return (
+        amount,
+        captured,
+        frozenset(raw_days),
+        covered_days,
+        window_start,
+        window_end,
+    )
 
 
 def validate_cap_readbacks(
@@ -592,12 +602,16 @@ def finalize(
         before_time,
         before_workspace_days,
         _before_complete_days,
+        before_window_start,
+        _before_window_end,
     ) = validate_snapshot(settled_before, workspace_id)
     (
         after_amount,
         after_time,
-        _after_workspace_days,
+        after_workspace_days,
         after_complete_days,
+        after_window_start,
+        _after_window_end,
     ) = validate_snapshot(settled_after, workspace_id)
     readbacks, cap_times = validate_cap_readbacks(readbacks, policy)
     operational_cap = (
@@ -607,6 +621,9 @@ def finalize(
         Decimal(policy["spend_enforcement"]["qualification_cap_cents"]) / 100
     )
     minimum_window = policy["spend_enforcement"]["minimum_settlement_window_seconds"]
+
+    if before_window_start != after_window_start:
+        raise ValueError("cost snapshots do not share a reporting-window start")
 
     if not (
         cap_times["operational_acceptance"][1]
@@ -653,6 +670,14 @@ def finalize(
         raise ValueError(
             "post-refusal Cost Report does not completely cover the request UTC day"
         )
+    if (
+        after_workspace_days is None
+        or pre_activation_utc_day not in after_workspace_days
+    ):
+        raise ValueError(
+            "post-refusal Cost Report lacks the Factory row for the "
+            "pre-activation UTC day"
+        )
     if pre_activation_settlement_window < minimum_window:
         raise ValueError("pre-activation cost has not completed the settlement window")
     if settlement_window < minimum_window:
@@ -683,7 +708,7 @@ def finalize(
     preexisting = before_amount - temporary_cap
     incremental = after_amount - before_amount
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "provider": "anthropic",
         "qualification_requirement": "provider-spend-enforcement",
         "authorization_ruling": "A115",
@@ -711,6 +736,9 @@ def finalize(
             "after_captured_at": settled_after["captured_at"],
             "pre_activation_workspace_cost_utc_day": pre_activation_utc_day,
             "post_refusal_workspace_cost_utc_day": post_refusal_utc_day,
+            "post_refusal_cost_report_window": settled_after["reporting_window"],
+            "post_refusal_complete_utc_days": sorted(after_complete_days),
+            "post_refusal_workspace_cost_utc_days": sorted(after_workspace_days),
             "settlement_window_seconds": settlement_window,
             "pre_activation_settlement_window_seconds": pre_activation_settlement_window,
             "attribution": "A115_acceptance_refusal_acceptance_workspace_only_cap_change",

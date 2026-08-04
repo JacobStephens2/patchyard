@@ -26,7 +26,7 @@ EXPECTED_WORKER_TASKS_SOURCE_SHA256 = (
     "110cbffc6db188aafa1364e88901249290653134b7f0adc559152abf3f35df40"
 )
 EXPECTED_CHECKER_SOURCE_SHA256 = (
-    "a31f67615673900e9f795c013dc13e09eadc416cac8aa0ecddb14f868137f93d"
+    "f3698347dd125a8816b2c5467bbd0a418013fc3481f40382688ec14e41f5f91f"
 )
 EXPECTED_READINESS_HELPER_SOURCE_SHA256 = (
     "5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba"
@@ -42,7 +42,7 @@ EXPECTED_READINESS_TEST_SOURCE_SHA256 = (
 )
 MODULE_PATH = ROOT / "tools/anthropic-spend-evidence.py"
 EXPECTED_EVIDENCE_SOURCE_SHA256 = (
-    "000f2f5fcfdb5822396d7885e6a4aba82d3ad475e017fd5c032b1dc5a4710b51"
+    "494cba4a628e592004dc975ead283aa32fe1fbfe6236c6d6a4a7c7d7ee733099"
 )
 A120_CALIBRATION_ITEMS = 16_000
 A120_CALIBRATION_COPIES = 2
@@ -341,8 +341,8 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
         second_page = {
             "data": [
                 {
-                    "starting_at": "2026-08-01T00:00:00Z",
-                    "ending_at": "2026-08-02T00:00:00Z",
+                    "starting_at": "2026-08-02T00:00:00Z",
+                    "ending_at": "2026-08-03T00:00:00Z",
                     "results": [
                         {
                             "workspace_id": "workspace",
@@ -350,7 +350,18 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
                             "amount": "384.074",
                         }
                     ],
-                }
+                },
+                {
+                    "starting_at": "2026-08-03T00:00:00Z",
+                    "ending_at": "2026-08-04T00:00:00Z",
+                    "results": [
+                        {
+                            "workspace_id": "workspace",
+                            "currency": "USD",
+                            "amount": "2.066",
+                        }
+                    ],
+                },
             ],
             "has_more": False,
             "next_page": None,
@@ -383,8 +394,10 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
         self.assertEqual(first_query["limit"], ["31"])
         self.assertNotIn("page", first_query)
         self.assertEqual(second_query["page"], ["after-default-seven"])
-        self.assertEqual(snapshot["cost_usd"], "3.84074")
-        self.assertEqual(snapshot["workspace_cost_utc_days"], ["2026-08-01"])
+        self.assertEqual(Decimal(snapshot["cost_usd"]), Decimal("3.86140"))
+        self.assertEqual(
+            snapshot["workspace_cost_utc_days"], ["2026-08-02", "2026-08-03"]
+        )
         self.assertEqual(snapshot["schema_version"], 3)
         expected_complete = EVIDENCE.completely_covered_utc_days(
             EVIDENCE.parse_time(snapshot["reporting_window"]["starting_at"]),
@@ -418,6 +431,17 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
         measurement = self.finalize()["cost_measurement"]
         self.assertEqual(measurement["settled_spend_after_refusal_usd"], "3.84074")
         self.assertEqual(measurement["incremental_spend_before_refusal_usd"], "0.00000")
+        self.assertEqual(
+            measurement["post_refusal_cost_report_window"],
+            self.after["reporting_window"],
+        )
+        self.assertEqual(
+            measurement["post_refusal_complete_utc_days"],
+            ["2026-08-01", "2026-08-02", "2026-08-03"],
+        )
+        self.assertEqual(
+            measurement["post_refusal_workspace_cost_utc_days"], ["2026-08-02"]
+        )
 
     def test_finalizer_rejects_no_factory_rows_even_when_refusal_day_is_complete(
         self,
@@ -431,7 +455,30 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "pre-activation Cost Report lacks"):
             self.finalize()
 
+    def test_finalizer_rejects_after_snapshot_missing_pre_activation_row(
+        self,
+    ) -> None:
+        self.after["workspace_cost_utc_days"] = ["2026-08-03"]
+        self.after["cost_usd"] = "7.00000"
+        with self.assertRaisesRegex(
+            ValueError, "post-refusal Cost Report lacks.*pre-activation UTC day"
+        ):
+            self.finalize()
+
+    def test_finalizer_rejects_mismatched_reporting_window_starts(self) -> None:
+        self.after["reporting_window"]["starting_at"] = "2026-08-02T00:00:00Z"
+        self.after["complete_utc_days"] = ["2026-08-02", "2026-08-03"]
+        with self.assertRaisesRegex(
+            ValueError, "do not share a reporting-window start"
+        ):
+            self.finalize()
+
     def test_finalizer_sums_present_refusal_day_row_into_overshoot(self) -> None:
+        self.after["complete_utc_days"] = [
+            "2026-08-01",
+            "2026-08-02",
+            "2026-08-03",
+        ]
         self.assertIn("2026-08-03", self.after["workspace_cost_utc_days"])
         measurement = self.finalize()["cost_measurement"]
         self.assertEqual(measurement["incremental_spend_before_refusal_usd"], "0.02066")
@@ -448,7 +495,7 @@ class AnthropicSpendEvidenceContract(unittest.TestCase):
 
     def test_finalizer_accepts_measured_legacy_pre_activation_snapshot(self) -> None:
         self.before = self.snapshot(560, "3.84074", legacy=True)
-        self.assertEqual(self.finalize()["schema_version"], 3)
+        self.assertEqual(self.finalize()["schema_version"], 4)
 
     def test_finalizer_rejects_other_legacy_pre_activation_snapshot(self) -> None:
         self.before = self.snapshot(560, "3.84075", legacy=True)
@@ -1069,6 +1116,26 @@ fi'''
                 "        or post_refusal_utc_day not in after_complete_days\n"
                 "    ):\n",
                 "  A122 post-refusal complete-day guard is missing",
+            ),
+            (
+                "mismatched cost reporting windows",
+                "tools/anthropic-spend-evidence.py",
+                "    if before_window_start != after_window_start:\n",
+                "    if False and before_window_start != after_window_start:\n",
+                "  A122 cost snapshots can use different reporting windows",
+            ),
+            (
+                "post-refusal aggregate without the billed baseline row",
+                "tools/anthropic-spend-evidence.py",
+                "    if (\n"
+                "        after_workspace_days is None\n"
+                "        or pre_activation_utc_day not in after_workspace_days\n"
+                "    ):\n",
+                "    if False and (\n"
+                "        after_workspace_days is None\n"
+                "        or pre_activation_utc_day not in after_workspace_days\n"
+                "    ):\n",
+                "  A122 post-refusal aggregate baseline-row guard is missing",
             ),
             (
                 "missing qualified-negative stop",

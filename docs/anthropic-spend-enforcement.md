@@ -96,7 +96,10 @@ successful refusal can bill no tokens and therefore produce no row. Absence on
 that closed, completely covered day is measured zero. If the row is present,
 its amount remains part of the month-to-date sum and therefore of the measured
 increment. Absence on an open or partially covered day remains unknown and
-fails closed.
+fails closed. Both snapshots must start at the same reporting instant so their
+month-to-date totals have the same basis. The post-refusal aggregate must still
+contain the operational acceptance day's necessarily billed row; otherwise a
+truncated read could drop the baseline while a later, larger row masks the loss.
 
 Each month-to-date query sets the maximum daily `limit` of 31 and still exhausts
 `has_more`/`next_page` through the terminal page. This prevents the API's
@@ -107,6 +110,8 @@ producing a zero snapshot. Snapshot schema 3 records both
 Factory row, and `complete_utc_days`, every closed UTC day fully spanned by the
 reporting window. The validator recomputes the latter from the window and
 capture time and rejects a mismatch; a day still in progress is never complete.
+The finalizer also requires the two reporting windows to share their start and
+anchors the post-refusal aggregate to the positive-control row.
 
 The already-captured pre-activation snapshot is schema 1 because it predates
 A121. The finalizer accepts that one legacy shape only for the measured August
@@ -142,6 +147,11 @@ The measurement also records
 `post_refusal_workspace_cost_utc_day`; each identifies its corresponding
 provider request's UTC day. The latter remains the accounting interval name and
 does not assert that a row occurred on a successfully refused request's day.
+Result schema 4 durably carries the post-refusal reporting window,
+`post_refusal_complete_utc_days`, and
+`post_refusal_workspace_cost_utc_days`. The committed result therefore preserves
+both why the refusal day is completely measured and which days actually had
+rows after the root-only input snapshots are deleted.
 
 Only `incremental_spend_before_refusal_usd` is the observed enforcement
 overshoot. It may be zero, and it has no preset ceiling. The settled first
@@ -350,7 +360,9 @@ enforcement-mode selector that the Console does not expose.
    provider refusal has closed, at least 10,260 seconds have elapsed, and the
    Cost Report reporting window completely covers that request day. A row for
    that day is optional; a no-row day is zero only when it is closed and named
-   in `complete_utc_days`. Then run the restored positive control:
+   in `complete_utc_days`. The read must still return the operational
+   acceptance day's Factory row, and its reporting-window start must match the
+   pre-activation snapshot. Then run the restored positive control:
 
    ```bash
    tools/anthropic-spend-evidence.py snapshot \
@@ -381,10 +393,12 @@ enforcement-mode selector that the Console does not expose.
 
 7. Run both Anthropic checkers, the full repository gates, and the prescribed
    mutations. Delete the root-only temporary snapshots and readbacks after the
-   committed evidence passes. A122's behavioral changes are confined to the
-   offline spend checker, evidence finalizer, tests, and procedure; the issuance
-   runner, Firecracker launcher, one-shot transport, and guest image remain
-   byte-identical.
+   committed evidence passes; result schema 4 retains the credential-free
+   post-refusal window, complete-day list, and row-day list needed to recheck
+   A122 without those inputs. A122's behavioral changes are confined to the
+   offline spend checker, evidence finalizer, tests, and procedure; the
+   issuance runner, Firecracker launcher, one-shot transport, and guest image
+   remain byte-identical.
    Requirement 1's qualified
    `eef6e16e54b6c0945f3874dae71063e8ef2248fea470f2fe4b2579ce22d52977`
    host contract is therefore not stale and is not refreshed by this change.

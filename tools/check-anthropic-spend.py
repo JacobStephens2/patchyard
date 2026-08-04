@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the Anthropic A-5 requirement-2 A115/A120/A121 contract."""
+"""Check the Anthropic A-5 requirement-2 A115/A120/A121/A122 contract."""
 
 from __future__ import annotations
 
@@ -128,7 +128,7 @@ EXPECTED_READINESS_TEST_SOURCE_SHA256 = (
     "8c5ac7c98d947c3ecf56f3e1f4b8ef5d6ec429f7d1fbb384e5d13630df24895c"
 )
 EXPECTED_EVIDENCE_SOURCE_SHA256 = (
-    "54807ae321b1a41046fc6a0a4fa585167b0d7d8e7cfd6f43a41cb34899ece978"
+    "000f2f5fcfdb5822396d7885e6a4aba82d3ad475e017fd5c032b1dc5a4710b51"
 )
 EXPECTED_PROVIDER_CALL_SEQUENCE = '''  setup_provider_transport
   assert_provider_transport_preflight
@@ -174,6 +174,16 @@ EXPECTED_POST_REFUSAL_DAY_CLOSE_GUARD = '''    if not utc_day_closed(observed["t
         raise ValueError(
             "post-refusal snapshot was captured before the request UTC day closed"
         )'''
+EXPECTED_NO_WORKSPACE_ROWS_GUARD = '''    if not matched_workspace:
+        raise ValueError("Anthropic Cost Report returned no Factory workspace row")'''
+EXPECTED_PRE_ACTIVATION_ROW_GUARD = '''    elif pre_activation_utc_day not in before_workspace_days:
+        raise ValueError(
+            "pre-activation Cost Report lacks the Factory row for the request UTC day"
+        )'''
+EXPECTED_POST_REFUSAL_COVERAGE_GUARD = '''    if after_complete_days is None or post_refusal_utc_day not in after_complete_days:
+        raise ValueError(
+            "post-refusal Cost Report does not completely cover the request UTC day"
+        )'''
 EXPECTED_COST_REPORT_PAGINATION_GUARD = '''        page = payload.get("next_page")
         if not payload.get("has_more"):
             break
@@ -186,6 +196,10 @@ EXPECTED_FIRST_ACCEPTANCE_STOP_TEXT = (
 EXPECTED_QUALIFIED_NEGATIVE_STOP_TEXT = (
     "This is a qualified negative for workspace-scope enforcement: stop without "
     "the restored provider request or any repair request"
+)
+EXPECTED_POST_REFUSAL_COVERAGE_TEXT = (
+    "A row for that day is optional; a no-row day is zero only when it is closed "
+    "and named in `complete_utc_days`."
 )
 PHASES = (
     "operational_acceptance",
@@ -360,7 +374,7 @@ if digest(ANSIBLE_WRAPPER_PATH) != EXPECTED_ANSIBLE_WRAPPER_SOURCE_SHA256:
 if digest(READINESS_TEST_PATH) != EXPECTED_READINESS_TEST_SOURCE_SHA256:
     errors.append("A101 readiness test census differs from its complete source binding")
 if digest(EVIDENCE_PATH) != EXPECTED_EVIDENCE_SOURCE_SHA256:
-    errors.append("A121 evidence finalizer differs from its complete source binding")
+    errors.append("A122 evidence finalizer differs from its complete source binding")
 
 if hashlib.sha256(CALIBRATION_PROMPT.encode()).hexdigest() != (
     EXPECTED_CALIBRATION_PROMPT_SHA256
@@ -408,6 +422,12 @@ if evidence_source.count(EXPECTED_PRE_ACTIVATION_DAY_CLOSE_GUARD) != 1:
     errors.append("A121 pre-activation UTC-day-close guard is missing")
 if evidence_source.count(EXPECTED_POST_REFUSAL_DAY_CLOSE_GUARD) != 1:
     errors.append("A121 post-refusal UTC-day-close guard is missing")
+if evidence_source.count(EXPECTED_NO_WORKSPACE_ROWS_GUARD) != 1:
+    errors.append("A122 snapshot no-rows fail-closed guard is missing")
+if evidence_source.count(EXPECTED_PRE_ACTIVATION_ROW_GUARD) != 1:
+    errors.append("A122 pre-activation Factory-row guard is missing")
+if evidence_source.count(EXPECTED_POST_REFUSAL_COVERAGE_GUARD) != 1:
+    errors.append("A122 post-refusal complete-day guard is missing")
 if (
     evidence_source.count("COST_REPORT_DAILY_LIMIT = 31") != 1
     or evidence_source.count('"limit": COST_REPORT_DAILY_LIMIT') != 1
@@ -418,6 +438,8 @@ if EXPECTED_FIRST_ACCEPTANCE_STOP_TEXT not in normalized_procedure:
     errors.append("A120 first-acceptance settled-cost stop is missing from the procedure")
 if EXPECTED_QUALIFIED_NEGATIVE_STOP_TEXT not in normalized_procedure:
     errors.append("A120 qualified-negative stop is missing from the procedure")
+if EXPECTED_POST_REFUSAL_COVERAGE_TEXT not in normalized_procedure:
+    errors.append("A122 post-refusal complete-day procedure is missing")
 for installed_path, label in (
     ("dest: /usr/local/sbin/patchyard-firecracker-run", "launcher"),
     ("dest: /usr/local/libexec/patchyard-anthropic-one-shot", "one-shot"),
@@ -1083,7 +1105,7 @@ if RESULT_PATH.exists():
             raise ValueError
     except (KeyError, InvalidOperation, TypeError, ValueError):
         errors.append(
-            "A121 cost separation, day-close settlement, or phase ordering is malformed"
+            "A122 cost separation, day-close settlement, or phase ordering is malformed"
         )
     if contains_forbidden_ceiling(result):
         errors.append("A115 result encodes a forbidden preset overshoot ceiling")
@@ -1099,5 +1121,9 @@ if errors:
         print(f"  {error}", file=sys.stderr)
     raise SystemExit(1)
 
-status = "with live A115/A120/A121 result" if RESULT_PATH.exists() else "A121 source preflight"
+status = (
+    "with live A115/A120/A121/A122 result"
+    if RESULT_PATH.exists()
+    else "A122 source preflight"
+)
 print(f"Anthropic spend check: pass ({status}; historical failures retained)")

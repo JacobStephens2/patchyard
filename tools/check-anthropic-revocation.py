@@ -74,6 +74,7 @@ UTC_TIMESTAMP = re.compile(
     r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
     r"(?:\.[0-9]{6})?Z"
 )
+DISCARDED_FIELD_NAME = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
 
 
 class EvidenceJsonError(ValueError):
@@ -183,6 +184,19 @@ def secret_named_key(value: Any) -> str | None:
     return None
 
 
+def validate_discarded_fields(value: Any, label: str, errors: list[str]) -> None:
+    if not isinstance(value, list) or any(
+        not isinstance(field, str)
+        or DISCARDED_FIELD_NAME.fullmatch(field) is None
+        or field.startswith("sk-ant-")
+        for field in value
+    ):
+        errors.append(f"{label} has unsafe discarded response field names")
+        return
+    if value != sorted(set(value)):
+        errors.append(f"{label} has unsafe discarded response field names")
+
+
 def validate_key(value: Any, label: str, errors: list[str]) -> tuple[str, str] | None:
     if not exact_keys(value, {"kid", "jwk_thumbprint_sha256"}, label, errors):
         return None
@@ -261,6 +275,7 @@ def validate_exchange(
         "expires_in",
         "token_type",
         "scope",
+        "discarded_response_fields",
         "service_account_id",
         "rule_id",
         "workspace_id",
@@ -275,6 +290,9 @@ def validate_exchange(
         request_id = None
     if value.get("token_type") != "Bearer" or value.get("scope") != "workspace:inference":
         errors.append(f"{label} exchange bearer contract differs")
+    validate_discarded_fields(
+        value.get("discarded_response_fields"), f"{label} exchange", errors
+    )
     for field, section in (
         ("service_account_id", "service_account"),
         ("rule_id", "rule"),
@@ -530,10 +548,14 @@ def validate_admin_event(
         "readback",
         "state_before",
         "state_after",
+        "discarded_response_fields",
         "source",
     }
     if not exact_keys(value, expected, event_type, errors):
         return None, {}, {}, []
+    validate_discarded_fields(
+        value.get("discarded_response_fields"), event_type, errors
+    )
     rule_base = f"/v1/organizations/federation_rules/{policy['rule']['id']}"
     issuer_base = f"/v1/organizations/federation_issuers/{policy['issuer']['id']}"
     workspace = policy["workspace"]["id"]

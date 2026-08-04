@@ -44,6 +44,7 @@ UTC_TIMESTAMP = re.compile(
     r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
     r"(?:\.[0-9]{6})?Z"
 )
+DISCARDED_FIELD_NAME = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
 
 
 class EvidenceJsonError(ValueError):
@@ -151,6 +152,19 @@ def secret_named_key(value: Any) -> str | None:
     return None
 
 
+def validate_discarded_fields(value: Any, label: str, errors: list[str]) -> None:
+    if not isinstance(value, list) or any(
+        not isinstance(field, str)
+        or DISCARDED_FIELD_NAME.fullmatch(field) is None
+        or field.startswith("sk-ant-")
+        for field in value
+    ):
+        errors.append(f"{label} has unsafe discarded response field names")
+        return
+    if value != sorted(set(value)):
+        errors.append(f"{label} has unsafe discarded response field names")
+
+
 def validate_key(value: Any, errors: list[str]) -> None:
     if not exact_keys(value, {"kid", "jwk_thumbprint_sha256"}, "signing key", errors):
         return
@@ -174,6 +188,7 @@ def validate_issuance(
         "expires_in",
         "token_type",
         "scope",
+        "discarded_response_fields",
         "service_account_id",
         "rule_id",
         "workspace_id",
@@ -186,6 +201,9 @@ def validate_issuance(
         errors.append("issuance request ID is malformed")
     if value.get("token_type") != "Bearer" or value.get("scope") != "workspace:inference":
         errors.append("issuance did not return the bounded bearer contract")
+    validate_discarded_fields(
+        value.get("discarded_response_fields"), "issuance", errors
+    )
     for field, section in (
         ("service_account_id", "service_account"),
         ("rule_id", "rule"),

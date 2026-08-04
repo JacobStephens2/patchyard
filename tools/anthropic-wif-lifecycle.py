@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -35,6 +36,9 @@ MAX_RESPONSE_BYTES = 1_000_000
 RUN_ID_PATTERN = re.compile(r"anthropic-l3-[0-9]{8}-[0-9a-f]{10}")
 REQUEST_ID_PATTERN = re.compile(r"req_[A-Za-z0-9]+")
 KID_PATTERN = re.compile(r"patchyard-[0-9a-f]{16}")
+JWT_PATTERN = re.compile(
+    r"eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
+)
 POSITIVE_EVENT_TYPES = {
     "rule_enabled_positive",
     "rule_restored_positive",
@@ -119,6 +123,57 @@ def require_equal(actual: Any, expected: Any, label: str) -> None:
         raise LifecycleError(
             f"{label} differs: expected {expected!r}, observed {actual!r}"
         )
+
+
+def credential_shaped(value: Any) -> bool:
+    pending = [value]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if isinstance(current, str):
+            if current.startswith("sk-ant-") or JWT_PATTERN.fullmatch(current):
+                return True
+            if len(current) >= 64:
+                counts: dict[str, int] = {}
+                for character in current:
+                    counts[character] = counts.get(character, 0) + 1
+                entropy = -sum(
+                    (count / len(current)) * math.log2(count / len(current))
+                    for count in counts.values()
+                )
+                if entropy >= 4.0:
+                    return True
+        elif isinstance(current, dict):
+            identity = id(current)
+            if identity not in seen:
+                seen.add(identity)
+                pending.extend(current.keys())
+                pending.extend(current.values())
+        elif isinstance(current, list):
+            identity = id(current)
+            if identity not in seen:
+                seen.add(identity)
+                pending.extend(current)
+    return False
+
+
+def documented_response_fields(
+    payload: Any, documented: tuple[str, ...], label: str
+) -> tuple[dict[str, Any], list[str]]:
+    if not isinstance(payload, dict):
+        raise LifecycleError(f"{label} is not a JSON object")
+    missing = sorted(set(documented) - set(payload))
+    if missing:
+        raise LifecycleError(f"{label} is missing documented fields: {missing!r}")
+    discarded = sorted(set(payload) - set(documented))
+    for field in discarded:
+        if credential_shaped(field):
+            raise LifecycleError(f"{label} has an unsafe additional field name")
+        if credential_shaped(payload[field]):
+            raise LifecycleError(
+                f"{label} additional field {field!r} is credential-shaped"
+            )
+    return {field: payload[field] for field in documented}, discarded
 
 
 def load_policy() -> dict[str, Any]:
@@ -543,8 +598,11 @@ def accepted_exchange(
                 response_observation(response, "/v1/oauth/token"),
             )
         raise LifecycleError("positive token exchange was denied by the provider")
-    payload = response["payload"]
-    require_equal(sorted(payload), ["access_token", "expires_in", "scope", "token_type"], "exchange response fields")
+    payload, discarded = documented_response_fields(
+        response["payload"],
+        ("access_token", "expires_in", "scope", "token_type"),
+        "exchange response",
+    )
     token = payload["access_token"]
     if not isinstance(token, str) or not token.startswith("sk-ant-oat01-"):
         raise LifecycleError("exchange did not return the bounded WIF bearer type")
@@ -572,6 +630,7 @@ def accepted_exchange(
         "expires_in": expires_in,
         "token_type": "Bearer",
         "scope": "workspace:inference",
+        "discarded_response_fields": discarded,
         "service_account_id": policy["service_account"]["id"],
         "rule_id": policy["rule"]["id"],
         "workspace_id": policy["workspace"]["id"],

@@ -464,6 +464,23 @@ def response_request_id(headers: Any, payload: dict[str, Any]) -> str:
     return str(request_id)
 
 
+def expiry_response_request_id(headers: Any, payload: dict[str, Any]) -> str | None:
+    header_request_id = headers.get("request-id")
+    payload_request_id = payload.get("request_id")
+    supplied = [
+        value
+        for value in (header_request_id, payload_request_id)
+        if value is not None
+    ]
+    if not supplied:
+        return None
+    if any(REQUEST_ID_PATTERN.fullmatch(str(value)) is None for value in supplied):
+        raise LifecycleError("provider request ID is malformed")
+    if len({str(value) for value in supplied}) != 1:
+        raise LifecycleError("provider header and body request IDs differ")
+    return str(supplied[0])
+
+
 def request_json(
     method: str,
     path: str,
@@ -492,6 +509,7 @@ def request_json(
         headers=headers,
         method=method,
     )
+    requested_at = iso_time(utc_now())
     try:
         response = URL_OPENER.open(request, timeout=30)
     except urllib.error.HTTPError as error:
@@ -510,6 +528,7 @@ def request_json(
             "status": int(response.status),
             "headers": response.headers,
             "payload": payload,
+            "requested_at": requested_at,
             "observed_at": iso_time(utc_now()),
         }
 
@@ -800,12 +819,15 @@ def expiry_evidence(
                 response_observation(response, "/v1/models?limit=1"),
             )
         raise LifecycleError("provider did not deny the expired bearer exactly once")
+    request_id = expiry_response_request_id(response["headers"], payload)
     denial = {
         "source": "anthropic_http_response",
         "endpoint": "/v1/models?limit=1",
         "http_status": 401,
-        "request_id": response_request_id(response["headers"], payload),
+        "request_id": request_id,
+        "request_id_supplied": request_id is not None,
         "provider_date": parse_http_date(response["headers"].get("date")),
+        "request_started_at": response["requested_at"],
         "observed_at": response["observed_at"],
         "error_type": "authentication_error",
         "response_shape": response_shape(payload),

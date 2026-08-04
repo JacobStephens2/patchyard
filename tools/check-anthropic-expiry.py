@@ -40,6 +40,11 @@ EXPECTED_ERROR_SHAPE = {
     "error_value_type": "object",
     "error_object_keys": ["message", "type"],
 }
+EXPECTED_ERROR_SHAPE_WITHOUT_REQUEST_ID = {
+    "top_level_keys": ["error", "type"],
+    "error_value_type": "object",
+    "error_object_keys": ["message", "type"],
+}
 UTC_TIMESTAMP = re.compile(
     r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
     r"(?:\.[0-9]{6})?Z"
@@ -252,34 +257,59 @@ def validate_positive(value: Any, errors: list[str]) -> tuple[datetime | None, d
     return provider, observed
 
 
-def validate_denial(value: Any, errors: list[str]) -> tuple[datetime | None, datetime | None]:
+def validate_denial(
+    value: Any, errors: list[str]
+) -> tuple[datetime | None, datetime | None, datetime | None, bool | None]:
     expected = {
         "source",
         "endpoint",
         "http_status",
         "request_id",
+        "request_id_supplied",
         "provider_date",
+        "request_started_at",
         "observed_at",
         "error_type",
         "response_shape",
     }
     if not exact_keys(value, expected, "expiry denial", errors):
-        return None, None
+        return None, None, None, None
     if value.get("source") != "anthropic_http_response":
         errors.append("expiry denial is not a provider HTTP response")
     if value.get("endpoint") != "/v1/models?limit=1":
         errors.append("expiry denial used the wrong endpoint")
     if value.get("http_status") != 401 or value.get("error_type") != "authentication_error":
         errors.append("expiry denial is not the exact provider authentication denial")
-    if REQUEST_ID.fullmatch(str(value.get("request_id", ""))) is None:
-        errors.append("expiry-denial request ID is malformed")
-    if value.get("response_shape") != EXPECTED_ERROR_SHAPE:
+    request_id = value.get("request_id")
+    request_id_supplied = value.get("request_id_supplied")
+    if not isinstance(request_id_supplied, bool):
+        errors.append("expiry denial does not explicitly record request-ID presence")
+        request_id_supplied = None
+    elif request_id_supplied:
+        if REQUEST_ID.fullmatch(str(request_id or "")) is None:
+            errors.append("expiry-denial request ID is malformed")
+    elif request_id is not None:
+        errors.append("expiry denial claims request-ID absence while carrying an ID")
+    response_shape = value.get("response_shape")
+    if request_id_supplied is False:
+        shape_is_valid = response_shape == EXPECTED_ERROR_SHAPE_WITHOUT_REQUEST_ID
+    else:
+        shape_is_valid = response_shape in (
+            EXPECTED_ERROR_SHAPE,
+            EXPECTED_ERROR_SHAPE_WITHOUT_REQUEST_ID,
+        )
+    if not shape_is_valid:
         errors.append("expiry denial has an unexpected sanitized response shape")
     provider = parse_time(value.get("provider_date"), "denial provider_date", errors)
+    requested = parse_time(
+        value.get("request_started_at"), "denial request_started_at", errors
+    )
     observed = parse_time(value.get("observed_at"), "denial observed_at", errors)
     if provider is not None and observed is not None and provider > observed:
         errors.append("denial provider Date follows its local observation")
-    return provider, observed
+    if requested is not None and observed is not None and requested > observed:
+        errors.append("denial control-plane UTC bracket is reversed")
+    return provider, requested, observed, request_id_supplied
 
 
 def validate_evidence(result: Any, policy: dict[str, Any]) -> list[str]:
@@ -319,28 +349,57 @@ def validate_evidence(result: Any, policy: dict[str, Any]) -> list[str]:
     positive_provider, positive_observed = validate_positive(
         result.get("positive_control"), errors
     )
-    denial_provider, denial_observed = validate_denial(result.get("expiry_denial"), errors)
+    denial_provider, denial_requested, denial_observed, denial_has_request_id = (
+        validate_denial(result.get("expiry_denial"), errors)
+    )
     removed = parse_time(result.get("credential_removed_at"), "credential_removed_at", errors)
     if all(value is not None for value in (issued, expires, positive_provider, denial_provider)):
         assert issued is not None and expires is not None
         assert positive_provider is not None and denial_provider is not None
         if not issued <= positive_provider < expires <= denial_provider:
             errors.append("provider timestamps do not order positive-before-expiry-before-denial")
+    if expires is not None and denial_requested is not None:
+        if not expires < denial_requested:
+            errors.append(
+                "denial control-plane UTC bracket does not begin strictly after expiry"
+            )
     if all(
         value is not None
-        for value in (exchange_observed, positive_observed, denial_observed, removed)
+        for value in (
+            exchange_observed,
+            positive_observed,
+            denial_requested,
+            denial_observed,
+            removed,
+        )
     ):
         assert exchange_observed is not None and positive_observed is not None
-        assert denial_observed is not None and removed is not None
-        if not exchange_observed < positive_observed < denial_observed <= removed:
+        assert denial_requested is not None and denial_observed is not None
+        assert removed is not None
+        if not (
+            exchange_observed
+            < positive_observed
+            < denial_requested
+            <= denial_observed
+            <= removed
+        ):
             errors.append("capture timestamps are out of lifecycle order")
     request_ids = []
-    for section in ("issuance", "positive_control", "expiry_denial"):
+    sections = ["issuance", "positive_control"]
+    if denial_has_request_id is True:
+        sections.append("expiry_denial")
+    for section in sections:
         value = result.get(section)
         if isinstance(value, dict) and isinstance(value.get("request_id"), str):
             request_ids.append(value["request_id"])
-    if len(request_ids) != 3 or len(set(request_ids)) != 3:
-        errors.append("expiry fixture does not bind three distinct provider requests")
+    expected_request_ids = 3 if denial_has_request_id is True else 2
+    if (
+        len(request_ids) != expected_request_ids
+        or len(set(request_ids)) != expected_request_ids
+    ):
+        errors.append(
+            "expiry fixture does not bind every distinct identified provider request"
+        )
     forbidden = secret_named_key(result)
     if forbidden is not None:
         errors.append(f"expiry fixture contains forbidden credential field: {forbidden}")
@@ -365,6 +424,8 @@ def static_errors() -> tuple[list[str], dict[str, Any]]:
         for required in (
             "provider did not deny the expired bearer exactly once",
             '"source": "anthropic_http_response"',
+            '"request_id_supplied": request_id is not None',
+            '"request_started_at": response["requested_at"]',
             '"expires_in": expires_in',
             'token = ""',
             "os.O_EXCL | os.O_NOFOLLOW",

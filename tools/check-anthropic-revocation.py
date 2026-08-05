@@ -19,9 +19,6 @@ HARNESS_PATH = REPO / "tools/anthropic-wif-lifecycle.py"
 REVOCATION_HARNESS_PATH = REPO / "tools/anthropic-wif-revocation.py"
 ADMIN_PATH = REPO / "tools/anthropic-wif-lifecycle-admin.py"
 RESULT_PATH = REPO / "research/isolation/results/anthropic-revocation-rotation.json"
-A129_NONCONFORMING_RESULT_SHA256 = (
-    "9b5c4d9552e4331e5e25bcc92a89b9db3ade4519a0f35b1a9311a2042d7b4deb"
-)
 PROTECTED_SOURCES = {
     "worker/qualification/patchyard-run-anthropic-issuance": (
         "91c3fdc09b34d009a02e4f8d1290976c558b0a654e89171dcaa5b3fd037a7608"
@@ -1343,7 +1340,6 @@ def main() -> int:
     evidence_path = RESULT_PATH
     evidence_path_supplied = False
     allow_missing = False
-    accepted_nonconforming_result = False
     observed_denial_path: Path | None = None
     contract_fixture_path: Path | None = None
     arguments = sys.argv[1:]
@@ -1395,14 +1391,6 @@ def main() -> int:
     elif not evidence_path.exists():
         if not allow_missing:
             errors.append("committed Anthropic revocation result is missing")
-    elif (
-        allow_missing
-        and evidence_path == RESULT_PATH
-        and evidence_path.is_file()
-        and not evidence_path.is_symlink()
-        and digest(evidence_path) == A129_NONCONFORMING_RESULT_SHA256
-    ):
-        accepted_nonconforming_result = True
     else:
         try:
             if not evidence_path.is_file() or evidence_path.is_symlink():
@@ -1444,8 +1432,6 @@ def main() -> int:
         status = "observed rule-disabled denial; not qualification evidence"
     elif contract_fixture_path is not None:
         status = "synthetic contract fixture; not qualification evidence"
-    elif accepted_nonconforming_result:
-        status = "static preflight; exact A129-nonconforming result remains recorded"
     elif evidence_path != RESULT_PATH:
         status = "with supplied evidence"
     else:

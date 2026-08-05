@@ -15,22 +15,19 @@ fixture, so the run assembled no result. It did produce the first observation
 of the retired-key denial.
 
 The second, `anthropic-l3-20260805-5ed79595e2`, ran after that race was fixed
-and completed all eleven events in the old shape. Its result remains recorded
-unchanged at `research/isolation/results/anthropic-revocation-rotation.json`.
-A129 replaces that shape with thirteen events, so the default checker now
-rejects this file as non-conforming. The infrastructure gate's explicit static
-preflight mode recognizes only its pinned digest and treats it like a missing
-current result; it does not qualify or relabel the historical record. A future
-conforming result supersedes it.
+and completed all eleven events in the old shape. That result is preserved in
+git history and was superseded at the canonical path by run
+`anthropic-l3-20260805-68e104a18d`, which completed A129's thirteen-event
+sequence. Its post-retirement active/denial/active bracket closed in 1.02
+seconds, within the 120-second bound, and the default checker accepts the
+current result as conforming qualification evidence.
 
-**Rotation is not qualified.** A129 closes the first source-contract gap by
-requiring the retired-key denial to sit between two active-replacement
-exchange-and-Models controls, but the recorded run predates those events. A
-control was run 83 seconds after its denial and passed, but it remains outside
-the fixture and cannot be backfilled. A128's separate provenance limitation is
-unchanged: the checker proves internal consistency, not that each recorded
-value came from the provider call it names. That limitation also applies to
-requirement 1, requirement 2, and the expiry denial.
+**Rotation is qualified.** The retired-key denial is bracketed by two
+active-replacement exchange-and-Models controls at the stable path. A128's
+separate provenance limitation is unchanged: the checker proves internal
+consistency, not that each recorded value came from the provider call it names.
+That limitation also applies to requirement 1, requirement 2, and the expiry
+denial.
 
 All 13 provider `credential_qualified` flags remain false. Any further live execution, provider mutation, key activation, evidence
 publication, fixture refresh, or qualification-flag change requires a new
@@ -126,10 +123,10 @@ occupy that field.
 ### Federation revocation and signing-key rotation
 
 `research/isolation/results/anthropic-revocation-rotation.json` was assembled by
-run `anthropic-l3-20260805-5ed79595e2` in the former eleven-event shape. It
-remains recorded but no longer conforms to the checker. A new result must bind
-the current policy, qualified expiry harness, revocation adapter, and
-administrative tool digests and contain these exact, strictly ordered events:
+run `anthropic-l3-20260805-68e104a18d` in A129's thirteen-event shape. The
+accepted result binds the current policy, qualified expiry harness, revocation
+adapter, and administrative tool digests and contains these exact, strictly
+ordered events:
 
 | Order | Event | Required fact |
 | :-- | :-- | :-- |

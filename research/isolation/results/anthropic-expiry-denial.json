@@ -1,0 +1,65 @@
+{
+  "authorization_ruling": "A113",
+  "credential_removed_at": "2026-08-04T23:23:20.112758Z",
+  "expiry_denial": {
+    "endpoint": "/v1/models?limit=1",
+    "error_type": "authentication_error",
+    "http_status": 401,
+    "observed_at": "2026-08-04T23:23:20.112534Z",
+    "provider_date": "2026-08-04T23:23:20Z",
+    "request_id": null,
+    "request_id_supplied": false,
+    "request_started_at": "2026-08-04T23:23:20.024420Z",
+    "response_shape": {
+      "error_object_keys": [
+        "message",
+        "type"
+      ],
+      "error_value_type": "object",
+      "top_level_keys": [
+        "error",
+        "request_id",
+        "type"
+      ]
+    },
+    "source": "anthropic_http_response"
+  },
+  "issuance": {
+    "discarded_response_fields": [
+      "next_challenge",
+      "next_challenge_expires_in",
+      "workspace_id"
+    ],
+    "endpoint": "/v1/oauth/token",
+    "expires_at": "2026-08-04T23:23:19Z",
+    "expires_in": 300,
+    "http_status": 200,
+    "issued_at": "2026-08-04T23:18:19Z",
+    "observed_at": "2026-08-04T23:18:19.151497Z",
+    "provider_date": "2026-08-04T23:18:19Z",
+    "request_id": "req_011CdiZbZug9s8SL7bvp2MTt",
+    "rule_id": "fdrl_000000000000000000000000",
+    "scope": "workspace:inference",
+    "service_account_id": "svac_01BqCdjSqFsWTvfDyCucThZy",
+    "token_type": "Bearer",
+    "workspace_id": "wrkspc_000000000000000000000000"
+  },
+  "lifecycle_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+  "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7",
+  "positive_control": {
+    "endpoint": "/v1/models?limit=1",
+    "http_status": 200,
+    "model_id": "claude-opus-5",
+    "observed_at": "2026-08-04T23:18:19.399171Z",
+    "provider_date": "2026-08-04T23:18:19Z",
+    "request_id": "req_011CdiZbb57vj8U5v74sEb61"
+  },
+  "provider": "anthropic",
+  "qualification_requirement": "credential-expiry-denial",
+  "run_id": "anthropic-l3-20260804-1cf8dd5428",
+  "schema_version": 1,
+  "signing_key": {
+    "jwk_thumbprint_sha256": "769847957daad1d10d7b754d5ea6fbe1586eb0c539e000b6a362f05b96026563",
+    "kid": "patchyard-ab18520576d26852"
+  }
+}

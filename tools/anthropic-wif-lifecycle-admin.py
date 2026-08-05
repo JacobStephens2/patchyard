@@ -21,6 +21,7 @@ import re
 import stat
 import subprocess
 import sys
+import time
 from typing import Any, Callable
 import urllib.error
 import urllib.request
@@ -30,6 +31,9 @@ ROOT = Path(__file__).resolve().parent.parent
 POLICY_PATH = ROOT / "policy" / "anthropic-wif.json"
 BASE_URL = "https://api.anthropic.com"
 MAX_RESPONSE_BYTES = 1_000_000
+READBACK_DEADLINE_SECONDS = 90.0
+READBACK_INITIAL_DELAY_SECONDS = 0.25
+READBACK_MAX_DELAY_SECONDS = 2.0
 RUN_ID_PATTERN = re.compile(r"anthropic-l3-[0-9]{8}-[0-9a-f]{10}")
 REQUEST_ID_PATTERN = re.compile(r"req_[A-Za-z0-9]+")
 KID_PATTERN = re.compile(r"patchyard-[0-9a-f]{16}")
@@ -40,6 +44,16 @@ JWT_PATTERN = re.compile(
 
 class AdminError(RuntimeError):
     """An administrative precondition, request, or readback failed."""
+
+
+class PostMutationReadbackError(AdminError):
+    """A provider mutation was accepted but its readback did not validate."""
+
+    def __init__(
+        self, message: str, failed_validation_response: dict[str, Any]
+    ) -> None:
+        super().__init__(message)
+        self.failed_validation_response = failed_validation_response
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -387,14 +401,53 @@ def rule_state(value: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def read_rule(
-    api: Any, policy: dict[str, Any], expected_workspace_ids: list[str]
-) -> tuple[dict[str, Any], dict[str, Any]]:
+def observe_rule(
+    api: Any, policy: dict[str, Any]
+) -> tuple[tuple[dict[str, Any], dict[str, Any]], dict[str, Any]]:
     path = rule_path(policy)
     response = api.request("GET", path)
     require_equal(response["status"], 200, "rule read status")
-    validate_rule(response["payload"], policy, expected_workspace_ids)
-    return response["payload"], receipt(response, "GET", path)
+    response_receipt = receipt(response, "GET", path)
+    try:
+        value = response["payload"]
+        workspace_ids = value.get("workspace_ids")
+        if (
+            not isinstance(workspace_ids, list)
+            or len(workspace_ids) > 16
+            or any(
+                not isinstance(item, str) or len(item) > 128
+                for item in workspace_ids
+            )
+        ):
+            raise AdminError("rule readback has invalid workspace IDs")
+        validate_rule(value, policy, workspace_ids)
+        state = rule_state(value, policy)
+    except (AdminError, AttributeError, KeyError, TypeError) as error:
+        raise PostMutationReadbackError(
+            "rule readback failed validation",
+            {
+                "status": "failed_validation",
+                "receipt": response_receipt,
+                "state": {"status": "not_recorded"},
+            },
+        ) from error
+    recorded = {
+        "receipt": response_receipt,
+        "state": state,
+    }
+    return (value, recorded["receipt"]), recorded
+
+
+def read_rule(
+    api: Any, policy: dict[str, Any], expected_workspace_ids: list[str]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    result, observed = observe_rule(api, policy)
+    require_equal(
+        observed["state"]["workspace_ids"],
+        expected_workspace_ids,
+        "rule workspace mappings",
+    )
+    return result
 
 
 def validate_jwk(value: dict[str, Any]) -> None:
@@ -521,18 +574,56 @@ def issuer_state(
     }
 
 
-def read_issuer(
-    api: Any, policy: dict[str, Any], expected_keys: list[dict[str, Any]]
-) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
+def observe_issuer(
+    api: Any, policy: dict[str, Any]
+) -> tuple[
+    tuple[dict[str, Any], dict[str, Any], list[str]],
+    dict[str, Any],
+]:
     path = issuer_path(policy)
     response = api.request("GET", path)
     require_equal(response["status"], 200, "issuer read status")
-    keys, discarded = validate_issuer(response["payload"], policy, expected_keys)
-    return (
-        issuer_state(response["payload"], keys),
-        receipt(response, "GET", path),
-        discarded,
-    )
+    response_receipt = receipt(response, "GET", path)
+    try:
+        value = response["payload"]
+        jwks = value.get("jwks")
+        if not isinstance(jwks, dict):
+            raise AdminError("issuer readback JWKS is not an object")
+        raw_keys = jwks.get("keys")
+        if not isinstance(raw_keys, list) or not 1 <= len(raw_keys) <= 2:
+            raise AdminError("issuer readback has an unsafe key count")
+        keys, discarded = canonical_provider_keys(raw_keys, len(raw_keys))
+        _, validated_discarded = validate_issuer(value, policy, keys)
+        state = issuer_state(value, keys)
+    except (AdminError, AttributeError, KeyError, TypeError) as error:
+        raise PostMutationReadbackError(
+            "issuer readback failed validation",
+            {
+                "status": "failed_validation",
+                "receipt": response_receipt,
+                "discarded_response_fields": [],
+                "state": {"status": "not_recorded"},
+            },
+        ) from error
+    discarded = sorted(set(discarded) | set(validated_discarded))
+    recorded = {
+        "receipt": response_receipt,
+        "discarded_response_fields": discarded,
+        "state": state,
+    }
+    return (state, recorded["receipt"], discarded), recorded
+
+
+def read_issuer(
+    api: Any, policy: dict[str, Any], expected_keys: list[dict[str, Any]]
+) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
+    result, observed = observe_issuer(api, policy)
+    expected = [
+        jwk_descriptor(key)
+        for key in canonical_keys(expected_keys, len(expected_keys))
+    ]
+    require_equal(observed["state"]["keys"], expected, "issuer inline keys")
+    return result
 
 
 def plan_result(
@@ -575,6 +666,43 @@ def admin_event(
         "discarded_response_fields": discarded_response_fields,
         "source": source_binding(),
     }
+
+
+def wait_for_expected_readback(
+    read_once: Callable[
+        [], tuple[tuple[Any, ...], dict[str, Any]]
+    ],
+    expected_state: dict[str, Any],
+    label: str,
+) -> tuple[Any, ...]:
+    """Poll a safe provider readback until the complete target state appears."""
+    deadline = time.monotonic() + READBACK_DEADLINE_SECONDS
+    delay = READBACK_INITIAL_DELAY_SECONDS
+    last_failed: dict[str, Any] | None = None
+    while True:
+        try:
+            result, observed = read_once()
+        except PostMutationReadbackError:
+            raise
+        except (AdminError, OSError, json.JSONDecodeError) as error:
+            if last_failed is None:
+                raise
+            raise PostMutationReadbackError(
+                f"{label} readback request failed before convergence",
+                last_failed,
+            ) from error
+        if observed["state"] == expected_state:
+            return result
+        last_failed = {"status": "failed_validation", **observed}
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise PostMutationReadbackError(
+                f"{label} readback did not converge within "
+                f"{READBACK_DEADLINE_SECONDS:g} seconds",
+                last_failed,
+            )
+        time.sleep(min(delay, remaining))
+        delay = min(delay * 2, READBACK_MAX_DELAY_SECONDS)
 
 
 def rule_operation(
@@ -636,7 +764,9 @@ def rule_operation(
     mutation = receipt(response, method, path)
     if progress is not None:
         progress("provider_mutation_accepted")
-    after_value, readback = read_rule(api, policy, expected_after)
+    after_value, readback = wait_for_expected_readback(
+        lambda: observe_rule(api, policy), after, "rule"
+    )
     if progress is not None:
         progress("provider_readback_accepted")
     return admin_event(
@@ -738,7 +868,9 @@ def issuer_operation(
     mutation = receipt(response, "POST", path)
     if progress is not None:
         progress("provider_mutation_accepted")
-    after, readback, readback_discarded = read_issuer(api, policy, target)
+    after, readback, readback_discarded = wait_for_expected_readback(
+        lambda: observe_issuer(api, policy), after, "issuer"
+    )
     discarded_response_fields.update(readback_discarded)
     if progress is not None:
         progress("provider_readback_accepted")
@@ -837,46 +969,49 @@ def post_failure_readback(
     """Read the mutated object again without claiming it is in an expected state."""
     try:
         if action.startswith("rule-"):
-            path = rule_path(policy)
-            response = api.request("GET", path)
-            require_equal(response["status"], 200, "failure rule readback status")
-            value = response["payload"]
-            workspace_ids = value.get("workspace_ids")
-            if (
-                not isinstance(workspace_ids, list)
-                or len(workspace_ids) > 16
-                or any(not isinstance(item, str) or len(item) > 128 for item in workspace_ids)
-            ):
-                raise AdminError("failure rule readback has invalid workspace IDs")
-            validate_rule(value, policy, workspace_ids)
-            return {
-                "status": "observed",
-                "receipt": receipt(response, "GET", path),
-                "state": rule_state(value, policy),
-            }
-        path = issuer_path(policy)
-        response = api.request("GET", path)
-        require_equal(response["status"], 200, "failure issuer readback status")
-        value = response["payload"]
-        keys = value.get("jwks", {}).get("keys")
-        if not isinstance(keys, list) or not 1 <= len(keys) <= 2:
-            raise AdminError("failure issuer readback has an unsafe key count")
-        canonical, discarded = canonical_provider_keys(keys, len(keys))
-        _, validated_discarded = validate_issuer(value, policy, canonical)
-        return {
-            "status": "observed",
-            "receipt": receipt(response, "GET", path),
-            "discarded_response_fields": sorted(
-                set(discarded) | set(validated_discarded)
-            ),
-            "state": issuer_state(value, canonical),
-        }
+            _, observed = observe_rule(api, policy)
+        else:
+            _, observed = observe_issuer(api, policy)
+        return {"status": "observed", **observed}
     except (AdminError, OSError, json.JSONDecodeError) as error:
         return {
             "status": "readback_failed",
             "failure_type": error.__class__.__name__,
             "failure_reason": safe_failure_reason(error),
         }
+
+
+def terminal_failure(
+    action: str,
+    run_id: str | None,
+    started_at: str,
+    phase: str,
+    error: BaseException,
+    readback: dict[str, Any],
+) -> dict[str, Any]:
+    result = {
+        "schema_version": 1,
+        "provider": "anthropic",
+        "status": "failed",
+        "action": action,
+        "run_id": run_id,
+        "started_at": started_at,
+        "failed_at": iso_time(utc_now()),
+        "failure_phase": phase,
+        "failure_type": error.__class__.__name__,
+        "failure_reason": safe_failure_reason(error),
+        "post_failure_readback": readback,
+        "source": source_binding(),
+    }
+    if phase == "provider_mutation_accepted":
+        failed_response = getattr(error, "failed_validation_response", None)
+        if not isinstance(failed_response, dict):
+            failed_response = {
+                "status": "not_observed",
+                "reason": "no safely sanitized provider response was available",
+            }
+        result["failed_validation_response"] = failed_response
+    return result
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1002,20 +1137,14 @@ def main() -> int:
             if api is not None and policy is not None and args.apply:
                 readback = post_failure_readback(api, policy, args.action)
             output.finish(
-                {
-                    "schema_version": 1,
-                    "provider": "anthropic",
-                    "status": "failed",
-                    "action": args.action,
-                    "run_id": run_id,
-                    "started_at": started_at,
-                    "failed_at": iso_time(utc_now()),
-                    "failure_phase": phase,
-                    "failure_type": error.__class__.__name__,
-                    "failure_reason": safe_failure_reason(error),
-                    "post_failure_readback": readback,
-                    "source": source_binding(),
-                }
+                terminal_failure(
+                    args.action,
+                    run_id,
+                    started_at,
+                    phase,
+                    error,
+                    readback,
+                )
             )
         raise
     return 0

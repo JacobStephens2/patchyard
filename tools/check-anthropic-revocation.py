@@ -58,6 +58,7 @@ DENIAL_EVENTS = {
 }
 OBSERVED_DENIAL_CONTRACTS = {
     "rule_disabled_exchange_denial": (401, "authentication_error"),
+    "retired_key_exchange_denial": (401, "authentication_error"),
 }
 POST_MUTATION_POSITIVE_EVENTS = {
     "rule_restored_positive",

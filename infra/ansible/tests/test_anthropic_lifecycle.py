@@ -36,7 +36,14 @@ POSITIVE_SETTLING_FIXTURE = (
     ROOT
     / "fixtures/checker-contracts/anthropic-revocation-positive-settling.json"
 )
+CONFORMING_REVOCATION_FIXTURE = (
+    ROOT
+    / "fixtures/checker-contracts/anthropic-revocation-thirteen-event.json"
+)
 SPEND_EVIDENCE = ROOT / "research/isolation/results/anthropic-spend-enforcement.json"
+RECORDED_REVOCATION_RESULT = (
+    ROOT / "research/isolation/results/anthropic-revocation-rotation.json"
+)
 OBSERVED_EXPIRY_SHA256 = (
     "63fb4f52227468003674b57c1b0235d1922c5fd34651bfe7316984f9fa067b25"
 )
@@ -47,13 +54,16 @@ OBSERVED_RETIRED_KEY_DENIAL_SHA256 = (
     "3de2505279daa71838450267ef031e606d57b1d78111460f148325bd916b8a6d"
 )
 POSITIVE_SETTLING_SHA256 = (
-    "3bb6d68a3d9410f7339cac6237d02a88b2f44ea700d3c0cda38c0e7d4db2096c"
+    "5c7ea569b9f9bc7777b712dcc4ffdb3415c96b15a3961fb5b64a4bbb0702c2ac"
+)
+CONFORMING_REVOCATION_SHA256 = (
+    "07258103206c426b1452e654e41ad7156090586ee4f58c1b9f640663687ec4a0"
 )
 EXPECTED_HARNESS_SOURCE_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
 )
 EXPECTED_REVOCATION_HARNESS_SOURCE_SHA256 = (
-    "26892021db61993e97ef722f857724868af60731a1987f63f08daeef776f60f2"
+    "ef4c204880cdc002ccee17f080b6011191a183c07e3ae173b34beb215737b61f"
 )
 EXPECTED_ADMIN_SOURCE_SHA256 = (
     "1a1e08060a5ad68f65b3a798e2b992ee2c34fc336e4f7fd8922bfdf2effecc55"
@@ -844,6 +854,41 @@ class AnthropicLifecycleHarnessContract(unittest.TestCase):
             response["requested_at"],
         )
 
+    def test_revocation_adapter_emits_post_retirement_controls_as_active(self) -> None:
+        event_types = {
+            "post_retirement_active_positive",
+            "post_retirement_active_positive_final",
+        }
+        self.assertTrue(event_types <= REVOCATION_HARNESS.BASE.POSITIVE_EVENT_TYPES)
+        for event_type in event_types:
+            with self.subTest(event_type=event_type):
+                expected = {"event_type": event_type}
+                with mock.patch.object(
+                    REVOCATION_HARNESS,
+                    "BASE_POSITIVE_EVENT",
+                    return_value=expected,
+                ) as base_positive:
+                    actual = REVOCATION_HARNESS.positive_event(
+                        event_type,
+                        "active",
+                        self.policy,
+                        pathlib.Path("/not/read"),
+                        self.run_id,
+                    )
+                self.assertEqual(actual, expected)
+                base_positive.assert_called_once()
+                with self.assertRaisesRegex(
+                    REVOCATION_HARNESS.BASE.LifecycleError,
+                    "non-active key role",
+                ):
+                    REVOCATION_HARNESS.positive_event(
+                        event_type,
+                        "replacement_staging",
+                        self.policy,
+                        pathlib.Path("/not/read"),
+                        self.run_id,
+                    )
+
     def test_atomic_activation_preserves_old_key_before_installing_replacement(self) -> None:
         current_jwk = {
             "alg": "RS256",
@@ -913,15 +958,19 @@ class AnthropicLifecycleHarnessContract(unittest.TestCase):
 class EvidenceFixtures:
     def __init__(self) -> None:
         self.policy = json.loads(POLICY_PATH.read_text())
+        recorded = json.loads(RECORDED_REVOCATION_RESULT.read_text())
+        recorded_events = {
+            event["event_type"]: event for event in recorded["events"]
+        }
+        recorded_current = recorded_events["rule_enabled_positive"]
+        recorded_replacement = recorded_events["replacement_key_final_positive"]
         self.base = datetime(2026, 8, 2, 12, 0, tzinfo=timezone.utc)
-        self.old = {
-            "kid": "patchyard-1111111111111111",
-            "jwk_thumbprint_sha256": "1" * 64,
-        }
-        self.new = {
-            "kid": "patchyard-2222222222222222",
-            "jwk_thumbprint_sha256": "2" * 64,
-        }
+        self.old = deepcopy(recorded_current["signing_key"])
+        self.new = deepcopy(recorded_replacement["signing_key"])
+        self.discarded_response_fields = deepcopy(
+            recorded_replacement["exchange"]["discarded_response_fields"]
+        )
+        self.model_id = recorded_replacement["models"]["model_id"]
         self.run_id = "anthropic-l3-20260802-0123456789"
         self.policy_sha = digest(POLICY_PATH)
         self.harness_sha = digest(HARNESS_PATH)
@@ -950,7 +999,7 @@ class EvidenceFixtures:
             "expires_in": 300,
             "token_type": "Bearer",
             "scope": "workspace:inference",
-            "discarded_response_fields": [],
+            "discarded_response_fields": deepcopy(self.discarded_response_fields),
             "service_account_id": self.policy["service_account"]["id"],
             "rule_id": self.policy["rule"]["id"],
             "workspace_id": self.policy["workspace"]["id"],
@@ -963,7 +1012,7 @@ class EvidenceFixtures:
             "request_id": self.request_id(),
             "provider_date": iso(event_time, microseconds=False),
             "observed_at": iso(event_time),
-            "model_id": "claude-opus-5",
+            "model_id": self.model_id,
         }
 
     def positive(
@@ -1095,11 +1144,26 @@ class EvidenceFixtures:
         return json.loads(OBSERVED_EXPIRY_FIXTURE.read_text())
 
     def revocation(self) -> dict[str, object]:
-        # Only the rule-disabled denial has an observed fixture. The remaining
-        # sequence is a mutation scaffold, not qualification evidence.
+        # Provider response shapes descend from pinned observations. The
+        # assembled sequence remains a synthetic checker contract, not
+        # qualification evidence.
         times = [
             self.base + timedelta(seconds=seconds)
-            for seconds in (10, 20, 111, 121, 212, 222, 313, 323, 333, 343, 434)
+            for seconds in (
+                10,
+                20,
+                111,
+                121,
+                212,
+                222,
+                313,
+                323,
+                333,
+                343,
+                435,
+                440,
+                447,
+            )
         ]
         enabled = self.rule_state(True)
         disabled = self.rule_state(False)
@@ -1142,8 +1206,17 @@ class EvidenceFixtures:
                 "replacement_key_final_positive", times[8], self.new, "active"
             ),
             self.admin_event("issuer_retired_key", times[9], overlap, new_only),
+            self.positive(
+                "post_retirement_active_positive", times[10], self.new, "active"
+            ),
             self.denial(
-                "retired_key_exchange_denial", times[10], self.old, "retired_staging"
+                "retired_key_exchange_denial", times[11], self.old, "retired_staging"
+            ),
+            self.positive(
+                "post_retirement_active_positive_final",
+                times[12],
+                self.new,
+                "active",
             ),
         ]
         return {
@@ -1253,9 +1326,54 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
         self.assertEqual(observed_denial["response_shape"], ERROR_SHAPE)
 
         evidence = EvidenceFixtures().revocation()
-        accepting_denial = evidence["events"][10]["exchange_denial"]
+        accepting_denial = evidence["events"][11]["exchange_denial"]
         for field in ("http_status", "error_type", "response_shape"):
             accepting_denial[field] = deepcopy(observed_denial[field])
+        result = self.check(REVOCATION_CHECKER, evidence)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_conforming_thirteen_event_fixture_passes_actual_checker(self) -> None:
+        self.assertEqual(
+            digest(CONFORMING_REVOCATION_FIXTURE),
+            CONFORMING_REVOCATION_SHA256,
+        )
+        evidence = json.loads(CONFORMING_REVOCATION_FIXTURE.read_text())
+        self.assertEqual(len(evidence["events"]), 13)
+        self.assertEqual(
+            [event["event_type"] for event in evidence["events"][-3:]],
+            [
+                "post_retirement_active_positive",
+                "retired_key_exchange_denial",
+                "post_retirement_active_positive_final",
+            ],
+        )
+        recorded = json.loads(RECORDED_REVOCATION_RESULT.read_text())
+        recorded_positive = next(
+            event
+            for event in recorded["events"]
+            if event["event_type"] == "replacement_key_final_positive"
+        )
+        for control in (evidence["events"][10], evidence["events"][12]):
+            self.assertEqual(control["signing_key"], recorded_positive["signing_key"])
+            for field in (
+                "endpoint",
+                "http_status",
+                "expires_in",
+                "token_type",
+                "scope",
+                "discarded_response_fields",
+                "service_account_id",
+                "rule_id",
+                "workspace_id",
+            ):
+                self.assertEqual(
+                    control["exchange"][field],
+                    recorded_positive["exchange"][field],
+                )
+            for field in ("endpoint", "http_status", "model_id"):
+                self.assertEqual(
+                    control["models"][field], recorded_positive["models"][field]
+                )
         result = self.check(REVOCATION_CHECKER, evidence)
         self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -1270,7 +1388,8 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
                 section = event.get(section_name)
                 if isinstance(section, dict):
                     bracketing_ids.append(section["request_id"])
-        self.assertEqual(len(set(bracketing_ids)), 16)
+        self.assertEqual(len(bracketing_ids), 20)
+        self.assertEqual(len(set(bracketing_ids)), 20)
         self.assertEqual(
             [
                 (
@@ -1281,6 +1400,10 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
             ],
             [(401, "authentication_error"), (401, "authentication_error")],
         )
+        identified_ids = bracketing_ids + [
+            event["exchange_denial"]["request_id"] for event in denial_events
+        ]
+        self.assertEqual(len(set(identified_ids)), 22)
         result = self.check(REVOCATION_CHECKER, evidence)
         self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -1301,6 +1424,7 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
         self.assertIs(timing["provider_response_observed"], False)
         self.assertIs(timing["qualification_evidence"], False)
         self.assertEqual(timing["minimum_settling_seconds"], 90)
+        self.assertEqual(len(timing["cases"]), 4)
 
         evidence = EvidenceFixtures().revocation()
         events = {event["event_type"]: event for event in evidence["events"]}
@@ -1321,7 +1445,7 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
             requested = datetime.fromisoformat(
                 case["request_started_at"].replace("Z", "+00:00")
             )
-            self.assertEqual((requested - readback).total_seconds(), 90)
+            self.assertGreaterEqual((requested - readback).total_seconds(), 90)
 
         result = self.check(REVOCATION_CHECKER, evidence)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -1414,20 +1538,46 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
         )
 
     def test_revocation_denial_inside_settling_interval_is_inconclusive(self) -> None:
-        fixtures = EvidenceFixtures()
-        revocation = fixtures.revocation()
-        readback = datetime.fromisoformat(
-            revocation["events"][1]["readback"]["observed_at"].replace(
+        cases = (
+            ("rule_disabled", "rule_disabled_exchange_denial"),
+            ("issuer_retired_key", "retired_key_exchange_denial"),
+        )
+        for predecessor_type, denial_type in cases:
+            with self.subTest(event_type=denial_type):
+                revocation = EvidenceFixtures().revocation()
+                events = {
+                    event["event_type"]: event for event in revocation["events"]
+                }
+                readback = datetime.fromisoformat(
+                    events[predecessor_type]["readback"]["observed_at"].replace(
+                        "Z", "+00:00"
+                    )
+                )
+                events[denial_type]["exchange_denial"]["request_started_at"] = iso(
+                    readback + timedelta(seconds=89)
+                )
+                result = self.check(REVOCATION_CHECKER, revocation)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(
+                    "inconclusive: denial began before the 90-second settling interval",
+                    result.stderr,
+                )
+
+    def test_retirement_bracket_attempts_cannot_overlap(self) -> None:
+        revocation = EvidenceFixtures().revocation()
+        events = {event["event_type"]: event for event in revocation["events"]}
+        denial_finished = datetime.fromisoformat(
+            events["retired_key_exchange_denial"]["observed_at"].replace(
                 "Z", "+00:00"
             )
         )
-        revocation["events"][2]["exchange_denial"]["request_started_at"] = iso(
-            readback + timedelta(seconds=89)
-        )
+        events["post_retirement_active_positive_final"]["exchange"][
+            "request_started_at"
+        ] = iso(denial_finished - timedelta(seconds=1))
         result = self.check(REVOCATION_CHECKER, revocation)
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 1)
         self.assertIn(
-            "inconclusive: denial began before the 90-second settling interval",
+            "not bracketed by non-overlapping active-key controls",
             result.stderr,
         )
 
@@ -1435,6 +1585,8 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
         cases = (
             ("rule_restored", "rule_restored_positive"),
             ("issuer_rotation_staged", "replacement_key_positive"),
+            ("issuer_retired_key", "post_retirement_active_positive"),
+            ("issuer_retired_key", "post_retirement_active_positive_final"),
         )
         for predecessor_type, positive_type in cases:
             with self.subTest(event_type=positive_type):
@@ -1488,6 +1640,102 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
                     result.stderr,
                 )
 
+    def test_missing_post_retirement_control_is_rejected(self) -> None:
+        for missing in (
+            "post_retirement_active_positive",
+            "post_retirement_active_positive_final",
+        ):
+            with self.subTest(missing=missing):
+                revocation = EvidenceFixtures().revocation()
+                revocation["events"] = [
+                    event
+                    for event in revocation["events"]
+                    if event["event_type"] != missing
+                ]
+                result = self.check(REVOCATION_CHECKER, revocation)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("missing or reorders a required event", result.stderr)
+
+    def test_post_retirement_control_outside_bounded_window_is_rejected(self) -> None:
+        revocation = EvidenceFixtures().revocation()
+        events = {event["event_type"]: event for event in revocation["events"]}
+        first_started = datetime.fromisoformat(
+            events["post_retirement_active_positive"]["exchange"][
+                "request_started_at"
+            ].replace("Z", "+00:00")
+        )
+        outside = first_started + timedelta(seconds=121)
+        final = events["post_retirement_active_positive_final"]
+        final["models"]["observed_at"] = iso(outside)
+        final["observed_at"] = iso(outside)
+        final["credential_removed_at"] = iso(outside + timedelta(microseconds=1))
+        result = self.check(REVOCATION_CHECKER, revocation)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("exceeds the 120-second bounded window", result.stderr)
+
+    def test_post_retirement_control_signed_by_retired_key_is_rejected(self) -> None:
+        for control_type in (
+            "post_retirement_active_positive",
+            "post_retirement_active_positive_final",
+        ):
+            with self.subTest(event_type=control_type):
+                revocation = EvidenceFixtures().revocation()
+                events = {
+                    event["event_type"]: event for event in revocation["events"]
+                }
+                events[control_type]["signing_key"] = deepcopy(
+                    events["retired_key_exchange_denial"]["signing_key"]
+                )
+                result = self.check(REVOCATION_CHECKER, revocation)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(
+                    "post-retirement control did not use the active replacement key",
+                    result.stderr,
+                )
+
+    def test_old_eleven_event_rotation_shape_is_rejected(self) -> None:
+        revocation = EvidenceFixtures().revocation()
+        denial = next(
+            event
+            for event in revocation["events"]
+            if event["event_type"] == "retired_key_exchange_denial"
+        )
+        revocation["events"] = revocation["events"][:10] + [denial]
+        self.assertEqual(len(revocation["events"]), 11)
+        result = self.check(REVOCATION_CHECKER, revocation)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("missing or reorders a required event", result.stderr)
+
+    def test_recorded_result_is_rejected_but_static_preflight_preserves_it(self) -> None:
+        rejected = subprocess.run(
+            ["python3", "-I", str(REVOCATION_CHECKER)],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(rejected.returncode, 1)
+        self.assertIn("missing or reorders a required event", rejected.stderr)
+
+        preflight = subprocess.run(
+            [
+                "python3",
+                "-I",
+                str(REVOCATION_CHECKER),
+                "--allow-missing-results",
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(preflight.returncode, 0, preflight.stderr)
+        self.assertIn("A129-nonconforming result remains recorded", preflight.stdout)
+        self.assertEqual(
+            digest(RECORDED_REVOCATION_RESULT),
+            "9b5c4d9552e4331e5e25bcc92a89b9db3ade4519a0f35b1a9311a2042d7b4deb",
+        )
+
     def test_rule_disabled_400_invalid_grant_is_rejected(self) -> None:
         fixtures = EvidenceFixtures()
         revocation = fixtures.revocation()
@@ -1501,7 +1749,7 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
     def test_wrong_retired_key_denial_contract_is_rejected(self) -> None:
         fixtures = EvidenceFixtures()
         revocation = fixtures.revocation()
-        denial = revocation["events"][10]["exchange_denial"]
+        denial = revocation["events"][11]["exchange_denial"]
         denial["http_status"] = 400
         denial["error_type"] = "invalid_grant"
         result = self.check(REVOCATION_CHECKER, revocation)
@@ -1511,7 +1759,7 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
     def test_wrong_retired_key_denial_shape_is_rejected(self) -> None:
         fixtures = EvidenceFixtures()
         revocation = fixtures.revocation()
-        denial = revocation["events"][10]["exchange_denial"]
+        denial = revocation["events"][11]["exchange_denial"]
         denial["response_shape"] = {"captured_shape": "wrong"}
         result = self.check(REVOCATION_CHECKER, revocation)
         self.assertNotEqual(result.returncode, 0)

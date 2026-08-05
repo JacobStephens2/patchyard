@@ -16,6 +16,18 @@
       "predecessor_event_type": "issuer_rotation_staged",
       "predecessor_readback_observed_at": "2026-08-02T12:03:42.000000Z",
       "request_started_at": "2026-08-02T12:05:12.000000Z"
+    },
+    {
+      "event_type": "post_retirement_active_positive",
+      "predecessor_event_type": "issuer_retired_key",
+      "predecessor_readback_observed_at": "2026-08-02T12:05:43.000000Z",
+      "request_started_at": "2026-08-02T12:07:13.000000Z"
+    },
+    {
+      "event_type": "post_retirement_active_positive_final",
+      "predecessor_event_type": "issuer_retired_key",
+      "predecessor_readback_observed_at": "2026-08-02T12:05:43.000000Z",
+      "request_started_at": "2026-08-02T12:07:25.000000Z"
     }
   ]
 }

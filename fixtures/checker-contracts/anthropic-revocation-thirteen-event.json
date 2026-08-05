@@ -1,0 +1,594 @@
+{
+  "admin_tool_sha256": "1a1e08060a5ad68f65b3a798e2b992ee2c34fc336e4f7fd8922bfdf2effecc55",
+  "authorization_ruling": "A113",
+  "events": [
+    {
+      "credential_removed_at": "2026-08-02T12:00:10.000001Z",
+      "event_type": "rule_enabled_positive",
+      "exchange": {
+        "discarded_response_fields": [
+          "next_challenge",
+          "next_challenge_expires_in",
+          "workspace_id"
+        ],
+        "endpoint": "/v1/oauth/token",
+        "expires_at": "2026-08-02T12:05:08Z",
+        "expires_in": 300,
+        "http_status": 200,
+        "issued_at": "2026-08-02T12:00:08Z",
+        "observed_at": "2026-08-02T12:00:09.000000Z",
+        "provider_date": "2026-08-02T12:00:08Z",
+        "request_id": "req_fixture1",
+        "rule_id": "fdrl_000000000000000000000000",
+        "scope": "workspace:inference",
+        "service_account_id": "svac_01BqCdjSqFsWTvfDyCucThZy",
+        "token_type": "Bearer",
+        "workspace_id": "wrkspc_000000000000000000000000"
+      },
+      "key_role": "active",
+      "models": {
+        "endpoint": "/v1/models?limit=1",
+        "http_status": 200,
+        "model_id": "claude-opus-5",
+        "observed_at": "2026-08-02T12:00:10.000000Z",
+        "provider_date": "2026-08-02T12:00:10Z",
+        "request_id": "req_fixture2"
+      },
+      "observed_at": "2026-08-02T12:00:10.000000Z",
+      "provider": "anthropic",
+      "run_id": "anthropic-l3-20260802-0123456789",
+      "schema_version": 1,
+      "signing_key": {
+        "jwk_thumbprint_sha256": "0608b242c7ba71ab9c33274a77c8bca88f4820a2bfa295c08064c94d68da67a6",
+        "kid": "patchyard-625f2c9c448c1983"
+      },
+      "source": {
+        "lifecycle_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+        "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7"
+      }
+    },
+    {
+      "discarded_response_fields": [],
+      "event_type": "rule_disabled",
+      "mutation": {
+        "endpoint": "/v1/organizations/federation_rules/fdrl_000000000000000000000000/workspaces/wrkspc_000000000000000000000000",
+        "http_status": 200,
+        "method": "DELETE",
+        "observed_at": "2026-08-02T12:00:19.000000Z",
+        "provider_date": "2026-08-02T12:00:19Z",
+        "request_id": "req_fixture3"
+      },
+      "observed_at": "2026-08-02T12:00:20.000000Z",
+      "provider": "anthropic",
+      "readback": {
+        "endpoint": "/v1/organizations/federation_rules/fdrl_000000000000000000000000",
+        "http_status": 200,
+        "method": "GET",
+        "observed_at": "2026-08-02T12:00:20.000000Z",
+        "provider_date": "2026-08-02T12:00:20Z",
+        "request_id": "req_fixture4"
+      },
+      "run_id": "anthropic-l3-20260802-0123456789",
+      "schema_version": 1,
+      "source": {
+        "admin_tool_sha256": "1a1e08060a5ad68f65b3a798e2b992ee2c34fc336e4f7fd8922bfdf2effecc55",
+        "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7"
+      },
+      "state_after": {
+        "applies_to_all_workspaces": false,
+        "archived": false,
+        "rule_id": "fdrl_000000000000000000000000",
+        "workspace_id": "wrkspc_000000000000000000000000",
+        "workspace_ids": []
+      },
+      "state_before": {
+        "applies_to_all_workspaces": false,
+        "archived": false,
+        "rule_id": "fdrl_000000000000000000000000",
+        "workspace_id": "wrkspc_000000000000000000000000",
+        "workspace_ids": [
+          "wrkspc_000000000000000000000000"
+        ]
+      }
+    },
+    {
+      "credential_removed_at": "2026-08-02T12:01:51.000001Z",
+      "event_type": "rule_disabled_exchange_denial",
+      "exchange_denial": {
+        "endpoint": "/v1/oauth/token",
+        "error_type": "authentication_error",
+        "http_status": 401,
+        "observed_at": "2026-08-02T12:01:51.000000Z",
+        "provider_date": "2026-08-02T12:01:51Z",
+        "request_id": "req_fixture5",
+        "request_id_supplied": true,
+        "request_started_at": "2026-08-02T12:01:50.999999Z",
+        "response_shape": {
+          "error_object_keys": [
+            "message",
+            "type"
+          ],
+          "error_value_type": "object",
+          "top_level_keys": [
+            "error",
+            "request_id",
+            "type"
+          ]
+        },
+        "source": "anthropic_http_response"
+      },
+      "key_role": "active",
+      "observed_at": "2026-08-02T12:01:51.000000Z",
+      "provider": "anthropic",
+      "run_id": "anthropic-l3-20260802-0123456789",
+      "schema_version": 1,
+      "signing_key": {
+        "jwk_thumbprint_sha256": "0608b242c7ba71ab9c33274a77c8bca88f4820a2bfa295c08064c94d68da67a6",
+        "kid": "patchyard-625f2c9c448c1983"
+      },
+      "source": {
+        "lifecycle_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+        "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7",
+        "revocation_harness_sha256": "ef4c204880cdc002ccee17f080b6011191a183c07e3ae173b34beb215737b61f"
+      }
+    },
+    {
+      "discarded_response_fields": [],
+      "event_type": "rule_restored",
+      "mutation": {
+        "endpoint": "/v1/organizations/federation_rules/fdrl_000000000000000000000000/workspaces",
+        "http_status": 200,
+        "method": "POST",
+        "observed_at": "2026-08-02T12:02:00.000000Z",
+        "provider_date": "2026-08-02T12:02:00Z",
+        "request_id": "req_fixture6"
+      },
+      "observed_at": "2026-08-02T12:02:01.000000Z",
+      "provider": "anthropic",
+      "readback": {
+        "endpoint": "/v1/organizations/federation_rules/fdrl_000000000000000000000000",
+        "http_status": 200,
+        "method": "GET",
+        "observed_at": "2026-08-02T12:02:01.000000Z",
+        "provider_date": "2026-08-02T12:02:01Z",
+        "request_id": "req_fixture7"
+      },
+      "run_id": "anthropic-l3-20260802-0123456789",
+      "schema_version": 1,
+      "source": {
+        "admin_tool_sha256": "1a1e08060a5ad68f65b3a798e2b992ee2c34fc336e4f7fd8922bfdf2effecc55",
+        "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7"
+      },
+      "state_after": {
+        "applies_to_all_workspaces": false,
+        "archived": false,
+        "rule_id": "fdrl_000000000000000000000000",
+        "workspace_id": "wrkspc_000000000000000000000000",
+        "workspace_ids": [
+          "wrkspc_000000000000000000000000"
+        ]
+      },
+      "state_before": {
+        "applies_to_all_workspaces": false,
+        "archived": false,
+        "rule_id": "fdrl_000000000000000000000000",
+        "workspace_id": "wrkspc_000000000000000000000000",
+        "workspace_ids": []
+      }
+    },
+    {
+      "credential_removed_at": "2026-08-02T12:03:32.000001Z",
+      "event_type": "rule_restored_positive",
+      "exchange": {
+        "discarded_response_fields": [
+          "next_challenge",
+          "next_challenge_expires_in",
+          "workspace_id"
+        ],
+        "endpoint": "/v1/oauth/token",
+        "expires_at": "2026-08-02T12:08:30Z",
+        "expires_in": 300,
+        "http_status": 200,
+        "issued_at": "2026-08-02T12:03:30Z",
+        "observed_at": "2026-08-02T12:03:31.000000Z",
+        "provider_date": "2026-08-02T12:03:30Z",
+        "request_id": "req_fixture8",
+        "request_started_at": "2026-08-02T12:03:31.000000Z",
+        "rule_id": "fdrl_000000000000000000000000",
+        "scope": "workspace:inference",
+        "service_account_id": "svac_01BqCdjSqFsWTvfDyCucThZy",
+        "token_type": "Bearer",
+        "workspace_id": "wrkspc_000000000000000000000000"
+      },
+      "key_role": "active",
+      "models": {
+        "endpoint": "/v1/models?limit=1",
+        "http_status": 200,
+        "model_id": "claude-opus-5",
+        "observed_at": "2026-08-02T12:03:32.000000Z",
+        "provider_date": "2026-08-02T12:03:32Z",
+        "request_id": "req_fixture9"
+      },
+      "observed_at": "2026-08-02T12:03:32.000000Z",
+      "provider": "anthropic",
+      "run_id": "anthropic-l3-20260802-0123456789",
+      "schema_version": 1,
+      "signing_key": {
+        "jwk_thumbprint_sha256": "0608b242c7ba71ab9c33274a77c8bca88f4820a2bfa295c08064c94d68da67a6",
+        "kid": "patchyard-625f2c9c448c1983"
+      },
+      "source": {
+        "lifecycle_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+        "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7",
+        "revocation_harness_sha256": "ef4c204880cdc002ccee17f080b6011191a183c07e3ae173b34beb215737b61f"
+      }
+    },
+    {
+      "discarded_response_fields": [],
+      "event_type": "issuer_rotation_staged",
+      "mutation": {
+        "endpoint": "/v1/organizations/federation_issuers/fdis_01A8wjwFPKfutAGtFN3oqF8J",
+        "http_status": 200,
+        "method": "POST",
+        "observed_at": "2026-08-02T12:03:41.000000Z",
+        "provider_date": "2026-08-02T12:03:41Z",
+        "request_id": "req_fixture10"
+      },
+      "observed_at": "2026-08-02T12:03:42.000000Z",
+      "provider": "anthropic",
+      "readback": {
+        "endpoint": "/v1/organizations/federation_issuers/fdis_01A8wjwFPKfutAGtFN3oqF8J",
+        "http_status": 200,
+        "method": "GET",
+        "observed_at": "2026-08-02T12:03:42.000000Z",
+        "provider_date": "2026-08-02T12:03:42Z",
+        "request_id": "req_fixture11"
+      },
+      "run_id": "anthropic-l3-20260802-0123456789",
+      "schema_version": 1,
+      "source": {
+        "admin_tool_sha256": "1a1e08060a5ad68f65b3a798e2b992ee2c34fc336e4f7fd8922bfdf2effecc55",
+        "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7"
+      },
+      "state_after": {
+        "archived": false,
+        "issuer_id": "fdis_01A8wjwFPKfutAGtFN3oqF8J",
+        "jwks_type": "inline",
+        "keys": [
+          {
+            "jwk_thumbprint_sha256": "0608b242c7ba71ab9c33274a77c8bca88f4820a2bfa295c08064c94d68da67a6",
+            "kid": "patchyard-625f2c9c448c1983"
+          },
+          {
+            "jwk_thumbprint_sha256": "2d3dcd8014ee46e855010407d2173a2476c7054eeecf084c06face9d07587077",
+            "kid": "patchyard-ff7391c83509f562"
+          }
+        ]
+      },
+      "state_before": {
+        "archived": false,
+        "issuer_id": "fdis_01A8wjwFPKfutAGtFN3oqF8J",
+        "jwks_type": "inline",
+        "keys": [
+          {
+            "jwk_thumbprint_sha256": "0608b242c7ba71ab9c33274a77c8bca88f4820a2bfa295c08064c94d68da67a6",
+            "kid": "patchyard-625f2c9c448c1983"
+          }
+        ]
+      }
+    },
+    {
+      "credential_removed_at": "2026-08-02T12:05:13.000001Z",
+      "event_type": "replacement_key_positive",
+      "exchange": {
+        "discarded_response_fields": [
+          "next_challenge",
+          "next_challenge_expires_in",
+          "workspace_id"
+        ],
+        "endpoint": "/v1/oauth/token",
+        "expires_at": "2026-08-02T12:10:11Z",
+        "expires_in": 300,
+        "http_status": 200,
+        "issued_at": "2026-08-02T12:05:11Z",
+        "observed_at": "2026-08-02T12:05:12.000000Z",
+        "provider_date": "2026-08-02T12:05:11Z",
+        "request_id": "req_fixture12",
+        "request_started_at": "2026-08-02T12:05:12.000000Z",
+        "rule_id": "fdrl_000000000000000000000000",
+        "scope": "workspace:inference",
+        "service_account_id": "svac_01BqCdjSqFsWTvfDyCucThZy",
+        "token_type": "Bearer",
+        "workspace_id": "wrkspc_000000000000000000000000"
+      },
+      "key_role": "replacement_staging",
+      "models": {
+        "endpoint": "/v1/models?limit=1",
+        "http_status": 200,
+        "model_id": "claude-opus-5",
+        "observed_at": "2026-08-02T12:05:13.000000Z",
+        "provider_date": "2026-08-02T12:05:13Z",
+        "request_id": "req_fixture13"
+      },
+      "observed_at": "2026-08-02T12:05:13.000000Z",
+      "provider": "anthropic",
+      "run_id": "anthropic-l3-20260802-0123456789",
+      "schema_version": 1,
+      "signing_key": {
+        "jwk_thumbprint_sha256": "2d3dcd8014ee46e855010407d2173a2476c7054eeecf084c06face9d07587077",
+        "kid": "patchyard-ff7391c83509f562"
+      },
+      "source": {
+        "lifecycle_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+        "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7",
+        "revocation_harness_sha256": "ef4c204880cdc002ccee17f080b6011191a183c07e3ae173b34beb215737b61f"
+      }
+    },
+    {
+      "activation": {
+        "active_key_path": "/etc/patchyard/anthropic-wif-signing.pem",
+        "observed_at": "2026-08-02T12:05:23.000000Z",
+        "replacement_key": {
+          "jwk_thumbprint_sha256": "2d3dcd8014ee46e855010407d2173a2476c7054eeecf084c06face9d07587077",
+          "kid": "patchyard-ff7391c83509f562"
+        },
+        "retired_key": {
+          "jwk_thumbprint_sha256": "0608b242c7ba71ab9c33274a77c8bca88f4820a2bfa295c08064c94d68da67a6",
+          "kid": "patchyard-625f2c9c448c1983"
+        },
+        "retired_key_staged": true,
+        "source": "local_atomic_key_activation"
+      },
+      "event_type": "replacement_key_activated",
+      "observed_at": "2026-08-02T12:05:23.000000Z",
+      "provider": "anthropic",
+      "run_id": "anthropic-l3-20260802-0123456789",
+      "schema_version": 1,
+      "source": {
+        "lifecycle_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+        "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7"
+      }
+    },
+    {
+      "credential_removed_at": "2026-08-02T12:05:33.000001Z",
+      "event_type": "replacement_key_final_positive",
+      "exchange": {
+        "discarded_response_fields": [
+          "next_challenge",
+          "next_challenge_expires_in",
+          "workspace_id"
+        ],
+        "endpoint": "/v1/oauth/token",
+        "expires_at": "2026-08-02T12:10:31Z",
+        "expires_in": 300,
+        "http_status": 200,
+        "issued_at": "2026-08-02T12:05:31Z",
+        "observed_at": "2026-08-02T12:05:32.000000Z",
+        "provider_date": "2026-08-02T12:05:31Z",
+        "request_id": "req_fixture14",
+        "rule_id": "fdrl_000000000000000000000000",
+        "scope": "workspace:inference",
+        "service_account_id": "svac_01BqCdjSqFsWTvfDyCucThZy",
+        "token_type": "Bearer",
+        "workspace_id": "wrkspc_000000000000000000000000"
+      },
+      "key_role": "active",
+      "models": {
+        "endpoint": "/v1/models?limit=1",
+        "http_status": 200,
+        "model_id": "claude-opus-5",
+        "observed_at": "2026-08-02T12:05:33.000000Z",
+        "provider_date": "2026-08-02T12:05:33Z",
+        "request_id": "req_fixture15"
+      },
+      "observed_at": "2026-08-02T12:05:33.000000Z",
+      "provider": "anthropic",
+      "run_id": "anthropic-l3-20260802-0123456789",
+      "schema_version": 1,
+      "signing_key": {
+        "jwk_thumbprint_sha256": "2d3dcd8014ee46e855010407d2173a2476c7054eeecf084c06face9d07587077",
+        "kid": "patchyard-ff7391c83509f562"
+      },
+      "source": {
+        "lifecycle_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+        "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7"
+      }
+    },
+    {
+      "discarded_response_fields": [],
+      "event_type": "issuer_retired_key",
+      "mutation": {
+        "endpoint": "/v1/organizations/federation_issuers/fdis_01A8wjwFPKfutAGtFN3oqF8J",
+        "http_status": 200,
+        "method": "POST",
+        "observed_at": "2026-08-02T12:05:42.000000Z",
+        "provider_date": "2026-08-02T12:05:42Z",
+        "request_id": "req_fixture16"
+      },
+      "observed_at": "2026-08-02T12:05:43.000000Z",
+      "provider": "anthropic",
+      "readback": {
+        "endpoint": "/v1/organizations/federation_issuers/fdis_01A8wjwFPKfutAGtFN3oqF8J",
+        "http_status": 200,
+        "method": "GET",
+        "observed_at": "2026-08-02T12:05:43.000000Z",
+        "provider_date": "2026-08-02T12:05:43Z",
+        "request_id": "req_fixture17"
+      },
+      "run_id": "anthropic-l3-20260802-0123456789",
+      "schema_version": 1,
+      "source": {
+        "admin_tool_sha256": "1a1e08060a5ad68f65b3a798e2b992ee2c34fc336e4f7fd8922bfdf2effecc55",
+        "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7"
+      },
+      "state_after": {
+        "archived": false,
+        "issuer_id": "fdis_01A8wjwFPKfutAGtFN3oqF8J",
+        "jwks_type": "inline",
+        "keys": [
+          {
+            "jwk_thumbprint_sha256": "2d3dcd8014ee46e855010407d2173a2476c7054eeecf084c06face9d07587077",
+            "kid": "patchyard-ff7391c83509f562"
+          }
+        ]
+      },
+      "state_before": {
+        "archived": false,
+        "issuer_id": "fdis_01A8wjwFPKfutAGtFN3oqF8J",
+        "jwks_type": "inline",
+        "keys": [
+          {
+            "jwk_thumbprint_sha256": "0608b242c7ba71ab9c33274a77c8bca88f4820a2bfa295c08064c94d68da67a6",
+            "kid": "patchyard-625f2c9c448c1983"
+          },
+          {
+            "jwk_thumbprint_sha256": "2d3dcd8014ee46e855010407d2173a2476c7054eeecf084c06face9d07587077",
+            "kid": "patchyard-ff7391c83509f562"
+          }
+        ]
+      }
+    },
+    {
+      "credential_removed_at": "2026-08-02T12:07:15.000001Z",
+      "event_type": "post_retirement_active_positive",
+      "exchange": {
+        "discarded_response_fields": [
+          "next_challenge",
+          "next_challenge_expires_in",
+          "workspace_id"
+        ],
+        "endpoint": "/v1/oauth/token",
+        "expires_at": "2026-08-02T12:12:13Z",
+        "expires_in": 300,
+        "http_status": 200,
+        "issued_at": "2026-08-02T12:07:13Z",
+        "observed_at": "2026-08-02T12:07:14.000000Z",
+        "provider_date": "2026-08-02T12:07:13Z",
+        "request_id": "req_fixture18",
+        "request_started_at": "2026-08-02T12:07:13.000000Z",
+        "rule_id": "fdrl_000000000000000000000000",
+        "scope": "workspace:inference",
+        "service_account_id": "svac_01BqCdjSqFsWTvfDyCucThZy",
+        "token_type": "Bearer",
+        "workspace_id": "wrkspc_000000000000000000000000"
+      },
+      "key_role": "active",
+      "models": {
+        "endpoint": "/v1/models?limit=1",
+        "http_status": 200,
+        "model_id": "claude-opus-5",
+        "observed_at": "2026-08-02T12:07:15.000000Z",
+        "provider_date": "2026-08-02T12:07:15Z",
+        "request_id": "req_fixture19"
+      },
+      "observed_at": "2026-08-02T12:07:15.000000Z",
+      "provider": "anthropic",
+      "run_id": "anthropic-l3-20260802-0123456789",
+      "schema_version": 1,
+      "signing_key": {
+        "jwk_thumbprint_sha256": "2d3dcd8014ee46e855010407d2173a2476c7054eeecf084c06face9d07587077",
+        "kid": "patchyard-ff7391c83509f562"
+      },
+      "source": {
+        "lifecycle_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+        "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7",
+        "revocation_harness_sha256": "ef4c204880cdc002ccee17f080b6011191a183c07e3ae173b34beb215737b61f"
+      }
+    },
+    {
+      "credential_removed_at": "2026-08-02T12:07:20.000001Z",
+      "event_type": "retired_key_exchange_denial",
+      "exchange_denial": {
+        "endpoint": "/v1/oauth/token",
+        "error_type": "authentication_error",
+        "http_status": 401,
+        "observed_at": "2026-08-02T12:07:20.000000Z",
+        "provider_date": "2026-08-02T12:07:20Z",
+        "request_id": "req_fixture20",
+        "request_id_supplied": true,
+        "request_started_at": "2026-08-02T12:07:19.999999Z",
+        "response_shape": {
+          "error_object_keys": [
+            "message",
+            "type"
+          ],
+          "error_value_type": "object",
+          "top_level_keys": [
+            "error",
+            "request_id",
+            "type"
+          ]
+        },
+        "source": "anthropic_http_response"
+      },
+      "key_role": "retired_staging",
+      "observed_at": "2026-08-02T12:07:20.000000Z",
+      "provider": "anthropic",
+      "run_id": "anthropic-l3-20260802-0123456789",
+      "schema_version": 1,
+      "signing_key": {
+        "jwk_thumbprint_sha256": "0608b242c7ba71ab9c33274a77c8bca88f4820a2bfa295c08064c94d68da67a6",
+        "kid": "patchyard-625f2c9c448c1983"
+      },
+      "source": {
+        "lifecycle_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+        "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7",
+        "revocation_harness_sha256": "ef4c204880cdc002ccee17f080b6011191a183c07e3ae173b34beb215737b61f"
+      }
+    },
+    {
+      "credential_removed_at": "2026-08-02T12:07:27.000001Z",
+      "event_type": "post_retirement_active_positive_final",
+      "exchange": {
+        "discarded_response_fields": [
+          "next_challenge",
+          "next_challenge_expires_in",
+          "workspace_id"
+        ],
+        "endpoint": "/v1/oauth/token",
+        "expires_at": "2026-08-02T12:12:25Z",
+        "expires_in": 300,
+        "http_status": 200,
+        "issued_at": "2026-08-02T12:07:25Z",
+        "observed_at": "2026-08-02T12:07:26.000000Z",
+        "provider_date": "2026-08-02T12:07:25Z",
+        "request_id": "req_fixture21",
+        "request_started_at": "2026-08-02T12:07:25.000000Z",
+        "rule_id": "fdrl_000000000000000000000000",
+        "scope": "workspace:inference",
+        "service_account_id": "svac_01BqCdjSqFsWTvfDyCucThZy",
+        "token_type": "Bearer",
+        "workspace_id": "wrkspc_000000000000000000000000"
+      },
+      "key_role": "active",
+      "models": {
+        "endpoint": "/v1/models?limit=1",
+        "http_status": 200,
+        "model_id": "claude-opus-5",
+        "observed_at": "2026-08-02T12:07:27.000000Z",
+        "provider_date": "2026-08-02T12:07:27Z",
+        "request_id": "req_fixture22"
+      },
+      "observed_at": "2026-08-02T12:07:27.000000Z",
+      "provider": "anthropic",
+      "run_id": "anthropic-l3-20260802-0123456789",
+      "schema_version": 1,
+      "signing_key": {
+        "jwk_thumbprint_sha256": "2d3dcd8014ee46e855010407d2173a2476c7054eeecf084c06face9d07587077",
+        "kid": "patchyard-ff7391c83509f562"
+      },
+      "source": {
+        "lifecycle_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+        "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7",
+        "revocation_harness_sha256": "ef4c204880cdc002ccee17f080b6011191a183c07e3ae173b34beb215737b61f"
+      }
+    }
+  ],
+  "lifecycle_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+  "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7",
+  "provider": "anthropic",
+  "qualification_requirement": "federation-revocation-and-key-rotation",
+  "revocation_harness_sha256": "ef4c204880cdc002ccee17f080b6011191a183c07e3ae173b34beb215737b61f",
+  "run_id": "anthropic-l3-20260802-0123456789",
+  "schema_version": 1
+}

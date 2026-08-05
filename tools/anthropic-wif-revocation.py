@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the revocation denial actions without changing the qualified expiry harness."""
+"""Run revocation evidence actions without changing the qualified expiry harness."""
 
 from __future__ import annotations
 
@@ -22,6 +22,10 @@ RULE_DENIAL_SHAPE = {
     "error_value_type": "object",
     "error_object_keys": ["message", "type"],
 }
+POST_RETIREMENT_POSITIVE_EVENT_TYPES = {
+    "post_retirement_active_positive",
+    "post_retirement_active_positive_final",
+}
 
 
 def load_base_harness() -> types.ModuleType:
@@ -42,7 +46,9 @@ def load_base_harness() -> types.ModuleType:
 
 
 BASE = load_base_harness()
+BASE.POSITIVE_EVENT_TYPES.update(POST_RETIREMENT_POSITIVE_EVENT_TYPES)
 BASE_ACCEPTED_EXCHANGE = BASE.accepted_exchange
+BASE_POSITIVE_EVENT = BASE.positive_event
 
 
 def source_binding() -> dict[str, str]:
@@ -82,6 +88,36 @@ def accepted_exchange(
         raise BASE.LifecycleError("positive exchange did not record its request start")
     exchange["exchange"]["request_started_at"] = request_started_at
     return exchange, token
+
+
+def positive_event(
+    event_type: str,
+    key_role: str,
+    policy: dict[str, Any],
+    signing_key: Path,
+    run_id: str,
+    request: Callable[..., dict[str, Any]] | None = None,
+    progress: BASE.Progress | None = None,
+) -> dict[str, Any]:
+    """Require both post-retirement controls to use the active-key role."""
+
+    if (
+        event_type in POST_RETIREMENT_POSITIVE_EVENT_TYPES
+        and key_role != "active"
+    ):
+        raise BASE.LifecycleError(
+            "post-retirement positive used a non-active key role"
+        )
+    requester = BASE.request_json if request is None else request
+    return BASE_POSITIVE_EVENT(
+        event_type,
+        key_role,
+        policy,
+        signing_key,
+        run_id,
+        requester,
+        progress,
+    )
 
 
 def denied_exchange_event(
@@ -173,6 +209,7 @@ def main() -> int:
             "revocation harness permits only exchange evidence actions"
         )
     BASE.accepted_exchange = accepted_exchange
+    BASE.positive_event = positive_event
     BASE.denied_exchange_event = denied_exchange_event
     BASE.source_binding = source_binding
     return BASE.main()

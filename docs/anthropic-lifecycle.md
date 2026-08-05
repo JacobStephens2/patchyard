@@ -8,28 +8,29 @@ halves plus the A-14 signing-key rotation path. The expiry proof ran on
 attended rotation runs followed on 2026-08-05.
 
 The first, `anthropic-l3-20260805-27e8a245ed`, completed events 1 through 9 and
-11, but the event-10 admin command failed after the provider accepted issuer
-retirement because its immediate GET returned the stale two-key state. The
-failed event cannot enter the eleven-event fixture, so that run assembled no
-result. It did produce the first observation of the retired-key denial.
+11 of the then-current sequence, but the event-10 admin command failed after
+the provider accepted issuer retirement because its immediate GET returned the
+stale two-key state. The failed event could not enter that eleven-event
+fixture, so the run assembled no result. It did produce the first observation
+of the retired-key denial.
 
 The second, `anthropic-l3-20260805-5ed79595e2`, ran after that race was fixed
-and completed all eleven events. Its result is committed at
-`research/isolation/results/anthropic-revocation-rotation.json` and the checker
-returns exit 0 against it.
+and completed all eleven events in the old shape. Its result remains recorded
+unchanged at `research/isolation/results/anthropic-revocation-rotation.json`.
+A129 replaces that shape with thirteen events, so the default checker now
+rejects this file as non-conforming. The infrastructure gate's explicit static
+preflight mode recognizes only its pinned digest and treats it like a missing
+current result; it does not qualify or relabel the historical record. A future
+conforming result supersedes it.
 
-**Rotation is nevertheless not qualified.** Independent adversarial review of
-that result identified two gaps that a passing checker does not close. First,
-event 11's `401` is not shown to be *caused* by retirement: no active-key
-positive control brackets the retired-key attempt, so a contemporaneous
-authentication failure would leave identical evidence. A control was run 83
-seconds after the denial and passed, but the eleven-event sequence has no slot
-for it, and it is preserved outside the fixture rather than bound into it.
-Second, the fixture proves internal consistency, not provenance: replacing every
-request identifier with distinct, syntactically valid synthetic values still
-passes the checker, as does globally substituting a well-formed key ID and
-thumbprint. That second gap is not specific to rotation - the same binding
-applies to requirement 1, requirement 2, and the expiry denial.
+**Rotation is not qualified.** A129 closes the first source-contract gap by
+requiring the retired-key denial to sit between two active-replacement
+exchange-and-Models controls, but the recorded run predates those events. A
+control was run 83 seconds after its denial and passed, but it remains outside
+the fixture and cannot be backfilled. A128's separate provenance limitation is
+unchanged: the checker proves internal consistency, not that each recorded
+value came from the provider call it names. That limitation also applies to
+requirement 1, requirement 2, and the expiry denial.
 
 All 13 provider `credential_qualified` flags remain false. Any further live execution, provider mutation, key activation, evidence
 publication, fixture refresh, or qualification-flag change requires a new
@@ -45,9 +46,10 @@ does not call or modify:
 
 `tools/anthropic-wif-lifecycle.py` is the source-pinned root-only control-plane
 harness used by the qualified expiry result. The smaller
-`tools/anthropic-wif-revocation.py` adapter loads that exact harness and changes
-only the two revocation-denial actions; this preserves the expiry evidence's
-source binding while making the observed rule response recordable.
+`tools/anthropic-wif-revocation.py` adapter loads that exact harness, records
+the revocation-specific denial fields and positive-exchange start times, and
+allowlists the two A129 post-retirement controls. This preserves the expiry
+evidence's source binding while making the revocation contract recordable.
 `tools/anthropic-wif-lifecycle-admin.py` is a separate attended operator tool
 using the short-lived `ant` OAuth profile. None accepts an API key. All strip
 ambient Anthropic credential variables, reject HTTP redirects and ambient
@@ -124,10 +126,10 @@ occupy that field.
 ### Federation revocation and signing-key rotation
 
 `research/isolation/results/anthropic-revocation-rotation.json` was assembled by
-run `anthropic-l3-20260805-5ed79595e2` and passes the checker; see the status
-section above for why it is recorded rather than qualified. It binds the policy,
-qualified expiry harness, revocation adapter, and administrative tool digests and
-contains these exact, strictly ordered events:
+run `anthropic-l3-20260805-5ed79595e2` in the former eleven-event shape. It
+remains recorded but no longer conforms to the checker. A new result must bind
+the current policy, qualified expiry harness, revocation adapter, and
+administrative tool digests and contain these exact, strictly ordered events:
 
 | Order | Event | Required fact |
 | :-- | :-- | :-- |
@@ -141,29 +143,46 @@ contains these exact, strictly ordered events:
 | 8 | `replacement_key_activated` | The old private key is retained only in root tmpfs for its denial, then the replacement is atomically installed at the active path. |
 | 9 | `replacement_key_final_positive` | The active path exchanges and calls Models while both public keys remain trusted. |
 | 10 | `issuer_retired_key` | Provider JWKS changes from exactly old+replacement to replacement-only. |
-| 11 | `retired_key_exchange_denial` | After the settling floor, a fresh assertion signed by the retired key receives provider HTTP 401 `authentication_error`. |
+| 11 | `post_retirement_active_positive` | After the settling floor, the active replacement key at the stable path exchanges and calls Models. |
+| 12 | `retired_key_exchange_denial` | A fresh assertion signed by the retired key receives provider HTTP 401 `authentication_error`. |
+| 13 | `post_retirement_active_positive_final` | The active replacement key at the same stable path exchanges and calls Models again. |
 
-The checker requires 16 distinct bracketing request IDs from the positive and
-administrative calls. Each denial records `request_id_supplied`; a supplied ID
-must be valid and distinct, while an absent ID is attributed by its bracketed
-position. It also requires exact rule and issuer state transitions, continuity
-of both public-key thumbprints, five-minute-or-shorter bearers for every
-positive control, and a final Models success from the active replacement. The
-locally atomic activation is required but never substitutes for either provider
-denial.
+The checker requires 20 distinct bracketing request IDs from the positive and
+administrative calls. Both observed exchange denials supplied distinct
+identifiers, so this contract requires 22 distinct identified provider requests
+in total. Each denial still records `request_id_supplied`; an absent identifier
+is an explicit observation, but cannot qualify this observed rotation contract.
+The checker also
+requires exact rule and issuer state transitions, continuity of both public-key
+thumbprints, and five-minute-or-shorter bearers for every positive control. The
+adapter fixes all three post-retirement token exchanges to the same endpoint
+and policy state; the checker requires the controls to bind the active
+replacement and the denial to bind the retired key. The locally atomic
+activation is required but never substitutes for either provider denial.
 
 Every exchange that immediately tests a provider configuration mutation has a
 90-second minimum settling interval from the preceding administrative readback
-to `request_started_at`: both denials, the restored-rule positive, and the
-staged-replacement positive. An attempt started sooner fails as inconclusive,
-regardless of its HTTP result. This is the smallest directly observed interval
-that produced the enforced rule denial: 0.85 seconds was too early, while the
-accepted observation began 90.867688 seconds after the disabled-state
-readback. It is a qualification floor, not a provider propagation SLA. The
-initial positive has no preceding mutation; the final replacement positive
-follows local atomic activation after the staged provider state was already
-settled and proven. Rollback events terminate the attempt and are not
-qualification-event predecessors.
+to `request_started_at`: both denials, the restored-rule positive, the
+staged-replacement positive, and both post-retirement controls. An attempt
+started sooner fails as inconclusive, regardless of its HTTP result. This is
+the smallest directly observed interval that produced the enforced rule
+denial: 0.85 seconds was too early, while the accepted observation began
+90.867688 seconds after the disabled-state readback. It is a qualification
+floor, not a provider propagation SLA. The initial positive has no preceding
+mutation; the final replacement positive follows local atomic activation after
+the staged provider state was already settled and proven. Rollback events
+terminate the attempt and are not qualification-event predecessors.
+
+After issuer retirement, the first active control, retired-key denial, and
+final active control must be serial and complete within one 120-second window,
+measured from the first control's exchange `request_started_at` through the
+final control's Models `observed_at`. The first Models call must complete before
+the denial begins, and the denial must complete before the final exchange
+begins. Five serial HTTPS calls plus attended command entry can comfortably
+finish within two minutes, while the bound is short enough that a longer-lived
+authentication fault cannot masquerade as a retirement-only denial. Event 3
+needs no added controls: its mapping mutation is already applied after event 1
+and reversed before event 5.
 
 The administrative state readback is a separate bounded operation. After any
 rule or issuer mutation, the admin tool polls immediately, then after 0.25,
@@ -185,11 +204,15 @@ python3 -I tools/check-anthropic-revocation.py \
 ```
 
 `fixtures/provider-observations/anthropic-retired-key-denial-2026-08-05.json`
-is byte-identical to the credential-free event-11 observation from the
-2026-08-05 attempt. Its digest is pinned in the test suite, and its HTTP status,
-error type, and sanitized response shape drive a complete synthetic contract
-that the actual checker accepts with exit 0. That satisfiability case is not a
-live rotation result and makes no qualification claim.
+is byte-identical to the credential-free old event-11 observation, now event 12
+in the canonical sequence. Its digest is pinned in the test suite, and its HTTP
+status, error type, and sanitized response shape drive the denial predicate.
+`fixtures/checker-contracts/anthropic-revocation-thirteen-event.json` is the
+complete synthetic thirteen-event satisfiability fixture accepted by the
+actual checker. Its positive shapes descend from positive events in the
+recorded run, while its identifiers and times are explicitly synthetic. It is
+not a live rotation result and makes no provider-observation or qualification
+claim.
 
 `infra/ansible/tests/test_anthropic_lifecycle.py` invokes the actual isolated
 checkers against a valid contract and then mutates it. Both checkers reject a
@@ -197,7 +220,7 @@ fabricated denial, a missing positive control, a local-cleanup-only record, and
 an out-of-order timestamp. The same tests exercise exact rule disable/restore,
 two-key staging, retirement, and both rotation rollback paths with a fake API.
 `fixtures/checker-contracts/anthropic-revocation-positive-settling.json`
-demonstrates the two valid 90-second timing predicates. It is explicitly
+demonstrates all four post-mutation positive settling predicates. It is explicitly
 synthetic and timing-only: it contains no provider response and makes no
 provider-observation or qualification claim.
 
@@ -339,10 +362,10 @@ qualification result. Future denial events use the revocation adapter above.
 Before A126, rotation specified no settling interval after either provider
 JWKS mutation. The staged-replacement positive and retired-key denial followed
 their administrative readbacks immediately. The procedure below now waits 90
-seconds after each readback, and the checker measures both attempts from those
-readbacks. Atomic local activation needs no propagation wait: it changes no
-provider state, and both public keys have already been read back and proven as
-trusted.
+seconds after each readback. After retirement, the checker measures both active
+controls and the retired-key denial from the same readback. Atomic local
+activation needs no propagation wait: it changes no provider state, and both
+public keys have already been read back and proven as trusted.
 
 The 2026-08-05 attempt supplied the first captured retired-key response. The
 provider returned HTTP 401 `authentication_error`, rather than the documented
@@ -358,12 +381,19 @@ assembled around a failed event 10. The bounded admin readback retry addresses
 that race for a clean re-run; it does not convert the incomplete attempt into
 qualification evidence.
 
+The later `anthropic-l3-20260805-5ed79595e2` run completed the old eleven-event
+shape and remains recorded. It predates A129's controls, so it is not a current
+acceptance case and cannot be upgraded by adding the separate positive that ran
+afterward. The default checker rejects it; static preflight accepts only its
+exact pinned digest so preserving the historical file does not hold CI red.
+
 The qualified expiry result binds the existing lifecycle harness digest, so
 changing that file would invalidate requirement 3 while fixing requirement 4.
 The source-bound revocation adapter is the narrow compatibility boundary: for
 post-mutation positives it adds `request_started_at`; for denials it records
 that timestamp and explicit request-ID presence, and enforces both observed
-denial responses. The lifecycle harness remains unchanged.
+denial responses. It also allowlists A129's two active-key control event types
+without changing the lifecycle harness.
 
 ## Attended live procedure: signing-key rotation
 
@@ -482,26 +512,41 @@ python3 -I tools/anthropic-wif-lifecycle-admin.py \
   --replacement-jwks "$ADMIN_STAGE/replacement-jwks.json"
 ```
 
-Wait at least 90 seconds after the retirement readback before the one retired
-assertion. An earlier denial or acceptance is inconclusive:
+Wait at least 90 seconds after the retirement readback. Then run the active
+control, retired-key denial, and final active control serially, with no planned
+pause between them. All three exchange starts are measured from the retirement
+readback, and the first exchange start through the final Models completion must
+fit within 120 seconds. An earlier attempt or a longer bracket is
+inconclusive:
 
 ```bash
 /usr/bin/sleep 90
+sudo python3 -I tools/anthropic-wif-revocation.py exchange-positive \
+  --run-id "$RUN_ID" --event-type post_retirement_active_positive \
+  --key-role active \
+  --signing-key /etc/patchyard/anthropic-wif-signing.pem \
+  --output "$CONTROL_STAGE/11-post-retirement-active-positive.json"
 sudo python3 -I tools/anthropic-wif-revocation.py exchange-denial \
   --run-id "$RUN_ID" --event-type retired_key_exchange_denial \
   --key-role retired_staging --signing-key "$CONTROL_STAGE/retired.pem" \
-  --output "$CONTROL_STAGE/11-retired-key-denial.json"
+  --output "$CONTROL_STAGE/12-retired-key-denial.json"
+sudo python3 -I tools/anthropic-wif-revocation.py exchange-positive \
+  --run-id "$RUN_ID" --event-type post_retirement_active_positive_final \
+  --key-role active \
+  --signing-key /etc/patchyard/anthropic-wif-signing.pem \
+  --output "$CONTROL_STAGE/13-post-retirement-active-positive-final.json"
 ```
 
-If issuer retirement fails ambiguously, do not make the denial attempt. Use
-the `issuer-restore-overlap` plan to determine whether provider state is
+If issuer retirement fails ambiguously, do not make any of the three attempts.
+Use the `issuer-restore-overlap` plan to determine whether provider state is
 replacement-only; apply it only when needed to restore the already-proven
-two-key overlap, then stop. If the retired assertion is accepted, stop without
-retry. The adapter accepts a bounded provider 4xx so the first real denial can
-be preserved without credential material, but the checker requires the pinned
-HTTP 401 `authentication_error` contract. The active replacement has already
-been provider-proven, so do not re-trust the retired key merely to make the
-test pass.
+two-key overlap, then stop. Once the first control begins, do not restore the
+retired key. If either control fails, the retired assertion is accepted, any
+command is retried, or the bracket exceeds 120 seconds, stop and preserve the
+terminal records as non-qualifying evidence. The adapter accepts a bounded
+provider 4xx so the denial can be preserved without credential material, but
+the checker requires the pinned HTTP 401 `authentication_error` contract. Do
+not re-trust the retired key merely to make the test pass.
 
 ```bash
 python3 -I tools/anthropic-wif-lifecycle-admin.py \
@@ -516,8 +561,9 @@ python3 -I tools/anthropic-wif-lifecycle-admin.py \
   --replacement-jwks "$ADMIN_STAGE/replacement-jwks.json"
 ```
 
-After a valid denial, remove only the two explicitly named tmpfs private-key
-copies. The active replacement remains at the stable root-only path:
+After all three attempts succeed, remove only the two explicitly named tmpfs
+private-key copies. The active replacement remains at the stable root-only
+path:
 
 ```bash
 sudo rm -f -- "$CONTROL_STAGE/retired.pem" "$CONTROL_STAGE/replacement.pem"
@@ -525,7 +571,7 @@ sudo rm -f -- "$CONTROL_STAGE/retired.pem" "$CONTROL_STAGE/replacement.pem"
 
 ## Assemble and validate the revocation fixture
 
-Place the eleven sanitized events in one operator directory with the numeric
+Place the thirteen sanitized events in one operator directory with the numeric
 names above. Assemble only in this exact order:
 
 ```bash
@@ -542,7 +588,9 @@ jq -e -s --arg run_id "$RUN_ID" '
       "replacement_key_activated",
       "replacement_key_final_positive",
       "issuer_retired_key",
-      "retired_key_exchange_denial"
+      "post_retirement_active_positive",
+      "retired_key_exchange_denial",
+      "post_retirement_active_positive_final"
     ] then error("lifecycle event order differs") else . end
   | {
       schema_version: 1,
@@ -567,7 +615,9 @@ jq -e -s --arg run_id "$RUN_ID" '
   08-replacement-activated.json \
   09-active-replacement-positive.json \
   10-issuer-retired-key.json \
-  11-retired-key-denial.json \
+  11-post-retirement-active-positive.json \
+  12-retired-key-denial.json \
+  13-post-retirement-active-positive-final.json \
   > anthropic-revocation-rotation.json
 python3 -I tools/check-anthropic-revocation.py \
   --evidence "$PWD/anthropic-revocation-rotation.json"
@@ -575,11 +625,11 @@ python3 -I tools/check-anthropic-revocation.py \
 
 Checker exit 1 rejects malformed evidence. Exit 2 remains reserved for a future
 denial event whose provider contract has not yet been observed and pinned; the
-current eleven-event contract has no such blocker, and a valid complete result
+current thirteen-event contract has no such blocker, and a valid complete result
 reaches exit 0. Do not hand-edit an event, fill a missing request ID, relabel a
 local observation, reorder a timestamp, or publish a partial fixture as
 success. Files whose top level has `status` are terminal diagnostics rather
-than success events and must not be substituted into the eleven-event list.
+than success events and must not be substituted into the thirteen-event list.
 
 ## Control-plane-loss recovery is not qualification
 

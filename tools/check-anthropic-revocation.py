@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check A113 Anthropic rule revocation and signing-key rotation evidence."""
+"""Check A113/A129 Anthropic rule revocation and key-rotation evidence."""
 
 from __future__ import annotations
 
@@ -19,6 +19,9 @@ HARNESS_PATH = REPO / "tools/anthropic-wif-lifecycle.py"
 REVOCATION_HARNESS_PATH = REPO / "tools/anthropic-wif-revocation.py"
 ADMIN_PATH = REPO / "tools/anthropic-wif-lifecycle-admin.py"
 RESULT_PATH = REPO / "research/isolation/results/anthropic-revocation-rotation.json"
+A129_NONCONFORMING_RESULT_SHA256 = (
+    "9b5c4d9552e4331e5e25bcc92a89b9db3ade4519a0f35b1a9311a2042d7b4deb"
+)
 PROTECTED_SOURCES = {
     "worker/qualification/patchyard-run-anthropic-issuance": (
         "91c3fdc09b34d009a02e4f8d1290976c558b0a654e89171dcaa5b3fd037a7608"
@@ -44,13 +47,17 @@ EVENT_SEQUENCE = [
     "replacement_key_activated",
     "replacement_key_final_positive",
     "issuer_retired_key",
+    "post_retirement_active_positive",
     "retired_key_exchange_denial",
+    "post_retirement_active_positive_final",
 ]
 POSITIVE_EVENTS = {
     "rule_enabled_positive": "active",
     "rule_restored_positive": "active",
     "replacement_key_positive": "replacement_staging",
     "replacement_key_final_positive": "active",
+    "post_retirement_active_positive": "active",
+    "post_retirement_active_positive_final": "active",
 }
 DENIAL_EVENTS = {
     "rule_disabled_exchange_denial": "active",
@@ -63,6 +70,8 @@ OBSERVED_DENIAL_CONTRACTS = {
 POST_MUTATION_POSITIVE_EVENTS = {
     "rule_restored_positive",
     "replacement_key_positive",
+    "post_retirement_active_positive",
+    "post_retirement_active_positive_final",
 }
 SETTLING_PREDECESSORS = {
     "rule_disabled_exchange_denial": (
@@ -75,6 +84,16 @@ SETTLING_PREDECESSORS = {
         "exchange_denial",
         "denial",
     ),
+    "post_retirement_active_positive": (
+        "issuer_retired_key",
+        "exchange",
+        "positive control",
+    ),
+    "post_retirement_active_positive_final": (
+        "issuer_retired_key",
+        "exchange",
+        "positive control",
+    ),
     "rule_restored_positive": ("rule_restored", "exchange", "positive control"),
     "replacement_key_positive": (
         "issuer_rotation_staged",
@@ -83,6 +102,10 @@ SETTLING_PREDECESSORS = {
     ),
 }
 MINIMUM_SETTLING_SECONDS = 90
+MAXIMUM_RETIREMENT_BRACKET_SECONDS = 120
+MANDATORY_BRACKETING_REQUEST_IDS = 20
+EXPECTED_IDENTIFIED_PROVIDER_REQUEST_IDS = 22
+EXPECTED_PROVIDER_TIMESTAMPS = 22
 QUALIFICATION_BLOCKED_EXIT = 2
 ADMIN_EVENTS = {
     "rule_disabled",
@@ -98,6 +121,23 @@ EXPECTED_ERROR_SHAPE = {
     "top_level_keys": ["error", "request_id", "type"],
     "error_value_type": "object",
     "error_object_keys": ["message", "type"],
+}
+REVOCATION_EVIDENCE_KEYS = {
+    "schema_version",
+    "provider",
+    "qualification_requirement",
+    "authorization_ruling",
+    "run_id",
+    "policy_sha256",
+    "lifecycle_harness_sha256",
+    "revocation_harness_sha256",
+    "admin_tool_sha256",
+    "events",
+}
+CONTRACT_FIXTURE_METADATA = {
+    "fixture_kind": "synthetic-thirteen-event-satisfiability",
+    "provider_response_observed": False,
+    "qualification_evidence": False,
 }
 UTC_TIMESTAMP = re.compile(
     r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
@@ -453,10 +493,16 @@ def validate_positive_event(
     removed = parse_time(
         value.get("credential_removed_at"), f"{event_type} credential_removed_at", errors
     )
-    if models_observed is not None and event_observed is not None and models_observed != event_observed:
+    if (
+        models_observed is not None
+        and event_observed is not None
+        and models_observed != event_observed
+    ):
         errors.append(f"{event_type} event timestamp is not its Models observation")
     if all(item is not None for item in (exchange_observed, models_observed, removed)):
-        assert exchange_observed is not None and models_observed is not None and removed is not None
+        assert exchange_observed is not None
+        assert models_observed is not None
+        assert removed is not None
         if not exchange_observed < models_observed <= removed:
             errors.append(f"{event_type} capture timestamps are out of order")
     if expires is not None and models_provider is not None and not models_provider < expires:
@@ -585,7 +631,11 @@ def validate_denial_event(
     removed = parse_time(
         value.get("credential_removed_at"), f"{event_type} credential_removed_at", errors
     )
-    if denial_observed is not None and event_observed is not None and denial_observed != event_observed:
+    if (
+        denial_observed is not None
+        and event_observed is not None
+        and denial_observed != event_observed
+    ):
         errors.append(f"{event_type} event timestamp is not its provider denial")
     if denial_observed is not None and removed is not None and denial_observed > removed:
         errors.append(f"{event_type} credential cleanup predates its denial")
@@ -622,6 +672,71 @@ def validate_settling_intervals(
                     f"{event_type} is inconclusive: {request_kind} began before the "
                     f"{MINIMUM_SETTLING_SECONDS}-second settling interval elapsed"
                 )
+
+
+def validate_retirement_bracket(
+    events: dict[str, dict[str, Any]], errors: list[str]
+) -> None:
+    first = events.get("post_retirement_active_positive", {})
+    denial = events.get("retired_key_exchange_denial", {})
+    final = events.get("post_retirement_active_positive_final", {})
+    values = (
+        (
+            first.get("exchange", {}).get("request_started_at"),
+            "post-retirement first control request",
+        ),
+        (
+            first.get("models", {}).get("observed_at"),
+            "post-retirement first control completion",
+        ),
+        (
+            denial.get("exchange_denial", {}).get("request_started_at"),
+            "retired-key denial request",
+        ),
+        (
+            denial.get("exchange_denial", {}).get("observed_at"),
+            "retired-key denial completion",
+        ),
+        (
+            final.get("exchange", {}).get("request_started_at"),
+            "post-retirement final control request",
+        ),
+        (
+            final.get("models", {}).get("observed_at"),
+            "post-retirement final control completion",
+        ),
+    )
+    parsed = [parse_time(value, label, errors) for value, label in values]
+    if any(value is None for value in parsed):
+        return
+    (
+        first_started,
+        first_finished,
+        denial_started,
+        denial_finished,
+        final_started,
+        final_finished,
+    ) = parsed
+    assert all(value is not None for value in parsed)
+    if not (
+        first_started <= first_finished
+        < denial_started
+        <= denial_finished
+        < final_started
+        <= final_finished
+    ):
+        errors.append(
+            "retired-key denial is not bracketed by non-overlapping active-key controls"
+        )
+        return
+    if (
+        (final_finished - first_started).total_seconds()
+        > MAXIMUM_RETIREMENT_BRACKET_SECONDS
+    ):
+        errors.append(
+            "retirement bracket exceeds the "
+            f"{MAXIMUM_RETIREMENT_BRACKET_SECONDS}-second bounded window"
+        )
 
 
 def validate_rule_state(
@@ -840,19 +955,10 @@ def validate_evidence(
     qualification_blockers: list[str],
 ) -> list[str]:
     errors: list[str] = []
-    expected_top = {
-        "schema_version",
-        "provider",
-        "qualification_requirement",
-        "authorization_ruling",
-        "run_id",
-        "policy_sha256",
-        "lifecycle_harness_sha256",
-        "revocation_harness_sha256",
-        "admin_tool_sha256",
-        "events",
-    }
-    if not exact_keys(result, expected_top, "revocation fixture", errors):
+    if isinstance(result, dict) and result.get("qualification_evidence") is False:
+        errors.append("revocation evidence explicitly disclaims qualification")
+        return errors
+    if not exact_keys(result, REVOCATION_EVIDENCE_KEYS, "revocation fixture", errors):
         return errors
     if result.get("schema_version") != 1 or result.get("provider") != "anthropic":
         errors.append("revocation fixture identity differs")
@@ -875,7 +981,10 @@ def validate_evidence(
     if not isinstance(events, list):
         errors.append("revocation fixture events are not an array")
         return errors
-    observed_sequence = [event.get("event_type") if isinstance(event, dict) else None for event in events]
+    observed_sequence = [
+        event.get("event_type") if isinstance(event, dict) else None
+        for event in events
+    ]
     if observed_sequence != EVENT_SEQUENCE:
         errors.append("revocation fixture is missing or reorders a required event")
         return errors
@@ -927,20 +1036,30 @@ def validate_evidence(
         earlier >= later for earlier, later in zip(event_times, event_times[1:])
     ):
         errors.append("revocation fixture event timestamps are not strictly ordered")
-    if len(bracketing_request_ids) != 16 or len(set(bracketing_request_ids)) != 16:
+    if (
+        len(bracketing_request_ids) != MANDATORY_BRACKETING_REQUEST_IDS
+        or len(set(bracketing_request_ids)) != MANDATORY_BRACKETING_REQUEST_IDS
+    ):
         errors.append(
-            "revocation fixture does not bind 16 distinct bracketing provider requests"
+            "revocation fixture does not bind "
+            f"{MANDATORY_BRACKETING_REQUEST_IDS} distinct bracketing provider requests"
         )
     identified_request_ids = bracketing_request_ids + denial_request_ids
+    if len(identified_request_ids) != EXPECTED_IDENTIFIED_PROVIDER_REQUEST_IDS:
+        errors.append(
+            "revocation fixture does not bind "
+            f"{EXPECTED_IDENTIFIED_PROVIDER_REQUEST_IDS} identified provider requests"
+        )
     if len(set(identified_request_ids)) != len(identified_request_ids):
         errors.append(
             "revocation fixture does not bind every distinct identified provider request"
         )
-    if len(provider_times) != 18 or any(
+    if len(provider_times) != EXPECTED_PROVIDER_TIMESTAMPS or any(
         earlier > later for earlier, later in zip(provider_times, provider_times[1:])
     ):
         errors.append("revocation fixture provider timestamps are out of order")
     validate_settling_intervals(events_by_type, errors)
+    validate_retirement_bracket(events_by_type, errors)
     current = keys.get("rule_enabled_positive")
     replacement = keys.get("replacement_key_positive")
     if current is None or replacement is None or current == replacement:
@@ -959,6 +1078,10 @@ def validate_evidence(
         errors.append("local activation did not install the provider-proven replacement")
     if keys.get("replacement_key_final_positive") != replacement:
         errors.append("final positive did not use the activated replacement key")
+    if keys.get("post_retirement_active_positive") != replacement:
+        errors.append("first post-retirement control did not use the active replacement key")
+    if keys.get("post_retirement_active_positive_final") != replacement:
+        errors.append("final post-retirement control did not use the active replacement key")
     stage_before, stage_after = states.get("issuer_rotation_staged", ({}, {}))
     retire_before, retire_after = states.get("issuer_retired_key", ({}, {}))
     stage_before_keys = [
@@ -994,6 +1117,27 @@ def validate_evidence(
     if re.search(r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", serialized):
         errors.append("revocation fixture contains a JWT assertion")
     return errors
+
+
+def validate_contract_fixture(
+    result: Any,
+    policy: dict[str, Any],
+    qualification_blockers: list[str],
+) -> list[str]:
+    errors: list[str] = []
+    expected = REVOCATION_EVIDENCE_KEYS | set(CONTRACT_FIXTURE_METADATA)
+    if not exact_keys(result, expected, "revocation contract fixture", errors):
+        return errors
+    if result.get("fixture_kind") != CONTRACT_FIXTURE_METADATA["fixture_kind"]:
+        errors.append("revocation contract fixture kind differs")
+    if result.get("provider_response_observed") is not False:
+        errors.append("revocation contract fixture claims a provider response")
+    if result.get("qualification_evidence") is not False:
+        errors.append("revocation contract fixture claims qualification")
+    if errors:
+        return errors
+    evidence_shape = {key: result[key] for key in REVOCATION_EVIDENCE_KEYS}
+    return validate_evidence(evidence_shape, policy, qualification_blockers)
 
 
 def validate_observed_rule_denial(result: Any) -> list[str]:
@@ -1150,6 +1294,9 @@ def static_errors() -> tuple[list[str], dict[str, Any]]:
             '"exchange-positive"',
             'exchange["exchange"]["request_started_at"] = request_started_at',
             "BASE.accepted_exchange = accepted_exchange",
+            "BASE.POSITIVE_EVENT_TYPES.update(POST_RETIREMENT_POSITIVE_EVENT_TYPES)",
+            '"post_retirement_active_positive"',
+            '"post_retirement_active_positive_final"',
             'status == 401 and error_type == "authentication_error"',
             '"request_id_supplied": request_id is not None',
             '"request_started_at": response["requested_at"]',
@@ -1194,8 +1341,11 @@ def main() -> int:
     errors, policy = static_errors()
     qualification_blockers: list[str] = []
     evidence_path = RESULT_PATH
+    evidence_path_supplied = False
     allow_missing = False
+    accepted_nonconforming_result = False
     observed_denial_path: Path | None = None
+    contract_fixture_path: Path | None = None
     arguments = sys.argv[1:]
     while arguments:
         argument = arguments.pop(0)
@@ -1203,12 +1353,15 @@ def main() -> int:
             allow_missing = True
         elif argument == "--evidence" and arguments:
             evidence_path = Path(arguments.pop(0))
+            evidence_path_supplied = True
         elif argument == "--observed-denial" and arguments:
             observed_denial_path = Path(arguments.pop(0))
+        elif argument == "--contract-fixture" and arguments:
+            contract_fixture_path = Path(arguments.pop(0))
         else:
             errors.append(f"unknown checker argument: {argument}")
     if observed_denial_path is not None:
-        if allow_missing or evidence_path != RESULT_PATH:
+        if allow_missing or evidence_path_supplied or contract_fixture_path:
             errors.append("observed-denial mode cannot be combined with evidence options")
         try:
             if not observed_denial_path.is_file() or observed_denial_path.is_symlink():
@@ -1220,9 +1373,36 @@ def main() -> int:
             errors.append(f"cannot read observed rule-disabled denial: {error}")
         else:
             errors.extend(validate_observed_rule_denial(observation))
+    elif contract_fixture_path is not None:
+        if allow_missing or evidence_path_supplied:
+            errors.append("contract-fixture mode cannot be combined with evidence options")
+        try:
+            if not contract_fixture_path.is_file() or contract_fixture_path.is_symlink():
+                raise EvidenceJsonError(
+                    "contract fixture is not a regular non-symlink file"
+                )
+            contract_fixture = load_json_file(contract_fixture_path)
+        except (OSError, json.JSONDecodeError, EvidenceJsonError) as error:
+            errors.append(f"cannot read revocation contract fixture: {error}")
+        else:
+            errors.extend(
+                validate_contract_fixture(
+                    contract_fixture,
+                    policy,
+                    qualification_blockers,
+                )
+            )
     elif not evidence_path.exists():
         if not allow_missing:
             errors.append("committed Anthropic revocation result is missing")
+    elif (
+        allow_missing
+        and evidence_path == RESULT_PATH
+        and evidence_path.is_file()
+        and not evidence_path.is_symlink()
+        and digest(evidence_path) == A129_NONCONFORMING_RESULT_SHA256
+    ):
+        accepted_nonconforming_result = True
     else:
         try:
             if not evidence_path.is_file() or evidence_path.is_symlink():
@@ -1262,8 +1442,18 @@ def main() -> int:
         return QUALIFICATION_BLOCKED_EXIT
     if observed_denial_path is not None:
         status = "observed rule-disabled denial; not qualification evidence"
+    elif contract_fixture_path is not None:
+        status = "synthetic contract fixture; not qualification evidence"
+    elif accepted_nonconforming_result:
+        status = "static preflight; exact A129-nonconforming result remains recorded"
+    elif evidence_path != RESULT_PATH:
+        status = "with supplied evidence"
     else:
-        status = "with live result" if evidence_path.exists() else "static preflight"
+        status = (
+            "with conforming committed result"
+            if evidence_path.exists()
+            else "static preflight"
+        )
     print(f"Anthropic revocation check: pass ({status})")
     return 0
 

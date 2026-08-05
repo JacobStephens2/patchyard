@@ -41,9 +41,6 @@ CONFORMING_REVOCATION_FIXTURE = (
     / "fixtures/checker-contracts/anthropic-revocation-thirteen-event.json"
 )
 SPEND_EVIDENCE = ROOT / "research/isolation/results/anthropic-spend-enforcement.json"
-RECORDED_REVOCATION_RESULT = (
-    ROOT / "research/isolation/results/anthropic-revocation-rotation.json"
-)
 OBSERVED_EXPIRY_SHA256 = (
     "63fb4f52227468003674b57c1b0235d1922c5fd34651bfe7316984f9fa067b25"
 )
@@ -958,19 +955,19 @@ class AnthropicLifecycleHarnessContract(unittest.TestCase):
 class EvidenceFixtures:
     def __init__(self) -> None:
         self.policy = json.loads(POLICY_PATH.read_text())
-        recorded = json.loads(RECORDED_REVOCATION_RESULT.read_text())
-        recorded_events = {
-            event["event_type"]: event for event in recorded["events"]
+        synthetic = json.loads(CONFORMING_REVOCATION_FIXTURE.read_text())
+        synthetic_events = {
+            event["event_type"]: event for event in synthetic["events"]
         }
-        recorded_current = recorded_events["rule_enabled_positive"]
-        recorded_replacement = recorded_events["replacement_key_final_positive"]
+        synthetic_current = synthetic_events["rule_enabled_positive"]
+        synthetic_replacement = synthetic_events["replacement_key_final_positive"]
         self.base = datetime(2026, 8, 2, 12, 0, tzinfo=timezone.utc)
-        self.old = deepcopy(recorded_current["signing_key"])
-        self.new = deepcopy(recorded_replacement["signing_key"])
+        self.old = deepcopy(synthetic_current["signing_key"])
+        self.new = deepcopy(synthetic_replacement["signing_key"])
         self.discarded_response_fields = deepcopy(
-            recorded_replacement["exchange"]["discarded_response_fields"]
+            synthetic_replacement["exchange"]["discarded_response_fields"]
         )
-        self.model_id = recorded_replacement["models"]["model_id"]
+        self.model_id = synthetic_replacement["models"]["model_id"]
         self.run_id = "anthropic-l3-20260802-0123456789"
         self.policy_sha = digest(POLICY_PATH)
         self.harness_sha = digest(HARNESS_PATH)
@@ -1370,14 +1367,13 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
                 "post_retirement_active_positive_final",
             ],
         )
-        recorded = json.loads(RECORDED_REVOCATION_RESULT.read_text())
-        recorded_positive = next(
+        fixture_positive = next(
             event
-            for event in recorded["events"]
+            for event in evidence["events"]
             if event["event_type"] == "replacement_key_final_positive"
         )
         for control in (evidence["events"][10], evidence["events"][12]):
-            self.assertEqual(control["signing_key"], recorded_positive["signing_key"])
+            self.assertEqual(control["signing_key"], fixture_positive["signing_key"])
             for field in (
                 "endpoint",
                 "http_status",
@@ -1390,12 +1386,11 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
                 "workspace_id",
             ):
                 self.assertEqual(
-                    control["exchange"][field],
-                    recorded_positive["exchange"][field],
+                    control["exchange"][field], fixture_positive["exchange"][field]
                 )
             for field in ("endpoint", "http_status", "model_id"):
                 self.assertEqual(
-                    control["models"][field], recorded_positive["models"][field]
+                    control["models"][field], fixture_positive["models"][field]
                 )
         result = self.check_contract_fixture(CONFORMING_REVOCATION_FIXTURE)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -1755,35 +1750,21 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("missing or reorders a required event", result.stderr)
 
-    def test_recorded_result_is_rejected_but_static_preflight_preserves_it(self) -> None:
-        rejected = subprocess.run(
-            ["python3", "-I", str(REVOCATION_CHECKER)],
-            cwd=ROOT,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(rejected.returncode, 1)
-        self.assertIn("missing or reorders a required event", rejected.stderr)
-
-        preflight = subprocess.run(
-            [
-                "python3",
-                "-I",
-                str(REVOCATION_CHECKER),
-                "--allow-missing-results",
-            ],
-            cwd=ROOT,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(preflight.returncode, 0, preflight.stderr)
-        self.assertIn("A129-nonconforming result remains recorded", preflight.stdout)
-        self.assertEqual(
-            digest(RECORDED_REVOCATION_RESULT),
-            "9b5c4d9552e4331e5e25bcc92a89b9db3ade4519a0f35b1a9311a2042d7b4deb",
-        )
+    def test_recorded_conforming_result_is_accepted_in_both_modes(self) -> None:
+        for mode, arguments in (
+            ("default", []),
+            ("static preflight", ["--allow-missing-results"]),
+        ):
+            with self.subTest(mode=mode):
+                result = subprocess.run(
+                    ["python3", "-I", str(REVOCATION_CHECKER), *arguments],
+                    cwd=ROOT,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("with conforming committed result", result.stdout)
 
     def test_rule_disabled_400_invalid_grant_is_rejected(self) -> None:
         fixtures = EvidenceFixtures()

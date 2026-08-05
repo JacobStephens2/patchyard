@@ -18,7 +18,15 @@ HARNESS_PATH = ROOT / "tools/anthropic-wif-lifecycle.py"
 ADMIN_PATH = ROOT / "tools/anthropic-wif-lifecycle-admin.py"
 EXPIRY_CHECKER = ROOT / "tools/check-anthropic-expiry.py"
 REVOCATION_CHECKER = ROOT / "tools/check-anthropic-revocation.py"
+SPEND_CHECKER = ROOT / "tools/check-anthropic-spend.py"
 POLICY_PATH = ROOT / "policy/anthropic-wif.json"
+OBSERVED_EXPIRY_FIXTURE = (
+    ROOT / "fixtures/provider-observations/anthropic-expiry-2026-08-04.json"
+)
+SPEND_EVIDENCE = ROOT / "research/isolation/results/anthropic-spend-enforcement.json"
+OBSERVED_EXPIRY_SHA256 = (
+    "63fb4f52227468003674b57c1b0235d1922c5fd34651bfe7316984f9fa067b25"
+)
 EXPECTED_HARNESS_SOURCE_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
 )
@@ -27,11 +35,6 @@ EXPECTED_ADMIN_SOURCE_SHA256 = (
 )
 ERROR_SHAPE = {
     "top_level_keys": ["error", "request_id", "type"],
-    "error_value_type": "object",
-    "error_object_keys": ["message", "type"],
-}
-ERROR_SHAPE_WITHOUT_REQUEST_ID = {
-    "top_level_keys": ["error", "type"],
     "error_value_type": "object",
     "error_object_keys": ["message", "type"],
 }
@@ -548,6 +551,7 @@ class AnthropicLifecycleHarnessContract(unittest.TestCase):
                 {
                     "type": "error",
                     "error": {"type": "authentication_error", "message": "expired"},
+                    "request_id": None,
                 },
                 301,
             )
@@ -603,7 +607,7 @@ class AnthropicLifecycleHarnessContract(unittest.TestCase):
         self.assertIs(evidence["expiry_denial"]["request_id_supplied"], False)
         self.assertEqual(
             evidence["expiry_denial"]["response_shape"],
-            ERROR_SHAPE_WITHOUT_REQUEST_ID,
+            ERROR_SHAPE,
         )
         self.assertLess(
             evidence["issuance"]["expires_at"],
@@ -888,51 +892,11 @@ class EvidenceFixtures:
         }
 
     def expiry(self) -> dict[str, object]:
-        issued = self.base
-        positive = issued + timedelta(seconds=1)
-        expires = issued + timedelta(seconds=300)
-        denial_time = expires + timedelta(seconds=1)
-        issuance = self.issuance(issued + timedelta(seconds=2))
-        issuance["provider_date"] = iso(issued, microseconds=False)
-        issuance["issued_at"] = iso(issued, microseconds=False)
-        issuance["expires_at"] = iso(expires, microseconds=False)
-        issuance["observed_at"] = iso(issued + timedelta(microseconds=1))
-        control = self.models(positive)
-        denial = {
-            "source": "anthropic_http_response",
-            "endpoint": "/v1/models?limit=1",
-            "http_status": 401,
-            "request_id": None,
-            "request_id_supplied": False,
-            "provider_date": iso(denial_time, microseconds=False),
-            "request_started_at": iso(denial_time),
-            "observed_at": iso(denial_time + timedelta(microseconds=1)),
-            "error_type": "authentication_error",
-            "response_shape": deepcopy(ERROR_SHAPE_WITHOUT_REQUEST_ID),
-        }
-        return {
-            "schema_version": 1,
-            "provider": "anthropic",
-            "qualification_requirement": "credential-expiry-denial",
-            "authorization_ruling": "A113",
-            "run_id": self.run_id,
-            "signing_key": deepcopy(self.old),
-            "issuance": issuance,
-            "positive_control": control,
-            "expiry_denial": denial,
-            "credential_removed_at": iso(denial_time + timedelta(microseconds=2)),
-            "policy_sha256": self.policy_sha,
-            "lifecycle_harness_sha256": self.harness_sha,
-        }
-
-    def expiry_with_request_id(self) -> dict[str, object]:
-        fixture = self.expiry()
-        fixture["expiry_denial"]["request_id"] = self.request_id()
-        fixture["expiry_denial"]["request_id_supplied"] = True
-        fixture["expiry_denial"]["response_shape"] = deepcopy(ERROR_SHAPE)
-        return fixture
+        return json.loads(OBSERVED_EXPIRY_FIXTURE.read_text())
 
     def revocation(self) -> dict[str, object]:
+        # No observed revocation/rotation result exists yet. This authored
+        # structure is a mutation scaffold, not satisfiability evidence.
         times = [self.base + timedelta(seconds=10 * index) for index in range(1, 12)]
         enabled = self.rule_state(True)
         disabled = self.rule_state(False)
@@ -1024,62 +988,32 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
             text=True,
         )
 
-    def test_expiry_401_without_request_id_fixture_passes_actual_checker(self) -> None:
+    def test_observed_expiry_fixture_passes_actual_checker(self) -> None:
         fixtures = EvidenceFixtures()
         evidence = fixtures.expiry()
+        self.assertEqual(digest(OBSERVED_EXPIRY_FIXTURE), OBSERVED_EXPIRY_SHA256)
         self.assertIsNone(evidence["expiry_denial"]["request_id"])
         self.assertIs(evidence["expiry_denial"]["request_id_supplied"], False)
         result = self.check(EXPIRY_CHECKER, evidence)
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_identified_denials_and_complete_revocation_fixture_pass(self) -> None:
-        fixtures = EvidenceFixtures()
-        expiry = self.check(EXPIRY_CHECKER, fixtures.expiry_with_request_id())
-        self.assertEqual(expiry.returncode, 0, expiry.stderr)
-
-        fixtures = EvidenceFixtures()
-        evidence = fixtures.revocation()
-        positive_ids = [
-            event[section]["request_id"]
-            for event in evidence["events"]
-            if event["event_type"]
-            in {
-                "rule_enabled_positive",
-                "rule_restored_positive",
-                "replacement_key_positive",
-                "replacement_key_final_positive",
-            }
-            for section in ("exchange", "models")
-        ]
-        admin_ids = [
-            event[section]["request_id"]
-            for event in evidence["events"]
-            if event["event_type"]
-            in {
-                "rule_disabled",
-                "rule_restored",
-                "issuer_rotation_staged",
-                "issuer_retired_key",
-            }
-            for section in ("mutation", "readback")
-        ]
-        denial_ids = [
-            event["exchange_denial"]["request_id"]
-            for event in evidence["events"]
-            if "exchange_denial" in event
-        ]
-        self.assertEqual((len(positive_ids), len(admin_ids), len(denial_ids)), (8, 8, 2))
-        self.assertEqual(len(set(positive_ids + admin_ids + denial_ids)), 18)
+    def test_observed_identified_400_and_requirement_2_evidence_pass(self) -> None:
+        evidence = json.loads(SPEND_EVIDENCE.read_text())
+        denial = evidence["phases"]["temporary_refusal"]["provider_observation"]
+        self.assertEqual(denial["http_status"], 400)
+        self.assertRegex(denial["request_id"], r"^req_[A-Za-z0-9]+$")
         self.assertEqual(
-            [
-                event["exchange_denial"]["http_status"]
-                for event in evidence["events"]
-                if "exchange_denial" in event
-            ],
-            [400, 400],
+            denial["provider_error"]["shape"]["top_level_keys"],
+            ["error", "request_id", "type"],
         )
-        revocation = self.check(REVOCATION_CHECKER, evidence)
-        self.assertEqual(revocation.returncode, 0, revocation.stderr)
+        result = subprocess.run(
+            ["python3", "-I", str(SPEND_CHECKER)],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_expiry_absence_claim_with_request_id_is_rejected(self) -> None:
         fixtures = EvidenceFixtures()
@@ -1096,6 +1030,16 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
         result = self.check(EXPIRY_CHECKER, expiry)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("expiry denial has an unexpected evidence shape", result.stderr)
+
+    def test_non_bool_request_id_presence_observation_is_rejected(self) -> None:
+        fixtures = EvidenceFixtures()
+        expiry = fixtures.expiry()
+        expiry["expiry_denial"]["request_id_supplied"] = "false"
+        result = self.check(EXPIRY_CHECKER, expiry)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "does not explicitly record request-ID presence", result.stderr
+        )
 
     def test_expiry_denial_at_or_before_expiry_is_rejected(self) -> None:
         fixtures = EvidenceFixtures()
@@ -1142,10 +1086,11 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
 
     def test_fabricated_denials_are_rejected(self) -> None:
         fixtures = EvidenceFixtures()
-        expiry = fixtures.expiry_with_request_id()
+        expiry = fixtures.expiry()
         expiry["expiry_denial"]["request_id"] = expiry["positive_control"][
             "request_id"
         ]
+        expiry["expiry_denial"]["request_id_supplied"] = True
         result = self.check(EXPIRY_CHECKER, expiry)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("every distinct identified provider request", result.stderr)

@@ -24,28 +24,30 @@ BOUND_SOURCES = {
     "infra/tool-versions.env": "63fa7fa217d98d914a73394c98b41f97571c5c776b3a9b2d4c51d95e56ab917f",
     "tools/read-infra-tool-version.py": "d94d97d605736d0201d0fc0517e0e780d6c346ab79ddc3bd84de7b472edeccd8",
     "tools/install-shellcheck.sh": "715047c90f6a877c57a5495f1bc24feecd40f365ccd8239a6dc711be22a3f535",
-    "tools/check-infra.sh": "3e8904f9880fb4944d0b42e1a40c0ee71913299146a8ce1cf1e3feaad5da8909",
+    "tools/check-infra.sh": "aec43a7bb743ebb72a800333b39b89b87565b4eca37891cd12db2b69a00fc8d2",
     "tools/check-ansible.sh": "309e411f2e81b93c3d74a35a4fd03f475d045d2d25bae1048f7f14480c812eca",
     "tools/run-isolated-unittest.py": "008dec140748405df5a52a6a97f690ed514f36598663673ed07e57c5bc1ed523",
     "tools/anthropic-spend-evidence.py": "494cba4a628e592004dc975ead283aa32fe1fbfe6236c6d6a4a7c7d7ee733099",
     "tools/anthropic-wif-admin.py": "89794bd6235d5b37dfa4999a792588396ece9935b17820954b75d8b055822c91",
     "tools/anthropic-wif-lifecycle.py": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
     "tools/anthropic-wif-revocation.py": "ef4c204880cdc002ccee17f080b6011191a183c07e3ae173b34beb215737b61f",
+    "tools/anthropic-wif-crash-cleanup.py": "88bb709eb662734fd85d17ac30b0d30592fadbbd83ce366f17e84ea0143e844c",
     "tools/anthropic-wif-lifecycle-admin.py": "1a1e08060a5ad68f65b3a798e2b992ee2c34fc336e4f7fd8922bfdf2effecc55",
     "tools/check-anthropic-expiry.py": "41904ee87d54c362c9714c3c06853e5f67047365847edc9431620d62bc5a9c54",
     "tools/check-anthropic-spend.py": "f3698347dd125a8816b2c5467bbd0a418013fc3481f40382688ec14e41f5f91f",
     "tools/check-anthropic-issuance.py": "56a84e7f5aab1f8a99003a5321ad7d6f910d72fcd35d68166958bd3495e9ee60",
     "tools/check-anthropic-revocation.py": "deeba4038169d466a31bbcf4d263fe8ac1bdf0aa5bd9365f4449da8e80db085c",
+    "tools/check-anthropic-crash-cleanup.py": "770a339f2d6c36c849968b9fed914ebb2fce518e0cc1458c8c0fb98648a6e278",
     "tools/check-independence.py": "baaa2e5058862a253c5042e7ccaea4bfea8af05a93825f5ce5cf99bbd1f93782",
     "tools/check-preview-runtime.py": "2f9a6e994c3d50e7e1f729546b3180330c4ccf0d471ee5b75f016cbbc95292be",
     "tools/check-stack.py": "ddce869a4bd4983c35c1b246ba01b5e8b1ea25219c761ebbdb2d5b4a8194deff",
     "tools/check-worker-qualification.py": "357d756da3c83004db6766956a8c31b9682953a50b470dbb3ff7b9acb879e99a",
     "tools/check-worker-runtime.py": "db1646d9bcf738d1df35679e131b1afdb9e35af73be1859d85c8f4017385ce75",
-    "infra/ansible/tests/test_a101_readiness_root.py": "b0b076203bbaaa70058b7fa7a6529dbe0c027147f390f6766cf1bfeb1ad5f6a3",
+    "infra/ansible/tests/test_a101_readiness_root.py": "1695665d96a2734c626f4440090dacf5ff22c5347e231bb2ae086fed4c5b474e",
     "infra/ansible/tests/test_worker_firewall_readiness.py": "8c5ac7c98d947c3ecf56f3e1f4b8ef5d6ec429f7d1fbb384e5d13630df24895c",
     "infra/ansible/tests/test_anthropic_spend.py": "ae4ee1afb0627f92cccb180926357e792f687ccd1487ffc57ebc44277d426fd1",
     "infra/ansible/tests/test_anthropic_issuance.py": "1cd6f3b71df6987c94a3bb02447aebfbb7106a8cfb412f0d751c2ddc76a7f882",
-    "infra/ansible/tests/test_anthropic_lifecycle.py": "43f11526643b08a3fd56daeadf2f64e4cf8d53f619ed99e20c5558d53761f7b4",
+    "infra/ansible/tests/test_anthropic_lifecycle.py": "dba785d7000509be4e9495bfd4d6cf932e8a93f71a92b95877131db4452d14b9",
     "infra/ansible/tests/test_anthropic_wif_admin.py": "1d53f8ffe4ef6ad55b8d7187705344836aed831337c26f310bd11538888a9670",
     "infra/ansible/tests/test_child_launcher.py": "bff549994263407f9b96ec52383b120a159de2c987e2bada49ad13a99c6cd9c0",
     "infra/ansible/tests/test_cloud_init_bootstrap.py": "c0c79b21c2f0ed236667fc8176c1c834f1753991fef35ef6a03f4a21fe6bca04",
@@ -83,11 +85,13 @@ EXPECTED_TOOL_PYTHON_FILES = (
     "tools/anthropic-wif-lifecycle-admin.py",
     "tools/anthropic-wif-lifecycle.py",
     "tools/anthropic-wif-revocation.py",
+    "tools/anthropic-wif-crash-cleanup.py",
     "tools/benchmark_harmonyagent_cerebras.py",
     "tools/benchmark_harness_speed.py",
     "tools/benchmark_spec_speed.py",
     "tools/check-a101-readiness-root.py",
     "tools/check-anthropic-expiry.py",
+    "tools/check-anthropic-crash-cleanup.py",
     "tools/check-anthropic-issuance.py",
     "tools/check-anthropic-revocation.py",
     "tools/check-anthropic-spend.py",
@@ -112,6 +116,7 @@ INFRA_CHECKERS = (
     "check-anthropic-issuance.py",
     "check-anthropic-expiry.py",
     "check-anthropic-revocation.py",
+    "check-anthropic-crash-cleanup.py",
     "check-preview-runtime.py",
 )
 PROTECTED_MODULE_FILES = {
@@ -348,12 +353,16 @@ def validate() -> list[str]:
         revocation_call = (
             'run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-revocation.py"'
         )
+        crash_call = (
+            'run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-crash-cleanup.py"'
+        )
         preview_call = 'run_gate python3 -I "$REPO_ROOT/tools/check-preview-runtime.py"'
         try:
             spend_index = infra_wrapper.index(spend_call)
             issuance_index = infra_wrapper.index(issuance_call)
             expiry_index = infra_wrapper.index(expiry_call)
             revocation_index = infra_wrapper.index(revocation_call)
+            crash_index = infra_wrapper.index(crash_call)
             preview_index = infra_wrapper.index(preview_call)
         except ValueError:
             errors.append("infrastructure wrapper lacks a required Anthropic/preview checker")
@@ -363,6 +372,7 @@ def validate() -> list[str]:
                 < issuance_index
                 < expiry_index
                 < revocation_index
+                < crash_index
                 < preview_index
             ):
                 errors.append("infrastructure aggregate checker ordering differs")

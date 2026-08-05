@@ -3,7 +3,8 @@
 ## Status and boundary
 
 This source implements the A113 expiry-denial and federation-rule-revocation
-halves plus the A-14 signing-key rotation path. The expiry proof ran on
+halves, the A-14 signing-key rotation path, and A130's crash-cleanup procedure.
+The expiry proof ran on
 2026-08-04 and the rule-removal/restoration proof ran on 2026-08-05. Two
 attended rotation runs followed on 2026-08-05.
 
@@ -29,7 +30,9 @@ consistency, not that each recorded value came from the provider call it names.
 That limitation also applies to requirement 1, requirement 2, and the expiry
 denial.
 
-All 13 provider `credential_qualified` flags remain false. Any further live execution, provider mutation, key activation, evidence
+The A130 crash-cleanup procedure and checker have not run live and qualify
+nothing. All 13 provider `credential_qualified` flags remain false. Any further
+live execution, provider mutation, key activation, evidence
 publication, fixture refresh, or qualification-flag change requires a new
 authorization after adversarial review.
 
@@ -47,6 +50,11 @@ harness used by the qualified expiry result. The smaller
 the revocation-specific denial fields and positive-exchange start times, and
 allowlists the two A129 post-retirement controls. This preserves the expiry
 evidence's source binding while making the revocation contract recordable.
+`tools/anthropic-wif-crash-cleanup.py` is another source-bound adapter. It uses
+the existing reserved output unchanged, holds a validated bearer in a child at
+the pre-terminal checkpoint, observes that child's actual wait status from a
+separate supervisor, and emits only sanitized metadata from its run-scoped
+surface search.
 `tools/anthropic-wif-lifecycle-admin.py` is a separate attended operator tool
 using the short-lived `ant` OAuth profile. None accepts an API key. All strip
 ambient Anthropic credential variables, reject HTTP redirects and ambient
@@ -220,6 +228,61 @@ two-key staging, retirement, and both rotation rollback paths with a fake API.
 demonstrates all four post-mutation positive settling predicates. It is explicitly
 synthetic and timing-only: it contains no provider response and makes no
 provider-observation or qualification claim.
+
+### Crash cleanup
+
+The future live result path is
+`research/isolation/results/anthropic-crash-cleanup.json`. It does not exist yet.
+The exact result binds the policy, qualified lifecycle harness, and crash
+adapter, and records:
+
+- a successful exchange checkpoint with the bearer still held in the child,
+  before any terminal write, with core dumps disabled and no configured swap;
+- a positive search that observes both the live child and the distinct private
+  key genuinely staged at `replacement.pem`;
+- the supervisor's observed child return code `-9`, signal name `SIGKILL`, and
+  absence of that exact PID/start-time identity afterward, followed immediately
+  by its removal and directory-fsync of the run-scoped private key;
+- the identical bounded search over the identical run directory after that
+  automatic key cleanup, finding no bearer, JWT assertion, or private key;
+- the byte-identical `status: in_progress` attempt at checkpoint, after
+  `SIGKILL`, and at collection, with no terminal fields; and
+- exit 1 from every Anthropic checker that accepts a caller-supplied evidence
+  path. The fixed-result issuance and spend checkers have no such input path.
+
+The search is one implementation, not two similarly named commands. Both
+captures use `scan` with the same checkpoint; only their new output filenames
+differ. Its contract fixes the root, target PID/start time, recursive regular-file
+surface, material classes, and byte/file ceilings. The positive control must
+find exactly the real run-scoped `replacement.pem`, not a generated canary or a
+different directory. A missing key, a broken scanner returning zero, a symlink,
+an unreadable/special entry, enabled scanner core dumps, configured swap, or a
+changed search contract fails closed.
+
+The bearer and assertion exist only in the credential process. The distinct
+private key and every adapter output exist only in that run's verified tmpfs
+directory. Process absence, disabled core dumps, zero swap, and the empty
+post-kill filesystem search therefore compose the bounded local
+non-recoverability result. This proof concerns the Anthropic credential in
+flight; it does not claim that an unrelated stable signing identity elsewhere
+on the control plane disappeared.
+
+This boundary is mandatory in both evidence and prose: **the killed bearer can
+remain valid at Anthropic until its natural expiry**. Anthropic exposes no
+per-bearer revocation operation. Local crash cleanup proves no provider denial
+and no provider-side invalidation. The separately qualified expiry result bounds
+that residual provider exposure to five minutes or less; neither guarantee may
+be substituted for the other.
+
+`fixtures/checker-contracts/anthropic-crash-cleanup.json` is the labeled
+synthetic satisfiability case. Its staged-key issuance shape descends from the
+observed `replacement_key_positive` event in the current rotation result; its
+local PID, times, and search outcome are synthetic. It carries
+`fixture_kind`, `provider_response_observed: false`, and
+`qualification_evidence: false`. Contract-fixture mode accepts it, while the
+qualification path rejects that same file explicitly. The isolated lifecycle
+tests also reject SIGTERM, a missing or vacuous positive control, any checker
+acceptance of `in_progress`, and any credential material in evidence.
 
 ## Attended live procedure: expiry
 
@@ -627,6 +690,218 @@ reaches exit 0. Do not hand-edit an event, fill a missing request ID, relabel a
 local observation, reorder a timestamp, or publish a partial fixture as
 success. Files whose top level has `status` are terminal diagnostics rather
 than success events and must not be substituted into the thirteen-event list.
+
+## Attended live procedure: crash cleanup
+
+Do not run this procedure without separate authorization for the live exchange
+and temporary issuer mutation. It is a dedicated attempt, not an extra event to
+splice into an earlier rotation result. Start from an old-key-only issuer state,
+use a fresh run ID, and stop if either host checkout differs from the exact SHA
+approved for the run.
+
+On the attended operator host, create the operator stage:
+
+```bash
+umask 077
+RUN_ID="anthropic-l3-$(date -u +%Y%m%d)-$(openssl rand -hex 5)"
+ADMIN_STAGE="$(mktemp -d /tmp/patchyard-anthropic-crash.XXXXXXXXXX)"
+test "$(stat -c '%a' "$ADMIN_STAGE")" = 700
+```
+
+Carry only that run ID to the control plane. Create the exact root tmpfs stage,
+derive the current public JWKS, and generate a distinct run-scoped key:
+
+```bash
+cd /opt/patchyard
+RUN_ID="anthropic-l3-YYYYMMDD-0000000000" # exact operator-host value
+CONTROL_STAGE="/run/patchyard-anthropic/$RUN_ID"
+sudo install -d -m 0700 -o root -g root "$CONTROL_STAGE"
+sudo python3 -I tools/anthropic-wif-lifecycle.py jwks \
+  --run-id "$RUN_ID" \
+  --signing-key /etc/patchyard/anthropic-wif-signing.pem \
+  --output "$CONTROL_STAGE/current-jwks.json"
+sudo install -m 0400 -o root -g root /dev/null \
+  "$CONTROL_STAGE/replacement.pem"
+sudo openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 \
+  -out "$CONTROL_STAGE/replacement.pem"
+sudo test "$(stat -c '%U:%G:%a' "$CONTROL_STAGE/replacement.pem")" = root:root:400
+sudo python3 -I tools/anthropic-wif-lifecycle.py jwks \
+  --run-id "$RUN_ID" \
+  --signing-key "$CONTROL_STAGE/replacement.pem" \
+  --output "$CONTROL_STAGE/replacement-jwks.json"
+```
+
+Copy only `current-jwks.json` and `replacement-jwks.json` to those exact names
+under `$ADMIN_STAGE`; never copy `replacement.pem`. On the operator host, review
+and apply the temporary two-key overlap, then wait from the returned readback:
+
+```bash
+python3 -I tools/anthropic-wif-lifecycle-admin.py \
+  --profile patchyard-admin issuer-stage --run-id "$RUN_ID" \
+  --expected-current-jwks "$ADMIN_STAGE/current-jwks.json" \
+  --replacement-jwks "$ADMIN_STAGE/replacement-jwks.json"
+python3 -I tools/anthropic-wif-lifecycle-admin.py \
+  --profile patchyard-admin --apply \
+  --output "$ADMIN_STAGE/crash-issuer-staged.json" \
+  issuer-stage --run-id "$RUN_ID" \
+  --expected-current-jwks "$ADMIN_STAGE/current-jwks.json" \
+  --replacement-jwks "$ADMIN_STAGE/replacement-jwks.json"
+/usr/bin/sleep 90
+```
+
+Back on the control plane, name every new output and start the supervisor in the
+background. The supervisor reserves its own record and launches the credential
+child; the child separately reserves `crash-attempt.json` before exchanging:
+
+```bash
+ATTEMPT="$CONTROL_STAGE/crash-attempt.json"
+CHECKPOINT="$CONTROL_STAGE/crash-checkpoint.json"
+POSITIVE="$CONTROL_STAGE/crash-positive-search.json"
+KILL_OBSERVATION="$CONTROL_STAGE/crash-sigkill.json"
+POST_KILL="$CONTROL_STAGE/crash-post-kill-search.json"
+RESULT="$CONTROL_STAGE/anthropic-crash-cleanup.json"
+sudo python3 -I tools/anthropic-wif-crash-cleanup.py supervise \
+  --run-id "$RUN_ID" \
+  --signing-key "$CONTROL_STAGE/replacement.pem" \
+  --attempt-output "$ATTEMPT" \
+  --checkpoint-output "$CHECKPOINT" \
+  --positive-control "$POSITIVE" \
+  --kill-output "$KILL_OBSERVATION" &
+SUPERVISOR_PID=$!
+for _ in $(seq 1 600); do
+  sudo test ! -s "$CHECKPOINT" || break
+  /usr/bin/sleep 0.1
+done
+sudo jq -e '
+  .phase == "bearer_live_before_terminal_write"
+  and .bearer_live == true
+  and .terminal_record_written == false
+  and .core_dump_limits == [0,0]
+  and .swap_entries == 0
+' "$CHECKPOINT" >/dev/null
+CREDENTIAL_PID=$(sudo jq -er '.target_pid' "$CHECKPOINT")
+```
+
+Do not send a signal yet. Run the positive control while that exact process
+holds the live bearer. This is the first of the two identical searches:
+
+```bash
+sudo python3 -I tools/anthropic-wif-crash-cleanup.py scan \
+  --run-id "$RUN_ID" --checkpoint "$CHECKPOINT" --output "$POSITIVE"
+sudo jq -e '
+  .credential_material_found == true
+  and .material_classes_found == ["private_key"]
+  and .matches == [{
+    material_class:"private_key",
+    relative_path:"replacement.pem",
+    occurrences:1
+  }]
+  and .target_process_present == true
+  and .scanner_core_dump_limits == [0,0]
+  and .swap_entries == 0
+' "$POSITIVE" >/dev/null
+```
+
+The kill happens here, and only here. `SIGTERM`, an interactive interrupt, or a
+timeout is a failed attempt. Send `SIGKILL` to the checkpoint PID, then wait for
+the separate supervisor to observe child return code `-9`:
+
+```bash
+sudo kill -KILL -- "$CREDENTIAL_PID"
+set +e
+wait "$SUPERVISOR_PID"
+SUPERVISOR_STATUS=$?
+set -e
+test "$SUPERVISOR_STATUS" -eq 0
+sudo jq -e '
+  .event_type == "credential_process_sigkill_observed"
+  and .signal_name == "SIGKILL"
+  and .signal_number == 9
+  and .child_returncode == -9
+  and .supervisor_timed_out == false
+  and .target_process_present == false
+  and .signing_key_removed == true
+  and .signing_key_present_after_cleanup == false
+' "$KILL_OBSERVATION" >/dev/null
+```
+
+The supervisor has now removed the one run-scoped private key and fsynced the
+run directory. Independently confirm its absence. Do not remove, copy, replace,
+or edit the attempt record. Then invoke the same `scan` action with the same
+checkpoint over the same stage; only the new output path differs:
+
+```bash
+sudo test ! -e "$CONTROL_STAGE/replacement.pem"
+sudo python3 -I tools/anthropic-wif-crash-cleanup.py scan \
+  --run-id "$RUN_ID" --checkpoint "$CHECKPOINT" --output "$POST_KILL"
+sudo jq -e '
+  .credential_material_found == false
+  and .material_classes_found == []
+  and .matches == []
+  and .target_process_present == false
+  and .scanner_core_dump_limits == [0,0]
+  and .swap_entries == 0
+' "$POST_KILL" >/dev/null
+sudo jq -e '.status == "in_progress"' "$ATTEMPT" >/dev/null
+```
+
+The provider still trusts the staged public key at this point. On the operator
+host, review and apply the old-key-only rollback even if the local proof failed:
+
+```bash
+python3 -I tools/anthropic-wif-lifecycle-admin.py \
+  --profile patchyard-admin issuer-rollback-stage --run-id "$RUN_ID" \
+  --expected-current-jwks "$ADMIN_STAGE/current-jwks.json" \
+  --replacement-jwks "$ADMIN_STAGE/replacement-jwks.json"
+python3 -I tools/anthropic-wif-lifecycle-admin.py \
+  --profile patchyard-admin --apply \
+  --output "$ADMIN_STAGE/crash-issuer-rollback.json" \
+  issuer-rollback-stage --run-id "$RUN_ID" \
+  --expected-current-jwks "$ADMIN_STAGE/current-jwks.json" \
+  --replacement-jwks "$ADMIN_STAGE/replacement-jwks.json"
+```
+
+That rollback prevents new assertions from using the discarded key. **It does
+not invalidate the bearer already issued to the killed process.** That bearer
+can remain usable at Anthropic until the recorded natural expiry. Do not add a
+provider-denial field to this result and do not describe issuer rollback as
+bearer revocation.
+
+After the exact rollback readback succeeds, assemble the local result on the
+control plane. Collection rechecks both searches, all three attempt hashes, and
+the actual rejection of the raw `in_progress` file by the expiry, revocation,
+and crash-cleanup checkers:
+
+```bash
+sudo python3 -I tools/anthropic-wif-crash-cleanup.py collect \
+  --run-id "$RUN_ID" \
+  --attempt "$ATTEMPT" \
+  --checkpoint "$CHECKPOINT" \
+  --kill-observation "$KILL_OBSERVATION" \
+  --positive-control "$POSITIVE" \
+  --post-kill-search "$POST_KILL" \
+  --output "$RESULT"
+sudo python3 -I tools/check-anthropic-crash-cleanup.py \
+  --evidence "$RESULT"
+```
+
+Collect the sanitized issuer-stage and rollback admin records as attended
+operational attachments. The proposed qualification artifact is only `RESULT`;
+it embeds the checkpoint, both searches, kill observation, unchanged
+`in_progress` record, and checker exits. Never collect the private key, process
+memory, assertion, bearer, exchange response, or a core. Preserve the run stage
+through evidence review so the raw `in_progress` file remains inspectable; only
+after the result has been copied and adjudicated may the operator remove the
+entire run directory.
+
+If checkpoint creation, the positive scan, `SIGKILL`, supervisor wait, key
+removal, post-kill scan, checker rejection, or issuer rollback fails, the run is
+not qualification evidence. If the child is still present on any failure path,
+send that exact checkpoint PID `SIGKILL` before doing anything else. Once the
+child is absent, remove a remaining `replacement.pem` as recovery and record
+that the automatic cleanup failed; manual recovery is not proof. Never use
+`SIGTERM` as cleanup or retry the exchange. A fresh attempt needs a fresh run
+ID, fresh key, fresh provider overlap, and new output paths.
 
 ## Control-plane-loss recovery is not qualification
 

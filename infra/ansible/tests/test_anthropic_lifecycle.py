@@ -16,9 +16,11 @@ from unittest import mock
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 HARNESS_PATH = ROOT / "tools/anthropic-wif-lifecycle.py"
 REVOCATION_HARNESS_PATH = ROOT / "tools/anthropic-wif-revocation.py"
+CRASH_HARNESS_PATH = ROOT / "tools/anthropic-wif-crash-cleanup.py"
 ADMIN_PATH = ROOT / "tools/anthropic-wif-lifecycle-admin.py"
 EXPIRY_CHECKER = ROOT / "tools/check-anthropic-expiry.py"
 REVOCATION_CHECKER = ROOT / "tools/check-anthropic-revocation.py"
+CRASH_CHECKER = ROOT / "tools/check-anthropic-crash-cleanup.py"
 SPEND_CHECKER = ROOT / "tools/check-anthropic-spend.py"
 POLICY_PATH = ROOT / "policy/anthropic-wif.json"
 OBSERVED_EXPIRY_FIXTURE = (
@@ -40,6 +42,9 @@ CONFORMING_REVOCATION_FIXTURE = (
     ROOT
     / "fixtures/checker-contracts/anthropic-revocation-thirteen-event.json"
 )
+CONFORMING_CRASH_FIXTURE = (
+    ROOT / "fixtures/checker-contracts/anthropic-crash-cleanup.json"
+)
 SPEND_EVIDENCE = ROOT / "research/isolation/results/anthropic-spend-enforcement.json"
 OBSERVED_EXPIRY_SHA256 = (
     "63fb4f52227468003674b57c1b0235d1922c5fd34651bfe7316984f9fa067b25"
@@ -56,11 +61,17 @@ POSITIVE_SETTLING_SHA256 = (
 CONFORMING_REVOCATION_SHA256 = (
     "ef68dbe6a30a63bad9d17e95196bd2cc6b3b01561d2fd253ee862e83c9e7b535"
 )
+CONFORMING_CRASH_SHA256 = (
+    "4b5a932c4739232d506037fc46f71f5e6d1b9c89e2a337d3bc48843d320130a9"
+)
 EXPECTED_HARNESS_SOURCE_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
 )
 EXPECTED_REVOCATION_HARNESS_SOURCE_SHA256 = (
     "ef4c204880cdc002ccee17f080b6011191a183c07e3ae173b34beb215737b61f"
+)
+EXPECTED_CRASH_HARNESS_SOURCE_SHA256 = (
+    "88bb709eb662734fd85d17ac30b0d30592fadbbd83ce366f17e84ea0143e844c"
 )
 EXPECTED_ADMIN_SOURCE_SHA256 = (
     "1a1e08060a5ad68f65b3a798e2b992ee2c34fc336e4f7fd8922bfdf2effecc55"
@@ -92,6 +103,11 @@ REVOCATION_HARNESS = load_exact_source_module(
     "anthropic_wif_revocation",
     REVOCATION_HARNESS_PATH,
     EXPECTED_REVOCATION_HARNESS_SOURCE_SHA256,
+)
+CRASH_HARNESS = load_exact_source_module(
+    "anthropic_wif_crash_cleanup",
+    CRASH_HARNESS_PATH,
+    EXPECTED_CRASH_HARNESS_SOURCE_SHA256,
 )
 ADMIN = load_exact_source_module(
     "anthropic_wif_lifecycle_admin", ADMIN_PATH, EXPECTED_ADMIN_SOURCE_SHA256
@@ -952,6 +968,67 @@ class AnthropicLifecycleHarnessContract(unittest.TestCase):
             )
 
 
+class AnthropicCrashCleanupHarnessContract(unittest.TestCase):
+    def test_same_surface_search_has_a_real_positive_then_no_matches(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            stage = pathlib.Path(temporary)
+            (stage / "safe.json").write_text('{"status":"in_progress"}\n')
+            replacement = stage / "replacement.pem"
+            replacement.write_bytes(
+                b"-----BEGIN "
+                + b"PRIVATE KEY-----\n"
+                + b"synthetic-test-material\n"
+            )
+            with (
+                mock.patch.object(
+                    CRASH_HARNESS,
+                    "target_process_present",
+                    side_effect=(True, False),
+                ),
+                mock.patch.object(
+                    CRASH_HARNESS.resource,
+                    "getrlimit",
+                    return_value=(0, 0),
+                ),
+                mock.patch.object(CRASH_HARNESS, "swap_entry_count", return_value=0),
+            ):
+                positive = CRASH_HARNESS.scan_stage(stage, 42420, 12345678)
+                removed_at = CRASH_HARNESS.remove_staged_key(replacement, stage)
+                post_kill = CRASH_HARNESS.scan_stage(stage, 42420, 12345678)
+
+        self.assertTrue(positive["credential_material_found"])
+        self.assertEqual(positive["material_classes_found"], ["private_key"])
+        self.assertEqual(
+            positive["matches"],
+            [
+                {
+                    "material_class": "private_key",
+                    "relative_path": "replacement.pem",
+                    "occurrences": 1,
+                }
+            ],
+        )
+        self.assertTrue(positive["target_process_present"])
+        self.assertRegex(removed_at, r"Z$")
+        self.assertFalse(replacement.exists())
+        self.assertFalse(post_kill["credential_material_found"])
+        self.assertEqual(post_kill["matches"], [])
+        self.assertFalse(post_kill["target_process_present"])
+        self.assertEqual(
+            positive["search_contract"], post_kill["search_contract"]
+        )
+        self.assertEqual(
+            positive["search_contract_sha256"],
+            post_kill["search_contract_sha256"],
+        )
+
+    def test_crash_adapter_preserves_the_qualified_lifecycle_harness(self) -> None:
+        self.assertEqual(digest(HARNESS_PATH), EXPECTED_HARNESS_SOURCE_SHA256)
+        self.assertEqual(
+            CRASH_HARNESS.BASE_HARNESS_SHA256, EXPECTED_HARNESS_SOURCE_SHA256
+        )
+
+
 class EvidenceFixtures:
     def __init__(self) -> None:
         self.policy = json.loads(POLICY_PATH.read_text())
@@ -1280,13 +1357,13 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
         )
 
     def check_contract_fixture(
-        self, path: pathlib.Path
+        self, path: pathlib.Path, checker: pathlib.Path = REVOCATION_CHECKER
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [
                 "python3",
                 "-I",
-                str(REVOCATION_CHECKER),
+                str(checker),
                 "--contract-fixture",
                 str(path),
             ],
@@ -1295,6 +1372,13 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
             capture_output=True,
             text=True,
         )
+
+    def check_crash_contract(
+        self, evidence: dict[str, object]
+    ) -> subprocess.CompletedProcess[str]:
+        path = self.root / "anthropic-crash-cleanup-contract.json"
+        path.write_text(json.dumps(evidence))
+        return self.check_contract_fixture(path, CRASH_CHECKER)
 
     def test_observed_expiry_fixture_passes_actual_checker(self) -> None:
         fixtures = EvidenceFixtures()
@@ -1399,6 +1483,100 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
         rejected = self.check(REVOCATION_CHECKER, evidence)
         self.assertEqual(rejected.returncode, 1)
         self.assertIn("explicitly disclaims qualification", rejected.stderr)
+
+    def test_conforming_crash_cleanup_fixture_passes_actual_checker(self) -> None:
+        self.assertEqual(digest(CONFORMING_CRASH_FIXTURE), CONFORMING_CRASH_SHA256)
+        evidence = json.loads(CONFORMING_CRASH_FIXTURE.read_text())
+        self.assertEqual(
+            evidence["fixture_kind"], "synthetic-crash-cleanup-satisfiability"
+        )
+        self.assertIs(evidence["provider_response_observed"], False)
+        self.assertIs(evidence["qualification_evidence"], False)
+        result = self.check_contract_fixture(CONFORMING_CRASH_FIXTURE, CRASH_CHECKER)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("not qualification evidence", result.stdout)
+
+    def test_crash_cleanup_rejects_sigterm_derived_evidence(self) -> None:
+        evidence = json.loads(CONFORMING_CRASH_FIXTURE.read_text())
+        evidence["kill"].update(
+            {"signal_name": "SIGTERM", "signal_number": 15, "child_returncode": -15}
+        )
+        result = self.check_crash_contract(evidence)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("not terminated by SIGKILL", result.stderr)
+
+    def test_crash_cleanup_rejects_a_missing_positive_control(self) -> None:
+        evidence = json.loads(CONFORMING_CRASH_FIXTURE.read_text())
+        del evidence["positive_control"]
+        result = self.check_crash_contract(evidence)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("unexpected evidence shape", result.stderr)
+
+    def test_crash_cleanup_rejects_a_vacuous_positive_control(self) -> None:
+        evidence = json.loads(CONFORMING_CRASH_FIXTURE.read_text())
+        evidence["positive_control"].update(
+            {
+                "credential_material_found": False,
+                "material_classes_found": [],
+                "matches": [],
+            }
+        )
+        result = self.check_crash_contract(evidence)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("positive control found no credential material", result.stderr)
+
+    def test_crash_cleanup_rejects_an_unremoved_staged_key(self) -> None:
+        evidence = json.loads(CONFORMING_CRASH_FIXTURE.read_text())
+        evidence["kill"].update(
+            {
+                "signing_key_removed": False,
+                "signing_key_present_after_cleanup": True,
+            }
+        )
+        result = self.check_crash_contract(evidence)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("did not remove the staged private key", result.stderr)
+
+    def test_crash_cleanup_rejects_any_checker_accepting_in_progress(self) -> None:
+        evidence = json.loads(CONFORMING_CRASH_FIXTURE.read_text())
+        evidence["checker_rejections"][2].update({"exit_code": 0, "accepted": True})
+        result = self.check_crash_contract(evidence)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("checker accepted in-progress evidence", result.stderr)
+
+        in_progress = evidence["in_progress_record"]["record"]
+        raw = self.check(CRASH_CHECKER, in_progress)
+        self.assertEqual(raw.returncode, 1)
+        self.assertIn("in-progress record is inert and cannot qualify", raw.stderr)
+
+    def test_crash_cleanup_rejects_evidence_carrying_credentials(self) -> None:
+        evidence = json.loads(CONFORMING_CRASH_FIXTURE.read_text())
+        synthetic_bearer = "sk-" + "ant-oat01-" + "not-a-real-credential"
+        evidence["provenance_limitation"] = synthetic_bearer
+        result = self.check_crash_contract(evidence)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("evidence carries credential material", result.stderr)
+
+        evidence = json.loads(CONFORMING_CRASH_FIXTURE.read_text())
+        evidence["provenance_limitation"] = (
+            "-----BEGIN ENCRYPTED PRIVATE KEY-----"
+        )
+        result = self.check_crash_contract(evidence)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("evidence carries credential material", result.stderr)
+
+    def test_synthetic_crash_fixture_cannot_be_used_as_qualification(self) -> None:
+        evidence = json.loads(CONFORMING_CRASH_FIXTURE.read_text())
+        result = self.check(CRASH_CHECKER, evidence)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("cannot be qualification evidence", result.stderr)
+
+    def test_crash_fixture_rejects_authored_provider_shape(self) -> None:
+        evidence = json.loads(CONFORMING_CRASH_FIXTURE.read_text())
+        evidence["checkpoint"]["issuance"]["request_id"] = "req_authoredshape"
+        result = self.check_crash_contract(evidence)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("differs from its observed issuance", result.stderr)
 
     def test_complete_revocation_contract_accepts_both_pinned_denials(self) -> None:
         evidence = EvidenceFixtures().revocation()

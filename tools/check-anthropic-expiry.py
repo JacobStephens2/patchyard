@@ -40,11 +40,6 @@ EXPECTED_ERROR_SHAPE = {
     "error_value_type": "object",
     "error_object_keys": ["message", "type"],
 }
-EXPECTED_ERROR_SHAPE_WITHOUT_REQUEST_ID = {
-    "top_level_keys": ["error", "type"],
-    "error_value_type": "object",
-    "error_object_keys": ["message", "type"],
-}
 UTC_TIMESTAMP = re.compile(
     r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
     r"(?:\.[0-9]{6})?Z"
@@ -290,15 +285,7 @@ def validate_denial(
             errors.append("expiry-denial request ID is malformed")
     elif request_id is not None:
         errors.append("expiry denial claims request-ID absence while carrying an ID")
-    response_shape = value.get("response_shape")
-    if request_id_supplied is False:
-        shape_is_valid = response_shape == EXPECTED_ERROR_SHAPE_WITHOUT_REQUEST_ID
-    else:
-        shape_is_valid = response_shape in (
-            EXPECTED_ERROR_SHAPE,
-            EXPECTED_ERROR_SHAPE_WITHOUT_REQUEST_ID,
-        )
-    if not shape_is_valid:
+    if value.get("response_shape") != EXPECTED_ERROR_SHAPE:
         errors.append("expiry denial has an unexpected sanitized response shape")
     provider = parse_time(value.get("provider_date"), "denial provider_date", errors)
     requested = parse_time(

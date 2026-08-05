@@ -1537,6 +1537,27 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
             "claims request-ID absence while carrying an ID", result.stderr
         )
 
+    def test_missing_observed_exchange_denial_request_id_is_rejected(self) -> None:
+        for denial_type in (
+            "rule_disabled_exchange_denial",
+            "retired_key_exchange_denial",
+        ):
+            with self.subTest(event_type=denial_type):
+                revocation = EvidenceFixtures().revocation()
+                event = next(
+                    event
+                    for event in revocation["events"]
+                    if event["event_type"] == denial_type
+                )
+                event["exchange_denial"]["request_id"] = None
+                event["exchange_denial"]["request_id_supplied"] = False
+                result = self.check(REVOCATION_CHECKER, revocation)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(
+                    "does not bind 22 identified provider requests",
+                    result.stderr,
+                )
+
     def test_revocation_denial_inside_settling_interval_is_inconclusive(self) -> None:
         cases = (
             ("rule_disabled", "rule_disabled_exchange_denial"),

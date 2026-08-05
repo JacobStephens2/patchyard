@@ -148,10 +148,11 @@ administrative tool digests and contain these exact, strictly ordered events:
 | 13 | `post_retirement_active_positive_final` | The active replacement key at the same stable path exchanges and calls Models again. |
 
 The checker requires 20 distinct bracketing request IDs from the positive and
-administrative calls. Each denial records `request_id_supplied`; a supplied ID
-must be valid and distinct, while an absent ID is attributed by its bracketed
-position. Both observed exchange denials supply distinct identifiers, making 22
-identified provider requests in the complete current shape. The checker also
+administrative calls. Both observed exchange denials supplied distinct
+identifiers, so this contract requires 22 distinct identified provider requests
+in total. Each denial still records `request_id_supplied`; an absent identifier
+is an explicit observation, but cannot qualify this observed rotation contract.
+The checker also
 requires exact rule and issuer state transitions, continuity of both public-key
 thumbprints, and five-minute-or-shorter bearers for every positive control. The
 adapter fixes all three post-retirement token exchanges to the same endpoint

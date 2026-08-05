@@ -104,6 +104,7 @@ SETTLING_PREDECESSORS = {
 MINIMUM_SETTLING_SECONDS = 90
 MAXIMUM_RETIREMENT_BRACKET_SECONDS = 120
 MANDATORY_BRACKETING_REQUEST_IDS = 20
+EXPECTED_IDENTIFIED_PROVIDER_REQUEST_IDS = 22
 EXPECTED_PROVIDER_TIMESTAMPS = 22
 QUALIFICATION_BLOCKED_EXIT = 2
 ADMIN_EVENTS = {
@@ -1036,6 +1037,11 @@ def validate_evidence(
             f"{MANDATORY_BRACKETING_REQUEST_IDS} distinct bracketing provider requests"
         )
     identified_request_ids = bracketing_request_ids + denial_request_ids
+    if len(identified_request_ids) != EXPECTED_IDENTIFIED_PROVIDER_REQUEST_IDS:
+        errors.append(
+            "revocation fixture does not bind "
+            f"{EXPECTED_IDENTIFIED_PROVIDER_REQUEST_IDS} identified provider requests"
+        )
     if len(set(identified_request_ids)) != len(identified_request_ids):
         errors.append(
             "revocation fixture does not bind every distinct identified provider request"

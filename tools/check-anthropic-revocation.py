@@ -122,6 +122,23 @@ EXPECTED_ERROR_SHAPE = {
     "error_value_type": "object",
     "error_object_keys": ["message", "type"],
 }
+REVOCATION_EVIDENCE_KEYS = {
+    "schema_version",
+    "provider",
+    "qualification_requirement",
+    "authorization_ruling",
+    "run_id",
+    "policy_sha256",
+    "lifecycle_harness_sha256",
+    "revocation_harness_sha256",
+    "admin_tool_sha256",
+    "events",
+}
+CONTRACT_FIXTURE_METADATA = {
+    "fixture_kind": "synthetic-thirteen-event-satisfiability",
+    "provider_response_observed": False,
+    "qualification_evidence": False,
+}
 UTC_TIMESTAMP = re.compile(
     r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
     r"(?:\.[0-9]{6})?Z"
@@ -938,19 +955,10 @@ def validate_evidence(
     qualification_blockers: list[str],
 ) -> list[str]:
     errors: list[str] = []
-    expected_top = {
-        "schema_version",
-        "provider",
-        "qualification_requirement",
-        "authorization_ruling",
-        "run_id",
-        "policy_sha256",
-        "lifecycle_harness_sha256",
-        "revocation_harness_sha256",
-        "admin_tool_sha256",
-        "events",
-    }
-    if not exact_keys(result, expected_top, "revocation fixture", errors):
+    if isinstance(result, dict) and result.get("qualification_evidence") is False:
+        errors.append("revocation evidence explicitly disclaims qualification")
+        return errors
+    if not exact_keys(result, REVOCATION_EVIDENCE_KEYS, "revocation fixture", errors):
         return errors
     if result.get("schema_version") != 1 or result.get("provider") != "anthropic":
         errors.append("revocation fixture identity differs")
@@ -1109,6 +1117,27 @@ def validate_evidence(
     if re.search(r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", serialized):
         errors.append("revocation fixture contains a JWT assertion")
     return errors
+
+
+def validate_contract_fixture(
+    result: Any,
+    policy: dict[str, Any],
+    qualification_blockers: list[str],
+) -> list[str]:
+    errors: list[str] = []
+    expected = REVOCATION_EVIDENCE_KEYS | set(CONTRACT_FIXTURE_METADATA)
+    if not exact_keys(result, expected, "revocation contract fixture", errors):
+        return errors
+    if result.get("fixture_kind") != CONTRACT_FIXTURE_METADATA["fixture_kind"]:
+        errors.append("revocation contract fixture kind differs")
+    if result.get("provider_response_observed") is not False:
+        errors.append("revocation contract fixture claims a provider response")
+    if result.get("qualification_evidence") is not False:
+        errors.append("revocation contract fixture claims qualification")
+    if errors:
+        return errors
+    evidence_shape = {key: result[key] for key in REVOCATION_EVIDENCE_KEYS}
+    return validate_evidence(evidence_shape, policy, qualification_blockers)
 
 
 def validate_observed_rule_denial(result: Any) -> list[str]:
@@ -1312,9 +1341,11 @@ def main() -> int:
     errors, policy = static_errors()
     qualification_blockers: list[str] = []
     evidence_path = RESULT_PATH
+    evidence_path_supplied = False
     allow_missing = False
     accepted_nonconforming_result = False
     observed_denial_path: Path | None = None
+    contract_fixture_path: Path | None = None
     arguments = sys.argv[1:]
     while arguments:
         argument = arguments.pop(0)
@@ -1322,12 +1353,15 @@ def main() -> int:
             allow_missing = True
         elif argument == "--evidence" and arguments:
             evidence_path = Path(arguments.pop(0))
+            evidence_path_supplied = True
         elif argument == "--observed-denial" and arguments:
             observed_denial_path = Path(arguments.pop(0))
+        elif argument == "--contract-fixture" and arguments:
+            contract_fixture_path = Path(arguments.pop(0))
         else:
             errors.append(f"unknown checker argument: {argument}")
     if observed_denial_path is not None:
-        if allow_missing or evidence_path != RESULT_PATH:
+        if allow_missing or evidence_path_supplied or contract_fixture_path:
             errors.append("observed-denial mode cannot be combined with evidence options")
         try:
             if not observed_denial_path.is_file() or observed_denial_path.is_symlink():
@@ -1339,6 +1373,25 @@ def main() -> int:
             errors.append(f"cannot read observed rule-disabled denial: {error}")
         else:
             errors.extend(validate_observed_rule_denial(observation))
+    elif contract_fixture_path is not None:
+        if allow_missing or evidence_path_supplied:
+            errors.append("contract-fixture mode cannot be combined with evidence options")
+        try:
+            if not contract_fixture_path.is_file() or contract_fixture_path.is_symlink():
+                raise EvidenceJsonError(
+                    "contract fixture is not a regular non-symlink file"
+                )
+            contract_fixture = load_json_file(contract_fixture_path)
+        except (OSError, json.JSONDecodeError, EvidenceJsonError) as error:
+            errors.append(f"cannot read revocation contract fixture: {error}")
+        else:
+            errors.extend(
+                validate_contract_fixture(
+                    contract_fixture,
+                    policy,
+                    qualification_blockers,
+                )
+            )
     elif not evidence_path.exists():
         if not allow_missing:
             errors.append("committed Anthropic revocation result is missing")
@@ -1389,6 +1442,8 @@ def main() -> int:
         return QUALIFICATION_BLOCKED_EXIT
     if observed_denial_path is not None:
         status = "observed rule-disabled denial; not qualification evidence"
+    elif contract_fixture_path is not None:
+        status = "synthetic contract fixture; not qualification evidence"
     elif accepted_nonconforming_result:
         status = "static preflight; exact A129-nonconforming result remains recorded"
     elif evidence_path != RESULT_PATH:

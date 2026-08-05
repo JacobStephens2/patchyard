@@ -57,7 +57,7 @@ POSITIVE_SETTLING_SHA256 = (
     "5c7ea569b9f9bc7777b712dcc4ffdb3415c96b15a3961fb5b64a4bbb0702c2ac"
 )
 CONFORMING_REVOCATION_SHA256 = (
-    "07258103206c426b1452e654e41ad7156090586ee4f58c1b9f640663687ec4a0"
+    "ef68dbe6a30a63bad9d17e95196bd2cc6b3b01561d2fd253ee862e83c9e7b535"
 )
 EXPECTED_HARNESS_SOURCE_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
@@ -1282,6 +1282,23 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
             text=True,
         )
 
+    def check_contract_fixture(
+        self, path: pathlib.Path
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                "python3",
+                "-I",
+                str(REVOCATION_CHECKER),
+                "--contract-fixture",
+                str(path),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
     def test_observed_expiry_fixture_passes_actual_checker(self) -> None:
         fixtures = EvidenceFixtures()
         evidence = fixtures.expiry()
@@ -1338,6 +1355,12 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
             CONFORMING_REVOCATION_SHA256,
         )
         evidence = json.loads(CONFORMING_REVOCATION_FIXTURE.read_text())
+        self.assertEqual(
+            evidence["fixture_kind"],
+            "synthetic-thirteen-event-satisfiability",
+        )
+        self.assertIs(evidence["provider_response_observed"], False)
+        self.assertIs(evidence["qualification_evidence"], False)
         self.assertEqual(len(evidence["events"]), 13)
         self.assertEqual(
             [event["event_type"] for event in evidence["events"][-3:]],
@@ -1374,8 +1397,13 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
                 self.assertEqual(
                     control["models"][field], recorded_positive["models"][field]
                 )
-        result = self.check(REVOCATION_CHECKER, evidence)
+        result = self.check_contract_fixture(CONFORMING_REVOCATION_FIXTURE)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("not qualification evidence", result.stdout)
+
+        rejected = self.check(REVOCATION_CHECKER, evidence)
+        self.assertEqual(rejected.returncode, 1)
+        self.assertIn("explicitly disclaims qualification", rejected.stderr)
 
     def test_complete_revocation_contract_accepts_both_pinned_denials(self) -> None:
         evidence = EvidenceFixtures().revocation()

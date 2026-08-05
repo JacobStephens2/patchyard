@@ -1,4 +1,7 @@
 {
+  "fixture_kind": "synthetic-thirteen-event-satisfiability",
+  "provider_response_observed": false,
+  "qualification_evidence": false,
   "admin_tool_sha256": "1a1e08060a5ad68f65b3a798e2b992ee2c34fc336e4f7fd8922bfdf2effecc55",
   "authorization_ruling": "A113",
   "events": [

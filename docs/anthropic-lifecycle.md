@@ -4,14 +4,34 @@
 
 This source implements the A113 expiry-denial and federation-rule-revocation
 halves plus the A-14 signing-key rotation path. The expiry proof ran on
-2026-08-04 and the rule-removal/restoration proof ran on 2026-08-05. An
-attended rotation attempt ran on 2026-08-05 as
-`anthropic-l3-20260805-27e8a245ed`: events 1 through 9 and 11 succeeded, but the
-event-10 admin command failed after the provider accepted issuer retirement
-because its immediate GET returned the stale two-key state. The failed event
-cannot enter the eleven-event fixture, so no rotation result was assembled and
-rotation is not qualified. All 13 provider `credential_qualified` flags remain
-false. Any further live execution, provider mutation, key activation, evidence
+2026-08-04 and the rule-removal/restoration proof ran on 2026-08-05. Two
+attended rotation runs followed on 2026-08-05.
+
+The first, `anthropic-l3-20260805-27e8a245ed`, completed events 1 through 9 and
+11, but the event-10 admin command failed after the provider accepted issuer
+retirement because its immediate GET returned the stale two-key state. The
+failed event cannot enter the eleven-event fixture, so that run assembled no
+result. It did produce the first observation of the retired-key denial.
+
+The second, `anthropic-l3-20260805-5ed79595e2`, ran after that race was fixed
+and completed all eleven events. Its result is committed at
+`research/isolation/results/anthropic-revocation-rotation.json` and the checker
+returns exit 0 against it.
+
+**Rotation is nevertheless not qualified.** Independent adversarial review of
+that result identified two gaps that a passing checker does not close. First,
+event 11's `401` is not shown to be *caused* by retirement: no active-key
+positive control brackets the retired-key attempt, so a contemporaneous
+authentication failure would leave identical evidence. A control was run 83
+seconds after the denial and passed, but the eleven-event sequence has no slot
+for it, and it is preserved outside the fixture rather than bound into it.
+Second, the fixture proves internal consistency, not provenance: replacing every
+request identifier with distinct, syntactically valid synthetic values still
+passes the checker, as does globally substituting a well-formed key ID and
+thumbprint. That second gap is not specific to rotation - the same binding
+applies to requirement 1, requirement 2, and the expiry denial.
+
+All 13 provider `credential_qualified` flags remain false. Any further live execution, provider mutation, key activation, evidence
 publication, fixture refresh, or qualification-flag change requires a new
 authorization after adversarial review.
 
@@ -103,10 +123,11 @@ occupy that field.
 
 ### Federation revocation and signing-key rotation
 
-`research/isolation/results/anthropic-revocation-rotation.json` is also absent
-until an authorized live run succeeds. It binds the policy, qualified expiry
-harness, revocation adapter, and administrative tool digests and contains these
-exact, strictly ordered events:
+`research/isolation/results/anthropic-revocation-rotation.json` was assembled by
+run `anthropic-l3-20260805-5ed79595e2` and passes the checker; see the status
+section above for why it is recorded rather than qualified. It binds the policy,
+qualified expiry harness, revocation adapter, and administrative tool digests and
+contains these exact, strictly ordered events:
 
 | Order | Event | Required fact |
 | :-- | :-- | :-- |

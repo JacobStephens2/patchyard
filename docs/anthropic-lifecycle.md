@@ -99,9 +99,9 @@ exact, strictly ordered events:
 | 2 | `rule_disabled` | The one Factory workspace mapping is removed and read back absent. |
 | 3 | `rule_disabled_exchange_denial` | After the settling floor, the next fresh assertion receives provider HTTP 401 `authentication_error`. |
 | 4 | `rule_restored` | The same mapping is restored and read back present. |
-| 5 | `rule_restored_positive` | Exchange and Models prove restoration. |
+| 5 | `rule_restored_positive` | After the settling floor, exchange and Models prove restoration. |
 | 6 | `issuer_rotation_staged` | Provider JWKS changes from old-only to exactly old+replacement. |
-| 7 | `replacement_key_positive` | The staged replacement key exchanges and calls Models. |
+| 7 | `replacement_key_positive` | After the settling floor, the staged replacement key exchanges and calls Models. |
 | 8 | `replacement_key_activated` | The old private key is retained only in root tmpfs for its denial, then the replacement is atomically installed at the active path. |
 | 9 | `replacement_key_final_positive` | The active path exchanges and calls Models while both public keys remain trusted. |
 | 10 | `issuer_retired_key` | Provider JWKS changes from exactly old+replacement to replacement-only. |
@@ -118,13 +118,18 @@ every positive control, and a final Models success from the active replacement.
 The locally atomic activation is required but never substitutes for either
 provider denial.
 
-Both provider-configuration denials have a 90-second minimum settling interval
-from the preceding administrative readback to `request_started_at`. A denial
-started sooner fails as inconclusive, regardless of its HTTP result. This is
-the smallest directly observed interval that produced the enforced rule
-denial: 0.85 seconds was too early, while the accepted observation began
-90.867688 seconds after the disabled-state readback. It is a qualification
-floor, not a provider propagation SLA.
+Every exchange that immediately tests a provider configuration mutation has a
+90-second minimum settling interval from the preceding administrative readback
+to `request_started_at`: both denials, the restored-rule positive, and the
+staged-replacement positive. An attempt started sooner fails as inconclusive,
+regardless of its HTTP result. This is the smallest directly observed interval
+that produced the enforced rule denial: 0.85 seconds was too early, while the
+accepted observation began 90.867688 seconds after the disabled-state
+readback. It is a qualification floor, not a provider propagation SLA. The
+initial positive has no preceding mutation; the final replacement positive
+follows local atomic activation after the staged provider state was already
+settled and proven. Rollback events terminate the attempt and are not
+qualification-event predecessors.
 
 `fixtures/provider-observations/anthropic-revocation-denial-2026-08-05.json`
 is byte-identical to the credential-free terminal capture from the live rule
@@ -142,6 +147,10 @@ checkers against a valid contract and then mutates it. Both checkers reject a
 fabricated denial, a missing positive control, a local-cleanup-only record, and
 an out-of-order timestamp. The same tests exercise exact rule disable/restore,
 two-key staging, retirement, and both rotation rollback paths with a fake API.
+`fixtures/checker-contracts/anthropic-revocation-positive-settling.json`
+demonstrates the two valid 90-second timing predicates. It is explicitly
+synthetic and timing-only: it contains no provider response and makes no
+provider-observation or qualification claim.
 
 ## Attended live procedure: expiry
 
@@ -246,7 +255,8 @@ sudo python3 -I tools/anthropic-wif-revocation.py exchange-denial \
 ```
 
 Restore the mapping even if that denial command failed. Review the plan, apply,
-and prove provider access:
+wait through the same propagation floor after its readback, and prove provider
+access:
 
 ```bash
 python3 -I tools/anthropic-wif-lifecycle-admin.py \
@@ -255,7 +265,8 @@ python3 -I tools/anthropic-wif-lifecycle-admin.py \
   --profile patchyard-admin --apply \
   --output "$ADMIN_STAGE/04-rule-restored.json" \
   rule-restore --run-id "$RUN_ID"
-sudo python3 -I tools/anthropic-wif-lifecycle.py exchange-positive \
+/usr/bin/sleep 90
+sudo python3 -I tools/anthropic-wif-revocation.py exchange-positive \
   --run-id "$RUN_ID" --event-type rule_restored_positive \
   --key-role active --output "$CONTROL_STAGE/05-rule-restored-positive.json"
 ```
@@ -279,29 +290,34 @@ qualification result. Future denial events use the revocation adapter above.
 Before A126, rotation specified no settling interval after either provider
 JWKS mutation. The staged-replacement positive and retired-key denial followed
 their administrative readbacks immediately. The procedure below now waits 90
-seconds after each readback. Atomic local activation needs no propagation wait:
-it changes no provider state, and both public keys have already been read back
-as trusted.
+seconds after each readback, and the checker measures both attempts from those
+readbacks. Atomic local activation needs no propagation wait: it changes no
+provider state, and both public keys have already been read back and proven as
+trusted.
 
 Before A126, the checker required HTTP 400 `invalid_grant` for the retired key,
 which is what the provider documentation says for an unknown signing key. No
 captured retired-key response exists in this repository or the staged A126
 material. That predicate was authored, not observed, and cannot satisfy A125.
-The corrected checker therefore requires a bounded provider 4xx denial but
-does not enforce the retired response's exact status, error type, or sanitized
-shape. It accepts the documented HTTP 400 `invalid_grant` without requiring
-it, and it does not infer the retired response from the rule-disabled response.
-Request-ID behavior is likewise unobserved, so only the 16 positive/admin IDs
-are mandatory and a retired-denial ID is retained only if supplied.
+The corrected checker therefore accepts a bounded provider 4xx denial without
+enforcing the retired response's exact status, error type, or sanitized shape,
+but returns exit 2 with a JSON `unpinned_denial_contract` signal. The evidence
+is preserved as an observation and cannot qualify rotation until that observed
+contract is pinned in a reviewed follow-up. This applies even if the first
+response matches the documented HTTP 400 `invalid_grant`; the checker does not
+infer the retired response from the rule-disabled response. Request-ID behavior
+is likewise unobserved, so only the 16 positive/admin IDs are mandatory and a
+retired-denial ID is retained only if supplied.
 
 The qualified expiry result binds the existing lifecycle harness digest, so
 changing that file would invalidate requirement 3 while fixing requirement 4.
-The source-bound revocation adapter is the narrow compatibility boundary: it
-records `request_started_at` and explicit request-ID presence, enforces the
-observed rule-disabled response, and leaves the retired exact response
-unenforced. If rotation produces a new retired response, preserve that terminal
-observation and bind the exact predicate in a reviewed follow-up before any
-complete result is qualified.
+The source-bound revocation adapter is the narrow compatibility boundary: for
+post-mutation positives it adds `request_started_at`; for denials it records
+that timestamp and explicit request-ID presence, enforces the observed
+rule-disabled response, and leaves the retired exact response unpinned. If
+rotation produces a retired response, preserve that observation and bind the
+exact predicate in a reviewed follow-up before any complete result is
+qualified.
 
 ## Attended live procedure: signing-key rotation
 
@@ -351,7 +367,7 @@ replacement while the old key still works:
 ```
 
 ```bash
-sudo python3 -I tools/anthropic-wif-lifecycle.py exchange-positive \
+sudo python3 -I tools/anthropic-wif-revocation.py exchange-positive \
   --run-id "$RUN_ID" --event-type replacement_key_positive \
   --key-role replacement_staging \
   --signing-key "$CONTROL_STAGE/replacement.pem" \
@@ -436,11 +452,12 @@ the `issuer-restore-overlap` plan to determine whether provider state is
 replacement-only; apply it only when needed to restore the already-proven
 two-key overlap, then stop. If the retired assertion is accepted, stop without
 retry. The adapter accepts a bounded provider 4xx so the first real denial can
-be preserved without guessing its exact shape; if it differs from documented
-HTTP 400 `invalid_grant`, treat the run as observation-only and bind that exact
-response in a reviewed follow-up before qualification. The active replacement
-has already been provider-proven, so do not re-trust the retired key merely to
-make the test pass.
+be preserved without guessing its exact shape. The checker then emits the
+machine-readable unpinned-contract signal and blocks qualification regardless
+of whether the response matches documented HTTP 400 `invalid_grant`; bind the
+observed response in a reviewed follow-up. The active replacement has already
+been provider-proven, so do not re-trust the retired key merely to make the
+test pass.
 
 ```bash
 python3 -I tools/anthropic-wif-lifecycle-admin.py \
@@ -512,11 +529,12 @@ python3 -I tools/check-anthropic-revocation.py \
   --evidence "$PWD/anthropic-revocation-rotation.json"
 ```
 
-Any checker failure closes the attempt as unqualified. Do not hand-edit an
-event, fill a missing request ID, relabel a local observation, reorder a
-timestamp, or publish a partial fixture as success. Files whose top level has
-`status` are terminal diagnostics rather than success events and must not be
-substituted into the eleven-event list.
+Checker exit 1 rejects malformed evidence. Exit 2 accepts the observation but
+blocks qualification and emits its JSON pinning signal; only exit 0 can count
+as qualified evidence. Do not hand-edit an event, fill a missing request ID,
+relabel a local observation, reorder a timestamp, or publish a partial fixture
+as success. Files whose top level has `status` are terminal diagnostics rather
+than success events and must not be substituted into the eleven-event list.
 
 ## Control-plane-loss recovery is not qualification
 

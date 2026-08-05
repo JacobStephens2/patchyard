@@ -42,6 +42,7 @@ def load_base_harness() -> types.ModuleType:
 
 
 BASE = load_base_harness()
+BASE_ACCEPTED_EXCHANGE = BASE.accepted_exchange
 
 
 def source_binding() -> dict[str, str]:
@@ -50,6 +51,37 @@ def source_binding() -> dict[str, str]:
         "lifecycle_harness_sha256": BASE.digest_file(BASE_HARNESS_PATH),
         "revocation_harness_sha256": BASE.digest_file(Path(__file__).resolve()),
     }
+
+
+def accepted_exchange(
+    policy: dict[str, Any],
+    signing_key: Path,
+    run_id: str,
+    request: Callable[..., dict[str, Any]] | None = None,
+    progress: BASE.Progress | None = None,
+) -> tuple[dict[str, Any], str]:
+    """Preserve the qualified exchange while recording when it began."""
+
+    requester = BASE.request_json if request is None else request
+    request_started_at: Any = None
+
+    def capture_request(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        nonlocal request_started_at
+        response = requester(*args, **kwargs)
+        if "requested_at" not in response:
+            raise BASE.LifecycleError(
+                "positive exchange response did not record its request start"
+            )
+        request_started_at = response["requested_at"]
+        return response
+
+    exchange, token = BASE_ACCEPTED_EXCHANGE(
+        policy, signing_key, run_id, capture_request, progress
+    )
+    if request_started_at is None:
+        raise BASE.LifecycleError("positive exchange did not record its request start")
+    exchange["exchange"]["request_started_at"] = request_started_at
+    return exchange, token
 
 
 def denied_exchange_event(
@@ -133,10 +165,14 @@ def denied_exchange_event(
 
 
 def main() -> int:
-    if len(sys.argv) < 2 or sys.argv[1] != "exchange-denial":
+    if len(sys.argv) < 2 or sys.argv[1] not in {
+        "exchange-denial",
+        "exchange-positive",
+    }:
         raise BASE.LifecycleError(
-            "revocation harness permits only the exchange-denial action"
+            "revocation harness permits only exchange evidence actions"
         )
+    BASE.accepted_exchange = accepted_exchange
     BASE.denied_exchange_event = denied_exchange_event
     BASE.source_binding = source_binding
     return BASE.main()

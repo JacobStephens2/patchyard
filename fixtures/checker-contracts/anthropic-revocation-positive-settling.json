@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "fixture_kind": "synthetic-positive-settling-timing",
+  "provider_response_observed": false,
+  "qualification_evidence": false,
+  "minimum_settling_seconds": 90,
+  "cases": [
+    {
+      "event_type": "rule_restored_positive",
+      "predecessor_event_type": "rule_restored",
+      "predecessor_readback_observed_at": "2026-08-02T12:02:01.000000Z",
+      "request_started_at": "2026-08-02T12:03:31.000000Z"
+    },
+    {
+      "event_type": "replacement_key_positive",
+      "predecessor_event_type": "issuer_rotation_staged",
+      "predecessor_readback_observed_at": "2026-08-02T12:03:42.000000Z",
+      "request_started_at": "2026-08-02T12:05:12.000000Z"
+    }
+  ]
+}

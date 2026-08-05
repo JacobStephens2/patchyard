@@ -59,11 +59,30 @@ DENIAL_EVENTS = {
 OBSERVED_DENIAL_CONTRACTS = {
     "rule_disabled_exchange_denial": (401, "authentication_error"),
 }
-DENIAL_SETTLING_PREDECESSORS = {
-    "rule_disabled_exchange_denial": "rule_disabled",
-    "retired_key_exchange_denial": "issuer_retired_key",
+POST_MUTATION_POSITIVE_EVENTS = {
+    "rule_restored_positive",
+    "replacement_key_positive",
+}
+SETTLING_PREDECESSORS = {
+    "rule_disabled_exchange_denial": (
+        "rule_disabled",
+        "exchange_denial",
+        "denial",
+    ),
+    "retired_key_exchange_denial": (
+        "issuer_retired_key",
+        "exchange_denial",
+        "denial",
+    ),
+    "rule_restored_positive": ("rule_restored", "exchange", "positive control"),
+    "replacement_key_positive": (
+        "issuer_rotation_staged",
+        "exchange",
+        "positive control",
+    ),
 }
 MINIMUM_SETTLING_SECONDS = 90
+QUALIFICATION_BLOCKED_EXIT = 2
 ADMIN_EVENTS = {
     "rule_disabled",
     "rule_restored",
@@ -223,7 +242,7 @@ def validate_source(
 ) -> None:
     if event_type in ADMIN_EVENTS:
         expected = {"policy_sha256", "admin_tool_sha256"}
-    elif event_type in DENIAL_EVENTS:
+    elif event_type in DENIAL_EVENTS or event_type in POST_MUTATION_POSITIVE_EVENTS:
         expected = {
             "policy_sha256",
             "lifecycle_harness_sha256",
@@ -243,9 +262,12 @@ def validate_source(
             "lifecycle_harness_sha256"
         ):
             errors.append(f"{event_type} harness binding differs from the fixture")
-        if event_type in DENIAL_EVENTS and value.get(
+        if (
+            event_type in DENIAL_EVENTS
+            or event_type in POST_MUTATION_POSITIVE_EVENTS
+        ) and value.get("revocation_harness_sha256") != fixture.get(
             "revocation_harness_sha256"
-        ) != fixture.get("revocation_harness_sha256"):
+        ):
             errors.append(
                 f"{event_type} revocation harness binding differs from the fixture"
             )
@@ -284,7 +306,12 @@ def validate_receipt(
 
 
 def validate_exchange(
-    value: Any, policy: dict[str, Any], label: str, errors: list[str]
+    value: Any,
+    policy: dict[str, Any],
+    label: str,
+    errors: list[str],
+    *,
+    request_start_required: bool = False,
 ) -> tuple[datetime | None, datetime | None, datetime | None, str | None]:
     expected = {
         "endpoint",
@@ -302,6 +329,8 @@ def validate_exchange(
         "rule_id",
         "workspace_id",
     }
+    if request_start_required:
+        expected.add("request_started_at")
     if not exact_keys(value, expected, f"{label} exchange", errors):
         return None, None, None, None
     if value.get("endpoint") != "/v1/oauth/token" or value.get("http_status") != 200:
@@ -330,6 +359,13 @@ def validate_exchange(
     observed = parse_time(
         value.get("observed_at"), f"{label} exchange observed_at", errors
     )
+    requested = None
+    if request_start_required:
+        requested = parse_time(
+            value.get("request_started_at"),
+            f"{label} exchange request_started_at",
+            errors,
+        )
     lifetime = value.get("expires_in")
     if not isinstance(lifetime, int) or isinstance(lifetime, bool) or not 60 <= lifetime <= 300:
         errors.append(f"{label} exchange lifetime is outside one to five minutes")
@@ -340,6 +376,8 @@ def validate_exchange(
         errors.append(f"{label} issuance is not bound to provider Date")
     if provider_date is not None and observed is not None and provider_date > observed:
         errors.append(f"{label} exchange provider Date follows its local observation")
+    if requested is not None and observed is not None and requested > observed:
+        errors.append(f"{label} exchange request bracket is reversed")
     return expires, observed, provider_date, request_id
 
 
@@ -401,7 +439,11 @@ def validate_positive_event(
         errors.append(f"{event_type} has the wrong key role")
     key = validate_key(value.get("signing_key"), f"{event_type} signing key", errors)
     expires, exchange_observed, exchange_provider, exchange_request_id = validate_exchange(
-        value.get("exchange"), policy, event_type, errors
+        value.get("exchange"),
+        policy,
+        event_type,
+        errors,
+        request_start_required=event_type in POST_MUTATION_POSITIVE_EVENTS,
     )
     models_provider, models_observed, models_request_id = validate_models(
         value.get("models"), event_type, errors
@@ -433,6 +475,7 @@ def validate_denial_event(
     event_type: str,
     fixture: dict[str, Any],
     errors: list[str],
+    qualification_blockers: list[str],
 ) -> tuple[datetime | None, tuple[str, str] | None, list[str]]:
     expected = {
         "schema_version",
@@ -479,14 +522,17 @@ def validate_denial_event(
                 or denial.get("error_type") != expected_error
             ):
                 errors.append(f"{event_type} is not its exact provider denial")
-        elif (
-            not isinstance(denial.get("http_status"), int)
-            or isinstance(denial.get("http_status"), bool)
-            or not 400 <= denial["http_status"] <= 499
-            or not isinstance(denial.get("error_type"), str)
-            or not denial["error_type"]
-        ):
-            errors.append(f"{event_type} is not a bounded provider HTTP denial")
+        else:
+            if (
+                not isinstance(denial.get("http_status"), int)
+                or isinstance(denial.get("http_status"), bool)
+                or not 400 <= denial["http_status"] <= 499
+                or not isinstance(denial.get("error_type"), str)
+                or not denial["error_type"]
+            ):
+                errors.append(f"{event_type} is not a bounded provider HTTP denial")
+            else:
+                qualification_blockers.append(event_type)
         request_id = denial.get("request_id")
         request_id_supplied = denial.get("request_id_supplied")
         if not isinstance(request_id_supplied, bool):
@@ -546,29 +592,33 @@ def validate_denial_event(
     return event_observed, key, request_ids
 
 
-def validate_denial_settling_intervals(
+def validate_settling_intervals(
     events: dict[str, dict[str, Any]], errors: list[str]
 ) -> None:
-    for denial_type, predecessor_type in DENIAL_SETTLING_PREDECESSORS.items():
+    for event_type, (
+        predecessor_type,
+        request_section,
+        request_kind,
+    ) in SETTLING_PREDECESSORS.items():
         predecessor = events.get(predecessor_type, {})
-        denial_event = events.get(denial_type, {})
+        event = events.get(event_type, {})
         readback = predecessor.get("readback", {})
-        denial = denial_event.get("exchange_denial", {})
+        request = event.get(request_section, {})
         settled_from = parse_time(
             readback.get("observed_at"),
-            f"{denial_type} settling readback",
+            f"{event_type} settling readback",
             errors,
         )
         requested = parse_time(
-            denial.get("request_started_at"),
-            f"{denial_type} settling request",
+            request.get("request_started_at"),
+            f"{event_type} settling request",
             errors,
         )
         if settled_from is not None and requested is not None:
             elapsed = (requested - settled_from).total_seconds()
             if elapsed < MINIMUM_SETTLING_SECONDS:
                 errors.append(
-                    f"{denial_type} is inconclusive: denial began before the "
+                    f"{event_type} is inconclusive: {request_kind} began before the "
                     f"{MINIMUM_SETTLING_SECONDS}-second settling interval elapsed"
                 )
 
@@ -783,7 +833,11 @@ def event_provider_times(
     return [value for value in parsed if value is not None]
 
 
-def validate_evidence(result: Any, policy: dict[str, Any]) -> list[str]:
+def validate_evidence(
+    result: Any,
+    policy: dict[str, Any],
+    qualification_blockers: list[str],
+) -> list[str]:
     errors: list[str] = []
     expected_top = {
         "schema_version",
@@ -843,7 +897,13 @@ def validate_evidence(result: Any, policy: dict[str, Any]) -> list[str]:
             )
             keys[event_type] = key
         elif event_type in DENIAL_EVENTS:
-            observed, key, ids = validate_denial_event(event, event_type, result, errors)
+            observed, key, ids = validate_denial_event(
+                event,
+                event_type,
+                result,
+                errors,
+                qualification_blockers,
+            )
             keys[event_type] = key
         elif event_type in ADMIN_EVENTS:
             observed, before, after, ids = validate_admin_event(
@@ -879,7 +939,7 @@ def validate_evidence(result: Any, policy: dict[str, Any]) -> list[str]:
         earlier > later for earlier, later in zip(provider_times, provider_times[1:])
     ):
         errors.append("revocation fixture provider timestamps are out of order")
-    validate_denial_settling_intervals(events_by_type, errors)
+    validate_settling_intervals(events_by_type, errors)
     current = keys.get("rule_enabled_positive")
     replacement = keys.get("replacement_key_positive")
     if current is None or replacement is None or current == replacement:
@@ -1086,6 +1146,9 @@ def static_errors() -> tuple[list[str], dict[str, Any]]:
     if REVOCATION_HARNESS_PATH.is_file():
         revocation_harness = REVOCATION_HARNESS_PATH.read_text()
         for required in (
+            '"exchange-positive"',
+            'exchange["exchange"]["request_started_at"] = request_started_at',
+            "BASE.accepted_exchange = accepted_exchange",
             'status == 401 and error_type == "authentication_error"',
             '"request_id_supplied": request_id is not None',
             '"request_started_at": response["requested_at"]',
@@ -1128,6 +1191,7 @@ def static_errors() -> tuple[list[str], dict[str, Any]]:
 
 def main() -> int:
     errors, policy = static_errors()
+    qualification_blockers: list[str] = []
     evidence_path = RESULT_PATH
     allow_missing = False
     observed_denial_path: Path | None = None
@@ -1166,12 +1230,35 @@ def main() -> int:
         except (OSError, json.JSONDecodeError, EvidenceJsonError) as error:
             errors.append(f"cannot read revocation evidence: {error}")
         else:
-            errors.extend(validate_evidence(result, policy))
+            errors.extend(
+                validate_evidence(result, policy, qualification_blockers)
+            )
     if errors:
         print("Anthropic revocation check: failed", file=sys.stderr)
         for error in errors:
             print(f"  {error}", file=sys.stderr)
         return 1
+    if qualification_blockers:
+        print(
+            json.dumps(
+                {
+                    "checker": "anthropic-revocation",
+                    "evidence_status": "accepted",
+                    "qualification_status": "blocked",
+                    "signals": [
+                        {
+                            "code": "unpinned_denial_contract",
+                            "event_type": event_type,
+                            "required_action": "add_observed_contract",
+                        }
+                        for event_type in sorted(set(qualification_blockers))
+                    ],
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        )
+        return QUALIFICATION_BLOCKED_EXIT
     if observed_denial_path is not None:
         status = "observed rule-disabled denial; not qualification evidence"
     else:

@@ -4,10 +4,16 @@
 
 This source implements the A113 expiry-denial and federation-rule-revocation
 halves plus the A-14 signing-key rotation path. The expiry proof ran on
-2026-08-04 and the rule-removal/restoration proof ran on 2026-08-05. Signing-key
-rotation has not run. Any further live execution, provider mutation, key
-activation, evidence publication, fixture refresh, or qualification-flag
-change requires a new authorization after adversarial review.
+2026-08-04 and the rule-removal/restoration proof ran on 2026-08-05. An
+attended rotation attempt ran on 2026-08-05 as
+`anthropic-l3-20260805-27e8a245ed`: events 1 through 9 and 11 succeeded, but the
+event-10 admin command failed after the provider accepted issuer retirement
+because its immediate GET returned the stale two-key state. The failed event
+cannot enter the eleven-event fixture, so no rotation result was assembled and
+rotation is not qualified. All 13 provider `credential_qualified` flags remain
+false. Any further live execution, provider mutation, key activation, evidence
+publication, fixture refresh, or qualification-flag change requires a new
+authorization after adversarial review.
 
 The implementation is intentionally outside the existing host contract. It
 does not call or modify:
@@ -25,8 +31,10 @@ source binding while making the observed rule response recordable.
 `tools/anthropic-wif-lifecycle-admin.py` is a separate attended operator tool
 using the short-lived `ant` OAuth profile. None accepts an API key. All strip
 ambient Anthropic credential variables, reject HTTP redirects and ambient
-proxies, use fixed Anthropic endpoints, make no retry, write only to a new
-mode-0600 file, and never emit an assertion or bearer.
+proxies, use fixed Anthropic endpoints, write only to a new mode-0600 file, and
+never emit an assertion or bearer. Bearer-bearing proof actions make no retry.
+The admin tool alone retries safely sanitized post-mutation state mismatches
+within a bounded readback deadline.
 
 Every mutating or bearer-bearing command reserves its output before the first
 provider or local operation. The initial record says `status: in_progress`.
@@ -43,14 +51,21 @@ key outside the exact root-owned mode-0700
 `/run/patchyard-anthropic/<run-id>` directory and verifies that `/run` is
 `tmpfs` before reserving an output.
 
+When a provider mutation was accepted but its readback does not validate, the
+admin terminal record keeps `failed_validation_response`, containing the
+sanitized receipt and state that failed, separately from the fresh
+`post_failure_readback`. Issuer responses retain only key IDs and public-key
+thumbprints; JWK modulus and additional provider-field values do not enter
+either record.
+
 The administrative primitives follow Anthropic's documented WIF surface:
 removing a rule workspace disables that mapping, adding it restores the same
 mapping, and a partial issuer update replaces the complete inline JWKS. The
 live rule-disabled exchange returned HTTP 401 `authentication_error`, not the
-documented HTTP 400 `invalid_grant`. No retired-signing-key denial has been
-observed. The documentation-derived HTTP 400 `invalid_grant` expectation is
-accepted but deliberately not enforced as the retired-key exact predicate
-under A125. See the official
+documented HTTP 400 `invalid_grant`. The retired-signing-key exchange at
+`/v1/oauth/token` likewise returned HTTP 401 `authentication_error`,
+contradicting the documented HTTP 400 `invalid_grant`; that observed contract
+is now enforced. See the official
 [WIF Admin API](https://platform.claude.com/docs/en/manage-claude/wif-admin-api),
 [rule-workspace removal](https://platform.claude.com/docs/en/api/admin/federation_rules/workspaces/delete),
 [rule-workspace addition](https://platform.claude.com/docs/en/api/admin/federation_rules/workspaces/create),
@@ -105,18 +120,16 @@ exact, strictly ordered events:
 | 8 | `replacement_key_activated` | The old private key is retained only in root tmpfs for its denial, then the replacement is atomically installed at the active path. |
 | 9 | `replacement_key_final_positive` | The active path exchanges and calls Models while both public keys remain trusted. |
 | 10 | `issuer_retired_key` | Provider JWKS changes from exactly old+replacement to replacement-only. |
-| 11 | `retired_key_exchange_denial` | After the settling floor, a fresh assertion signed by the retired key receives a provider 4xx denial. Documentation predicts HTTP 400 `invalid_grant`, but the exact status, error type, and response shape remain unenforced until observed. |
+| 11 | `retired_key_exchange_denial` | After the settling floor, a fresh assertion signed by the retired key receives provider HTTP 401 `authentication_error`. |
 
 The checker requires 16 distinct bracketing request IDs from the positive and
 administrative calls. Each denial records `request_id_supplied`; a supplied ID
 must be valid and distinct, while an absent ID is attributed by its bracketed
-position. The observed rule-disabled 401 did carry a request ID, unlike the
-expiry 401, so the checker retains it without making denial IDs part of the
-mandatory count. It also requires exact rule and issuer state transitions,
-continuity of both public-key thumbprints, five-minute-or-shorter bearers for
-every positive control, and a final Models success from the active replacement.
-The locally atomic activation is required but never substitutes for either
-provider denial.
+position. It also requires exact rule and issuer state transitions, continuity
+of both public-key thumbprints, five-minute-or-shorter bearers for every
+positive control, and a final Models success from the active replacement. The
+locally atomic activation is required but never substitutes for either provider
+denial.
 
 Every exchange that immediately tests a provider configuration mutation has a
 90-second minimum settling interval from the preceding administrative readback
@@ -131,6 +144,14 @@ follows local atomic activation after the staged provider state was already
 settled and proven. Rollback events terminate the attempt and are not
 qualification-event predecessors.
 
+The administrative state readback is a separate bounded operation. After any
+rule or issuer mutation, the admin tool polls immediately, then after 0.25,
+0.5, 1, and at most 2 seconds between later attempts until the complete target
+state appears or a 90-second monotonic deadline expires. A converged first GET
+adds no delay. A state that never converges still fails closed, preserving the
+last mismatching response and an independent post-failure readback. This retry
+does not replace the 90-second settling floor before exchange or Models tests.
+
 `fixtures/provider-observations/anthropic-revocation-denial-2026-08-05.json`
 is byte-identical to the credential-free terminal capture from the live rule
 proof. The observation-only checker mode validates the corrected response
@@ -141,6 +162,13 @@ qualification evidence:
 python3 -I tools/check-anthropic-revocation.py \
   --observed-denial fixtures/provider-observations/anthropic-revocation-denial-2026-08-05.json
 ```
+
+`fixtures/provider-observations/anthropic-retired-key-denial-2026-08-05.json`
+is byte-identical to the credential-free event-11 observation from the
+2026-08-05 attempt. Its digest is pinned in the test suite, and its HTTP status,
+error type, and sanitized response shape drive a complete synthetic contract
+that the actual checker accepts with exit 0. That satisfiability case is not a
+live rotation result and makes no qualification claim.
 
 `infra/ansible/tests/test_anthropic_lifecycle.py` invokes the actual isolated
 checkers against a valid contract and then mutates it. Both checkers reject a
@@ -295,29 +323,26 @@ readbacks. Atomic local activation needs no propagation wait: it changes no
 provider state, and both public keys have already been read back and proven as
 trusted.
 
-Before A126, the checker required HTTP 400 `invalid_grant` for the retired key,
-which is what the provider documentation says for an unknown signing key. No
-captured retired-key response exists in this repository or the staged A126
-material. That predicate was authored, not observed, and cannot satisfy A125.
-The corrected checker therefore accepts a bounded provider 4xx denial without
-enforcing the retired response's exact status, error type, or sanitized shape,
-but returns exit 2 with a JSON `unpinned_denial_contract` signal. The evidence
-is preserved as an observation and cannot qualify rotation until that observed
-contract is pinned in a reviewed follow-up. This applies even if the first
-response matches the documented HTTP 400 `invalid_grant`; the checker does not
-infer the retired response from the rule-disabled response. Request-ID behavior
-is likewise unobserved, so only the 16 positive/admin IDs are mandatory and a
-retired-denial ID is retained only if supplied.
+The 2026-08-05 attempt supplied the first captured retired-key response. The
+provider returned HTTP 401 `authentication_error`, rather than the documented
+HTTP 400 `invalid_grant`, and the checker now pins the observed response. Its
+complete synthetic acceptance case reaches exit 0.
+
+The same attempt did not produce a complete live fixture. The issuer-retire
+POST was accepted, but the immediate GET returned the stale two-key state and
+the admin tool raised while validating the expected one-key state. Its terminal
+record is therefore a failure event, even though its fresh failure-path readback
+then saw the replacement-only state. Events 1 through 9 and 11 cannot be
+assembled around a failed event 10. The bounded admin readback retry addresses
+that race for a clean re-run; it does not convert the incomplete attempt into
+qualification evidence.
 
 The qualified expiry result binds the existing lifecycle harness digest, so
 changing that file would invalidate requirement 3 while fixing requirement 4.
 The source-bound revocation adapter is the narrow compatibility boundary: for
 post-mutation positives it adds `request_started_at`; for denials it records
-that timestamp and explicit request-ID presence, enforces the observed
-rule-disabled response, and leaves the retired exact response unpinned. If
-rotation produces a retired response, preserve that observation and bind the
-exact predicate in a reviewed follow-up before any complete result is
-qualified.
+that timestamp and explicit request-ID presence, and enforces both observed
+denial responses. The lifecycle harness remains unchanged.
 
 ## Attended live procedure: signing-key rotation
 
@@ -452,10 +477,8 @@ the `issuer-restore-overlap` plan to determine whether provider state is
 replacement-only; apply it only when needed to restore the already-proven
 two-key overlap, then stop. If the retired assertion is accepted, stop without
 retry. The adapter accepts a bounded provider 4xx so the first real denial can
-be preserved without guessing its exact shape. The checker then emits the
-machine-readable unpinned-contract signal and blocks qualification regardless
-of whether the response matches documented HTTP 400 `invalid_grant`; bind the
-observed response in a reviewed follow-up. The active replacement has already
+be preserved without credential material, but the checker requires the pinned
+HTTP 401 `authentication_error` contract. The active replacement has already
 been provider-proven, so do not re-trust the retired key merely to make the
 test pass.
 
@@ -529,11 +552,12 @@ python3 -I tools/check-anthropic-revocation.py \
   --evidence "$PWD/anthropic-revocation-rotation.json"
 ```
 
-Checker exit 1 rejects malformed evidence. Exit 2 accepts the observation but
-blocks qualification and emits its JSON pinning signal; only exit 0 can count
-as qualified evidence. Do not hand-edit an event, fill a missing request ID,
-relabel a local observation, reorder a timestamp, or publish a partial fixture
-as success. Files whose top level has `status` are terminal diagnostics rather
+Checker exit 1 rejects malformed evidence. Exit 2 remains reserved for a future
+denial event whose provider contract has not yet been observed and pinned; the
+current eleven-event contract has no such blocker, and a valid complete result
+reaches exit 0. Do not hand-edit an event, fill a missing request ID, relabel a
+local observation, reorder a timestamp, or publish a partial fixture as
+success. Files whose top level has `status` are terminal diagnostics rather
 than success events and must not be substituted into the eleven-event list.
 
 ## Control-plane-loss recovery is not qualification

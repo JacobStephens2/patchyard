@@ -28,6 +28,10 @@ OBSERVED_REVOCATION_DENIAL_FIXTURE = (
     ROOT
     / "fixtures/provider-observations/anthropic-revocation-denial-2026-08-05.json"
 )
+OBSERVED_RETIRED_KEY_DENIAL_FIXTURE = (
+    ROOT
+    / "fixtures/provider-observations/anthropic-retired-key-denial-2026-08-05.json"
+)
 POSITIVE_SETTLING_FIXTURE = (
     ROOT
     / "fixtures/checker-contracts/anthropic-revocation-positive-settling.json"
@@ -39,6 +43,9 @@ OBSERVED_EXPIRY_SHA256 = (
 OBSERVED_REVOCATION_DENIAL_SHA256 = (
     "d63b6dbc668c11a671c0531d177c604cb02d306977ed6c030bdad8787a132b26"
 )
+OBSERVED_RETIRED_KEY_DENIAL_SHA256 = (
+    "3de2505279daa71838450267ef031e606d57b1d78111460f148325bd916b8a6d"
+)
 POSITIVE_SETTLING_SHA256 = (
     "3bb6d68a3d9410f7339cac6237d02a88b2f44ea700d3c0cda38c0e7d4db2096c"
 )
@@ -49,7 +56,7 @@ EXPECTED_REVOCATION_HARNESS_SOURCE_SHA256 = (
     "26892021db61993e97ef722f857724868af60731a1987f63f08daeef776f60f2"
 )
 EXPECTED_ADMIN_SOURCE_SHA256 = (
-    "9381bbf1fd2d892ac35c60c70262aa6e333b85f6e1c6dbea61ce665398d4fb2d"
+    "1a1e08060a5ad68f65b3a798e2b992ee2c34fc336e4f7fd8922bfdf2effecc55"
 )
 ERROR_SHAPE = {
     "top_level_keys": ["error", "request_id", "type"],
@@ -191,6 +198,43 @@ class FakeAdmin:
         raise AssertionError((method, path, body))
 
 
+class LaggingAdmin(FakeAdmin):
+    """Return the pre-mutation state on the first post-mutation GET."""
+
+    def __init__(self, policy: dict[str, object], current: dict[str, object]) -> None:
+        super().__init__(policy, current)
+        self.stale_rule: list[str] | None = None
+        self.stale_issuer: list[dict[str, object]] | None = None
+
+    def request(self, method, path, body=None):
+        rule_path = f"/v1/organizations/federation_rules/{self.policy['rule']['id']}"
+        issuer_path = (
+            f"/v1/organizations/federation_issuers/{self.policy['issuer']['id']}"
+        )
+        if method == "GET" and path == rule_path and self.stale_rule is not None:
+            current, self.workspace_ids = self.workspace_ids, self.stale_rule
+            self.stale_rule = None
+            try:
+                return super().request(method, path, body)
+            finally:
+                self.workspace_ids = current
+        if method == "GET" and path == issuer_path and self.stale_issuer is not None:
+            current, self.issuer_keys = self.issuer_keys, self.stale_issuer
+            self.stale_issuer = None
+            try:
+                return super().request(method, path, body)
+            finally:
+                self.issuer_keys = current
+        previous_rule = deepcopy(self.workspace_ids)
+        previous_issuer = deepcopy(self.issuer_keys)
+        response = super().request(method, path, body)
+        if method in {"DELETE", "POST"} and path != issuer_path:
+            self.stale_rule = previous_rule
+        elif method == "POST" and path == issuer_path:
+            self.stale_issuer = previous_issuer
+        return response
+
+
 class AnthropicLifecycleAdminContract(unittest.TestCase):
     def setUp(self) -> None:
         self.policy = ADMIN.load_policy()
@@ -305,6 +349,88 @@ class AnthropicLifecycleAdminContract(unittest.TestCase):
             self.current,
         )
         self.assertEqual(len(restored["state_after"]["keys"]), 2)
+
+    @mock.patch.object(ADMIN.time, "sleep")
+    def test_rule_actions_retry_a_stale_post_mutation_readback(self, sleep) -> None:
+        workspace = self.policy["workspace"]["id"]
+        for action, initial, expected in (
+            ("rule-disable", [workspace], []),
+            ("rule-restore", [], [workspace]),
+        ):
+            with self.subTest(action=action):
+                api = LaggingAdmin(self.policy, self.current)
+                api.workspace_ids = initial
+                event = ADMIN.rule_operation(
+                    api, self.policy, action, self.run_id, True
+                )
+                self.assertEqual(event["state_after"]["workspace_ids"], expected)
+                self.assertEqual(sleep.call_args_list, [mock.call(0.25)])
+                sleep.reset_mock()
+
+    @mock.patch.object(ADMIN.time, "sleep")
+    def test_every_issuer_action_retries_a_stale_readback(self, sleep) -> None:
+        cases = (
+            ("issuer-stage", [self.current], 2),
+            ("issuer-rollback-stage", [self.current, self.replacement], 1),
+            ("issuer-retire", [self.current, self.replacement], 1),
+            ("issuer-restore-overlap", [self.replacement], 2),
+        )
+        for action, initial, expected_count in cases:
+            with self.subTest(action=action):
+                api = LaggingAdmin(self.policy, initial[0])
+                api.issuer_keys = deepcopy(initial)
+                event = ADMIN.issuer_operation(
+                    api,
+                    self.policy,
+                    action,
+                    self.run_id,
+                    True,
+                    self.replacement,
+                    self.current,
+                )
+                self.assertEqual(len(event["state_after"]["keys"]), expected_count)
+                self.assertEqual(sleep.call_args_list, [mock.call(0.25)])
+                sleep.reset_mock()
+
+    @mock.patch.object(ADMIN, "READBACK_DEADLINE_SECONDS", 0)
+    def test_failed_and_fresh_readbacks_remain_distinct_and_sanitized(self) -> None:
+        api = LaggingAdmin(self.policy, self.current)
+        api.issuer_keys = [self.current, self.replacement]
+        phases: list[str] = []
+        with self.assertRaises(ADMIN.PostMutationReadbackError) as observed:
+            ADMIN.issuer_operation(
+                api,
+                self.policy,
+                "issuer-retire",
+                self.run_id,
+                True,
+                self.replacement,
+                self.current,
+                phases.append,
+            )
+        self.assertEqual(phases[-1], "provider_mutation_accepted")
+        post_failure = ADMIN.post_failure_readback(
+            api, self.policy, "issuer-retire"
+        )
+        terminal = ADMIN.terminal_failure(
+            "issuer-retire",
+            self.run_id,
+            "2026-08-02T00:00:00.000000Z",
+            phases[-1],
+            observed.exception,
+            post_failure,
+        )
+        self.assertEqual(
+            len(terminal["failed_validation_response"]["state"]["keys"]), 2
+        )
+        self.assertEqual(len(terminal["post_failure_readback"]["state"]["keys"]), 1)
+        self.assertEqual(
+            terminal["failed_validation_response"]["status"], "failed_validation"
+        )
+        self.assertEqual(terminal["post_failure_readback"]["status"], "observed")
+        serialized = json.dumps(terminal)
+        self.assertNotIn(self.current["n"], serialized)
+        self.assertNotIn(self.replacement["n"], serialized)
 
     def test_admin_refuses_drift_before_any_mutation(self) -> None:
         api = FakeAdmin(self.policy, self.current)
@@ -870,11 +996,7 @@ class EvidenceFixtures:
     def denial(
         self, event_type: str, event_time: datetime, key: dict[str, str], role: str
     ) -> dict[str, object]:
-        status, error_type = (
-            (401, "authentication_error")
-            if event_type == "rule_disabled_exchange_denial"
-            else (400, "invalid_grant")
-        )
+        status, error_type = (401, "authentication_error")
         denial = {
             "source": "anthropic_http_response",
             "endpoint": "/v1/oauth/token",
@@ -1087,25 +1209,6 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
             text=True,
         )
 
-    def assert_unpinned_retired_denial_signal(
-        self, result: subprocess.CompletedProcess[str]
-    ) -> None:
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertEqual(result.stderr, "")
-        signal = json.loads(result.stdout)
-        self.assertEqual(signal["evidence_status"], "accepted")
-        self.assertEqual(signal["qualification_status"], "blocked")
-        self.assertEqual(
-            signal["signals"],
-            [
-                {
-                    "code": "unpinned_denial_contract",
-                    "event_type": "retired_key_exchange_denial",
-                    "required_action": "add_observed_contract",
-                }
-            ],
-        )
-
     def test_observed_expiry_fixture_passes_actual_checker(self) -> None:
         fixtures = EvidenceFixtures()
         evidence = fixtures.expiry()
@@ -1133,37 +1236,53 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
         result = self.check_observed_denial(OBSERVED_REVOCATION_DENIAL_FIXTURE)
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_revocation_contract_accepts_evidence_but_blocks_unpinned_denial(self) -> None:
-        for denial_ids_supplied in (True, False):
-            with self.subTest(denial_ids_supplied=denial_ids_supplied):
-                fixtures = EvidenceFixtures()
-                evidence = fixtures.revocation()
-                denial_events = [
-                    event for event in evidence["events"] if "exchange_denial" in event
-                ]
-                if not denial_ids_supplied:
-                    for event in denial_events:
-                        event["exchange_denial"]["request_id"] = None
-                        event["exchange_denial"]["request_id_supplied"] = False
-                bracketing_ids = []
-                for event in evidence["events"]:
-                    for section_name in ("exchange", "models", "mutation", "readback"):
-                        section = event.get(section_name)
-                        if isinstance(section, dict):
-                            bracketing_ids.append(section["request_id"])
-                self.assertEqual(len(set(bracketing_ids)), 16)
-                self.assertEqual(
-                    [
-                        (
-                            event["exchange_denial"]["http_status"],
-                            event["exchange_denial"]["error_type"],
-                        )
-                        for event in denial_events
-                    ],
-                    [(401, "authentication_error"), (400, "invalid_grant")],
+    def test_observed_retired_key_denial_drives_an_accepting_case(self) -> None:
+        self.assertEqual(
+            digest(OBSERVED_RETIRED_KEY_DENIAL_FIXTURE),
+            OBSERVED_RETIRED_KEY_DENIAL_SHA256,
+        )
+        observation = json.loads(OBSERVED_RETIRED_KEY_DENIAL_FIXTURE.read_text())
+        observed_denial = observation["exchange_denial"]
+        self.assertEqual(observation["event_type"], "retired_key_exchange_denial")
+        self.assertEqual(observed_denial["endpoint"], "/v1/oauth/token")
+        self.assertEqual(
+            (observed_denial["http_status"], observed_denial["error_type"]),
+            (401, "authentication_error"),
+        )
+        self.assertIs(observed_denial["request_id_supplied"], True)
+        self.assertEqual(observed_denial["response_shape"], ERROR_SHAPE)
+
+        evidence = EvidenceFixtures().revocation()
+        accepting_denial = evidence["events"][10]["exchange_denial"]
+        for field in ("http_status", "error_type", "response_shape"):
+            accepting_denial[field] = deepcopy(observed_denial[field])
+        result = self.check(REVOCATION_CHECKER, evidence)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_complete_revocation_contract_accepts_both_pinned_denials(self) -> None:
+        evidence = EvidenceFixtures().revocation()
+        denial_events = [
+            event for event in evidence["events"] if "exchange_denial" in event
+        ]
+        bracketing_ids = []
+        for event in evidence["events"]:
+            for section_name in ("exchange", "models", "mutation", "readback"):
+                section = event.get(section_name)
+                if isinstance(section, dict):
+                    bracketing_ids.append(section["request_id"])
+        self.assertEqual(len(set(bracketing_ids)), 16)
+        self.assertEqual(
+            [
+                (
+                    event["exchange_denial"]["http_status"],
+                    event["exchange_denial"]["error_type"],
                 )
-                result = self.check(REVOCATION_CHECKER, evidence)
-                self.assert_unpinned_retired_denial_signal(result)
+                for event in denial_events
+            ],
+            [(401, "authentication_error"), (401, "authentication_error")],
+        )
+        result = self.check(REVOCATION_CHECKER, evidence)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_positive_settling_timing_fixture_passes_actual_predicate(self) -> None:
         self.assertEqual(digest(POSITIVE_SETTLING_FIXTURE), POSITIVE_SETTLING_SHA256)
@@ -1205,7 +1324,7 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
             self.assertEqual((requested - readback).total_seconds(), 90)
 
         result = self.check(REVOCATION_CHECKER, evidence)
-        self.assert_unpinned_retired_denial_signal(result)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_observed_identified_400_and_requirement_2_evidence_pass(self) -> None:
         evidence = json.loads(SPEND_EVIDENCE.read_text())
@@ -1379,25 +1498,24 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("is not its exact provider denial", result.stderr)
 
-    def test_unpinned_retired_shape_is_accepted_but_blocks_qualification(self) -> None:
+    def test_wrong_retired_key_denial_contract_is_rejected(self) -> None:
         fixtures = EvidenceFixtures()
         revocation = fixtures.revocation()
         denial = revocation["events"][10]["exchange_denial"]
-        denial["http_status"] = 429
-        denial["error_type"] = "rate_limit_error"
-        denial["response_shape"] = {"captured_shape": "not-yet-qualified"}
-        result = self.check(REVOCATION_CHECKER, revocation)
-        self.assert_unpinned_retired_denial_signal(result)
-
-    def test_unobserved_retired_event_must_still_be_a_provider_denial(self) -> None:
-        fixtures = EvidenceFixtures()
-        revocation = fixtures.revocation()
-        denial = revocation["events"][10]["exchange_denial"]
-        denial["http_status"] = 200
-        denial["error_type"] = ""
+        denial["http_status"] = 400
+        denial["error_type"] = "invalid_grant"
         result = self.check(REVOCATION_CHECKER, revocation)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("is not a bounded provider HTTP denial", result.stderr)
+        self.assertIn("is not its exact provider denial", result.stderr)
+
+    def test_wrong_retired_key_denial_shape_is_rejected(self) -> None:
+        fixtures = EvidenceFixtures()
+        revocation = fixtures.revocation()
+        denial = revocation["events"][10]["exchange_denial"]
+        denial["response_shape"] = {"captured_shape": "wrong"}
+        result = self.check(REVOCATION_CHECKER, revocation)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("sanitized response shape differs", result.stderr)
 
     def test_fabricated_denials_are_rejected(self) -> None:
         fixtures = EvidenceFixtures()

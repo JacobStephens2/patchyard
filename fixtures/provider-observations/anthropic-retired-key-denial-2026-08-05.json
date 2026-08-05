@@ -1,0 +1,41 @@
+{
+  "credential_removed_at": "2026-08-05T13:36:16.216546Z",
+  "event_type": "retired_key_exchange_denial",
+  "exchange_denial": {
+    "endpoint": "/v1/oauth/token",
+    "error_type": "authentication_error",
+    "http_status": 401,
+    "observed_at": "2026-08-05T13:36:16.216311Z",
+    "provider_date": "2026-08-05T13:36:16Z",
+    "request_id": "req_011Cdjh2AqNUiQSGEPQzBvUp",
+    "request_id_supplied": true,
+    "request_started_at": "2026-08-05T13:36:16.036369Z",
+    "response_shape": {
+      "error_object_keys": [
+        "message",
+        "type"
+      ],
+      "error_value_type": "object",
+      "top_level_keys": [
+        "error",
+        "request_id",
+        "type"
+      ]
+    },
+    "source": "anthropic_http_response"
+  },
+  "key_role": "retired_staging",
+  "observed_at": "2026-08-05T13:36:16.216311Z",
+  "provider": "anthropic",
+  "run_id": "anthropic-l3-20260805-27e8a245ed",
+  "schema_version": 1,
+  "signing_key": {
+    "jwk_thumbprint_sha256": "769847957daad1d10d7b754d5ea6fbe1586eb0c539e000b6a362f05b96026563",
+    "kid": "patchyard-ab18520576d26852"
+  },
+  "source": {
+    "lifecycle_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+    "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7",
+    "revocation_harness_sha256": "26892021db61993e97ef722f857724868af60731a1987f63f08daeef776f60f2"
+  }
+}

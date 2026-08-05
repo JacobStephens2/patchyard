@@ -17,10 +17,10 @@ their own.
 | `install-shellcheck.sh` | Install the checksum-pinned ShellCheck used for privileged boundary scripts |
 | `smoke-github-app.sh` | Mint a narrowed App token and prove repository scoping without printing credentials |
 | `anthropic-wif-lifecycle.py` | Root-only A113 expiry, exchange, public-JWKS, key-activation, and rollback harness; never emits a bearer or assertion |
-| `anthropic-wif-revocation.py` | Source-bound revocation-denial adapter that preserves the qualified expiry harness while recording A126's event-specific denial contract |
+| `anthropic-wif-revocation.py` | Source-bound exchange adapter that preserves the qualified expiry harness while recording post-mutation request starts and A126's event-specific denial contract |
 | `anthropic-wif-lifecycle-admin.py` | Attended fail-closed rule disable/restore and inline-JWKS overlap/retire/rollback administration |
 | `check-anthropic-expiry.py` | Validate the source-only expiry contract or its future credential-free live fixture |
-| `check-anthropic-revocation.py` | Validate the source-only federation-revocation/key-rotation contract, A126's observed rule-denial fixture, or a future complete live result |
+| `check-anthropic-revocation.py` | Validate federation-revocation/key-rotation evidence; an unpinned denial is accepted as observation-only with exit 2 and a JSON qualification blocker |
 | `aa-sweep.py` | Artificial Analysis catalog snapshot + move report |
 | `check-bench.py` | Validate `docs/bench.json` (schema + invariants) and sync the generated Pairs table in `docs/bench.md` (`--write` to regenerate; no flag = drift check) |
 | `check-seats.py` | Cross-check `docs/bench.md` § Seat preference orders against `bench.json` + the A61 allowlist (membership, preferred harness, floors, rank ordering, speed values; `--strict` fails on warnings) |

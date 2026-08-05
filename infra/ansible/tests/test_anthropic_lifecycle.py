@@ -28,6 +28,10 @@ OBSERVED_REVOCATION_DENIAL_FIXTURE = (
     ROOT
     / "fixtures/provider-observations/anthropic-revocation-denial-2026-08-05.json"
 )
+POSITIVE_SETTLING_FIXTURE = (
+    ROOT
+    / "fixtures/checker-contracts/anthropic-revocation-positive-settling.json"
+)
 SPEND_EVIDENCE = ROOT / "research/isolation/results/anthropic-spend-enforcement.json"
 OBSERVED_EXPIRY_SHA256 = (
     "63fb4f52227468003674b57c1b0235d1922c5fd34651bfe7316984f9fa067b25"
@@ -35,11 +39,14 @@ OBSERVED_EXPIRY_SHA256 = (
 OBSERVED_REVOCATION_DENIAL_SHA256 = (
     "d63b6dbc668c11a671c0531d177c604cb02d306977ed6c030bdad8787a132b26"
 )
+POSITIVE_SETTLING_SHA256 = (
+    "3bb6d68a3d9410f7339cac6237d02a88b2f44ea700d3c0cda38c0e7d4db2096c"
+)
 EXPECTED_HARNESS_SOURCE_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
 )
 EXPECTED_REVOCATION_HARNESS_SOURCE_SHA256 = (
-    "b77ec6eaa539e7b2cc69c4c62153222786065ed5d3721bc9f3d7d441531576d3"
+    "26892021db61993e97ef722f857724868af60731a1987f63f08daeef776f60f2"
 )
 EXPECTED_ADMIN_SOURCE_SHA256 = (
     "9381bbf1fd2d892ac35c60c70262aa6e333b85f6e1c6dbea61ce665398d4fb2d"
@@ -692,6 +699,25 @@ class AnthropicLifecycleHarnessContract(unittest.TestCase):
             retired_response["requested_at"],
         )
 
+    def test_revocation_adapter_records_positive_exchange_request_start(self) -> None:
+        response = self.response(200, self.exchange_payload(), 5)
+        with mock.patch.object(
+            REVOCATION_HARNESS.BASE,
+            "mint_assertion",
+            return_value=("assertion-value", deepcopy(self.key)),
+        ):
+            result, token = REVOCATION_HARNESS.accepted_exchange(
+                self.policy,
+                pathlib.Path("/not/read"),
+                self.run_id,
+                request=lambda *args, **kwargs: deepcopy(response),
+            )
+        self.assertEqual(token, "sk-ant-oat01-test-bearer")
+        self.assertEqual(
+            result["exchange"]["request_started_at"],
+            response["requested_at"],
+        )
+
     def test_atomic_activation_preserves_old_key_before_installing_replacement(self) -> None:
         current_jwk = {
             "alg": "RS256",
@@ -775,6 +801,10 @@ class EvidenceFixtures:
         self.harness_sha = digest(HARNESS_PATH)
         self.admin_sha = digest(ADMIN_PATH)
         self.revocation_harness_sha = digest(REVOCATION_HARNESS_PATH)
+        settling_fixture = json.loads(POSITIVE_SETTLING_FIXTURE.read_text())
+        self.positive_settling = {
+            case["event_type"]: case for case in settling_fixture["cases"]
+        }
         self.request_counter = 0
 
     def request_id(self) -> str:
@@ -813,6 +843,16 @@ class EvidenceFixtures:
     def positive(
         self, event_type: str, event_time: datetime, key: dict[str, str], role: str
     ) -> dict[str, object]:
+        exchange = self.issuance(event_time)
+        source = {
+            "policy_sha256": self.policy_sha,
+            "lifecycle_harness_sha256": self.harness_sha,
+        }
+        if event_type in self.positive_settling:
+            exchange["request_started_at"] = self.positive_settling[event_type][
+                "request_started_at"
+            ]
+            source["revocation_harness_sha256"] = self.revocation_harness_sha
         return {
             "schema_version": 1,
             "provider": "anthropic",
@@ -821,13 +861,10 @@ class EvidenceFixtures:
             "observed_at": iso(event_time),
             "key_role": role,
             "signing_key": deepcopy(key),
-            "exchange": self.issuance(event_time),
+            "exchange": exchange,
             "models": self.models(event_time),
             "credential_removed_at": iso(event_time + timedelta(microseconds=1)),
-            "source": {
-                "policy_sha256": self.policy_sha,
-                "lifecycle_harness_sha256": self.harness_sha,
-            },
+            "source": source,
         }
 
     def denial(
@@ -940,7 +977,7 @@ class EvidenceFixtures:
         # sequence is a mutation scaffold, not qualification evidence.
         times = [
             self.base + timedelta(seconds=seconds)
-            for seconds in (10, 20, 111, 121, 131, 141, 151, 161, 171, 181, 272)
+            for seconds in (10, 20, 111, 121, 212, 222, 313, 323, 333, 343, 434)
         ]
         enabled = self.rule_state(True)
         disabled = self.rule_state(False)
@@ -1050,6 +1087,25 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
             text=True,
         )
 
+    def assert_unpinned_retired_denial_signal(
+        self, result: subprocess.CompletedProcess[str]
+    ) -> None:
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(result.stderr, "")
+        signal = json.loads(result.stdout)
+        self.assertEqual(signal["evidence_status"], "accepted")
+        self.assertEqual(signal["qualification_status"], "blocked")
+        self.assertEqual(
+            signal["signals"],
+            [
+                {
+                    "code": "unpinned_denial_contract",
+                    "event_type": "retired_key_exchange_denial",
+                    "required_action": "add_observed_contract",
+                }
+            ],
+        )
+
     def test_observed_expiry_fixture_passes_actual_checker(self) -> None:
         fixtures = EvidenceFixtures()
         evidence = fixtures.expiry()
@@ -1077,7 +1133,7 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
         result = self.check_observed_denial(OBSERVED_REVOCATION_DENIAL_FIXTURE)
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_revocation_contract_accepts_16_brackets_and_optional_denial_ids(self) -> None:
+    def test_revocation_contract_accepts_evidence_but_blocks_unpinned_denial(self) -> None:
         for denial_ids_supplied in (True, False):
             with self.subTest(denial_ids_supplied=denial_ids_supplied):
                 fixtures = EvidenceFixtures()
@@ -1107,7 +1163,49 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
                     [(401, "authentication_error"), (400, "invalid_grant")],
                 )
                 result = self.check(REVOCATION_CHECKER, evidence)
-                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assert_unpinned_retired_denial_signal(result)
+
+    def test_positive_settling_timing_fixture_passes_actual_predicate(self) -> None:
+        self.assertEqual(digest(POSITIVE_SETTLING_FIXTURE), POSITIVE_SETTLING_SHA256)
+        timing = json.loads(POSITIVE_SETTLING_FIXTURE.read_text())
+        self.assertEqual(
+            set(timing),
+            {
+                "schema_version",
+                "fixture_kind",
+                "provider_response_observed",
+                "qualification_evidence",
+                "minimum_settling_seconds",
+                "cases",
+            },
+        )
+        self.assertIs(timing["provider_response_observed"], False)
+        self.assertIs(timing["qualification_evidence"], False)
+        self.assertEqual(timing["minimum_settling_seconds"], 90)
+
+        evidence = EvidenceFixtures().revocation()
+        events = {event["event_type"]: event for event in evidence["events"]}
+        for case in timing["cases"]:
+            predecessor = events[case["predecessor_event_type"]]
+            positive = events[case["event_type"]]
+            self.assertEqual(
+                predecessor["readback"]["observed_at"],
+                case["predecessor_readback_observed_at"],
+            )
+            self.assertEqual(
+                positive["exchange"]["request_started_at"],
+                case["request_started_at"],
+            )
+            readback = datetime.fromisoformat(
+                case["predecessor_readback_observed_at"].replace("Z", "+00:00")
+            )
+            requested = datetime.fromisoformat(
+                case["request_started_at"].replace("Z", "+00:00")
+            )
+            self.assertEqual((requested - readback).total_seconds(), 90)
+
+        result = self.check(REVOCATION_CHECKER, evidence)
+        self.assert_unpinned_retired_denial_signal(result)
 
     def test_observed_identified_400_and_requirement_2_evidence_pass(self) -> None:
         evidence = json.loads(SPEND_EVIDENCE.read_text())
@@ -1214,6 +1312,63 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
             result.stderr,
         )
 
+    def test_post_mutation_positive_inside_settling_interval_is_inconclusive(self) -> None:
+        cases = (
+            ("rule_restored", "rule_restored_positive"),
+            ("issuer_rotation_staged", "replacement_key_positive"),
+        )
+        for predecessor_type, positive_type in cases:
+            with self.subTest(event_type=positive_type):
+                revocation = EvidenceFixtures().revocation()
+                events = {
+                    event["event_type"]: event for event in revocation["events"]
+                }
+                readback = datetime.fromisoformat(
+                    events[predecessor_type]["readback"]["observed_at"].replace(
+                        "Z", "+00:00"
+                    )
+                )
+                events[positive_type]["exchange"]["request_started_at"] = iso(
+                    readback + timedelta(seconds=89)
+                )
+                result = self.check(REVOCATION_CHECKER, revocation)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(
+                    f"{positive_type} is inconclusive: positive control began "
+                    "before the 90-second settling interval",
+                    result.stderr,
+                )
+
+    def test_positive_settling_timestamps_cannot_be_omitted(self) -> None:
+        cases = (
+            (
+                "rule_restored_positive",
+                "exchange",
+                "request_started_at",
+                "settling request is not a UTC timestamp",
+            ),
+            (
+                "rule_restored",
+                "readback",
+                "observed_at",
+                "settling readback is not a UTC timestamp",
+            ),
+        )
+        for event_type, section, field, diagnostic in cases:
+            with self.subTest(event_type=event_type, field=field):
+                revocation = EvidenceFixtures().revocation()
+                events = {
+                    event["event_type"]: event for event in revocation["events"]
+                }
+                del events[event_type][section][field]
+                result = self.check(REVOCATION_CHECKER, revocation)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("has an unexpected evidence shape", result.stderr)
+                self.assertIn(
+                    f"rule_restored_positive {diagnostic}",
+                    result.stderr,
+                )
+
     def test_rule_disabled_400_invalid_grant_is_rejected(self) -> None:
         fixtures = EvidenceFixtures()
         revocation = fixtures.revocation()
@@ -1224,15 +1379,15 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("is not its exact provider denial", result.stderr)
 
-    def test_unobserved_retired_exact_shape_is_not_enforced(self) -> None:
+    def test_unpinned_retired_shape_is_accepted_but_blocks_qualification(self) -> None:
         fixtures = EvidenceFixtures()
         revocation = fixtures.revocation()
         denial = revocation["events"][10]["exchange_denial"]
-        denial["http_status"] = 401
-        denial["error_type"] = "authentication_error"
+        denial["http_status"] = 429
+        denial["error_type"] = "rate_limit_error"
         denial["response_shape"] = {"captured_shape": "not-yet-qualified"}
         result = self.check(REVOCATION_CHECKER, revocation)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_unpinned_retired_denial_signal(result)
 
     def test_unobserved_retired_event_must_still_be_a_provider_denial(self) -> None:
         fixtures = EvidenceFixtures()

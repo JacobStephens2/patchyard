@@ -1,0 +1,39 @@
+{
+  "action": "exchange-denial",
+  "failed_at": "2026-08-05T02:10:52.396350Z",
+  "failure_phase": "denied_exchange_unexpected_response",
+  "failure_reason": "provider did not return the exact invalid-grant denial",
+  "failure_type": "LifecycleError",
+  "partial_evidence": {
+    "endpoint": "/v1/oauth/token",
+    "error_type": "authentication_error",
+    "http_status": 401,
+    "observed_at": "2026-08-05T02:10:52.396108Z",
+    "provider_date": "2026-08-05T02:10:52Z",
+    "request_id": "req_011CdinkkyCa2g2kn8v7gF2c",
+    "response_shape": {
+      "error_object_keys": [
+        "message",
+        "type"
+      ],
+      "error_value_type": "object",
+      "top_level_keys": [
+        "error",
+        "request_id",
+        "type"
+      ]
+    }
+  },
+  "post_failure_state": {
+    "credential_process_exiting": true
+  },
+  "provider": "anthropic",
+  "run_id": "anthropic-l3-20260805-d75433c08c",
+  "schema_version": 1,
+  "source": {
+    "lifecycle_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+    "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7"
+  },
+  "started_at": "2026-08-05T02:10:52.196226Z",
+  "status": "failed"
+}

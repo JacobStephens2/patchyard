@@ -3,10 +3,11 @@
 ## Status and boundary
 
 This source implements the A113 expiry-denial and federation-rule-revocation
-halves plus the A-14 signing-key rotation path. It has not been run against
-Anthropic. Live execution, provider mutation, key activation, evidence
-publication, fixture refresh, and any qualification-flag change require a new
-authorization after A78 review.
+halves plus the A-14 signing-key rotation path. The expiry proof ran on
+2026-08-04 and the rule-removal/restoration proof ran on 2026-08-05. Signing-key
+rotation has not run. Any further live execution, provider mutation, key
+activation, evidence publication, fixture refresh, or qualification-flag
+change requires a new authorization after adversarial review.
 
 The implementation is intentionally outside the existing host contract. It
 does not call or modify:
@@ -16,12 +17,16 @@ does not call or modify:
 - `worker/runtime/patchyard-anthropic-one-shot`; or
 - any file under `worker/image/`.
 
-`tools/anthropic-wif-lifecycle.py` is a separate root-only control-plane
-harness. `tools/anthropic-wif-lifecycle-admin.py` is a separate attended
-operator tool using the short-lived `ant` OAuth profile. Neither tool accepts
-an API key. Both strip ambient Anthropic credential variables, reject HTTP
-redirects and ambient proxies, use fixed Anthropic endpoints, make no retry,
-write only to a new mode-0600 file, and never emit an assertion or bearer.
+`tools/anthropic-wif-lifecycle.py` is the source-pinned root-only control-plane
+harness used by the qualified expiry result. The smaller
+`tools/anthropic-wif-revocation.py` adapter loads that exact harness and changes
+only the two revocation-denial actions; this preserves the expiry evidence's
+source binding while making the observed rule response recordable.
+`tools/anthropic-wif-lifecycle-admin.py` is a separate attended operator tool
+using the short-lived `ant` OAuth profile. None accepts an API key. All strip
+ambient Anthropic credential variables, reject HTTP redirects and ambient
+proxies, use fixed Anthropic endpoints, make no retry, write only to a new
+mode-0600 file, and never emit an assertion or bearer.
 
 Every mutating or bearer-bearing command reserves its output before the first
 provider or local operation. The initial record says `status: in_progress`.
@@ -29,9 +34,11 @@ A successful command atomically replaces it with the qualifying event. A
 caught failure atomically replaces it with `status: failed`, the failure phase,
 credential-free partial provider observations, and local state or an
 independent provider readback where mutation was possible. An abrupt process
-death leaves the `in_progress` record. Neither terminal form can pass a live
-evidence checker. Failure to persist or fsync the terminal record is itself a
-nonzero result. The root harness also rejects any output or temporary private
+death leaves the `in_progress` record. Neither terminal form can pass a
+complete live evidence contract; the A126 observation-only mode validates one
+sanitized denial predicate and says explicitly that it is not qualification
+evidence. Failure to persist or fsync the terminal record is itself a nonzero
+result. The root harness also rejects any output or temporary private
 key outside the exact root-owned mode-0700
 `/run/patchyard-anthropic/<run-id>` directory and verifies that `/run` is
 `tmpfs` before reserving an output.
@@ -39,8 +46,11 @@ key outside the exact root-owned mode-0700
 The administrative primitives follow Anthropic's documented WIF surface:
 removing a rule workspace disables that mapping, adding it restores the same
 mapping, and a partial issuer update replaces the complete inline JWKS. The
-provider documents disabled or unauthorized rule exchanges and unknown
-signing keys as HTTP 400 `invalid_grant` responses. See the official
+live rule-disabled exchange returned HTTP 401 `authentication_error`, not the
+documented HTTP 400 `invalid_grant`. No retired-signing-key denial has been
+observed. The documentation-derived HTTP 400 `invalid_grant` expectation is
+accepted but deliberately not enforced as the retired-key exact predicate
+under A125. See the official
 [WIF Admin API](https://platform.claude.com/docs/en/manage-claude/wif-admin-api),
 [rule-workspace removal](https://platform.claude.com/docs/en/api/admin/federation_rules/workspaces/delete),
 [rule-workspace addition](https://platform.claude.com/docs/en/api/admin/federation_rules/workspaces/create),
@@ -51,8 +61,8 @@ and [WIF error reference](https://platform.claude.com/docs/en/manage-claude/wif-
 
 ### Expiry
 
-`research/isolation/results/anthropic-expiry-denial.json` is absent until an
-authorized live run succeeds. Its exact top-level shape is:
+`research/isolation/results/anthropic-expiry-denial.json` is the committed
+2026-08-04 live result. Its exact top-level shape is:
 
 ```text
 schema_version, provider, qualification_requirement, authorization_ruling,
@@ -65,10 +75,11 @@ The checker requires all of the following:
 - one successful WIF exchange with `expires_in` from 60 through 300 seconds;
 - one successful `GET /v1/models?limit=1` before the provider-recorded expiry;
 - exactly one reuse of that same bearer after expiry, denied by Anthropic as
-  HTTP 401 `authentication_error` with a provider request ID;
+  HTTP 401 `authentication_error`, explicitly recording that no request ID was
+  supplied;
 - strict capture and provider order
   `issued <= positive < expiry <= denial <= credential removal`;
-- three distinct provider request IDs;
+- two distinct provider request IDs bracketing the unidentified denial;
 - current policy and harness digests; and
 - no credential-shaped field, bearer, or JWT.
 
@@ -78,15 +89,15 @@ occupy that field.
 ### Federation revocation and signing-key rotation
 
 `research/isolation/results/anthropic-revocation-rotation.json` is also absent
-until an authorized live run succeeds. It binds the policy, lifecycle harness,
-and administrative tool digests and contains these exact, strictly ordered
-events:
+until an authorized live run succeeds. It binds the policy, qualified expiry
+harness, revocation adapter, and administrative tool digests and contains these
+exact, strictly ordered events:
 
 | Order | Event | Required fact |
 | :-- | :-- | :-- |
 | 1 | `rule_enabled_positive` | Current key exchanges and calls Models. |
 | 2 | `rule_disabled` | The one Factory workspace mapping is removed and read back absent. |
-| 3 | `rule_disabled_exchange_denial` | The next fresh assertion receives provider HTTP 400 `invalid_grant`. |
+| 3 | `rule_disabled_exchange_denial` | After the settling floor, the next fresh assertion receives provider HTTP 401 `authentication_error`. |
 | 4 | `rule_restored` | The same mapping is restored and read back present. |
 | 5 | `rule_restored_positive` | Exchange and Models prove restoration. |
 | 6 | `issuer_rotation_staged` | Provider JWKS changes from old-only to exactly old+replacement. |
@@ -94,13 +105,37 @@ events:
 | 8 | `replacement_key_activated` | The old private key is retained only in root tmpfs for its denial, then the replacement is atomically installed at the active path. |
 | 9 | `replacement_key_final_positive` | The active path exchanges and calls Models while both public keys remain trusted. |
 | 10 | `issuer_retired_key` | Provider JWKS changes from exactly old+replacement to replacement-only. |
-| 11 | `retired_key_exchange_denial` | A fresh assertion signed by the retired key receives provider HTTP 400 `invalid_grant`. |
+| 11 | `retired_key_exchange_denial` | After the settling floor, a fresh assertion signed by the retired key receives a provider 4xx denial. Documentation predicts HTTP 400 `invalid_grant`, but the exact status, error type, and response shape remain unenforced until observed. |
 
-The checker requires 18 distinct provider request IDs, exact rule and issuer
-state transitions, continuity of both public-key thumbprints, five-minute-or-
-shorter bearers for every positive control, and a final Models success from
-the active replacement. The locally atomic activation is required but never
-substitutes for either provider denial.
+The checker requires 16 distinct bracketing request IDs from the positive and
+administrative calls. Each denial records `request_id_supplied`; a supplied ID
+must be valid and distinct, while an absent ID is attributed by its bracketed
+position. The observed rule-disabled 401 did carry a request ID, unlike the
+expiry 401, so the checker retains it without making denial IDs part of the
+mandatory count. It also requires exact rule and issuer state transitions,
+continuity of both public-key thumbprints, five-minute-or-shorter bearers for
+every positive control, and a final Models success from the active replacement.
+The locally atomic activation is required but never substitutes for either
+provider denial.
+
+Both provider-configuration denials have a 90-second minimum settling interval
+from the preceding administrative readback to `request_started_at`. A denial
+started sooner fails as inconclusive, regardless of its HTTP result. This is
+the smallest directly observed interval that produced the enforced rule
+denial: 0.85 seconds was too early, while the accepted observation began
+90.867688 seconds after the disabled-state readback. It is a qualification
+floor, not a provider propagation SLA.
+
+`fixtures/provider-observations/anthropic-revocation-denial-2026-08-05.json`
+is byte-identical to the credential-free terminal capture from the live rule
+proof. The observation-only checker mode validates the corrected response
+predicate without treating that failed terminal record as complete
+qualification evidence:
+
+```bash
+python3 -I tools/check-anthropic-revocation.py \
+  --observed-denial fixtures/provider-observations/anthropic-revocation-denial-2026-08-05.json
+```
 
 `infra/ansible/tests/test_anthropic_lifecycle.py` invokes the actual isolated
 checkers against a valid contract and then mutates it. Both checkers reject a
@@ -140,11 +175,12 @@ python3 -I tools/check-anthropic-expiry.py \
 
 Stop without retry if any command fails, the positive control is denied, the
 lifetime exceeds 300 seconds, the post-expiry call is accepted, the denial is
-not HTTP 401 `authentication_error`, a request ID is absent, or the checker
-rejects the fixture. Never replace a missing provider denial with cleanup
-evidence. Preserve only credential-free diagnostics and remove the root tmpfs
-directory after adjudication. A `status: failed` or `status: in_progress`
-terminal record is failure evidence, not a result to edit or assemble.
+not HTTP 401 `authentication_error`, request-ID presence is not recorded
+exactly as observed, or the checker rejects the fixture. Never replace a
+missing provider denial with cleanup evidence. Preserve only credential-free
+diagnostics and remove the root tmpfs directory after adjudication. A `status:
+failed` or `status: in_progress` terminal record is failure evidence, not a
+result to edit or assemble.
 
 ## Attended live procedure: rule revocation and restoration
 
@@ -190,10 +226,21 @@ python3 -I tools/anthropic-wif-lifecycle-admin.py \
   rule-disable --run-id "$RUN_ID"
 ```
 
-Make exactly one fresh exchange attempt from the control plane:
+After the apply command returns its disabled-state readback, wait at least 90
+seconds. Starting from command completion is conservative because completion
+follows that readback:
 
 ```bash
-sudo python3 -I tools/anthropic-wif-lifecycle.py exchange-denial \
+/usr/bin/sleep 90
+```
+
+Then make exactly one fresh exchange attempt from the control plane. The
+checker measures from the readback's `observed_at` to the denial's
+`request_started_at`; an attempt inside 90 seconds is inconclusive, not a
+provider result:
+
+```bash
+sudo python3 -I tools/anthropic-wif-revocation.py exchange-denial \
   --run-id "$RUN_ID" --event-type rule_disabled_exchange_denial \
   --key-role active --output "$CONTROL_STAGE/03-rule-disabled-denial.json"
 ```
@@ -220,6 +267,41 @@ stop. If neither exact state validates, stop and escalate. Never continue into
 rotation without the restored admin readback and restored provider positive.
 Never retry the denied exchange. Preserve the failed admin terminal record: it
 contains a fresh readback or states that the readback itself failed.
+
+The A126 capture was produced by the source-pinned expiry harness while it
+still expected `400 invalid_grant`, so it is a `status: failed` terminal
+observation. The observation-only checker mode proves the corrected denial
+predicate, but that record must not be substituted for the complete event or a
+qualification result. Future denial events use the revocation adapter above.
+
+### Rotation pre-flight audit
+
+Before A126, rotation specified no settling interval after either provider
+JWKS mutation. The staged-replacement positive and retired-key denial followed
+their administrative readbacks immediately. The procedure below now waits 90
+seconds after each readback. Atomic local activation needs no propagation wait:
+it changes no provider state, and both public keys have already been read back
+as trusted.
+
+Before A126, the checker required HTTP 400 `invalid_grant` for the retired key,
+which is what the provider documentation says for an unknown signing key. No
+captured retired-key response exists in this repository or the staged A126
+material. That predicate was authored, not observed, and cannot satisfy A125.
+The corrected checker therefore requires a bounded provider 4xx denial but
+does not enforce the retired response's exact status, error type, or sanitized
+shape. It accepts the documented HTTP 400 `invalid_grant` without requiring
+it, and it does not infer the retired response from the rule-disabled response.
+Request-ID behavior is likewise unobserved, so only the 16 positive/admin IDs
+are mandatory and a retired-denial ID is retained only if supplied.
+
+The qualified expiry result binds the existing lifecycle harness digest, so
+changing that file would invalidate requirement 3 while fixing requirement 4.
+The source-bound revocation adapter is the narrow compatibility boundary: it
+records `request_started_at` and explicit request-ID presence, enforces the
+observed rule-disabled response, and leaves the retired exact response
+unenforced. If rotation produces a new retired response, preserve that terminal
+observation and bind the exact predicate in a reviewed follow-up before any
+complete result is qualified.
 
 ## Attended live procedure: signing-key rotation
 
@@ -261,7 +343,12 @@ python3 -I tools/anthropic-wif-lifecycle-admin.py \
   --replacement-jwks "$ADMIN_STAGE/replacement-jwks.json"
 ```
 
-Prove the replacement while the old key still works:
+Wait through the same conservative propagation floor, then prove the
+replacement while the old key still works:
+
+```bash
+/usr/bin/sleep 90
+```
 
 ```bash
 sudo python3 -I tools/anthropic-wif-lifecycle.py exchange-positive \
@@ -331,7 +418,14 @@ python3 -I tools/anthropic-wif-lifecycle-admin.py \
   issuer-retire --run-id "$RUN_ID" \
   --expected-current-jwks "$ADMIN_STAGE/current-jwks.json" \
   --replacement-jwks "$ADMIN_STAGE/replacement-jwks.json"
-sudo python3 -I tools/anthropic-wif-lifecycle.py exchange-denial \
+```
+
+Wait at least 90 seconds after the retirement readback before the one retired
+assertion. An earlier denial or acceptance is inconclusive:
+
+```bash
+/usr/bin/sleep 90
+sudo python3 -I tools/anthropic-wif-revocation.py exchange-denial \
   --run-id "$RUN_ID" --event-type retired_key_exchange_denial \
   --key-role retired_staging --signing-key "$CONTROL_STAGE/retired.pem" \
   --output "$CONTROL_STAGE/11-retired-key-denial.json"
@@ -340,10 +434,13 @@ sudo python3 -I tools/anthropic-wif-lifecycle.py exchange-denial \
 If issuer retirement fails ambiguously, do not make the denial attempt. Use
 the `issuer-restore-overlap` plan to determine whether provider state is
 replacement-only; apply it only when needed to restore the already-proven
-two-key overlap, then stop. If the retired assertion is accepted or receives
-anything other than provider HTTP 400 `invalid_grant`, stop without retry. The
-active replacement has already been provider-proven, so do not re-trust the
-retired key merely to make the test pass.
+two-key overlap, then stop. If the retired assertion is accepted, stop without
+retry. The adapter accepts a bounded provider 4xx so the first real denial can
+be preserved without guessing its exact shape; if it differs from documented
+HTTP 400 `invalid_grant`, treat the run as observation-only and bind that exact
+response in a reviewed follow-up before qualification. The active replacement
+has already been provider-proven, so do not re-trust the retired key merely to
+make the test pass.
 
 ```bash
 python3 -I tools/anthropic-wif-lifecycle-admin.py \
@@ -394,6 +491,7 @@ jq -e -s --arg run_id "$RUN_ID" '
       run_id: $run_id,
       policy_sha256: $events[0].source.policy_sha256,
       lifecycle_harness_sha256: $events[0].source.lifecycle_harness_sha256,
+      revocation_harness_sha256: $events[2].source.revocation_harness_sha256,
       admin_tool_sha256: $events[1].source.admin_tool_sha256,
       events: $events
     }

@@ -16,6 +16,7 @@ from typing import Any
 REPO = Path(__file__).resolve().parent.parent
 POLICY_PATH = REPO / "policy/anthropic-wif.json"
 HARNESS_PATH = REPO / "tools/anthropic-wif-lifecycle.py"
+REVOCATION_HARNESS_PATH = REPO / "tools/anthropic-wif-revocation.py"
 ADMIN_PATH = REPO / "tools/anthropic-wif-lifecycle-admin.py"
 RESULT_PATH = REPO / "research/isolation/results/anthropic-revocation-rotation.json"
 PROTECTED_SOURCES = {
@@ -55,6 +56,14 @@ DENIAL_EVENTS = {
     "rule_disabled_exchange_denial": "active",
     "retired_key_exchange_denial": "retired_staging",
 }
+OBSERVED_DENIAL_CONTRACTS = {
+    "rule_disabled_exchange_denial": (401, "authentication_error"),
+}
+DENIAL_SETTLING_PREDECESSORS = {
+    "rule_disabled_exchange_denial": "rule_disabled",
+    "retired_key_exchange_denial": "issuer_retired_key",
+}
+MINIMUM_SETTLING_SECONDS = 90
 ADMIN_EVENTS = {
     "rule_disabled",
     "rule_restored",
@@ -214,6 +223,12 @@ def validate_source(
 ) -> None:
     if event_type in ADMIN_EVENTS:
         expected = {"policy_sha256", "admin_tool_sha256"}
+    elif event_type in DENIAL_EVENTS:
+        expected = {
+            "policy_sha256",
+            "lifecycle_harness_sha256",
+            "revocation_harness_sha256",
+        }
     else:
         expected = {"policy_sha256", "lifecycle_harness_sha256"}
     if not exact_keys(value, expected, f"{event_type} source", errors):
@@ -223,10 +238,17 @@ def validate_source(
     if event_type in ADMIN_EVENTS:
         if value.get("admin_tool_sha256") != fixture.get("admin_tool_sha256"):
             errors.append(f"{event_type} admin binding differs from the fixture")
-    elif value.get("lifecycle_harness_sha256") != fixture.get(
-        "lifecycle_harness_sha256"
-    ):
-        errors.append(f"{event_type} harness binding differs from the fixture")
+    else:
+        if value.get("lifecycle_harness_sha256") != fixture.get(
+            "lifecycle_harness_sha256"
+        ):
+            errors.append(f"{event_type} harness binding differs from the fixture")
+        if event_type in DENIAL_EVENTS and value.get(
+            "revocation_harness_sha256"
+        ) != fixture.get("revocation_harness_sha256"):
+            errors.append(
+                f"{event_type} revocation harness binding differs from the fixture"
+            )
 
 
 def validate_receipt(
@@ -435,7 +457,9 @@ def validate_denial_event(
         "endpoint",
         "http_status",
         "request_id",
+        "request_id_supplied",
         "provider_date",
+        "request_started_at",
         "observed_at",
         "error_type",
         "response_shape",
@@ -447,17 +471,53 @@ def validate_denial_event(
             errors.append(f"{event_type} is not a provider HTTP denial")
         if denial.get("endpoint") != "/v1/oauth/token":
             errors.append(f"{event_type} used the wrong endpoint")
-        if denial.get("http_status") != 400 or denial.get("error_type") != "invalid_grant":
-            errors.append(f"{event_type} is not the exact invalid-grant denial")
+        observed_contract = OBSERVED_DENIAL_CONTRACTS.get(event_type)
+        if observed_contract is not None:
+            expected_status, expected_error = observed_contract
+            if (
+                denial.get("http_status") != expected_status
+                or denial.get("error_type") != expected_error
+            ):
+                errors.append(f"{event_type} is not its exact provider denial")
+        elif (
+            not isinstance(denial.get("http_status"), int)
+            or isinstance(denial.get("http_status"), bool)
+            or not 400 <= denial["http_status"] <= 499
+            or not isinstance(denial.get("error_type"), str)
+            or not denial["error_type"]
+        ):
+            errors.append(f"{event_type} is not a bounded provider HTTP denial")
         request_id = denial.get("request_id")
-        if REQUEST_ID.fullmatch(str(request_id or "")) is None:
-            errors.append(f"{event_type} request ID is malformed")
-        else:
-            request_ids.append(request_id)
-        if denial.get("response_shape") != EXPECTED_ERROR_SHAPE:
+        request_id_supplied = denial.get("request_id_supplied")
+        if not isinstance(request_id_supplied, bool):
+            errors.append(
+                f"{event_type} does not explicitly record request-ID presence"
+            )
+        elif request_id_supplied:
+            if REQUEST_ID.fullmatch(str(request_id or "")) is None:
+                errors.append(f"{event_type} request ID is malformed")
+            else:
+                request_ids.append(request_id)
+        elif request_id is not None:
+            errors.append(
+                f"{event_type} claims request-ID absence while carrying an ID"
+            )
+        if (
+            observed_contract is not None
+            and denial.get("response_shape") != EXPECTED_ERROR_SHAPE
+        ):
             errors.append(f"{event_type} sanitized response shape differs")
+        elif observed_contract is None and not isinstance(
+            denial.get("response_shape"), dict
+        ):
+            errors.append(f"{event_type} sanitized response shape is not an object")
         denial_provider = parse_time(
             denial.get("provider_date"), f"{event_type} provider_date", errors
+        )
+        denial_requested = parse_time(
+            denial.get("request_started_at"),
+            f"{event_type} request_started_at",
+            errors,
         )
         denial_observed = parse_time(
             denial.get("observed_at"), f"{event_type} denial observed_at", errors
@@ -468,6 +528,12 @@ def validate_denial_event(
             and denial_provider > denial_observed
         ):
             errors.append(f"{event_type} provider Date follows its local observation")
+        if (
+            denial_requested is not None
+            and denial_observed is not None
+            and denial_requested > denial_observed
+        ):
+            errors.append(f"{event_type} control-plane UTC bracket is reversed")
     event_observed = parse_time(value.get("observed_at"), f"{event_type} observed_at", errors)
     removed = parse_time(
         value.get("credential_removed_at"), f"{event_type} credential_removed_at", errors
@@ -478,6 +544,33 @@ def validate_denial_event(
         errors.append(f"{event_type} credential cleanup predates its denial")
     validate_source(value.get("source"), event_type, fixture, errors)
     return event_observed, key, request_ids
+
+
+def validate_denial_settling_intervals(
+    events: dict[str, dict[str, Any]], errors: list[str]
+) -> None:
+    for denial_type, predecessor_type in DENIAL_SETTLING_PREDECESSORS.items():
+        predecessor = events.get(predecessor_type, {})
+        denial_event = events.get(denial_type, {})
+        readback = predecessor.get("readback", {})
+        denial = denial_event.get("exchange_denial", {})
+        settled_from = parse_time(
+            readback.get("observed_at"),
+            f"{denial_type} settling readback",
+            errors,
+        )
+        requested = parse_time(
+            denial.get("request_started_at"),
+            f"{denial_type} settling request",
+            errors,
+        )
+        if settled_from is not None and requested is not None:
+            elapsed = (requested - settled_from).total_seconds()
+            if elapsed < MINIMUM_SETTLING_SECONDS:
+                errors.append(
+                    f"{denial_type} is inconclusive: denial began before the "
+                    f"{MINIMUM_SETTLING_SECONDS}-second settling interval elapsed"
+                )
 
 
 def validate_rule_state(
@@ -700,6 +793,7 @@ def validate_evidence(result: Any, policy: dict[str, Any]) -> list[str]:
         "run_id",
         "policy_sha256",
         "lifecycle_harness_sha256",
+        "revocation_harness_sha256",
         "admin_tool_sha256",
         "events",
     }
@@ -718,6 +812,8 @@ def validate_evidence(result: Any, policy: dict[str, Any]) -> list[str]:
         errors.append("revocation fixture is stale for the WIF policy")
     if result.get("lifecycle_harness_sha256") != digest(HARNESS_PATH):
         errors.append("revocation fixture is stale for the lifecycle harness")
+    if result.get("revocation_harness_sha256") != digest(REVOCATION_HARNESS_PATH):
+        errors.append("revocation fixture is stale for the revocation harness")
     if result.get("admin_tool_sha256") != digest(ADMIN_PATH):
         errors.append("revocation fixture is stale for the lifecycle admin tool")
     events = result.get("events")
@@ -731,9 +827,12 @@ def validate_evidence(result: Any, policy: dict[str, Any]) -> list[str]:
     event_times: list[datetime] = []
     keys: dict[str, tuple[str, str] | None] = {}
     states: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
-    request_ids: list[str] = []
+    bracketing_request_ids: list[str] = []
+    denial_request_ids: list[str] = []
     provider_times: list[datetime] = []
+    events_by_type: dict[str, dict[str, Any]] = {}
     for event, event_type in zip(events, EVENT_SEQUENCE):
+        events_by_type[event_type] = event
         if event.get("schema_version") != 1 or event.get("provider") != "anthropic":
             errors.append(f"{event_type} event identity differs")
         if event.get("run_id") != run_id or event.get("event_type") != event_type:
@@ -758,18 +857,29 @@ def validate_evidence(result: Any, policy: dict[str, Any]) -> list[str]:
             ids = []
         if observed is not None:
             event_times.append(observed)
-        request_ids.extend(ids)
+        if event_type in DENIAL_EVENTS:
+            denial_request_ids.extend(ids)
+        else:
+            bracketing_request_ids.extend(ids)
         provider_times.extend(event_provider_times(event, event_type, errors))
     if len(event_times) != len(EVENT_SEQUENCE) or any(
         earlier >= later for earlier, later in zip(event_times, event_times[1:])
     ):
         errors.append("revocation fixture event timestamps are not strictly ordered")
-    if len(request_ids) != 18 or len(set(request_ids)) != len(request_ids):
-        errors.append("revocation fixture does not bind 18 distinct provider requests")
+    if len(bracketing_request_ids) != 16 or len(set(bracketing_request_ids)) != 16:
+        errors.append(
+            "revocation fixture does not bind 16 distinct bracketing provider requests"
+        )
+    identified_request_ids = bracketing_request_ids + denial_request_ids
+    if len(set(identified_request_ids)) != len(identified_request_ids):
+        errors.append(
+            "revocation fixture does not bind every distinct identified provider request"
+        )
     if len(provider_times) != 18 or any(
         earlier > later for earlier, later in zip(provider_times, provider_times[1:])
     ):
         errors.append("revocation fixture provider timestamps are out of order")
+    validate_denial_settling_intervals(events_by_type, errors)
     current = keys.get("rule_enabled_positive")
     replacement = keys.get("replacement_key_positive")
     if current is None or replacement is None or current == replacement:
@@ -825,13 +935,139 @@ def validate_evidence(result: Any, policy: dict[str, Any]) -> list[str]:
     return errors
 
 
+def validate_observed_rule_denial(result: Any) -> list[str]:
+    """Validate the captured A126 terminal record, not qualification evidence."""
+
+    errors: list[str] = []
+    expected = {
+        "schema_version",
+        "provider",
+        "status",
+        "action",
+        "run_id",
+        "started_at",
+        "failed_at",
+        "failure_type",
+        "failure_reason",
+        "failure_phase",
+        "partial_evidence",
+        "post_failure_state",
+        "source",
+    }
+    if not exact_keys(result, expected, "observed rule-disabled denial", errors):
+        return errors
+    if result.get("schema_version") != 1 or result.get("provider") != "anthropic":
+        errors.append("observed rule-disabled denial identity differs")
+    if result.get("status") != "failed" or result.get("action") != "exchange-denial":
+        errors.append("observed rule-disabled denial is not its terminal capture")
+    if RUN_ID.fullmatch(str(result.get("run_id") or "")) is None:
+        errors.append("observed rule-disabled denial run ID is malformed")
+    if (
+        result.get("failure_type") != "LifecycleError"
+        or result.get("failure_phase") != "denied_exchange_unexpected_response"
+        or not isinstance(result.get("failure_reason"), str)
+        or not result["failure_reason"]
+    ):
+        errors.append("observed rule-disabled denial failure provenance differs")
+
+    source = result.get("source")
+    if exact_keys(
+        source,
+        {"policy_sha256", "lifecycle_harness_sha256"},
+        "observed rule-disabled denial source",
+        errors,
+    ):
+        if source.get("policy_sha256") != digest(POLICY_PATH):
+            errors.append("observed rule-disabled denial policy binding differs")
+        if source.get("lifecycle_harness_sha256") != digest(HARNESS_PATH):
+            errors.append("observed rule-disabled denial harness binding differs")
+
+    partial = result.get("partial_evidence")
+    partial_expected = {
+        "endpoint",
+        "http_status",
+        "request_id",
+        "provider_date",
+        "observed_at",
+        "error_type",
+        "response_shape",
+    }
+    partial_observed = partial_provider = None
+    if exact_keys(
+        partial,
+        partial_expected,
+        "observed rule-disabled denial response",
+        errors,
+    ):
+        if partial.get("endpoint") != "/v1/oauth/token":
+            errors.append("observed rule-disabled denial used the wrong endpoint")
+        if (
+            partial.get("http_status") != 401
+            or partial.get("error_type") != "authentication_error"
+        ):
+            errors.append("observed rule-disabled denial is not the provider response")
+        if REQUEST_ID.fullmatch(str(partial.get("request_id") or "")) is None:
+            errors.append("observed rule-disabled denial request ID is malformed")
+        if partial.get("response_shape") != EXPECTED_ERROR_SHAPE:
+            errors.append("observed rule-disabled denial response shape differs")
+        partial_provider = parse_time(
+            partial.get("provider_date"),
+            "observed rule-disabled denial provider_date",
+            errors,
+        )
+        partial_observed = parse_time(
+            partial.get("observed_at"),
+            "observed rule-disabled denial observed_at",
+            errors,
+        )
+        if (
+            partial_provider is not None
+            and partial_observed is not None
+            and partial_provider > partial_observed
+        ):
+            errors.append(
+                "observed rule-disabled denial provider Date follows its observation"
+            )
+
+    started = parse_time(
+        result.get("started_at"), "observed rule-disabled denial started_at", errors
+    )
+    failed = parse_time(
+        result.get("failed_at"), "observed rule-disabled denial failed_at", errors
+    )
+    if all(value is not None for value in (started, partial_observed, failed)):
+        assert started is not None and partial_observed is not None and failed is not None
+        if not started <= partial_observed <= failed:
+            errors.append("observed rule-disabled denial UTC bracket is out of order")
+    if result.get("post_failure_state") != {"credential_process_exiting": True}:
+        errors.append("observed rule-disabled denial cleanup state differs")
+
+    forbidden = secret_named_key(result)
+    if forbidden is not None:
+        errors.append(
+            f"observed rule-disabled denial contains forbidden credential field: {forbidden}"
+        )
+    serialized = json.dumps(result, sort_keys=True)
+    if re.search(r"sk-ant-[A-Za-z0-9_-]+", serialized):
+        errors.append("observed rule-disabled denial contains an Anthropic credential")
+    if re.search(
+        r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", serialized
+    ):
+        errors.append("observed rule-disabled denial contains a JWT assertion")
+    return errors
+
+
 def static_errors() -> tuple[list[str], dict[str, Any]]:
     errors = isolation_errors()
     for relative, expected in PROTECTED_SOURCES.items():
         path = REPO / relative
         if not path.is_file() or path.is_symlink() or digest(path) != expected:
             errors.append(f"protected host contract differs: {relative}")
-    for path, label in ((HARNESS_PATH, "lifecycle harness"), (ADMIN_PATH, "admin tool")):
+    for path, label in (
+        (HARNESS_PATH, "lifecycle harness"),
+        (REVOCATION_HARNESS_PATH, "revocation harness"),
+        (ADMIN_PATH, "admin tool"),
+    ):
         if not path.is_file() or path.is_symlink():
             errors.append(f"Anthropic {label} is missing or a symlink")
     if HARNESS_PATH.is_file():
@@ -847,6 +1083,17 @@ def static_errors() -> tuple[list[str], dict[str, Any]]:
         ):
             if required not in harness:
                 errors.append(f"lifecycle harness is missing: {required}")
+    if REVOCATION_HARNESS_PATH.is_file():
+        revocation_harness = REVOCATION_HARNESS_PATH.read_text()
+        for required in (
+            'status == 401 and error_type == "authentication_error"',
+            '"request_id_supplied": request_id is not None',
+            '"request_started_at": response["requested_at"]',
+            '"revocation_harness_sha256"',
+            'not 400 <= status <= 499',
+        ):
+            if required not in revocation_harness:
+                errors.append(f"revocation harness is missing: {required}")
     if ADMIN_PATH.is_file():
         admin = ADMIN_PATH.read_text()
         for required in (
@@ -862,7 +1109,7 @@ def static_errors() -> tuple[list[str], dict[str, Any]]:
         ):
             if required not in admin:
                 errors.append(f"lifecycle admin tool is missing: {required}")
-    for source_path in (HARNESS_PATH, ADMIN_PATH):
+    for source_path in (HARNESS_PATH, REVOCATION_HARNESS_PATH, ADMIN_PATH):
         if source_path.is_file():
             source = source_path.read_text()
             for forbidden in PROTECTED_SOURCES:
@@ -883,6 +1130,7 @@ def main() -> int:
     errors, policy = static_errors()
     evidence_path = RESULT_PATH
     allow_missing = False
+    observed_denial_path: Path | None = None
     arguments = sys.argv[1:]
     while arguments:
         argument = arguments.pop(0)
@@ -890,9 +1138,24 @@ def main() -> int:
             allow_missing = True
         elif argument == "--evidence" and arguments:
             evidence_path = Path(arguments.pop(0))
+        elif argument == "--observed-denial" and arguments:
+            observed_denial_path = Path(arguments.pop(0))
         else:
             errors.append(f"unknown checker argument: {argument}")
-    if not evidence_path.exists():
+    if observed_denial_path is not None:
+        if allow_missing or evidence_path != RESULT_PATH:
+            errors.append("observed-denial mode cannot be combined with evidence options")
+        try:
+            if not observed_denial_path.is_file() or observed_denial_path.is_symlink():
+                raise EvidenceJsonError(
+                    "observed denial is not a regular non-symlink file"
+                )
+            observation = load_json_file(observed_denial_path)
+        except (OSError, json.JSONDecodeError, EvidenceJsonError) as error:
+            errors.append(f"cannot read observed rule-disabled denial: {error}")
+        else:
+            errors.extend(validate_observed_rule_denial(observation))
+    elif not evidence_path.exists():
         if not allow_missing:
             errors.append("committed Anthropic revocation result is missing")
     else:
@@ -909,7 +1172,10 @@ def main() -> int:
         for error in errors:
             print(f"  {error}", file=sys.stderr)
         return 1
-    status = "with live result" if evidence_path.exists() else "static preflight"
+    if observed_denial_path is not None:
+        status = "observed rule-disabled denial; not qualification evidence"
+    else:
+        status = "with live result" if evidence_path.exists() else "static preflight"
     print(f"Anthropic revocation check: pass ({status})")
     return 0
 

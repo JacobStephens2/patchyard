@@ -15,6 +15,7 @@ from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 HARNESS_PATH = ROOT / "tools/anthropic-wif-lifecycle.py"
+REVOCATION_HARNESS_PATH = ROOT / "tools/anthropic-wif-revocation.py"
 ADMIN_PATH = ROOT / "tools/anthropic-wif-lifecycle-admin.py"
 EXPIRY_CHECKER = ROOT / "tools/check-anthropic-expiry.py"
 REVOCATION_CHECKER = ROOT / "tools/check-anthropic-revocation.py"
@@ -23,12 +24,22 @@ POLICY_PATH = ROOT / "policy/anthropic-wif.json"
 OBSERVED_EXPIRY_FIXTURE = (
     ROOT / "fixtures/provider-observations/anthropic-expiry-2026-08-04.json"
 )
+OBSERVED_REVOCATION_DENIAL_FIXTURE = (
+    ROOT
+    / "fixtures/provider-observations/anthropic-revocation-denial-2026-08-05.json"
+)
 SPEND_EVIDENCE = ROOT / "research/isolation/results/anthropic-spend-enforcement.json"
 OBSERVED_EXPIRY_SHA256 = (
     "63fb4f52227468003674b57c1b0235d1922c5fd34651bfe7316984f9fa067b25"
 )
+OBSERVED_REVOCATION_DENIAL_SHA256 = (
+    "d63b6dbc668c11a671c0531d177c604cb02d306977ed6c030bdad8787a132b26"
+)
 EXPECTED_HARNESS_SOURCE_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
+)
+EXPECTED_REVOCATION_HARNESS_SOURCE_SHA256 = (
+    "b77ec6eaa539e7b2cc69c4c62153222786065ed5d3721bc9f3d7d441531576d3"
 )
 EXPECTED_ADMIN_SOURCE_SHA256 = (
     "9381bbf1fd2d892ac35c60c70262aa6e333b85f6e1c6dbea61ce665398d4fb2d"
@@ -55,6 +66,11 @@ def load_exact_source_module(
 
 HARNESS = load_exact_source_module(
     "anthropic_wif_lifecycle", HARNESS_PATH, EXPECTED_HARNESS_SOURCE_SHA256
+)
+REVOCATION_HARNESS = load_exact_source_module(
+    "anthropic_wif_revocation",
+    REVOCATION_HARNESS_PATH,
+    EXPECTED_REVOCATION_HARNESS_SOURCE_SHA256,
 )
 ADMIN = load_exact_source_module(
     "anthropic_wif_lifecycle_admin", ADMIN_PATH, EXPECTED_ADMIN_SOURCE_SHA256
@@ -614,51 +630,67 @@ class AnthropicLifecycleHarnessContract(unittest.TestCase):
             evidence["expiry_denial"]["request_started_at"],
         )
 
-    def test_400_exchange_denial_still_requires_and_records_request_id(self) -> None:
-        response = self.response(
-            400,
+    def test_rule_and_retired_denial_shapes_are_event_specific(self) -> None:
+        rule_response = self.response(
+            401,
             {
                 "type": "error",
-                "error": {"type": "invalid_grant", "message": "disabled"},
+                "error": {
+                    "type": "authentication_error",
+                    "message": "disabled",
+                },
                 "request_id": "req_harness3",
             },
             3,
         )
+        retired_response = self.response(
+            400,
+            {
+                "type": "error",
+                "error": {"type": "invalid_grant", "message": "retired"},
+                "request_id": "req_harness4",
+            },
+            4,
+        )
         with mock.patch.object(
-            HARNESS,
+            REVOCATION_HARNESS.BASE,
             "mint_assertion",
             return_value=("assertion-value", deepcopy(self.key)),
         ):
-            event = HARNESS.denied_exchange_event(
+            rule_event = REVOCATION_HARNESS.denied_exchange_event(
                 "rule_disabled_exchange_denial",
                 "active",
                 self.policy,
                 pathlib.Path("/not/read"),
                 self.run_id,
-                request=lambda *args, **kwargs: deepcopy(response),
+                request=lambda *args, **kwargs: deepcopy(rule_response),
             )
-        self.assertEqual(event["exchange_denial"]["request_id"], "req_harness3")
-
-        del response["headers"]["request-id"]
-        del response["payload"]["request_id"]
-        with (
-            mock.patch.object(
-                HARNESS,
-                "mint_assertion",
-                return_value=("assertion-value", deepcopy(self.key)),
-            ),
-            self.assertRaisesRegex(
-                HARNESS.LifecycleError, "request ID is absent or malformed"
-            ),
-        ):
-            HARNESS.denied_exchange_event(
-                "rule_disabled_exchange_denial",
-                "active",
+            retired_event = REVOCATION_HARNESS.denied_exchange_event(
+                "retired_key_exchange_denial",
+                "retired_staging",
                 self.policy,
                 pathlib.Path("/not/read"),
                 self.run_id,
-                request=lambda *args, **kwargs: deepcopy(response),
+                request=lambda *args, **kwargs: deepcopy(retired_response),
             )
+        self.assertEqual(rule_event["exchange_denial"]["http_status"], 401)
+        self.assertEqual(
+            rule_event["exchange_denial"]["error_type"],
+            "authentication_error",
+        )
+        self.assertEqual(
+            retired_event["exchange_denial"]["http_status"], 400
+        )
+        self.assertEqual(
+            retired_event["exchange_denial"]["error_type"], "invalid_grant"
+        )
+        self.assertIs(
+            retired_event["exchange_denial"]["request_id_supplied"], True
+        )
+        self.assertEqual(
+            retired_event["exchange_denial"]["request_started_at"],
+            retired_response["requested_at"],
+        )
 
     def test_atomic_activation_preserves_old_key_before_installing_replacement(self) -> None:
         current_jwk = {
@@ -742,6 +774,7 @@ class EvidenceFixtures:
         self.policy_sha = digest(POLICY_PATH)
         self.harness_sha = digest(HARNESS_PATH)
         self.admin_sha = digest(ADMIN_PATH)
+        self.revocation_harness_sha = digest(REVOCATION_HARNESS_PATH)
         self.request_counter = 0
 
     def request_id(self) -> str:
@@ -800,14 +833,21 @@ class EvidenceFixtures:
     def denial(
         self, event_type: str, event_time: datetime, key: dict[str, str], role: str
     ) -> dict[str, object]:
+        status, error_type = (
+            (401, "authentication_error")
+            if event_type == "rule_disabled_exchange_denial"
+            else (400, "invalid_grant")
+        )
         denial = {
             "source": "anthropic_http_response",
             "endpoint": "/v1/oauth/token",
-            "http_status": 400,
+            "http_status": status,
             "request_id": self.request_id(),
+            "request_id_supplied": True,
             "provider_date": iso(event_time, microseconds=False),
+            "request_started_at": iso(event_time - timedelta(microseconds=1)),
             "observed_at": iso(event_time),
-            "error_type": "invalid_grant",
+            "error_type": error_type,
             "response_shape": deepcopy(ERROR_SHAPE),
         }
         return {
@@ -823,6 +863,7 @@ class EvidenceFixtures:
             "source": {
                 "policy_sha256": self.policy_sha,
                 "lifecycle_harness_sha256": self.harness_sha,
+                "revocation_harness_sha256": self.revocation_harness_sha,
             },
         }
 
@@ -895,9 +936,12 @@ class EvidenceFixtures:
         return json.loads(OBSERVED_EXPIRY_FIXTURE.read_text())
 
     def revocation(self) -> dict[str, object]:
-        # No observed revocation/rotation result exists yet. This authored
-        # structure is a mutation scaffold, not satisfiability evidence.
-        times = [self.base + timedelta(seconds=10 * index) for index in range(1, 12)]
+        # Only the rule-disabled denial has an observed fixture. The remaining
+        # sequence is a mutation scaffold, not qualification evidence.
+        times = [
+            self.base + timedelta(seconds=seconds)
+            for seconds in (10, 20, 111, 121, 131, 141, 151, 161, 171, 181, 272)
+        ]
         enabled = self.rule_state(True)
         disabled = self.rule_state(False)
         old_only = self.issuer_state([self.old])
@@ -951,6 +995,7 @@ class EvidenceFixtures:
             "run_id": self.run_id,
             "policy_sha256": self.policy_sha,
             "lifecycle_harness_sha256": self.harness_sha,
+            "revocation_harness_sha256": self.revocation_harness_sha,
             "admin_tool_sha256": self.admin_sha,
             "events": events,
         }
@@ -988,6 +1033,23 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
             text=True,
         )
 
+    def check_observed_denial(
+        self, path: pathlib.Path
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                "python3",
+                "-I",
+                str(REVOCATION_CHECKER),
+                "--observed-denial",
+                str(path),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
     def test_observed_expiry_fixture_passes_actual_checker(self) -> None:
         fixtures = EvidenceFixtures()
         evidence = fixtures.expiry()
@@ -996,6 +1058,56 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
         self.assertIs(evidence["expiry_denial"]["request_id_supplied"], False)
         result = self.check(EXPIRY_CHECKER, evidence)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_observed_rule_disabled_denial_passes_actual_checker(self) -> None:
+        self.assertEqual(
+            digest(OBSERVED_REVOCATION_DENIAL_FIXTURE),
+            OBSERVED_REVOCATION_DENIAL_SHA256,
+        )
+        observation = json.loads(OBSERVED_REVOCATION_DENIAL_FIXTURE.read_text())
+        self.assertEqual(observation["partial_evidence"]["http_status"], 401)
+        self.assertEqual(
+            observation["partial_evidence"]["error_type"],
+            "authentication_error",
+        )
+        self.assertRegex(
+            observation["partial_evidence"]["request_id"],
+            r"^req_[A-Za-z0-9]+$",
+        )
+        result = self.check_observed_denial(OBSERVED_REVOCATION_DENIAL_FIXTURE)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_revocation_contract_accepts_16_brackets_and_optional_denial_ids(self) -> None:
+        for denial_ids_supplied in (True, False):
+            with self.subTest(denial_ids_supplied=denial_ids_supplied):
+                fixtures = EvidenceFixtures()
+                evidence = fixtures.revocation()
+                denial_events = [
+                    event for event in evidence["events"] if "exchange_denial" in event
+                ]
+                if not denial_ids_supplied:
+                    for event in denial_events:
+                        event["exchange_denial"]["request_id"] = None
+                        event["exchange_denial"]["request_id_supplied"] = False
+                bracketing_ids = []
+                for event in evidence["events"]:
+                    for section_name in ("exchange", "models", "mutation", "readback"):
+                        section = event.get(section_name)
+                        if isinstance(section, dict):
+                            bracketing_ids.append(section["request_id"])
+                self.assertEqual(len(set(bracketing_ids)), 16)
+                self.assertEqual(
+                    [
+                        (
+                            event["exchange_denial"]["http_status"],
+                            event["exchange_denial"]["error_type"],
+                        )
+                        for event in denial_events
+                    ],
+                    [(401, "authentication_error"), (400, "invalid_grant")],
+                )
+                result = self.check(REVOCATION_CHECKER, evidence)
+                self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_observed_identified_400_and_requirement_2_evidence_pass(self) -> None:
         evidence = json.loads(SPEND_EVIDENCE.read_text())
@@ -1074,15 +1186,63 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(diagnostic, result.stderr)
 
-    def test_revocation_400_denial_without_request_id_is_rejected(self) -> None:
+    def test_revocation_absence_claim_with_request_id_is_rejected(self) -> None:
         fixtures = EvidenceFixtures()
         revocation = fixtures.revocation()
-        revocation["events"][2]["exchange_denial"]["request_id"] = None
+        revocation["events"][2]["exchange_denial"]["request_id_supplied"] = False
         result = self.check(REVOCATION_CHECKER, revocation)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(
-            "rule_disabled_exchange_denial request ID is malformed", result.stderr
+            "claims request-ID absence while carrying an ID", result.stderr
         )
+
+    def test_revocation_denial_inside_settling_interval_is_inconclusive(self) -> None:
+        fixtures = EvidenceFixtures()
+        revocation = fixtures.revocation()
+        readback = datetime.fromisoformat(
+            revocation["events"][1]["readback"]["observed_at"].replace(
+                "Z", "+00:00"
+            )
+        )
+        revocation["events"][2]["exchange_denial"]["request_started_at"] = iso(
+            readback + timedelta(seconds=89)
+        )
+        result = self.check(REVOCATION_CHECKER, revocation)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "inconclusive: denial began before the 90-second settling interval",
+            result.stderr,
+        )
+
+    def test_rule_disabled_400_invalid_grant_is_rejected(self) -> None:
+        fixtures = EvidenceFixtures()
+        revocation = fixtures.revocation()
+        denial = revocation["events"][2]["exchange_denial"]
+        denial["http_status"] = 400
+        denial["error_type"] = "invalid_grant"
+        result = self.check(REVOCATION_CHECKER, revocation)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("is not its exact provider denial", result.stderr)
+
+    def test_unobserved_retired_exact_shape_is_not_enforced(self) -> None:
+        fixtures = EvidenceFixtures()
+        revocation = fixtures.revocation()
+        denial = revocation["events"][10]["exchange_denial"]
+        denial["http_status"] = 401
+        denial["error_type"] = "authentication_error"
+        denial["response_shape"] = {"captured_shape": "not-yet-qualified"}
+        result = self.check(REVOCATION_CHECKER, revocation)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_unobserved_retired_event_must_still_be_a_provider_denial(self) -> None:
+        fixtures = EvidenceFixtures()
+        revocation = fixtures.revocation()
+        denial = revocation["events"][10]["exchange_denial"]
+        denial["http_status"] = 200
+        denial["error_type"] = ""
+        result = self.check(REVOCATION_CHECKER, revocation)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("is not a bounded provider HTTP denial", result.stderr)
 
     def test_fabricated_denials_are_rejected(self) -> None:
         fixtures = EvidenceFixtures()
@@ -1102,7 +1262,7 @@ class AnthropicLifecycleCheckerContract(unittest.TestCase):
         ][0]["exchange"]["request_id"]
         result = self.check(REVOCATION_CHECKER, revocation)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("18 distinct provider requests", result.stderr)
+        self.assertIn("every distinct identified provider request", result.stderr)
 
     def test_missing_positive_controls_are_rejected(self) -> None:
         fixtures = EvidenceFixtures()

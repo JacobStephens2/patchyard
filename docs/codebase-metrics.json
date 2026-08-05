@@ -72,9 +72,9 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 24049,
+      "code": 24203,
       "comments": 528,
-      "blanks": 2000,
+      "blanks": 2006,
       "files": 155,
       "languages": [
         {
@@ -135,9 +135,9 @@
         },
         {
           "language": "Python",
-          "code": 10749,
+          "code": 10903,
           "comments": 48,
-          "blanks": 836,
+          "blanks": 842,
           "files": 27
         },
         {
@@ -173,10 +173,10 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 12157,
-      "comments": 273,
-      "blanks": 1126,
-      "files": 100,
+      "code": 12592,
+      "comments": 275,
+      "blanks": 1153,
+      "files": 102,
       "languages": [
         {
           "language": "BASH",
@@ -201,15 +201,15 @@
         },
         {
           "language": "JSON",
-          "code": 1475,
+          "code": 1514,
           "comments": 0,
           "blanks": 0,
-          "files": 18
+          "files": 19
         },
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 178,
+          "comments": 179,
           "blanks": 30,
           "files": 18
         },
@@ -229,10 +229,10 @@
         },
         {
           "language": "Python",
-          "code": 9413,
-          "comments": 52,
-          "blanks": 951,
-          "files": 31
+          "code": 9809,
+          "comments": 53,
+          "blanks": 978,
+          "files": 32
         },
         {
           "language": "Shell",
@@ -267,14 +267,14 @@
     {
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
-      "code": 9099,
-      "comments": 20967,
-      "blanks": 5769,
+      "code": 9105,
+      "comments": 21047,
+      "blanks": 5782,
       "files": 195,
       "languages": [
         {
           "language": "BASH",
-          "code": 430,
+          "code": 436,
           "comments": 18,
           "blanks": 21,
           "files": 20
@@ -289,8 +289,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 20947,
-          "blanks": 5716,
+          "comments": 21027,
+          "blanks": 5729,
           "files": 165
         },
         {

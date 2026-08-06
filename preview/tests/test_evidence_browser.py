@@ -38,6 +38,10 @@ NAVIGATION_TIMEOUT_MS = 20_000
 ACTION_TIMEOUT_MS = 2_000
 BROWSER_START_ALLOWANCE_MS = 20_000
 TOTAL_TIMEOUT_MS = NAVIGATION_TIMEOUT_MS + ACTION_TIMEOUT_MS + BROWSER_START_ALLOWANCE_MS
+# The outer subprocess deadline must exceed the inner one, or the harness is
+# killed before it can classify and write failure.json, and the assertion sees
+# no file rather than the state under test.
+SUBPROCESS_TIMEOUT_S = TOTAL_TIMEOUT_MS / 1000 + 10
 
 
 class FixtureHandler(BaseHTTPRequestHandler):
@@ -204,7 +208,7 @@ class EvidenceBrowserControls(unittest.TestCase):
             [sys.executable, str(HELPER), str(contract_path), str(bearer_path), str(output)],
             env=environment,
             capture_output=True,
-            timeout=40,
+            timeout=SUBPROCESS_TIMEOUT_S,
             check=False,
         )
         return result, output

@@ -72,10 +72,10 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 24901,
+      "code": 25259,
       "comments": 539,
-      "blanks": 2049,
-      "files": 155,
+      "blanks": 2094,
+      "files": 156,
       "languages": [
         {
           "language": "BASH",
@@ -135,10 +135,10 @@
         },
         {
           "language": "Python",
-          "code": 11601,
+          "code": 11959,
           "comments": 59,
-          "blanks": 885,
-          "files": 27
+          "blanks": 930,
+          "files": 28
         },
         {
           "language": "Shell",
@@ -173,10 +173,10 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 15580,
-      "comments": 279,
-      "blanks": 1312,
-      "files": 108,
+      "code": 16862,
+      "comments": 283,
+      "blanks": 1432,
+      "files": 111,
       "languages": [
         {
           "language": "BASH",
@@ -201,15 +201,15 @@
         },
         {
           "language": "JSON",
-          "code": 2411,
+          "code": 2486,
           "comments": 0,
           "blanks": 0,
-          "files": 23
+          "files": 24
         },
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 181,
+          "comments": 183,
           "blanks": 30,
           "files": 18
         },
@@ -229,14 +229,14 @@
         },
         {
           "language": "Python",
-          "code": 11899,
-          "comments": 55,
-          "blanks": 1137,
-          "files": 34
+          "code": 13104,
+          "comments": 57,
+          "blanks": 1257,
+          "files": 36
         },
         {
           "language": "Shell",
-          "code": 634,
+          "code": 636,
           "comments": 33,
           "blanks": 101,
           "files": 19
@@ -267,30 +267,30 @@
     {
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
-      "code": 10055,
-      "comments": 21370,
-      "blanks": 5854,
-      "files": 198,
+      "code": 10113,
+      "comments": 21406,
+      "blanks": 5857,
+      "files": 199,
       "languages": [
         {
           "language": "BASH",
-          "code": 571,
+          "code": 585,
           "comments": 18,
           "blanks": 21,
-          "files": 20
+          "files": 21
         },
         {
           "language": "JSON",
-          "code": 9117,
+          "code": 9161,
           "comments": 0,
           "blanks": 1,
-          "files": 37
+          "files": 38
         },
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 21350,
-          "blanks": 5801,
+          "comments": 21386,
+          "blanks": 5804,
           "files": 166
         },
         {

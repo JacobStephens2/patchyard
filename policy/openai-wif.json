@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "provider": "openai",
+  "organization": {
+    "id": "org-000000000000000000000000",
+    "name": "Example Company"
+  },
+  "project": {
+    "id": "proj_4zpZhhPPNYCvPRE5vGuRBALH",
+    "name": "patchyard"
+  },
+  "spend_enforcement": {
+    "currency": "USD",
+    "project_monthly_limit_cents": 5000,
+    "whole_dollar_granularity": true,
+    "control_plane_provenance": "attestation",
+    "authorization_ruling": "A132"
+  },
+  "service_account": {
+    "id": "user-ibYSGwJI5TPOPeJ3ioADcfDH",
+    "name": "patchyard-worker",
+    "api_key_count": 0
+  },
+  "issuer": {
+    "id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+    "name": "patchyard",
+    "issuer_url": "https://factory.example.com/workload-identity",
+    "audience": "https://api.openai.com",
+    "uploaded_jwks": true,
+    "oidc_discovery": false,
+    "jwks_kid": "patchyard-39acdfd2bfc0acb0",
+    "max_jwt_lifetime_seconds": 300
+  },
+  "rule": {
+    "name": "patchyard-control-plane-to-worker",
+    "subject": "patchyard-control-plane",
+    "audience": "https://api.openai.com",
+    "claims": {
+      "factory_environment": "production"
+    },
+    "service_account_id": "user-ibYSGwJI5TPOPeJ3ioADcfDH",
+    "token_lifetime_seconds": 300
+  }
+}

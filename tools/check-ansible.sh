@@ -66,6 +66,7 @@ TEST_FILES=(
   infra/ansible/tests/test_anthropic_issuance.py
   infra/ansible/tests/test_anthropic_lifecycle.py
   infra/ansible/tests/test_anthropic_wif_admin.py
+  infra/ansible/tests/test_openai_wif_issuance.py
   infra/ansible/tests/test_child_launcher.py
   infra/ansible/tests/test_cloud_init_bootstrap.py
   infra/ansible/tests/test_dashboard_checkout.py

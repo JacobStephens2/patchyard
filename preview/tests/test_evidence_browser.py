@@ -27,6 +27,18 @@ CAPABILITY_ID = "a" * 32
 LEASE_ID = "b" * 32
 TOKEN = f"efc1.{CAPABILITY_ID}.{'d' * 64}"
 
+# The total deadline is derived from its own parts rather than set beside them.
+# A state-classification fixture never finds the selector, so it spends the whole
+# action allowance before it can classify, and navigation may spend its own. A
+# total smaller than navigation + action + browser start therefore fires first
+# and reports child_timed_out instead of the classification under test. That is
+# what a 30 s total did on a shared CI runner, where it left only 8 s for a cold
+# Chromium start.
+NAVIGATION_TIMEOUT_MS = 20_000
+ACTION_TIMEOUT_MS = 2_000
+BROWSER_START_ALLOWANCE_MS = 20_000
+TOTAL_TIMEOUT_MS = NAVIGATION_TIMEOUT_MS + ACTION_TIMEOUT_MS + BROWSER_START_ALLOWANCE_MS
+
 
 class FixtureHandler(BaseHTTPRequestHandler):
     server_version = "patchyard-evidence-fixture/1"
@@ -150,7 +162,7 @@ class EvidenceBrowserControls(unittest.TestCase):
         fixture: str,
         *,
         maximum_dom_bytes: int = 2_000_000,
-        total_timeout_ms: int = 30_000,
+        total_timeout_ms: int = TOTAL_TIMEOUT_MS,
         chromium: Path | None = None,
     ) -> tuple[subprocess.CompletedProcess, Path]:
         case = Path(tempfile.mkdtemp(dir=cls.root))
@@ -164,8 +176,8 @@ class EvidenceBrowserControls(unittest.TestCase):
             ],
             # State-classification fixtures must not race a cold Chromium start.
             # The timeout fixture below supplies its own 250 ms total deadline.
-            "navigation_timeout_ms": 20_000,
-            "action_timeout_ms": 2_000,
+            "navigation_timeout_ms": NAVIGATION_TIMEOUT_MS,
+            "action_timeout_ms": ACTION_TIMEOUT_MS,
             "total_timeout_ms": total_timeout_ms,
             "maximum_dom_bytes": maximum_dom_bytes,
             "maximum_screenshot_bytes": 5_000_000,

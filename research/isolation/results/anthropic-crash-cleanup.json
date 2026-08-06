@@ -1,0 +1,217 @@
+{
+  "authorization_ruling": "A130",
+  "checker_rejections": [
+    {
+      "accepted": false,
+      "checker": "check-anthropic-expiry.py",
+      "checker_sha256": "41904ee87d54c362c9714c3c06853e5f67047365847edc9431620d62bc5a9c54",
+      "exit_code": 1
+    },
+    {
+      "accepted": false,
+      "checker": "check-anthropic-revocation.py",
+      "checker_sha256": "deeba4038169d466a31bbcf4d263fe8ac1bdf0aa5bd9365f4449da8e80db085c",
+      "exit_code": 1
+    },
+    {
+      "accepted": false,
+      "checker": "check-anthropic-crash-cleanup.py",
+      "checker_sha256": "770a339f2d6c36c849968b9fed914ebb2fce518e0cc1458c8c0fb98648a6e278",
+      "exit_code": 1
+    }
+  ],
+  "checkpoint": {
+    "attempt_sha256": "f8a9439ed30740e5c421e92ec3122dbaedf6bb008b8c18ba92f217353f7158f1",
+    "bearer_live": true,
+    "core_dump_limits": [
+      0,
+      0
+    ],
+    "issuance": {
+      "discarded_response_fields": [
+        "next_challenge",
+        "next_challenge_expires_in",
+        "workspace_id"
+      ],
+      "endpoint": "/v1/oauth/token",
+      "expires_at": "2026-08-06T01:28:30Z",
+      "expires_in": 300,
+      "http_status": 200,
+      "issued_at": "2026-08-06T01:23:30Z",
+      "observed_at": "2026-08-06T01:23:30.150485Z",
+      "provider_date": "2026-08-06T01:23:30Z",
+      "request_id": "req_011CdkcxA4QkGFMnSnTRdiEg",
+      "rule_id": "fdrl_000000000000000000000000",
+      "scope": "workspace:inference",
+      "service_account_id": "svac_01BqCdjSqFsWTvfDyCucThZy",
+      "token_type": "Bearer",
+      "workspace_id": "wrkspc_000000000000000000000000"
+    },
+    "observed_at": "2026-08-06T01:23:30.151299Z",
+    "phase": "bearer_live_before_terminal_write",
+    "provider": "anthropic",
+    "run_id": "anthropic-l3-20260806-5ca80252af",
+    "schema_version": 1,
+    "signing_key": {
+      "jwk_thumbprint_sha256": "e1df1918b38e11326afceaebca1dbccef34e651e2638f14238f22bb013d78269",
+      "kid": "patchyard-d92432edc81bed05"
+    },
+    "source": {
+      "crash_harness_sha256": "88bb709eb662734fd85d17ac30b0d30592fadbbd83ce366f17e84ea0143e844c",
+      "lifecycle_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+      "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7"
+    },
+    "swap_entries": 0,
+    "target_pid": 1299959,
+    "target_start_ticks": 132756968,
+    "terminal_record_written": false
+  },
+  "crash_harness_sha256": "88bb709eb662734fd85d17ac30b0d30592fadbbd83ce366f17e84ea0143e844c",
+  "in_progress_record": {
+    "path": "/run/patchyard-anthropic/anthropic-l3-20260806-5ca80252af/crash-attempt.json",
+    "record": {
+      "action": "crash-cleanup-probe",
+      "provider": "anthropic",
+      "run_id": "anthropic-l3-20260806-5ca80252af",
+      "schema_version": 1,
+      "source": {
+        "crash_harness_sha256": "88bb709eb662734fd85d17ac30b0d30592fadbbd83ce366f17e84ea0143e844c",
+        "lifecycle_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+        "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7"
+      },
+      "started_at": "2026-08-06T01:23:29.843089Z",
+      "status": "in_progress"
+    },
+    "sha256_after_sigkill": "f8a9439ed30740e5c421e92ec3122dbaedf6bb008b8c18ba92f217353f7158f1",
+    "sha256_at_checkpoint": "f8a9439ed30740e5c421e92ec3122dbaedf6bb008b8c18ba92f217353f7158f1",
+    "sha256_at_collection": "f8a9439ed30740e5c421e92ec3122dbaedf6bb008b8c18ba92f217353f7158f1",
+    "terminal_fields_present": [],
+    "unchanged": true
+  },
+  "kill": {
+    "attempt_sha256": "f8a9439ed30740e5c421e92ec3122dbaedf6bb008b8c18ba92f217353f7158f1",
+    "checkpoint_sha256": "cec14395e7e1d963c4c250ca00bf2f562d7f1a5949da5032d16fd23f9960c030",
+    "child_returncode": -9,
+    "event_type": "credential_process_sigkill_observed",
+    "observed_at": "2026-08-06T01:23:30.700343Z",
+    "positive_control_sha256": "27f7f36cdb33981d519bd7fbf8e66f0e23fdeeeb289f2f08fd2412860766bcf3",
+    "provider": "anthropic",
+    "run_id": "anthropic-l3-20260806-5ca80252af",
+    "schema_version": 1,
+    "signal_name": "SIGKILL",
+    "signal_number": 9,
+    "signing_key_present_after_cleanup": false,
+    "signing_key_removed": true,
+    "signing_key_removed_at": "2026-08-06T01:23:30.700816Z",
+    "source": {
+      "crash_harness_sha256": "88bb709eb662734fd85d17ac30b0d30592fadbbd83ce366f17e84ea0143e844c",
+      "lifecycle_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+      "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7"
+    },
+    "supervisor_timed_out": false,
+    "target_pid": 1299959,
+    "target_process_present": false,
+    "target_start_ticks": 132756968
+  },
+  "lifecycle_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+  "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7",
+  "positive_control": {
+    "bytes_examined": 7005,
+    "credential_material_found": true,
+    "event_type": "credential_surface_search",
+    "files_examined": 7,
+    "matches": [
+      {
+        "material_class": "private_key",
+        "occurrences": 1,
+        "relative_path": "replacement.pem"
+      }
+    ],
+    "material_classes_found": [
+      "private_key"
+    ],
+    "observed_at": "2026-08-06T01:23:30.565449Z",
+    "provider": "anthropic",
+    "run_id": "anthropic-l3-20260806-5ca80252af",
+    "scanner_core_dump_limits": [
+      0,
+      0
+    ],
+    "schema_version": 1,
+    "search_contract": {
+      "file_scope": "all-recursive-regular-files-no-symlinks",
+      "material_classes": [
+        "anthropic_bearer",
+        "jwt_assertion",
+        "private_key"
+      ],
+      "max_file_bytes": 1000000,
+      "max_files": 128,
+      "max_total_bytes": 8000000,
+      "stage_path": "/run/patchyard-anthropic/anthropic-l3-20260806-5ca80252af",
+      "target_pid": 1299959,
+      "target_start_ticks": 132756968,
+      "version": "a130-run-stage-regular-files-v1"
+    },
+    "search_contract_sha256": "d16a6b37beeafc09d7caf95c7daf7a9e49b23a82ed0bdff20ba585414b63bbcd",
+    "source": {
+      "crash_harness_sha256": "88bb709eb662734fd85d17ac30b0d30592fadbbd83ce366f17e84ea0143e844c",
+      "lifecycle_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+      "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7"
+    },
+    "swap_entries": 0,
+    "target_process_present": true
+  },
+  "post_kill_search": {
+    "bytes_examined": 6570,
+    "credential_material_found": false,
+    "event_type": "credential_surface_search",
+    "files_examined": 7,
+    "matches": [],
+    "material_classes_found": [],
+    "observed_at": "2026-08-06T01:23:31.026126Z",
+    "provider": "anthropic",
+    "run_id": "anthropic-l3-20260806-5ca80252af",
+    "scanner_core_dump_limits": [
+      0,
+      0
+    ],
+    "schema_version": 1,
+    "search_contract": {
+      "file_scope": "all-recursive-regular-files-no-symlinks",
+      "material_classes": [
+        "anthropic_bearer",
+        "jwt_assertion",
+        "private_key"
+      ],
+      "max_file_bytes": 1000000,
+      "max_files": 128,
+      "max_total_bytes": 8000000,
+      "stage_path": "/run/patchyard-anthropic/anthropic-l3-20260806-5ca80252af",
+      "target_pid": 1299959,
+      "target_start_ticks": 132756968,
+      "version": "a130-run-stage-regular-files-v1"
+    },
+    "search_contract_sha256": "d16a6b37beeafc09d7caf95c7daf7a9e49b23a82ed0bdff20ba585414b63bbcd",
+    "source": {
+      "crash_harness_sha256": "88bb709eb662734fd85d17ac30b0d30592fadbbd83ce366f17e84ea0143e844c",
+      "lifecycle_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+      "policy_sha256": "882da4df0ecd6abd015fbfd497a85d725090115c0cccad683666349ec0d660b7"
+    },
+    "swap_entries": 0,
+    "target_process_present": false
+  },
+  "provenance_limitation": "A128-attended-record-not-provider-attestation",
+  "provider": "anthropic",
+  "provider_exposure_boundary": {
+    "killed_bearer_may_remain_valid_until": "natural-expiry",
+    "maximum_bearer_lifetime_seconds": 300,
+    "proof_scope": "local-host-non-recoverability-only",
+    "provider_denial_observed": false,
+    "provider_side_invalidation_proven": false,
+    "separate_expiry_requirement": "credential-expiry-denial"
+  },
+  "qualification_requirement": "crash-cleanup-local-non-recoverability",
+  "run_id": "anthropic-l3-20260806-5ca80252af",
+  "schema_version": 1
+}

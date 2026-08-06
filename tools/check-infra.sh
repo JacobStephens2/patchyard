@@ -42,6 +42,7 @@ run_gate() {
   return 0
 }
 
+run_gate python3 -I "$REPO_ROOT/tools/check-freeze-graph.py"
 run_gate python3 -I "$REPO_ROOT/tools/check-stack.py"
 run_gate python3 -I "$REPO_ROOT/tools/check-independence.py"
 run_gate python3 -I "$REPO_ROOT/tools/check-worker-runtime.py"

@@ -48,6 +48,7 @@ BOUND_SOURCE_PATHS = (
     "tools/check-worker-qualification.py",
     "tools/check-worker-runtime.py",
     "infra/ansible/tests/test_a101_readiness_root.py",
+    "infra/ansible/tests/test_freeze_graph.py",
     "infra/ansible/tests/test_worker_firewall_readiness.py",
     "infra/ansible/tests/test_anthropic_spend.py",
     "infra/ansible/tests/test_anthropic_issuance.py",

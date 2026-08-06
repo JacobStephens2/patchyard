@@ -1,138 +1,191 @@
-# OpenAI workload identity: A113 clause 5 checkpoint and contract survey
+# OpenAI workload identity: provider descriptor and first exchange
 
-## Status
+## Status and provenance
 
-A113 clause 5 requires, as the first implementation checkpoint, "a read-only
-console or API proof that Patchyard's OpenAI organization exposes uploaded-JWKS or a
-custom issuer."
+An attended operator reported the following OpenAI state on 2026-08-06. This
+build seat did not create, query, or mutate it:
 
-**The checkpoint passes.** Patchyard's organization exposes both. No workload identity
-provider is configured, no OpenAI credential has been issued to the factory, and
-no OpenAI A-5 requirement is qualified. All 13 provider `credential_qualified`
-flags remain false.
-
-This document records what is established, what is contradicted between two
-OpenAI documents, and one structural finding that has to be ruled before any
-OpenAI harness is written.
-
-## Organization
-
-| | |
-| :-- | :-- |
-| Name | Example Company |
-| ID | `org-000000000000000000000000` |
-| Admin credential | `PATCHYARD_OPENAI_ADMIN_KEY`, read-only Administration API scope, created 2026-08-06 |
-
-The admin key is stored at `op://example-vault/patchyard-openai-account/admin-key`
-and injected through `env.tpl`. It is a distinct credential from `OPENAI_API_KEY`,
-which is a project key with no organization scope and returns HTTP 403 on every
-`/v1/organization/*` path.
-
-## Verified from this host, read-only
-
-Confirmed directly against the Administration API with the admin key:
-
-| Endpoint | Result |
-| :-- | :-- |
-| `/v1/organization/projects` | 200 - `Default project`, `fieldbook-preview` |
-| `/v1/organization/projects/{id}/service_accounts` | 200 - two in the default project, none in `fieldbook-preview` |
-| `/v1/organization/admin_api_keys` | 200 |
-| `/v1/organization/workload_identity_providers` and eight path variants | 404 |
-
-**There is no factory project and no factory service account.** Anthropic's
-requirement-1 work runs against a dedicated workspace; the OpenAI equivalent does
-not exist yet and will have to be created before issuance can be attempted.
-
-## The provider surface is console-only
-
-Workload identity providers are created and managed at
-`https://platform.openai.com/settings/organization/security/workload-identity-provider`
-(Organization Settings -> Security -> Workload Identity Provider). The
-[federation guide](https://developers.openai.com/api/docs/guides/workload-identity-federation)
-states this explicitly, and the
-[token exchange reference](https://developers.openai.com/api/reference/workload-identity-federation)
-documents no management API. The 404s above are consistent with that: they are
-absent endpoints, not a wrong path.
-
-Create-provider fields, observed in the console on 2026-08-06 and matching the
-field list in the
-[AWS configuration guide](https://developers.openai.com/api/docs/guides/workload-identity-federation/aws):
-
-- **Name**
-- **OIDC Issuer URL** (required; must match the token `iss` claim)
-- **Audience** (required; defaults to `https://api.openai.com`)
-- **Description** (optional)
-- Advanced: **Use custom URL for OIDC discovery**
-- Advanced: **Use uploaded JWKS for token verification**
-- **Attribute transformations** via CEL expressions, `openai.` prefix applied
-
-There is no preset cloud-provider selector. The fields are generic OIDC.
-
-## Token exchange contract
-
-`POST https://auth.openai.com/oauth/token`, `Content-Type: application/json`.
-
-| Parameter | Required | Value |
+| Object | Identifier | Name |
 | :-- | :-- | :-- |
-| `grant_type` | yes | `urn:ietf:params:oauth:grant-type:token-exchange` |
-| `subject_token_type` | yes | `urn:ietf:params:oauth:token-type:jwt` or `...:id_token` |
-| `subject_token` | yes | the external OIDC JWT |
-| `identity_provider_id` | yes | the configured provider's ID |
-| `service_account_id` | yes | the OpenAI service account to map onto |
+| Organization | `org-000000000000000000000000` | Example Company |
+| Project | `proj_4zpZhhPPNYCvPRE5vGuRBALH` | `patchyard` |
+| Service account | `user-ibYSGwJI5TPOPeJ3ioADcfDH` | `patchyard-worker` |
+| Workload identity provider | `idp_DlzD7RlQXgXxd1VSG2V93eEU` | `patchyard` |
 
-The response carries `access_token`, `token_type: Bearer`, and `expires_in`.
-Documented limits:
+The operator reported that the service account has zero API keys, the project
+has a USD 50 monthly spend limit with whole-dollar granularity, and the
+provider has this configuration:
 
-- token lifetime **at most one hour**, and never beyond the subject token's own expiry;
-- a scope value in the request body grants nothing - permissions come from the mapping;
-- exchanged tokens **cannot call Administration API endpoints**;
-- 50 providers per organization, 50 mappings per provider;
-- SPIFFE support is JWT-SVID only. A113 refuses SPIFFE and SPIRE under every
-  branch regardless.
+- issuer `https://factory.example.com/workload-identity`;
+- audience `https://api.openai.com`;
+- uploaded JWKS enabled with `kid patchyard-39acdfd2bfc0acb0`;
+- OIDC discovery disabled; and
+- subject `patchyard-control-plane` mapped to the service account above.
 
-Note the contrast with Anthropic, whose qualified expiry evidence uses a
-five-minute-or-shorter bearer. An hour is a ceiling, not a floor, but the expiry
-requirement's shape for OpenAI is not simply Anthropic's with names changed.
+The project and service-account readbacks are provider receipts. The provider,
+mapping, uploaded JWKS, and spend-limit changes are console-only control-plane
+mutations for which no receipt is obtainable. Under A132 they require a
+separate two-party attestation; this document is not that attestation. Every
+first-exchange result carries the binary provenance mark
+`mutation_receipt_obtained: false` and remains non-qualifying.
 
-## Unresolved: the documentation contradicts itself
+No OpenAI exchange was attempted while building this path. No credential
+requirement is proven, OpenAI is not qualified, and all 13
+`credential_qualified` values remain false.
 
-The token exchange reference states "arbitrary OIDC issuers not yet supported."
-The AWS guide describes uploaded JWKS as the mechanism for "self-hosted or
-non-standard OIDC providers where automatic discovery isn't available," and the
-console exposes a generic issuer URL with no provider preset.
+A135 therefore forbids delivering any OpenAI bearer to a seat. This adapter
+does not create a bearer file or credential path and changes none of the five
+seat variables; it only performs the attended capture described below.
 
-The factory's issuer is `https://factory.example.com/workload-identity`, a
-self-hosted arbitrary issuer. Under the first reading it is unsupported; under
-the second it is the documented case for uploaded JWKS.
+## Source contract
 
-**This is not resolvable by reading.** A126 recorded a provider contradicting its
-own documentation about a denial shape, and A125 requires evidence to descend
-from observed responses rather than descriptions. The question is settled by
-configuring a provider against the factory issuer and attempting one exchange -
-which is a console mutation, and therefore attended.
+`policy/openai-wif.json` is the exact provider descriptor. It mirrors the
+Anthropic policy's organization, project/workspace, spend, service-account,
+issuer, and rule shape while using OpenAI's identifiers and exchange audience.
 
-## Structural finding: requirements 4 and 5 have no evidentiary path yet
+The assertion maximum is 300 seconds. OpenAI documents a one-hour ceiling, not
+a required lifetime, and an exchanged bearer never outlives its subject token.
+Five minutes is enough for one attended HTTPS exchange, preserves the
+factory's already measured exposure bound, and avoids expanding credential
+life for no operational benefit. The frozen base harness backdates `iat` by
+five seconds for clock skew and sets `exp` 295 seconds after minting, so
+`exp - iat` is exactly 300 seconds.
 
-A131 enumerates the six A-5 requirements. Anthropic's requirement 4
-(federation-rule revocation) and requirement 5 (signing-key rotation) are
-evidenced by `tools/anthropic-wif-lifecycle-admin.py` performing plan, apply,
-readback and rollback against Anthropic's Administration API. Every event in
-`anthropic-revocation-rotation.json` carries a provider request ID and an
-independent readback, and A129's bracketing controls depend on being able to
-mutate provider state and observe the result programmatically.
+`tools/openai-wif-issuance.py` loads
+`tools/anthropic-wif-lifecycle.py` only after verifying SHA-256
+`10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d`.
+It does not import or edit that frozen harness. It reuses the root-only active
+signing key at `/etc/patchyard/anthropic-wif-signing.pem`, whose current
+public `kid` is the uploaded OpenAI JWKS key. It changes only the policy data,
+assertion audience, token endpoint, token-exchange body, and sanitized result
+shape.
 
-OpenAI exposes no such API. A console mutation driven by a browser agent produces
-no provider request ID, no receipt, and no readback - nothing A125 would accept
-as an observed provider response, and nothing A129's controls could bracket.
+The adapter sends exactly one JSON request to
+`https://auth.openai.com/oauth/token` with:
 
-Requirements 4 and 5 therefore have no evidentiary path on OpenAI under the
-current contract. That is a ruling question, not an implementation detail, and it
-bears directly on A113 clause 4: the first qualified pair is Anthropic plus
-OpenAI *if* the clause 5 check passes. Clause 5 passes. Whether OpenAI can reach
-six fixtures at all is a separate question this document does not answer.
+```text
+grant_type           urn:ietf:params:oauth:grant-type:token-exchange
+subject_token_type   urn:ietf:params:oauth:token-type:jwt
+subject_token        the in-memory signed assertion
+identity_provider_id idp_DlzD7RlQXgXxd1VSG2V93eEU
+service_account_id   user-ibYSGwJI5TPOPeJ3ioADcfDH
+```
 
-## What has not been done
+No `scope` is sent because OpenAI says a request-body scope grants nothing.
+Exchanged tokens cannot call Administration API endpoints. The adapter makes
+no subsequent API call and never writes the assertion, response body, or
+bearer.
 
-No provider configured, no service account created, no factory project created,
-no token exchange attempted, no credential issued, no policy file written, no
-harness or checker built. Nothing in this document is qualification evidence.
+## Unenforced response predicate
+
+The [token exchange reference](https://developers.openai.com/api/reference/workload-identity-federation)
+says arbitrary OIDC issuers are not supported, while the
+[AWS configuration guide](https://developers.openai.com/api/docs/guides/workload-identity-federation/aws)
+and the live console describe uploaded JWKS for a self-hosted issuer. This
+contradiction is deliberately unresolved.
+
+Under A125, no expected success status, denial status, error type, response
+field set, request-ID form, or bearer lifetime is enforced before an OpenAI
+response has been observed. A bounded HTTP response of any status is a valid
+first observation. The adapter records only:
+
+- request and observation UTC times, HTTP status, safe header metadata, and
+  byte count;
+- a type-only structural description of JSON fields, or `non_json`;
+- whether an `access_token` field was supplied, never its value; and
+- safely bounded `token_type`, `expires_in`, and error-type observations when
+  present.
+
+`response_predicate.enforced` is therefore `false`. An HTTP denial is captured
+as the provider returned it instead of becoming a harness crash. Adjudicating
+that observation and enforcing a descended predicate requires a later reviewed
+change. A future requirement result must also include the required
+attestation, baseline control, bracketing control, and permanent provenance
+mark where its causal chain depends on console-only mutations.
+
+The committed
+`fixtures/checker-contracts/openai-first-token-exchange.json` is a Fixture: a
+synthetic satisfiability input with an explicitly unobserved response
+placeholder. It carries `fixture_kind`, `provider_response_observed: false`,
+and `qualification_evidence: false`. The checker accepts it only in
+`--contract-fixture` mode and refuses it as qualification evidence. It is not a
+Result and its contents are not Evidence from a provider interaction.
+
+The checker duplicates the established hygiene helpers (`is_within`,
+`digest`, `parse_time`, `exact_keys`, `secret_named_key`, `isolation_errors`,
+and `load_json_file`). A133 found one git revision for each helper and permits
+that prospective duplication; provider-specific judgment remains in this
+checker instead of a shared evidence-semantics module.
+
+## Attended first-exchange procedure
+
+Do not run these commands during build, review, CI, or an unattended session.
+After the PR is merged and the exact revision is present on the control plane,
+an attended operator may attempt the first exchange under a separate live
+authorization.
+
+First verify the deployed checkout and static contract:
+
+```bash
+cd /opt/patchyard
+git status --short
+git rev-parse HEAD
+python3 -I tools/check-openai-wif-issuance.py --allow-missing-results
+jq -e '[.providers[].credential_qualified] | length == 13 and all(. == false)' \
+  policy/provider-egress.json
+```
+
+Stop if the checkout is dirty, the revision is not the reviewed revision, the
+checker rejects static preflight, any credential flag is true, another OpenAI
+exchange run is active, or the root signing key is not the intended active
+identity.
+
+Create one new root-owned directory on `/run` tmpfs and reserve one new output:
+
+```bash
+RUN_ID="openai-wif-$(date -u +%Y%m%d)-$(openssl rand -hex 5)"
+CONTROL_STAGE="/run/patchyard-openai/$RUN_ID"
+sudo install -d -m 0700 -o root -g root "$CONTROL_STAGE"
+sudo python3 -I tools/openai-wif-issuance.py exchange \
+  --run-id "$RUN_ID" \
+  --output "$CONTROL_STAGE/openai-first-token-exchange.json"
+```
+
+The output is reserved as mode 0600 with `status: in_progress` before signing
+or network activity. A completed HTTP interaction atomically replaces it with
+the sanitized, non-qualifying observation. Copy only that JSON through the
+reviewed management path to a new operator-host path, then run:
+
+```bash
+python3 -I tools/check-openai-wif-issuance.py --observation \
+  /absolute/path/openai-first-token-exchange.json
+```
+
+Do not copy `/run/patchyard-openai`, a process dump, request body, assertion,
+raw response, or bearer. Do not edit an observation to make the checker accept
+it. Preserve the sanitized JSON for adjudication, then remove the control-plane
+run directory after the reviewer has confirmed the copied bytes.
+
+## Failure paths
+
+- A root/argument failure, frozen-harness digest mismatch, invalid stage
+  ownership/mode/tmpfs, inexact signing-key path, or inability to reserve the
+  new output exits nonzero before any provider call and produces no usable
+  Result.
+- After output reservation, a policy mismatch or signing-key
+  ownership/mode/content failure atomically writes `status: failed`, exits
+  nonzero, and makes no provider call.
+- A transport failure with no HTTP response writes `status: failed` and
+  `provider_response_observed: false`. The observation checker refuses it.
+- Any bounded HTTP response, including a denial or non-JSON body, is preserved
+  as a sanitized provider observation. The adapter does not retry and does not
+  classify it as success or failure.
+- An oversized response or a failure to sanitize or durably write the terminal
+  result exits nonzero. An abrupt process death can leave `status: in_progress`;
+  that record is inert and cannot be used as a Result.
+- Any checker finding an extra key, duplicate JSON key, out-of-order UTC time,
+  stale source digest, credential-named field, bearer, JWT, or private-key
+  material rejects the file.
+
+None of these paths proves a requirement. The first observed response only
+supplies the fact from which a later response predicate can descend.

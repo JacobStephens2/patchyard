@@ -319,7 +319,7 @@ for required in (
 def secret_named_key(value: Any) -> str | None:
     if isinstance(value, dict):
         for key, child in value.items():
-            if key in {"secret", "access_token", "assertion", "identity_token"}:
+            if key in {"secret", "access_token", "assertion", "identity_token", "authorization", "private_key"}:
                 return key
             found = secret_named_key(child)
             if found:

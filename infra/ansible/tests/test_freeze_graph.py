@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[3]
 CHECKER = ROOT / "tools/check-freeze-graph.py"
 EXPECTED_FROZEN_PATHS = [
     "policy/anthropic-wif.json",
+    "policy/openai-wif.json",
     "research/isolation/results/anthropic-revocation-rotation.json",
     "tools/anthropic-wif-crash-cleanup.py",
     "tools/anthropic-wif-lifecycle-admin.py",
@@ -19,6 +20,7 @@ EXPECTED_FROZEN_PATHS = [
     "tools/check-anthropic-crash-cleanup.py",
     "tools/check-anthropic-expiry.py",
     "tools/check-anthropic-revocation.py",
+    "tools/openai-wif-issuance.py",
     "worker/image/patchyard-guest-run",
     "worker/image/production-parity.json",
     "worker/qualification/patchyard-run-anthropic-issuance",

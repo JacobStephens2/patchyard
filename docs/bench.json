@@ -1,7 +1,7 @@
 {
   "$schema": "bench.schema.json",
   "last_updated": "2026-07-21",
-  "update_note": "AA columns enriched: coding + agentic indexes (effort-matched from the 2026-07-17 free snapshot; null where no matching-effort row) and aa_snapshot_date provenance.",
+  "update_note": "AA snapshot 2026-07-20 applies to all rows except Claude Opus 5 [max] and the Claude Fable 5 [max] cost, both re-read 2026-08-07.",
   "aa_index_version": "4.1",
   "pairs": [
     {
@@ -19,11 +19,11 @@
         "detail": ""
       },
       "provenance": "US",
-      "standing": "Implement bench #2; build-PR adversarial reviewer incumbent until **A119** (2026-07-30), which reassigned the seat to Opus 5 [max] on cost at intelligence parity",
+      "standing": "Implement bench #2; build-PR adversarial reviewer incumbent until **A119** (2026-07-30), which reassigned the seat to Opus 5 [max] on cost at intelligence parity; AA cost re-read 2026-08-07 (was 2.75)",
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 60,
-      "aa_cost_per_task_usd": 2.75,
+      "aa_cost_per_task_usd": 3.14,
       "aa_coding_index": null,
       "aa_agentic_index": 53.0
     },
@@ -47,6 +47,29 @@
       "long_spec_wall": "",
       "aa_intelligence": 30,
       "aa_cost_per_task_usd": null,
+      "aa_coding_index": null,
+      "aa_agentic_index": null
+    },
+    {
+      "model": "Claude Opus 5",
+      "effort": "max",
+      "harness": "Claude Code",
+      "preferred_harness": true,
+      "host": "Anthropic",
+      "floor": {
+        "status": "untested",
+        "detail": ""
+      },
+      "image_input": {
+        "status": "unknown",
+        "detail": ""
+      },
+      "provenance": "US",
+      "standing": "Adversarial-review seat holder since **A119** (2026-07-30), which reassigned the build-PR reviewer from Claude Fable 5 [max] on cost at intelligence parity. AA figures re-read 2026-08-07: intelligence is now above Fable 5 rather than at parity. `aa_coding_index` is null because AA's 67 is the [xhigh] row and this pair is [max]; the schema requires a matching-effort row.",
+      "visible_tps": "",
+      "long_spec_wall": "",
+      "aa_intelligence": 63,
+      "aa_cost_per_task_usd": 2.34,
       "aa_coding_index": null,
       "aa_agentic_index": null
     },

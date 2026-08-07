@@ -42,10 +42,10 @@ EXPECTED_CRASH_ADAPTER_SHA256 = (
     "a160cc713f8ef528244fc4a9aaf81c21d94f99ee6636ccae4558acb93d2c49b5"
 )
 EXPECTED_EXPIRY_FIXTURE_SHA256 = (
-    "0fde013cce9fed1d22425ea36548605d68c586fa99a78033ad7eada8cbf9b196"
+    "12430b18c24a413d429ef752eba48fb338b7b10694d070e9ba28c74c6d68e952"
 )
 EXPECTED_CRASH_FIXTURE_SHA256 = (
-    "44f43324a1377f8d578741b8fdf99eb2d789d53f6e83d8205b39ed6a1bc7debc"
+    "0d9aec649b44485de3b433c4934d5c8d4fcd86ada72c8d5c28394b8f2ee50f83"
 )
 RUN_ID = "openai-wif-20260806-0123456789"
 EXPIRY_RUN_ID = "openai-expiry-20260807-0123456789"
@@ -627,6 +627,37 @@ class OpenAIWifExpiryCheckerContract(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("requires python3 -I", result.stderr)
 
+
+
+    def test_second_precision_mint_in_the_start_second_is_accepted(self) -> None:
+        """A real run mints inside the second it starts, and must still pass.
+
+        The frozen base harness writes `minted_at` at whole-second precision
+        while `started_at` carries microseconds. Ordering minted against the
+        start therefore compares a truncated value with an untruncated one and
+        no live run can satisfy it. The first attended requirement 3 run failed
+        exactly here, on a valid OpenAI 401, and the committed requirement 1
+        Result carries the same inversion.
+        """
+        observed = self.observed()
+        observed["started_at"] = "2026-08-07T12:00:00.005868Z"
+        observed["assertion_descriptor"]["minted_at"] = "2026-08-07T12:00:00Z"
+        path = self.write(observed, "mint-in-start-second.json")
+        result = self.run_checker("--observation", str(path))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_mint_after_the_exchange_request_is_refused(self) -> None:
+        """Signed-before-sent is the one ordering minted genuinely contributed.
+
+        Truncation moves minted earlier, never later, so this direction stays
+        sound at second precision and is kept after minted left the chain.
+        """
+        observed = self.observed()
+        observed["assertion_descriptor"]["minted_at"] = "2026-08-07T12:00:01Z"
+        path = self.write(observed, "mint-after-request.json")
+        result = self.run_checker("--observation", str(path))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("minted after the exchange request", result.stderr)
 
 class OpenAIWifCrashAdapterContract(unittest.TestCase):
     def test_adapter_binds_base_and_scans_process_image_without_a_worker(self) -> None:

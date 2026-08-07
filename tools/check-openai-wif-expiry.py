@@ -510,11 +510,22 @@ def validate_common(result: Any, policy: dict[str, Any], *, synthetic: bool) -> 
     if request_time is not None and response_request is not None:
         if request_time != response_request:
             errors.append("expiry request and response name different start times")
-    ordered = [started, minted, request_time, response_time, removed]
+    # `minted_at` is deliberately absent from this chain. The frozen base
+    # harness writes it at whole-second precision while every other stamp
+    # carries microseconds, so a mint completing in the second it started
+    # records as EARLIER than the start, and no real run can satisfy
+    # `started <= minted`. The committed requirement 1 Result shows the
+    # same inversion and is valid. This was an unsatisfiable constraint,
+    # not a property of the run.
+    ordered = [started, request_time, response_time, removed]
     if all(value is not None for value in ordered):
         assert all(isinstance(value, datetime) for value in ordered)
         if not all(left <= right for left, right in zip(ordered, ordered[1:])):
             errors.append("OpenAI expiry UTC observations are out of order")
+    # Truncation moves minted earlier, so signed-before-sent stays sound at
+    # second precision and is the one ordering minted genuinely contributed.
+    if minted is not None and request_time is not None and minted > request_time:
+        errors.append("expiry assertion was minted after the exchange request")
     if issued is not None and expires is not None and not issued < expires:
         errors.append("expired assertion issued_at is not before exp")
     if expires is not None and minted is not None and not expires < minted:

@@ -70,6 +70,7 @@ TEST_FILES=(
   infra/ansible/tests/test_freeze_graph.py
   infra/ansible/tests/test_log_secret_scan.py
   infra/ansible/tests/test_merge_refix.py
+  infra/ansible/tests/test_openai_control_plane_lifecycle.py
   infra/ansible/tests/test_openai_wif_issuance.py
   infra/ansible/tests/test_preview_capability_deployment.py
   infra/ansible/tests/test_replace_worker.py

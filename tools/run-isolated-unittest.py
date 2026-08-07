@@ -17,22 +17,23 @@ REPO = Path(__file__).resolve().parent.parent
 TEST_ROOT = REPO / "infra/ansible/tests"
 EXPECTED_TEST_FILES = (
     "test_a101_readiness_root.py",
-    "test_freeze_graph.py",
-    "test_worker_firewall_readiness.py",
-    "test_anthropic_spend.py",
     "test_anthropic_issuance.py",
     "test_anthropic_lifecycle.py",
+    "test_anthropic_spend.py",
     "test_anthropic_wif_admin.py",
-    "test_openai_wif_issuance.py",
     "test_child_launcher.py",
     "test_cloud_init_bootstrap.py",
     "test_dashboard_checkout.py",
+    "test_freeze_graph.py",
     "test_log_secret_scan.py",
+    "test_merge_refix.py",
+    "test_openai_wif_issuance.py",
     "test_preview_capability_deployment.py",
     "test_replace_worker.py",
     "test_session14_qualification.py",
     "test_session15_proposer.py",
     "test_session16_cutover.py",
+    "test_worker_firewall_readiness.py",
 )
 STDLIB_MODULES = (hashlib, importlib, sysconfig, unittest)
 

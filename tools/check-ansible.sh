@@ -60,22 +60,23 @@ run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-spend.py"
 # non-package module name, so repository package initializers cannot execute.
 TEST_FILES=(
   infra/ansible/tests/test_a101_readiness_root.py
-  infra/ansible/tests/test_freeze_graph.py
-  infra/ansible/tests/test_worker_firewall_readiness.py
-  infra/ansible/tests/test_anthropic_spend.py
   infra/ansible/tests/test_anthropic_issuance.py
   infra/ansible/tests/test_anthropic_lifecycle.py
+  infra/ansible/tests/test_anthropic_spend.py
   infra/ansible/tests/test_anthropic_wif_admin.py
-  infra/ansible/tests/test_openai_wif_issuance.py
   infra/ansible/tests/test_child_launcher.py
   infra/ansible/tests/test_cloud_init_bootstrap.py
   infra/ansible/tests/test_dashboard_checkout.py
+  infra/ansible/tests/test_freeze_graph.py
   infra/ansible/tests/test_log_secret_scan.py
+  infra/ansible/tests/test_merge_refix.py
+  infra/ansible/tests/test_openai_wif_issuance.py
   infra/ansible/tests/test_preview_capability_deployment.py
   infra/ansible/tests/test_replace_worker.py
   infra/ansible/tests/test_session14_qualification.py
   infra/ansible/tests/test_session15_proposer.py
   infra/ansible/tests/test_session16_cutover.py
+  infra/ansible/tests/test_worker_firewall_readiness.py
 )
 for test_file in "${TEST_FILES[@]}"; do
   run_gate python3 -I "$REPO_ROOT/tools/run-isolated-unittest.py" \

@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "provider": "openai",
+  "qualification_requirement": "credential-expiry-denial",
+  "authorization_ruling": "A131",
+  "observation_kind": "expired-assertion-token-exchange",
+  "run_id": "openai-expiry-20260807-0123456789",
+  "started_at": "2026-08-07T12:00:00.000000Z",
+  "assertion_descriptor": {
+    "algorithm": "RS256",
+    "kid_derived_from_public_der": true,
+    "issuer": "https://factory.example.com/workload-identity",
+    "subject": "patchyard-control-plane",
+    "audience": "https://api.openai.com",
+    "issued_at": "2026-08-07T11:54:55Z",
+    "minted_at": "2026-08-07T12:00:00Z",
+    "expires_at": "2026-08-07T11:59:55Z",
+    "lifetime_seconds": 300,
+    "expired_before_mint_seconds": 5,
+    "jti_supplied": true,
+    "factory_environment": "production",
+    "jwk_thumbprint_sha256": "abababababababababababababababababababababababababababababababab"
+  },
+  "exchange_request": {
+    "endpoint": "https://auth.openai.com/oauth/token",
+    "content_type": "application/json",
+    "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+    "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+    "subject_token_supplied": true,
+    "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+    "service_account_id": "user-ibYSGwJI5TPOPeJ3ioADcfDH",
+    "scope_supplied": false,
+    "attempt_count": 1,
+    "requested_at": "2026-08-07T12:00:00.100000Z"
+  },
+  "expiry_denial": {
+    "source": "synthetic_unobserved_response",
+    "http_status": null,
+    "request_started_at": "2026-08-07T12:00:00.100000Z",
+    "observed_at": "2026-08-07T12:00:00.200000Z",
+    "provider_date": null,
+    "request_id": null,
+    "request_id_supplied": false,
+    "content_type": null,
+    "body_bytes": 0,
+    "body_format": "unobserved",
+    "response_shape": {
+      "body_kind": "unobserved",
+      "top_level_fields": [],
+      "error_fields": []
+    },
+    "access_token_supplied": false,
+    "error_type": null
+  },
+  "credential_removed_at": "2026-08-07T12:00:00.300000Z",
+  "response_predicate": {
+    "enforced": false,
+    "basis": "no-observed-openai-expired-assertion-response"
+  },
+  "control_plane_provenance": {
+    "control_plane_mutation_claimed": false,
+    "mutation_receipt_obtained": false,
+    "attestation_required": false
+  },
+  "provider_response_observed": false,
+  "qualification_evidence": false,
+  "source": {
+    "policy_sha256": "14d2b8be570163f331de22adec382252f286a53b117f7311a0448479edff1ef2",
+    "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+    "expiry_adapter_sha256": "bcc5da8d92d1cb12c1dbe450f9acf35684d4388c932b4e41e841ac9e8b20b5dc"
+  },
+  "fixture_kind": "synthetic-openai-expiry-satisfiability",
+  "fixture_lineage": {
+    "assertion_contract": "synthetic-expired-assertion",
+    "provider_response": "unobserved-placeholder"
+  }
+}

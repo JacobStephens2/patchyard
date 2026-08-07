@@ -22,10 +22,14 @@ their own.
 | `anthropic-wif-crash-cleanup.py` | Source-bound A130 supervisor, SIGKILL checkpoint, same-surface credential scanner, and sanitized result collector; never invalidates a provider bearer |
 | `anthropic-wif-lifecycle-admin.py` | Attended fail-closed rule disable/restore and inline-JWKS overlap/retire/rollback administration |
 | `openai-wif-issuance.py` | Source-bound attended adapter for one sanitized OpenAI token-exchange observation; never writes the assertion or bearer |
+| `openai-wif-expiry.py` | Source-bound attended adapter for one expired-assertion OpenAI exchange with an unenforced response predicate |
+| `openai-wif-crash-cleanup.py` | Source-bound A130 supervisor, SIGKILL boundary, process-image/tmpfs scanner, and sanitized OpenAI Result collector |
 | `check-anthropic-expiry.py` | Validate the source-only expiry contract or its future credential-free live fixture |
 | `check-anthropic-revocation.py` | Validate federation-revocation/key-rotation evidence; an unpinned denial is accepted as observation-only with exit 2 and a JSON qualification blocker |
 | `check-anthropic-crash-cleanup.py` | Validate A130 local non-recoverability, its non-vacuous positive control, inert abrupt-death record, and explicit provider-exposure boundary |
 | `check-openai-wif-issuance.py` | Validate the OpenAI policy, unenforced first-response predicate, non-qualifying observation, or synthetic contract fixture |
+| `check-openai-wif-expiry.py` | Validate the OpenAI expired-assertion contract, unenforced response predicate, non-qualifying observation, or synthetic Fixture |
+| `check-openai-wif-crash-cleanup.py` | Validate the OpenAI A130 process-image positive control, SIGKILL, inert abrupt-death record, and local exposure boundary |
 | `aa-sweep.py` | Artificial Analysis catalog snapshot + move report |
 | `check-bench.py` | Validate `docs/bench.json` (schema + invariants) and sync the generated Pairs table in `docs/bench.md` (`--write` to regenerate; no flag = drift check) |
 | `check-seats.py` | Cross-check `docs/bench.md` § Seat preference orders against `bench.json` + the A61 allowlist (membership, preferred harness, floors, rank ordering, speed values; `--strict` fails on warnings) |

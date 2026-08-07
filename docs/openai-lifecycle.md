@@ -1,0 +1,568 @@
+# OpenAI A-5 lifecycle: requirements 3 through 6
+
+## Status and scope
+
+OpenAI requirement 1, issuance and delivery, is Proven by the committed Result
+from the attended 2026-08-06 exchange. This change does not run a provider
+call, does not create a Result, and does not make any other Requirement Proven.
+OpenAI is not Qualified, and all 13 `credential_qualified` values remain
+`false`.
+
+This change builds the attended control-plane paths for:
+
+- requirement 3, credential expiry denial; and
+- requirement 6, A130 crash-cleanup local non-recoverability.
+
+It defines the capture procedures, but performs no run and no control-plane
+mutation, for:
+
+- requirement 4, federation-rule revocation; and
+- requirement 5, signing-key rotation.
+
+Requirement 2 remains separate. It needs a billable API call through the
+provider-neutral execution plane and stays deferred behind this work.
+
+## Execution-plane measurement
+
+The committed Anthropic Results confirm the boundary rather than merely naming
+it. In each of requirement 2's three phases, `provider_transport` contains 13
+fields and the worker-delivery subset contains four:
+
+- `assertion_delivered`;
+- `credential_delivered_to_guest`;
+- `credential_removed_before_guest_boot`; and
+- `worker_host_tmpfs`.
+
+Seventeen fields across three phases is 51 execution-plane fields. The
+committed expiry, revocation/rotation, and crash-cleanup Results contain zero
+worker or provider-transport fields. OpenAI requirements 3 through 6 therefore
+remain control-plane exchange or local-cleanup shapes. No worker, Firecracker
+launcher, guest runner, or provider-neutral execution plane participates in
+the procedures below.
+
+## Shared source and Evidence rules
+
+`tools/openai-wif-expiry.py` and
+`tools/openai-wif-crash-cleanup.py` are siblings of every frozen source. Each
+loads `tools/anthropic-wif-lifecycle.py` only after verifying its exact SHA-256
+digest. Neither imports it, edits it, or imports another repository module.
+
+Both adapters use the root-only signing key at
+`/etc/patchyard/anthropic-wif-signing.pem`. They derive the assertion `kid`
+from the active public DER as:
+
+```text
+"patchyard-" + sha256(public DER)[:16]
+```
+
+No fixed `kid` belongs in a command or procedure. Before an attended run, a
+read-only console comparison must show that the currently uploaded public JWK
+is the one derived from the active key. If it is not, stop. Updating the console
+would be a control-plane mutation and is not authorized by a requirement 3 or
+requirement 6 run.
+
+The two checkers deliberately duplicate these stable hygiene helpers:
+`is_within`, `digest`, `parse_time`, `exact_keys`, `secret_named_key`,
+`isolation_errors`, and `load_json_file`. A133 permits that prospective
+duplication because those helpers have one historical revision; provider
+judgment stays in each checker rather than entering a shared Evidence-semantics
+module.
+
+Each adapter reserves a new mode-0600 output in a root-owned mode-0700 `/run`
+tmpfs stage before signing or making a provider call. Every checker requires
+isolated Python, exact keys, ordered UTC observations, current source digests,
+and the absence of credential-shaped values. A Fixture is accepted only in
+`--contract-fixture` mode and is refused as qualification Evidence.
+
+Under A125, every OpenAI response predicate in this change is unenforced. No
+expiry-denial or future revocation/rotation denial status, error type, error
+code, request-ID rule, or message shape has been observed. Each predicate
+carries a `basis` that says so. An attended run records the bounded response as
+OpenAI returned it; a later reviewed change may descend an enforced predicate
+from that observation.
+
+## Requirement 3: credential expiry denial
+
+### Contract
+
+The expiry adapter mints a 300-second assertion with `iat` 305 seconds before
+mint and `exp` five seconds before mint. It derives the active key identifier,
+attempts exactly one JSON token exchange at
+`https://auth.openai.com/oauth/token`, and immediately removes the assertion
+from its request state. It never writes the assertion, response body, bearer,
+or private key.
+
+The sanitized observation records the assertion times, one-attempt request
+contract, bounded HTTP metadata, response field types, and whether an
+`access_token` field was supplied. It does not decide what OpenAI's response
+means. In particular, the checker accepts any bounded HTTP status in
+observation mode and rejects any attempt to set
+`response_predicate.enforced = true` before the first observation.
+
+No control-plane mutation is made or causally claimed. A132 therefore requires
+no Attestation. The Result still carries the provenance mark with
+`mutation_receipt_obtained: false`, `control_plane_mutation_claimed: false`,
+and `attestation_required: false`.
+
+`fixtures/checker-contracts/openai-expiry-denial.json` is a synthetic Fixture.
+Its provider response is an explicitly unobserved placeholder, and it carries:
+
+```json
+{
+  "fixture_kind": "synthetic-openai-expiry-satisfiability",
+  "provider_response_observed": false,
+  "qualification_evidence": false
+}
+```
+
+The Fixture demonstrates that the contract has an accepting case. It is not a
+Result and contains no Evidence from a provider interaction.
+
+### Attended procedure
+
+Do not run this procedure during build, review, CI, or an unattended session.
+It requires separate authorization for one live OpenAI exchange. It requires
+no console change. If any console change appears necessary, stop rather than
+folding it into this run.
+
+On the control plane, verify the exact deployed revision and static contracts:
+
+```bash
+cd /opt/patchyard
+git status --short
+git rev-parse HEAD
+python3 -I tools/check-freeze-graph.py
+python3 -I tools/check-openai-wif-expiry.py --allow-missing-results
+jq -e '[.providers[].credential_qualified] | length == 13 and all(. == false)' \
+  policy/provider-egress.json
+sudo test "$(stat -c '%U:%G:%a' \
+  /etc/patchyard/anthropic-wif-signing.pem)" = root:root:400
+```
+
+Stop if the checkout is dirty, the revision is not the reviewed revision for
+the attended run, the freeze graph reports drift, a checker rejects static
+preflight, a `credential_qualified` value is true, another OpenAI lifecycle run
+is active, or the read-only console comparison does not match the public JWK
+derived from the active key.
+
+Create one fresh root-owned tmpfs stage and one new output:
+
+```bash
+RUN_ID="openai-expiry-$(date -u +%Y%m%d)-$(openssl rand -hex 5)"
+CONTROL_STAGE="/run/patchyard-openai/$RUN_ID"
+RESULT="$CONTROL_STAGE/openai-expiry-denial.json"
+sudo install -d -m 0700 -o root -g root "$CONTROL_STAGE"
+sudo python3 -I tools/openai-wif-expiry.py \
+  --run-id "$RUN_ID" --output "$RESULT"
+```
+
+The command makes one exchange and no retry. A transport failure with no HTTP
+response writes a failed terminal record and is not a Result. Any bounded HTTP
+response produces a sanitized, non-qualifying observation. Check it without
+editing it:
+
+```bash
+sudo python3 -I tools/check-openai-wif-expiry.py \
+  --observation "$RESULT"
+```
+
+Copy only the sanitized JSON through the reviewed management path to a new
+operator-host path. Never copy the stage, request body, assertion, response
+body, bearer, process memory, or signing key. Preserve the observation for
+adjudication. A Requirement becomes Proven only after a conforming Result is
+committed and accepted; the attended command alone does not change status.
+
+## Requirement 6: A130 local non-recoverability
+
+### What the OpenAI issuance path leaves behind
+
+The frozen first-exchange Result shows that the bearer was removed from the
+issuance adapter's state 393 microseconds after it was observed. The successful
+terminal output contains only sanitized metadata. An abrupt death before that
+terminal replacement is the unmeasured case: the assertion and bearer can both
+be live in the process image while the reserved output still says
+`status: in_progress`.
+
+The crash adapter measures that boundary directly:
+
+1. The credential child reserves `crash-attempt.json` before signing.
+2. It performs one exchange using the active signing identity and pauses after
+   the provider supplies a bearer but before a terminal write.
+3. The positive control receives the exact live assertion and bearer through a
+   root-only Unix socket, checks their SHA-256 fingerprints against the
+   credential-free checkpoint, and finds both exact byte sequences in the
+   target process's readable mappings. It records no credential bytes.
+4. The operator sends that exact PID `SIGKILL` while the assertion lifetime is
+   still open. `SIGTERM` and a supervisor timeout are rejected.
+5. The same scanner, with the same contract digest, runs after the PID/start
+   identity is absent. It scans every bounded regular file in the run stage and
+   finds no JWT, OpenAI bearer shape, bearer header, or private-key PEM.
+6. Collection proves the original `status: in_progress` bytes are unchanged and
+   that every OpenAI checker rejects that inert record.
+
+Core dumps are disabled in both the credential child and scanner, configured
+swap must be zero, the run stage is verified `/run` tmpfs, and the scanner
+fails closed on symlinks, unexpected special files, unreadable inputs, or byte
+and region ceilings.
+
+The stable signing identity remains at its root-only source path. The adapter
+asks `openssl` to sign with it; the adapter never loads private-key bytes and
+never copies the key into the run stage. A130's bounded subject is the OpenAI
+credential in flight and any run-scoped copy, not the unrelated stable signing
+identity. The Result says this explicitly.
+
+This local property makes no provider-side claim. The killed bearer may remain
+valid at OpenAI until natural expiry. No denial is attempted, no Attestation is
+required, and local cleanup never substitutes for requirement 3 or requirement
+4. The Result carries the same no-mutation provenance mark as requirement 3.
+
+`fixtures/checker-contracts/openai-crash-cleanup.json` is a synthetic Fixture.
+Its sanitized success response shape descends from the committed requirement 1
+Result; its PID, fingerprints, times, `SIGKILL`, and scanner outcomes are
+synthetic. It carries `fixture_kind`, `provider_response_observed: false`, and
+`qualification_evidence: false`. Contract-fixture mode accepts it, while the
+qualification path refuses it.
+
+### Attended procedure
+
+Do not run this procedure during build, review, CI, or an unattended session.
+It requires separate authorization for one live OpenAI exchange and an
+attended `SIGKILL`. It requires no console change. If the active public key is
+not already the uploaded JWK, stop.
+
+Run the same revision, freeze, `credential_qualified`, key-mode, and read-only
+console preflight from requirement 3, then add:
+
+```bash
+python3 -I tools/check-openai-wif-crash-cleanup.py --allow-missing-results
+test "$(cat /proc/sys/kernel/core_pattern)" != ""
+test "$(tail -n +2 /proc/swaps | wc -l)" -eq 0
+```
+
+Create the fresh stage and name every output:
+
+```bash
+RUN_ID="openai-crash-$(date -u +%Y%m%d)-$(openssl rand -hex 5)"
+CONTROL_STAGE="/run/patchyard-openai/$RUN_ID"
+ATTEMPT="$CONTROL_STAGE/crash-attempt.json"
+CHECKPOINT="$CONTROL_STAGE/crash-checkpoint.json"
+POSITIVE="$CONTROL_STAGE/crash-positive-search.json"
+KILL_OBSERVATION="$CONTROL_STAGE/crash-sigkill.json"
+POST_KILL="$CONTROL_STAGE/crash-post-kill-search.json"
+RESULT="$CONTROL_STAGE/openai-crash-cleanup.json"
+sudo install -d -m 0700 -o root -g root "$CONTROL_STAGE"
+```
+
+Start the supervisor. It reserves its own output and launches the credential
+child, which separately reserves the abrupt-death record:
+
+```bash
+sudo python3 -I tools/openai-wif-crash-cleanup.py supervise \
+  --run-id "$RUN_ID" \
+  --attempt-output "$ATTEMPT" \
+  --checkpoint-output "$CHECKPOINT" \
+  --positive-control "$POSITIVE" \
+  --kill-output "$KILL_OBSERVATION" &
+SUPERVISOR_PID=$!
+for _ in $(seq 1 600); do
+  sudo test ! -s "$CHECKPOINT" || break
+  /usr/bin/sleep 0.1
+done
+sudo jq -e '
+  .phase == "bearer_live_before_terminal_write"
+  and .assertion_live == true
+  and .bearer_live == true
+  and .terminal_record_written == false
+  and .core_dump_limits == [0,0]
+  and .swap_entries == 0
+  and .signing_key.kid_derived_from_public_der == true
+  and .signing_key.copied_to_run_stage == false
+  and .signing_key.private_key_bytes_loaded_by_adapter == false
+' "$CHECKPOINT" >/dev/null
+CREDENTIAL_PID=$(sudo jq -er '.target_pid' "$CHECKPOINT")
+```
+
+Do not signal the process yet. Run the positive control with the exact
+checkpoint. The command transfers the live values only through the root-only
+local socket, finds them in the target process image, zeroes its mutable copies,
+and writes only class names and bounded counts:
+
+```bash
+sudo python3 -I tools/openai-wif-crash-cleanup.py scan \
+  --run-id "$RUN_ID" --checkpoint "$CHECKPOINT" --output "$POSITIVE"
+sudo jq -e '
+  .credential_material_found == true
+  and .material_classes_found == ["jwt_assertion","openai_bearer"]
+  and (.matches | length) == 2
+  and all(.matches[]; .surface == "process_image")
+  and .target_process_present == true
+  and .scan_socket_used == true
+  and .memory_regions_examined > 0
+  and .memory_bytes_examined > 0
+  and .scanner_core_dump_limits == [0,0]
+  and .swap_entries == 0
+' "$POSITIVE" >/dev/null
+```
+
+The kill happens here, and only here. A timeout, `SIGTERM`, interactive
+interrupt, missing positive control, or kill after the recorded assertion
+expiry is a failed attempt:
+
+```bash
+sudo kill -KILL -- "$CREDENTIAL_PID"
+set +e
+wait "$SUPERVISOR_PID"
+SUPERVISOR_STATUS=$?
+set -e
+test "$SUPERVISOR_STATUS" -eq 0
+sudo jq -e '
+  .event_type == "credential_process_sigkill_observed"
+  and .signal_name == "SIGKILL"
+  and .signal_number == 9
+  and .child_returncode == -9
+  and .supervisor_timed_out == false
+  and .target_process_present == false
+  and .scan_socket_present_after_cleanup == false
+' "$KILL_OBSERVATION" >/dev/null
+```
+
+Do not remove, copy, replace, or edit the attempt record. Run the identical
+scanner after the process is gone:
+
+```bash
+sudo python3 -I tools/openai-wif-crash-cleanup.py scan \
+  --run-id "$RUN_ID" --checkpoint "$CHECKPOINT" --output "$POST_KILL"
+sudo jq -e '
+  .credential_material_found == false
+  and .material_classes_found == []
+  and .matches == []
+  and .target_process_present == false
+  and .scan_socket_used == false
+  and .memory_regions_examined == 0
+  and .memory_bytes_examined == 0
+  and .scanner_core_dump_limits == [0,0]
+  and .swap_entries == 0
+' "$POST_KILL" >/dev/null
+sudo jq -e '.status == "in_progress"' "$ATTEMPT" >/dev/null
+```
+
+Collect and check the sanitized local Result:
+
+```bash
+sudo python3 -I tools/openai-wif-crash-cleanup.py collect \
+  --run-id "$RUN_ID" \
+  --attempt "$ATTEMPT" \
+  --checkpoint "$CHECKPOINT" \
+  --kill-observation "$KILL_OBSERVATION" \
+  --positive-control "$POSITIVE" \
+  --post-kill-search "$POST_KILL" \
+  --output "$RESULT"
+sudo python3 -I tools/check-openai-wif-crash-cleanup.py \
+  --observation "$RESULT"
+```
+
+Copy only `RESULT` through the reviewed management path. Never copy the stage,
+socket, fingerprints as a separate input, assertion, bearer, raw response,
+process memory, core, or signing key. Preserve the stage until Evidence review
+has confirmed the unchanged abrupt-death record; only then may the operator
+remove the whole run directory.
+
+If any checkpoint, positive scan, `SIGKILL`, supervisor observation, post-kill
+scan, checker rejection, or collection step fails, the observation cannot make
+the Requirement Proven. If the credential child remains present, send that
+exact PID `SIGKILL` before recovery. Do not retry the provider call. A new
+attempt requires a new run ID and new output paths.
+
+## Requirement 4: federation-rule revocation capture
+
+### Non-recoverable precondition
+
+**The subject-mapping control-plane mutation must not be made before the capture
+begins.** Removing, disabling, or altering the mapping first permanently
+destroys the bounded before-state. Requirement 1's setup mutations were made
+without that capture and can never carry a conforming Attestation; do not try to
+reconstruct, relabel, or backdate one.
+
+This procedure is a design for a later separately authorized attended run. It
+does not authorize a console action. Before the run, fix one reviewed lifecycle
+instrument SHA that can make a fresh normal-assertion exchange with the active
+key and sanitize any response without enforcing a denial shape. That exact
+instrument digest, token endpoint, identity-provider ID, service-account ID,
+request body shape, and assertion lifetime remain fixed for all three controls.
+
+### Bounded window and Attestation
+
+Before opening the window, name the actor and the attester. Record both roles
+on every Attestation. Under A136, one accountable human may occupy both roles,
+but that carries no independence and the record must not later be described as
+corroboration. A model may act, but may not be the only party.
+
+Use the named capture method:
+
+```text
+operator_console_readback_bounded_by_control_plane_utc
+```
+
+Every console reading records `captured_before_at` immediately before the
+reading and `captured_after_at` immediately after it, using control-plane UTC.
+The capture includes the provider identity, subject-mapping expression,
+mapped service account, enabled state, uploaded-JWKS mode, and the console URL
+or navigation path used. It never includes a private key, assertion, or bearer.
+
+Each Attestation and the Result permanently carry the provenance mark:
+
+```json
+{
+  "mutation_receipt_obtained": false
+}
+```
+
+The Attestation also records `actor`, `attester`, the capture method, bounded
+before and after UTC, the exact mutation description, and the fixed lifecycle
+instrument SHA. The mark is permanent even if OpenAI later exposes a management
+API.
+
+The proposed Result carries this exact response predicate until an observed
+OpenAI federation-revocation response can support a later reviewed predicate:
+
+```json
+{
+  "enforced": false,
+  "basis": "no-observed-openai-federation-revocation-response"
+}
+```
+
+### Sequence
+
+All steps below occur in one bounded window:
+
+1. Record the window start in control-plane UTC. Capture the enabled mapping's
+   before-state with the named method.
+2. Make the baseline control: one fresh normal-assertion exchange on the token
+   endpoint with the fixed instrument. It must supply a bearer. Record the
+   provider response as a Receipt where OpenAI supplies a request ID.
+3. With capture already active, record the mutation's immediate before-bound,
+   have the named actor remove, disable, or alter only the subject mapping, then
+   record the immediate after-bound and console after-state. The attester records
+   the Attestation. Do not change the service account or uploaded JWK in this
+   Requirement.
+4. Wait at least the standing 90-second settling floor. An exchange before the
+   floor measures propagation and cannot become Evidence of revocation.
+5. Attempt exactly one fresh exchange with the same surface and instrument.
+   Record whatever bounded response OpenAI returns. Do not require a status,
+   error type, error code, message, or request-ID shape.
+6. While capture remains active, capture the disabled state, restore the exact
+   original mapping, and capture the restored state. Record the restoration as
+   a second console-only control-plane mutation in the Attestation.
+7. Wait the same settling floor. Make the bracketing control: one fresh exchange
+   with the same surface and instrument, which must supply a bearer.
+8. Record the window end and bind the baseline control, denial observation,
+   bracketing control, both bounded state captures, both named roles, and the
+   instrument digest into one proposed Result.
+
+Steps 2, 5, and 7 are A129's positive, denial, positive sequence. They remain
+inside one bounded window on the same token-exchange surface with the same
+instrument digest. Under A132, this bracket and the baseline control are the
+entire causal argument that the mapping mutation caused the denial. A denial
+without either positive is Evidence only that one exchange failed.
+
+If the mapping mutation, capture, settling interval, denial attempt, restore,
+or either positive fails, restore the safe mapping state but do not describe the
+run as conforming. A recovery outside the bounded window is operationally
+necessary and cannot repair the Attestation.
+
+## Requirement 5: signing-key rotation capture
+
+### Non-recoverable precondition
+
+**The replacement-JWK upload or any other signing-key control-plane mutation
+must not be made before the capture begins.** An uploaded replacement without a
+bounded capture destroys the original one-key before-state. No later screenshot
+or console reading can reconstruct a conforming Attestation.
+
+This procedure is a design for a later separately authorized attended run. It
+does not authorize JWK upload, retirement, or local key activation. Before the
+run, fix one reviewed lifecycle instrument SHA that can use either the stable
+active key or a root-only run-scoped replacement key while preserving an
+identical token-exchange request surface and sanitized response contract.
+Derive both key identifiers from their public DER during the run; never place a
+fixed `kid` in this procedure.
+
+### Bounded window and parties
+
+Name the actor and attester before opening the window, applying A136's role rule
+and independence limitation exactly as in requirement 4. Use
+`operator_console_readback_bounded_by_control_plane_utc` for every console
+reading. Each JWK-set control-plane mutation gets bounded before and after UTC,
+the complete public-key membership and enabled state, the named roles, and the
+fixed instrument digest.
+
+Every Attestation and the Result carry the permanent provenance mark
+`mutation_receipt_obtained: false`. OpenAI exchange responses remain Receipts;
+console JWK changes do not become Receipts merely because they are adjacent to
+one.
+
+The proposed Result carries this exact response predicate until an observed
+OpenAI retired-signing-key response can support a later reviewed predicate:
+
+```json
+{
+  "enforced": false,
+  "basis": "no-observed-openai-retired-signing-key-response"
+}
+```
+
+### Sequence
+
+All steps occur in one bounded window:
+
+1. Record the window start. Capture the original console state before any
+   replacement upload: uploaded-JWKS mode enabled, the single active public key,
+   the unchanged subject mapping, and the mapped service account.
+2. Make the baseline control using the active key and fixed lifecycle
+   instrument. The token exchange must supply a bearer.
+3. Generate a distinct 3072-bit RSA replacement key only in the root-owned
+   `/run` stage. Derive both public JWK descriptors and confirm they are
+   distinct. No private key crosses to the operator host or console.
+4. Capture the immediate before-bound, have the actor upload the two-key overlap
+   containing the original and replacement public JWKs, capture the immediate
+   after-bound, and have the attester record the Attestation.
+5. Wait at least 90 seconds. Make a replacement-key positive exchange with the
+   same instrument and surface. If it does not supply a bearer, stop and perform
+   the captured rollback; do not retire the original key.
+6. Use the reviewed local activation action to preserve the original private key
+   only in the root tmpfs stage and place the replacement at the stable active
+   path. Capture the console state again before retirement.
+7. With capture active, have the actor remove the original public JWK, capture
+   the after-state showing only the replacement public JWK, and have the
+   attester record this second control-plane mutation.
+8. Wait at least 90 seconds. Begin one bounded A129 subwindow and perform, in
+   order, a replacement-key positive exchange, one original-key exchange that
+   records the bounded response without enforcing any denial shape, and a final
+   replacement-key positive exchange.
+9. Record the window end. Bind the baseline control, overlap positive, A129
+   positive-denial-positive bracket, bounded state captures, named roles,
+   derived public-key descriptors, and one fixed instrument digest into the
+   proposed Result.
+
+The three attempts in step 8 use the same token endpoint, identity provider,
+service account, request shape, assertion lifetime, and instrument SHA; only the
+signing key role differs. The original key is never re-trusted to make a test
+pass. No expected denial status, error type, error code, message, or request-ID
+shape is pinned before OpenAI's retired-key response is observed.
+
+If overlap, replacement positive, local activation, retirement, any bounded
+capture, settling, or bracketing control fails, execute the predeclared safe
+rollback under its own bounded capture. Preserve the failure observations. A
+rollback restores operation; it does not make the failed run conforming, and a
+fresh attempt needs a fresh run ID and replacement key.
+
+## What remains unchanged
+
+- Requirement 2 is not implemented here.
+- No control-plane mutation or provider call occurred while building this path.
+- No frozen source or committed Result is modified.
+- No `credential_qualified` value changes.
+- Neither synthetic Fixture is a Result or qualification Evidence.
+- No Requirement becomes Proven from this change alone, and OpenAI remains not
+  Qualified.

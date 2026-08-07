@@ -6,10 +6,10 @@
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 40129,
-      "comments": 596,
-      "blanks": 2366,
-      "files": 88,
+      "code": 40776,
+      "comments": 600,
+      "blanks": 2401,
+      "files": 89,
       "languages": [
         {
           "language": "CSS",
@@ -42,16 +42,16 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 411,
+          "comments": 415,
           "blanks": 21,
           "files": 47
         },
         {
           "language": "Rust",
-          "code": 37697,
+          "code": 38344,
           "comments": 160,
-          "blanks": 2091,
-          "files": 55
+          "blanks": 2126,
+          "files": 56
         },
         {
           "language": "SQL",
@@ -72,10 +72,10 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 26697,
-      "comments": 539,
-      "blanks": 2249,
-      "files": 159,
+      "code": 27384,
+      "comments": 542,
+      "blanks": 2329,
+      "files": 162,
       "languages": [
         {
           "language": "BASH",
@@ -100,7 +100,7 @@
         },
         {
           "language": "Jinja2",
-          "code": 936,
+          "code": 945,
           "comments": 0,
           "blanks": 59,
           "files": 18
@@ -135,10 +135,10 @@
         },
         {
           "language": "Python",
-          "code": 13397,
-          "comments": 59,
-          "blanks": 1085,
-          "files": 31
+          "code": 14028,
+          "comments": 62,
+          "blanks": 1161,
+          "files": 34
         },
         {
           "language": "Shell",
@@ -163,9 +163,9 @@
         },
         {
           "language": "YAML",
-          "code": 3459,
+          "code": 3506,
           "comments": 17,
-          "blanks": 355,
+          "blanks": 359,
           "files": 22
         }
       ]
@@ -173,7 +173,7 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 26306,
+      "code": 26312,
       "comments": 330,
       "blanks": 2187,
       "files": 129,
@@ -229,14 +229,14 @@
         },
         {
           "language": "Python",
-          "code": 21220,
+          "code": 21225,
           "comments": 93,
           "blanks": 2012,
           "files": 48
         },
         {
           "language": "Shell",
-          "code": 645,
+          "code": 646,
           "comments": 33,
           "blanks": 101,
           "files": 19

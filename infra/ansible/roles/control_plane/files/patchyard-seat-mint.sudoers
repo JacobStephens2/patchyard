@@ -1,0 +1,2 @@
+Cmnd_Alias PATCHYARD_MINT_SEAT_BEARER = /usr/local/sbin/patchyard-mint-seat-bearer Anthropic /run/patchyard-seats/agent-*/bearer
+factory-manager ALL=(root) NOPASSWD: PATCHYARD_MINT_SEAT_BEARER

@@ -495,6 +495,7 @@ impl Fixture {
                 prompt: project.join("policy/triage.md"),
                 timeout: Duration::from_secs(10),
                 cli_version: "fixture-triage/1".to_owned(),
+                credential: None,
             },
         );
         commands.insert(
@@ -504,6 +505,7 @@ impl Fixture {
                 prompt: project.join("policy/disposition.md"),
                 timeout: Duration::from_secs(10),
                 cli_version: "fixture-disposition/1".to_owned(),
+                credential: None,
             },
         );
         let agents = ProcessAgentBackend::new(commands, scratch.join("agents"));

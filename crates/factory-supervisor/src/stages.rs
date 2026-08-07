@@ -4,7 +4,7 @@ use std::{
     collections::BTreeMap,
     ffi::OsString,
     fs,
-    os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _},
+    os::unix::fs::{MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -27,6 +27,14 @@ pub struct StageCommand {
     pub prompt: PathBuf,
     pub timeout: Duration,
     pub cli_version: String,
+    pub credential: Option<CredentialCommand>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CredentialCommand {
+    pub program: PathBuf,
+    pub arguments: Vec<OsString>,
+    pub timeout: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -65,35 +73,48 @@ impl ProcessAgentBackend {
         create_private_dir(directory.clone()).await?;
         let input_path = directory.join("input.json");
         let output_path = directory.join("output.json");
-        let input_bytes = serde_json::to_vec(input)?;
-        write_private(input_path.clone(), input_bytes).await?;
-        let mut spec = ProcessSpec::new(&command.program);
-        spec.args = vec![
-            command.prompt.as_os_str().to_owned(),
-            input_path.as_os_str().to_owned(),
-            output_path.as_os_str().to_owned(),
-        ];
-        spec.environment = seat_environment(&invocation.seat);
-        spec.timeout = command.timeout;
-        spec.output_limit = 8 * 1024 * 1024;
-        let process = run_bounded(&spec, cancellation).await;
-        let result = match process {
-            Ok(process) if process.code == 0 => {
-                let output = read_bounded_file(output_path, 1024 * 1024).await?;
-                let value: O = serde_json::from_slice(&output)?;
-                Ok(AgentResult {
-                    value,
-                    transcript: process.transcript(),
-                    usage: parse_usage(&process),
-                    cli_version: command.cli_version.clone(),
-                })
+        let result = async {
+            let input_bytes = serde_json::to_vec(input)?;
+            write_private(input_path.clone(), input_bytes).await?;
+            let bearer_path = if let Some(credential) = &command.credential {
+                let path = directory.join("bearer");
+                mint_bearer(
+                    credential,
+                    &invocation.seat.provider,
+                    path.clone(),
+                    cancellation,
+                )
+                .await?;
+                Some(path)
+            } else {
+                None
+            };
+            let mut spec = ProcessSpec::new(&command.program);
+            spec.args = vec![
+                command.prompt.as_os_str().to_owned(),
+                input_path.as_os_str().to_owned(),
+                output_path.as_os_str().to_owned(),
+            ];
+            spec.environment = seat_environment(&invocation.seat, bearer_path.as_deref());
+            spec.timeout = command.timeout;
+            spec.output_limit = 8 * 1024 * 1024;
+            let process = run_bounded(&spec, cancellation).await?;
+            if process.code != 0 {
+                return Err(StageError::Exit {
+                    stage: invocation.task_class.clone(),
+                    code: process.code,
+                });
             }
-            Ok(process) => Err(StageError::Exit {
-                stage: invocation.task_class.clone(),
-                code: process.code,
-            }),
-            Err(error) => Err(error.into()),
-        };
+            let output = read_bounded_file(output_path, 1024 * 1024).await?;
+            let value: O = serde_json::from_slice(&output)?;
+            Ok(AgentResult {
+                value,
+                transcript: process.transcript(),
+                usage: parse_usage(&process),
+                cli_version: command.cli_version.clone(),
+            })
+        }
+        .await;
         let cleanup = remove_private_dir(directory).await;
         match (result, cleanup) {
             (Ok(value), Ok(())) => Ok(value),
@@ -114,8 +135,56 @@ fn parse_usage(process: &ProcessOutput) -> InvocationUsage {
         .unwrap_or_default()
 }
 
-fn seat_environment(seat: &Seat) -> Vec<(OsString, OsString)> {
-    vec![
+async fn mint_bearer(
+    command: &CredentialCommand,
+    provider: &str,
+    path: PathBuf,
+    cancellation: &CancellationToken,
+) -> Result<(), StageError> {
+    let mut spec = ProcessSpec::new(&command.program);
+    spec.args = command.arguments.clone();
+    spec.args.push(OsString::from(provider));
+    spec.args.push(path.clone().into_os_string());
+    spec.timeout = command.timeout;
+    spec.output_limit = 16 * 1024;
+    let output = run_bounded(&spec, cancellation).await?;
+    if output.code != 0 {
+        return Err(StageError::CredentialExit {
+            provider: provider.to_owned(),
+            code: output.code,
+        });
+    }
+    if !output.stdout.is_empty() || !output.stderr.is_empty() {
+        return Err(StageError::CredentialOutput(provider.to_owned()));
+    }
+    validate_bearer_file(path).await
+}
+
+async fn validate_bearer_file(path: PathBuf) -> Result<(), StageError> {
+    tokio::task::spawn_blocking(move || {
+        let metadata = fs::symlink_metadata(&path).map_err(StageIoError::Io)?;
+        let parent = path
+            .parent()
+            .ok_or_else(|| StageIoError::UnsafeCredential(path.clone()))?;
+        let parent_metadata = fs::symlink_metadata(parent).map_err(StageIoError::Io)?;
+        if !metadata.is_file()
+            || metadata.file_type().is_symlink()
+            || metadata.permissions().mode() & 0o7777 != 0o600
+            || metadata.uid() != parent_metadata.uid()
+            || metadata.gid() != parent_metadata.gid()
+            || !(1..=8192).contains(&metadata.len())
+        {
+            return Err(StageIoError::UnsafeCredential(path));
+        }
+        Ok(())
+    })
+    .await
+    .map_err(StageError::Join)??;
+    Ok(())
+}
+
+fn seat_environment(seat: &Seat, bearer_path: Option<&Path>) -> Vec<(OsString, OsString)> {
+    let mut environment = vec![
         (
             OsString::from("PATCHYARD_MODEL"),
             OsString::from(&seat.model),
@@ -132,7 +201,14 @@ fn seat_environment(seat: &Seat) -> Vec<(OsString, OsString)> {
             OsString::from("PATCHYARD_PROVIDER"),
             OsString::from(&seat.provider),
         ),
-    ]
+    ];
+    if let Some(path) = bearer_path {
+        environment.push((
+            OsString::from("PATCHYARD_BEARER_FILE"),
+            path.as_os_str().to_owned(),
+        ));
+    }
+    environment
 }
 
 #[derive(Clone, Debug)]
@@ -205,7 +281,7 @@ impl ProcessWorkerBackend {
             OsString::from("--output"),
             output_dir.as_os_str().to_owned(),
         ];
-        spec.environment = seat_environment(&invocation.seat);
+        spec.environment = seat_environment(&invocation.seat, None);
         spec.timeout = self.command.timeout;
         spec.output_limit = 1024 * 1024;
         let process = run_bounded(&spec, cancellation).await;
@@ -401,6 +477,8 @@ pub enum StageIoError {
     UnsafeFile(PathBuf),
     #[error("stage output exceeds its byte cap: {0}")]
     TooLarge(PathBuf),
+    #[error("seat bearer is not a private, bounded, same-owner regular file: {0}")]
+    UnsafeCredential(PathBuf),
     #[error("stage output read failed: {0}")]
     Io(std::io::Error),
 }
@@ -411,6 +489,10 @@ pub enum StageError {
     MissingCommand(String),
     #[error("stage {stage} exited with status {code}")]
     Exit { stage: String, code: i32 },
+    #[error("credential mint for provider {provider} exited with status {code}")]
+    CredentialExit { provider: String, code: i32 },
+    #[error("credential mint for provider {0} wrote unexpected process output")]
+    CredentialOutput(String),
     #[error("stage output path already exists: {0}")]
     OutputExists(PathBuf),
     #[error("bounded subprocess failed: {0}")]

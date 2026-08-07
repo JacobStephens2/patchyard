@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""Mint one Anthropic WIF bearer into a supervisor-owned tmpfs stage."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import hashlib
+import os
+from pathlib import Path
+import re
+import secrets
+import stat
+import subprocess
+import sys
+import types
+
+
+INSTALL_ROOT = Path("/opt/patchyard")
+BASE_HARNESS_PATH = INSTALL_ROOT / "tools/anthropic-wif-lifecycle.py"
+BASE_HARNESS_SHA256 = (
+    "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
+)
+SEAT_ROOT = Path("/run/patchyard-seats")
+STAGE_PATTERN = re.compile(
+    r"agent-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+)
+
+
+class MintError(RuntimeError):
+    """A root boundary or WIF mint precondition failed closed."""
+
+
+def load_base_harness() -> types.ModuleType:
+    source = BASE_HARNESS_PATH.read_bytes()
+    if (
+        BASE_HARNESS_PATH.is_symlink()
+        or hashlib.sha256(source).hexdigest() != BASE_HARNESS_SHA256
+    ):
+        raise MintError("qualified lifecycle harness differs from its exact binding")
+    module = types.ModuleType("anthropic_wif_lifecycle_seat_base")
+    module.__file__ = str(BASE_HARNESS_PATH)
+    module.__package__ = None
+    exec(
+        compile(source, str(BASE_HARNESS_PATH), "exec", dont_inherit=True),
+        module.__dict__,
+    )
+    return module
+
+
+def sudo_identity() -> tuple[int, int]:
+    if os.geteuid() != 0 or os.environ.get("SUDO_USER") != "factory-manager":
+        raise MintError("seat bearer mint requires the factory-manager sudo boundary")
+    try:
+        uid = int(os.environ["SUDO_UID"])
+        gid = int(os.environ["SUDO_GID"])
+    except (KeyError, ValueError) as error:
+        raise MintError("sudo caller identity is absent") from error
+    if uid <= 0 or gid <= 0:
+        raise MintError("sudo caller identity is invalid")
+    return uid, gid
+
+
+def validate_output(path: Path, uid: int, gid: int) -> None:
+    if (
+        not path.is_absolute()
+        or path.name != "bearer"
+        or path.parent.parent != SEAT_ROOT
+        or STAGE_PATTERN.fullmatch(path.parent.name) is None
+        or os.path.lexists(path)
+    ):
+        raise MintError("bearer output path is outside the fixed seat stage")
+    try:
+        root = SEAT_ROOT.resolve(strict=True)
+        stage = path.parent.resolve(strict=True)
+        root_metadata = root.lstat()
+        stage_metadata = stage.lstat()
+        run_metadata = Path("/run").stat()
+    except OSError as error:
+        raise MintError("seat tmpfs stage cannot be resolved") from error
+    if (
+        root != SEAT_ROOT
+        or stage != path.parent
+        or root.is_symlink()
+        or stage.is_symlink()
+        or not stat.S_ISDIR(root_metadata.st_mode)
+        or not stat.S_ISDIR(stage_metadata.st_mode)
+        or root_metadata.st_uid != uid
+        or stage_metadata.st_uid != uid
+        or stage_metadata.st_gid != gid
+        or stat.S_IMODE(root_metadata.st_mode) != 0o700
+        or stat.S_IMODE(stage_metadata.st_mode) != 0o700
+        or stage_metadata.st_dev != run_metadata.st_dev
+    ):
+        raise MintError("seat tmpfs ownership or permissions are invalid")
+    filesystem = subprocess.run(
+        ["/usr/bin/stat", "-f", "-c", "%T", "/run"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={"PATH": "/usr/bin:/bin"},
+    ).stdout.strip()
+    if filesystem != "tmpfs":
+        raise MintError("seat credential root is not on tmpfs")
+
+
+def write_bearer(path: Path, bearer: str, uid: int, gid: int) -> None:
+    encoded = bearer.encode("ascii")
+    if not 1 <= len(encoded) <= 8192:
+        raise MintError("minted bearer is outside the byte limit")
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+        )
+        offset = 0
+        while offset < len(encoded):
+            written = os.write(descriptor, encoded[offset:])
+            if written <= 0:
+                raise MintError("bearer write made no progress")
+            offset += written
+        os.fchmod(descriptor, 0o600)
+        os.fchown(descriptor, uid, gid)
+        os.fsync(descriptor)
+    except BaseException:
+        if descriptor is not None:
+            os.close(descriptor)
+            descriptor = None
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    metadata = path.lstat()
+    if (
+        path.is_symlink()
+        or not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_uid != uid
+        or metadata.st_gid != gid
+        or stat.S_IMODE(metadata.st_mode) != 0o600
+        or metadata.st_size != len(encoded)
+    ):
+        path.unlink(missing_ok=True)
+        raise MintError("bearer output postcondition failed")
+
+
+def run(arguments: list[str]) -> int:
+    if len(arguments) != 2 or arguments[0] != "Anthropic":
+        raise MintError("usage: patchyard-mint-seat-bearer Anthropic OUTPUT")
+    uid, gid = sudo_identity()
+    output = Path(arguments[1])
+    validate_output(output, uid, gid)
+    base = load_base_harness()
+    policy = base.load_policy()
+    base.validate_root_private_key(base.ACTIVE_SIGNING_KEY)
+    run_id = (
+        "anthropic-l3-"
+        + datetime.now(timezone.utc).strftime("%Y%m%d")
+        + "-"
+        + secrets.token_hex(5)
+    )
+    bearer = ""
+    try:
+        _, bearer = base.accepted_exchange(
+            policy,
+            base.ACTIVE_SIGNING_KEY,
+            run_id,
+        )
+        write_bearer(output, bearer, uid, gid)
+    finally:
+        bearer = ""
+    return 0
+
+
+if __name__ == "__main__":
+    os.umask(0o077)
+    try:
+        raise SystemExit(run(sys.argv[1:]))
+    except (MintError, OSError, subprocess.CalledProcessError) as error:
+        del error
+        print("seat bearer mint failed closed", file=sys.stderr)
+        raise SystemExit(1)

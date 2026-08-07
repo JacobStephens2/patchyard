@@ -1,0 +1,410 @@
+#!/usr/bin/env python3
+"""Invoke the qualified Anthropic triage seat without exporting its bearer."""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import sys
+from typing import Any
+import urllib.error
+import urllib.request
+
+
+MAX_INPUT_BYTES = 1_000_000
+MAX_PROMPT_BYTES = 256_000
+MAX_RESPONSE_BYTES = 1_000_000
+MAX_OUTPUT_BYTES = 1_000_000
+PROVIDER_TIMEOUT_SECONDS = 90
+ANTHROPIC_MESSAGES = "https://api.anthropic.com/v1/messages"
+LOOPBACK_PROVIDER = re.compile(r"http://127[.]0[.]0[.]1:([0-9]{1,5})")
+BEARER_PATTERN = re.compile(r"sk-ant-oat01-[A-Za-z0-9_-]+")
+UUID_PATTERN = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+)
+MODEL_SPECS = {
+    # A119 records Fable 5 at $10/M input tokens and $50/M output tokens.
+    "Claude Fable 5": ("claude-fable-5", 10, 50),
+}
+EFFORTS = {"low", "medium", "high", "max"}
+
+
+class SeatError(RuntimeError):
+    """A bounded seat precondition or provider response failed closed."""
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, file_pointer, code, message, headers, url):
+        del request, file_pointer, code, message, headers, url
+        return None
+
+
+def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise SeatError("JSON contains a duplicate key")
+        value[key] = item
+    return value
+
+
+def reject_json_constant(value: str) -> None:
+    raise SeatError(f"JSON contains forbidden numeric constant {value}")
+
+
+def load_json(value: bytes, label: str) -> Any:
+    try:
+        return json.loads(
+            value,
+            object_pairs_hook=reject_duplicate_keys,
+            parse_constant=reject_json_constant,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise SeatError(f"{label} is not valid JSON") from error
+
+
+def read_regular(path: Path, maximum: int, label: str) -> bytes:
+    try:
+        metadata = path.lstat()
+        resolved = path.resolve(strict=True)
+    except OSError as error:
+        raise SeatError(f"{label} cannot be opened") from error
+    if (
+        not path.is_absolute()
+        or resolved != path
+        or not stat.S_ISREG(metadata.st_mode)
+        or path.is_symlink()
+        or not 1 <= metadata.st_size <= maximum
+    ):
+        raise SeatError(f"{label} is outside the regular-file contract")
+    return path.read_bytes()
+
+
+def stage_paths(input_path: Path, output_path: Path, bearer_path: Path) -> Path:
+    if not input_path.is_absolute() or not output_path.is_absolute() or not bearer_path.is_absolute():
+        raise SeatError("stage paths must be absolute")
+    directory = input_path.parent
+    try:
+        metadata = directory.lstat()
+    except OSError as error:
+        raise SeatError("stage directory cannot be inspected") from error
+    if (
+        output_path.parent != directory
+        or bearer_path.parent != directory
+        or input_path.name != "input.json"
+        or output_path.name != "output.json"
+        or bearer_path.name != "bearer"
+        or directory.resolve(strict=True) != directory
+        or directory.is_symlink()
+        or not stat.S_ISDIR(metadata.st_mode)
+        or stat.S_IMODE(metadata.st_mode) != 0o700
+        or output_path.exists()
+        or output_path.is_symlink()
+    ):
+        raise SeatError("stage paths do not share the private invocation directory")
+    return directory
+
+
+def read_bearer(path: Path, directory: Path) -> str:
+    value = read_regular(path, 8192, "seat bearer")
+    metadata = path.lstat()
+    directory_metadata = directory.lstat()
+    if (
+        stat.S_IMODE(metadata.st_mode) != 0o600
+        or metadata.st_uid != directory_metadata.st_uid
+        or metadata.st_gid != directory_metadata.st_gid
+    ):
+        raise SeatError("seat bearer permissions are invalid")
+    try:
+        bearer = value.decode("ascii")
+    except UnicodeDecodeError as error:
+        raise SeatError("seat bearer is not ASCII") from error
+    if BEARER_PATTERN.fullmatch(bearer) is None:
+        raise SeatError("seat bearer type is invalid")
+    return bearer
+
+
+def remove_bearer(path: Path, directory: Path) -> None:
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return
+    if (
+        path.parent != directory
+        or path.is_symlink()
+        or not stat.S_ISREG(metadata.st_mode)
+    ):
+        raise SeatError("refusing unsafe bearer cleanup")
+    path.unlink()
+    if path.exists() or path.is_symlink():
+        raise SeatError("seat bearer cleanup did not complete")
+
+
+def require_environment(name: str) -> str:
+    value = os.environ.get(name, "")
+    if not value:
+        raise SeatError(f"required seat variable {name} is missing")
+    return value
+
+
+def input_contract(path: Path) -> dict[str, Any]:
+    value = load_json(read_regular(path, MAX_INPUT_BYTES, "triage input"), "triage input")
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"schema_version", "request_id", "untrusted_request", "authority"}
+        or value.get("schema_version") != 1
+        or UUID_PATTERN.fullmatch(str(value.get("request_id", ""))) is None
+        or not isinstance(value.get("untrusted_request"), str)
+        or value.get("authority") != "none_untrusted_data_only"
+    ):
+        raise SeatError("triage input does not match the typed no-authority contract")
+    return value
+
+
+def hard_rules(constitution: str) -> str:
+    marker = "## Hard rules"
+    start = constitution.find(marker)
+    if start < 0:
+        raise SeatError("constitution hard rules are absent")
+    end = constitution.find("\n## ", start + len(marker))
+    if end < 0:
+        raise SeatError("constitution hard rules are unbounded")
+    return constitution[start:end].rstrip()
+
+
+def trusted_prompt(prompt_path: Path) -> str:
+    template = read_regular(prompt_path, MAX_PROMPT_BYTES, "triage prompt").decode("utf-8")
+    root = prompt_path.parent.parent
+    if prompt_path != root / "policy/triage.md":
+        raise SeatError("triage prompt is outside the installed policy root")
+    constitution = read_regular(root / "AGENTS.md", MAX_PROMPT_BYTES, "constitution").decode(
+        "utf-8"
+    )
+    rubric = read_regular(root / "policy/rubric.md", MAX_PROMPT_BYTES, "rubric").decode(
+        "utf-8"
+    )
+    schema = read_regular(
+        root / "policy/task-spec.schema.json", MAX_PROMPT_BYTES, "TaskSpec schema"
+    ).decode("utf-8")
+    if template.count("{{CONSTITUTION_HARD_RULES}}") != 1 or template.count(
+        "{{UNTRUSTED_CHANNELS_JSON}}"
+    ) != 1:
+        raise SeatError("triage prompt placeholders are invalid")
+    rendered = template.replace("{{CONSTITUTION_HARD_RULES}}", hard_rules(constitution))
+    rendered = rendered.replace(
+        "{{UNTRUSTED_CHANNELS_JSON}}",
+        '{"authority":"none","channels":[{"channel":"INPUT_JSON",'
+        '"authority":"none","content":"supplied in the separate user message"}]}',
+    )
+    return (
+        rendered
+        + "\n\n<TRUSTED_RUBRIC>\n"
+        + rubric
+        + "\n</TRUSTED_RUBRIC>\n<TRUSTED_TASK_SPEC_SCHEMA>\n"
+        + schema
+        + "\n</TRUSTED_TASK_SPEC_SCHEMA>\n"
+    )
+
+
+def untrusted_message(value: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        {"authority": "none", "channel": "INPUT_JSON", "content": value},
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+    return encoded.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+
+
+def provider_endpoint(provider: str) -> str:
+    if provider == "Anthropic":
+        return ANTHROPIC_MESSAGES
+    match = LOOPBACK_PROVIDER.fullmatch(provider)
+    if match is not None and 1 <= int(match.group(1)) <= 65535:
+        return provider + "/v1/messages"
+    raise SeatError("triage seat provider is unsupported")
+
+
+def provider_request(
+    endpoint: str,
+    bearer: str,
+    model: str,
+    effort: str,
+    system_prompt: str,
+    input_value: dict[str, Any],
+) -> bytes:
+    body = json.dumps(
+        {
+            "model": model,
+            "max_tokens": 8192,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": untrusted_message(input_value)}],
+            "thinking": {"type": "adaptive"},
+            "output_config": {"effort": effort},
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+    ).encode()
+    request = urllib.request.Request(
+        endpoint,
+        data=body,
+        headers={
+            "authorization": f"Bearer {bearer}",
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+            "user-agent": "patchyard-triage-seat/1",
+        },
+        method="POST",
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect)
+    try:
+        response = opener.open(request, timeout=PROVIDER_TIMEOUT_SECONDS)
+    except urllib.error.HTTPError as error:
+        status = int(error.code)
+        error.close()
+        raise SeatError(f"provider refused triage request with HTTP {status}") from error
+    except (OSError, urllib.error.URLError) as error:
+        raise SeatError("provider transport failed") from error
+    with response:
+        if response.status != 200:
+            raise SeatError(f"provider refused triage request with HTTP {response.status}")
+        raw = response.read(MAX_RESPONSE_BYTES + 1)
+    if len(raw) > MAX_RESPONSE_BYTES:
+        raise SeatError("provider response exceeds the byte limit")
+    return raw
+
+
+def nonnegative_integer(value: Any, label: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value < 2**63:
+        raise SeatError(f"provider {label} is invalid")
+    return value
+
+
+def parse_provider_response(raw: bytes, model: str) -> tuple[bytes, int, int]:
+    response = load_json(raw, "provider response")
+    if (
+        not isinstance(response, dict)
+        or response.get("type") != "message"
+        or response.get("model") != model
+        or response.get("stop_reason") != "end_turn"
+        or not isinstance(response.get("content"), list)
+        or not isinstance(response.get("usage"), dict)
+    ):
+        raise SeatError("provider response envelope is malformed")
+    text_blocks: list[str] = []
+    for block in response["content"]:
+        if not isinstance(block, dict) or block.get("type") not in {
+            "thinking",
+            "redacted_thinking",
+            "text",
+        }:
+            raise SeatError("provider response content is malformed")
+        if block["type"] == "text":
+            text = block.get("text")
+            if not isinstance(text, str) or not text:
+                raise SeatError("provider response text is malformed")
+            text_blocks.append(text)
+    if len(text_blocks) != 1:
+        raise SeatError("provider response must contain one text block")
+    output_value = load_json(text_blocks[0].encode(), "triage output")
+    if (
+        not isinstance(output_value, dict)
+        or set(output_value) != {"task_spec", "confidence_basis_points"}
+        or not isinstance(output_value.get("task_spec"), dict)
+        or not isinstance(output_value.get("confidence_basis_points"), int)
+    ):
+        raise SeatError("triage output envelope is malformed")
+    output = (json.dumps(output_value, separators=(",", ":")) + "\n").encode()
+    if len(output) > MAX_OUTPUT_BYTES:
+        raise SeatError("triage output exceeds the byte limit")
+    usage = response["usage"]
+    input_tokens = nonnegative_integer(usage.get("input_tokens"), "input token count")
+    output_tokens = nonnegative_integer(usage.get("output_tokens"), "output token count")
+    for name in ("cache_creation_input_tokens", "cache_read_input_tokens"):
+        if nonnegative_integer(usage.get(name, 0), name) != 0:
+            raise SeatError("unrequested prompt caching appeared in provider usage")
+    return output, input_tokens, output_tokens
+
+
+def write_output(path: Path, value: bytes) -> None:
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+        )
+        offset = 0
+        while offset < len(value):
+            written = os.write(descriptor, value[offset:])
+            if written <= 0:
+                raise SeatError("triage output write made no progress")
+            offset += written
+        os.fsync(descriptor)
+    except BaseException:
+        if descriptor is not None:
+            os.close(descriptor)
+            descriptor = None
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def run(arguments: list[str]) -> int:
+    if len(arguments) != 3:
+        raise SeatError("usage: patchyard-triage-seat PROMPT INPUT_JSON OUTPUT_JSON")
+    prompt_path, input_path, output_path = map(Path, arguments)
+    bearer_path = Path(require_environment("PATCHYARD_BEARER_FILE"))
+    directory = stage_paths(input_path, output_path, bearer_path)
+    bearer = ""
+    try:
+        bearer = read_bearer(bearer_path, directory)
+        input_value = input_contract(input_path)
+        system_prompt = trusted_prompt(prompt_path)
+        provider = require_environment("PATCHYARD_PROVIDER")
+        display_model = require_environment("PATCHYARD_MODEL")
+        effort = require_environment("PATCHYARD_EFFORT")
+        if display_model not in MODEL_SPECS or effort not in EFFORTS:
+            raise SeatError("triage seat model or effort is unsupported")
+        api_model, input_rate, output_rate = MODEL_SPECS[display_model]
+        raw = provider_request(
+            provider_endpoint(provider),
+            bearer,
+            api_model,
+            effort,
+            system_prompt,
+            input_value,
+        )
+        output, input_tokens, output_tokens = parse_provider_response(raw, api_model)
+        if bearer.encode("ascii") in output:
+            raise SeatError("provider response disclosed the seat bearer")
+        cost_microusd = input_tokens * input_rate + output_tokens * output_rate
+        write_output(output_path, output)
+        usage = {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cost_microusd": cost_microusd,
+        }
+        print(
+            "PATCHYARD_USAGE=" + json.dumps(usage, separators=(",", ":")),
+            file=sys.stderr,
+        )
+        return 0
+    finally:
+        bearer = ""
+        remove_bearer(bearer_path, directory)
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(run(sys.argv[1:]))
+    except (SeatError, OSError, UnicodeDecodeError) as error:
+        print(f"triage seat: {error}", file=sys.stderr)
+        raise SystemExit(1)

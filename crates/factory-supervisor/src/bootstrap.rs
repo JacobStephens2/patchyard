@@ -15,7 +15,7 @@ use thiserror::Error;
 use crate::{
     artifacts::ArtifactStore,
     child::{ChildSpawnConfig, IsolatedChildSpawner},
-    config::RoutingConfig,
+    config::{ProviderEgressConfig, RoutingConfig},
     daemon::DaemonConfig,
     evidence::EvidenceCapture,
     lifecycle::{EvidenceLifecycle, LifecycleConfig, LifecycleService},
@@ -32,8 +32,8 @@ use crate::{
     review::{ReviewSandboxConfig, SandboxedReviewer},
     secret_scan::ProcessSecretScanner,
     stages::{
-        ProcessAgentBackend, ProcessVerifierBackend, ProcessWorkerBackend, StageCommand,
-        VerifierCommand, WorkerCommand,
+        CredentialCommand, ProcessAgentBackend, ProcessVerifierBackend, ProcessWorkerBackend,
+        StageCommand, VerifierCommand, WorkerCommand,
     },
     store::{DailyLimits, PgPipelineStore},
 };
@@ -103,7 +103,10 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
     })
     .await??;
     if routing.live_provider_execution {
-        return Err(BootstrapError::LiveProviderForbidden);
+        let provider_egress_path = root.join("policy/provider-egress.json");
+        let provider_egress =
+            blocking(move || ProviderEgressConfig::load(&provider_egress_path)).await??;
+        require_qualified_triage_provider(&routing, &provider_egress)?;
     }
     let rubric_source = tokio::fs::read_to_string(&rubric_path).await?;
     let rubric = Rubric::parse_markdown(&rubric_source)?;
@@ -114,6 +117,18 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
     })
     .await??;
 
+    let triage_credential = if routing.live_provider_execution {
+        Some(CredentialCommand {
+            program: PathBuf::from("/usr/bin/sudo"),
+            arguments: vec![
+                OsString::from("-n"),
+                OsString::from("/usr/local/sbin/patchyard-mint-seat-bearer"),
+            ],
+            timeout: duration_env("FACTORY_SEAT_CREDENTIAL_TIMEOUT_SECONDS", 45)?,
+        })
+    } else {
+        None
+    };
     let mut commands = BTreeMap::new();
     commands.insert(
         "triage".to_owned(),
@@ -125,6 +140,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
             prompt: root.join("policy/triage.md"),
             timeout: duration_env("FACTORY_TRIAGE_TIMEOUT_SECONDS", 120)?,
             cli_version: required_or("FACTORY_TRIAGE_CLI_VERSION", "fixture-stub/1"),
+            credential: triage_credential,
         },
     );
     commands.insert(
@@ -137,9 +153,15 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
             prompt: root.join("policy/disposition.md"),
             timeout: duration_env("FACTORY_DISPOSITION_TIMEOUT_SECONDS", 120)?,
             cli_version: required_or("FACTORY_DISPOSITION_CLI_VERSION", "fixture-stub/1"),
+            credential: None,
         },
     );
-    let agents = ProcessAgentBackend::new(commands, scratch.join("agents"));
+    let agent_scratch = if routing.live_provider_execution {
+        path_env("FACTORY_SEAT_SCRATCH_ROOT", "/run/patchyard-seats")
+    } else {
+        scratch.join("agents")
+    };
+    let agents = ProcessAgentBackend::new(commands, agent_scratch);
     let worker = ProcessWorkerBackend::new(
         WorkerCommand {
             program: path_env(
@@ -446,6 +468,26 @@ fn repository_scope() -> RepositoryScope {
     }
 }
 
+fn require_qualified_triage_provider(
+    routing: &RoutingConfig,
+    provider_egress: &ProviderEgressConfig,
+) -> Result<(), BootstrapError> {
+    let provider = &routing.resolve("triage")?.seat.provider;
+    let Some(entry) = provider_egress.by_display_name(provider) else {
+        return Err(BootstrapError::LiveProviderForbidden {
+            provider: provider.clone(),
+            reason: "provider is absent from policy/provider-egress.json",
+        });
+    };
+    if !entry.credential_qualified {
+        return Err(BootstrapError::LiveProviderForbidden {
+            provider: provider.clone(),
+            reason: "credential_qualified is false in policy/provider-egress.json",
+        });
+    }
+    Ok(())
+}
+
 async fn ensure_private_roots(scratch: &Path, artifacts: &Path) -> Result<(), BootstrapError> {
     for (path, mode) in [(scratch, 0o700), (artifacts, 0o2750)] {
         let path = path.to_path_buf();
@@ -558,14 +600,19 @@ pub enum BootstrapError {
     MissingEnvironment(&'static str),
     #[error("environment variable is invalid: {0}")]
     InvalidEnvironment(&'static str),
-    #[error("live provider execution is forbidden before provider qualification")]
-    LiveProviderForbidden,
+    #[error("live triage provider {provider} is forbidden: {reason}")]
+    LiveProviderForbidden {
+        provider: String,
+        reason: &'static str,
+    },
     #[error("runtime filesystem failed: {0}")]
     Io(#[from] std::io::Error),
     #[error("runtime blocking task failed: {0}")]
     Join(#[from] tokio::task::JoinError),
     #[error("routing config failed: {0}")]
     Routing(#[from] crate::config::RoutingError),
+    #[error("provider-egress config failed: {0}")]
+    ProviderEgress(#[from] crate::config::ProviderEgressError),
     #[error("rubric failed: {0}")]
     Rubric(#[from] factory_core::triage::TriageError),
     #[error("artifact store failed: {0}")]
@@ -588,4 +635,56 @@ pub enum BootstrapError {
     Reconcile(#[from] crate::reconcile::ReconcileError),
     #[error("improvement proposer setup failed: {0}")]
     Proposer(#[from] crate::proposer::ProposerError),
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use crate::config::{ProviderEgressConfig, RoutingConfig};
+
+    use super::{BootstrapError, require_qualified_triage_provider};
+
+    fn canonical_configs() -> (RoutingConfig, ProviderEgressConfig) {
+        (
+            RoutingConfig::load(
+                Path::new("../../policy/routing.json"),
+                Path::new("../../docs/bench.json"),
+            )
+            .expect("routing"),
+            ProviderEgressConfig::load(Path::new("../../policy/provider-egress.json"))
+                .expect("provider egress"),
+        )
+    }
+
+    #[test]
+    fn qualified_triage_provider_lifts_only_the_live_triage_gate() {
+        let (routing, provider_egress) = canonical_configs();
+        require_qualified_triage_provider(&routing, &provider_egress)
+            .expect("Anthropic triage is qualified");
+    }
+
+    #[test]
+    fn unqualified_triage_provider_is_named_with_the_policy_reason() {
+        let (mut routing, provider_egress) = canonical_configs();
+        routing
+            .rules
+            .get_mut("triage")
+            .expect("triage")
+            .seat
+            .provider = "OpenAI".to_owned();
+        let error = require_qualified_triage_provider(&routing, &provider_egress)
+            .expect_err("OpenAI remains unqualified");
+        assert!(matches!(
+            error,
+            BootstrapError::LiveProviderForbidden {
+                ref provider,
+                reason: "credential_qualified is false in policy/provider-egress.json",
+            } if provider == "OpenAI"
+        ));
+        assert_eq!(
+            error.to_string(),
+            "live triage provider OpenAI is forbidden: credential_qualified is false in policy/provider-egress.json"
+        );
+    }
 }

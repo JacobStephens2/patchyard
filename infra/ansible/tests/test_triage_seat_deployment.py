@@ -1,0 +1,111 @@
+import ast
+import hashlib
+import json
+from pathlib import Path
+import re
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[3]
+CONTROL = ROOT / "infra/ansible/roles/control_plane"
+SEAT = CONTROL / "files/patchyard-triage-seat"
+MINTER = CONTROL / "files/patchyard-mint-seat-bearer"
+SUDOERS = CONTROL / "files/patchyard-seat-mint.sudoers"
+TMPFILES = CONTROL / "files/patchyard-seat.tmpfiles"
+UNIT = CONTROL / "files/factory-supervisor.service"
+TASKS = CONTROL / "tasks/main.yml"
+ENVIRONMENT = CONTROL / "templates/patchyard-supervisor.env.j2"
+QUALIFY = CONTROL / "templates/qualify-factory-control.j2"
+BOOTSTRAP = ROOT / "crates/factory-supervisor/src/bootstrap.rs"
+STAGES = ROOT / "crates/factory-supervisor/src/stages.rs"
+LIFECYCLE = ROOT / "tools/anthropic-wif-lifecycle.py"
+ROUTING = ROOT / "policy/routing.json"
+PROVIDERS = ROOT / "policy/provider-egress.json"
+
+
+class TriageSeatDeployment(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.seat = SEAT.read_text()
+        cls.minter = MINTER.read_text()
+        cls.sudoers = SUDOERS.read_text()
+        cls.tmpfiles = TMPFILES.read_text()
+        cls.unit = UNIT.read_text()
+        cls.tasks = TASKS.read_text()
+        cls.environment = ENVIRONMENT.read_text()
+        cls.qualify = QUALIFY.read_text()
+        cls.bootstrap = BOOTSTRAP.read_text()
+        cls.stages = STAGES.read_text()
+        cls.routing = json.loads(ROUTING.read_text())
+        cls.providers = json.loads(PROVIDERS.read_text())
+
+    def test_runtime_scripts_parse_and_are_installed_with_fixed_roles(self) -> None:
+        ast.parse(self.seat)
+        ast.parse(self.minter)
+        self.assertIn("destination: /usr/local/libexec/patchyard-triage-seat", self.tasks)
+        self.assertIn(
+            "destination: /usr/local/sbin/patchyard-mint-seat-bearer", self.tasks
+        )
+        self.assertIn("validate: /usr/sbin/visudo -cf %s", self.tasks)
+        self.assertIn("test -x /usr/local/libexec/patchyard-triage-seat", self.qualify)
+        self.assertIn("test -x /usr/local/sbin/patchyard-mint-seat-bearer", self.qualify)
+
+    def test_minter_reuses_the_exact_qualified_wif_source(self) -> None:
+        observed = hashlib.sha256(LIFECYCLE.read_bytes()).hexdigest()
+        match = re.search(r'BASE_HARNESS_SHA256 = \(\n    "([0-9a-f]{64})"', self.minter)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group(1), observed)
+        self.assertIn("base.accepted_exchange(", self.minter)
+        self.assertNotIn("/v1/oauth/token", self.minter)
+        self.assertNotIn("mint_assertion(", self.minter)
+
+    def test_fifth_seat_variable_is_a_path_and_never_a_secret_value(self) -> None:
+        self.assertIn('OsString::from("PATCHYARD_BEARER_FILE")', self.stages)
+        self.assertIn("path.as_os_str().to_owned()", self.stages)
+        self.assertIn('require_environment("PATCHYARD_BEARER_FILE")', self.seat)
+        self.assertNotIn("ANTHROPIC_API_KEY", self.seat + self.minter + self.stages)
+        self.assertNotIn("OPENAI_API_KEY", self.seat + self.minter + self.stages)
+        self.assertNotIn("bearer_auth", self.seat)
+
+    def test_bearer_stage_is_tmpfs_private_and_removed_on_restore_drills(self) -> None:
+        self.assertEqual(
+            self.tmpfiles,
+            "d /run/patchyard-seats 0700 factory-manager factory -\n",
+        )
+        self.assertIn("FACTORY_SEAT_SCRATCH_ROOT=/run/patchyard-seats", self.environment)
+        self.assertIn("ReadWritePaths=", self.unit)
+        self.assertIn("/run/patchyard-seats", self.unit)
+        self.assertIn("path: /run/patchyard-seats", self.tasks)
+        self.assertIn("- /run/patchyard-seats", self.tasks)
+        self.assertIn("assert_path /run/patchyard-seats factory-manager factory 700", self.qualify)
+        self.assertIn("NoNewPrivileges=true", self.unit)
+        self.assertIn("ProtectSystem=strict", self.unit)
+
+    def test_sudo_grant_cannot_select_a_provider_or_non_stage_destination(self) -> None:
+        self.assertEqual(
+            self.sudoers,
+            "Cmnd_Alias PATCHYARD_MINT_SEAT_BEARER = "
+            "/usr/local/sbin/patchyard-mint-seat-bearer Anthropic "
+            "/run/patchyard-seats/agent-*/bearer\n"
+            "factory-manager ALL=(root) NOPASSWD: PATCHYARD_MINT_SEAT_BEARER\n",
+        )
+        self.assertIn('arguments[0] != "Anthropic"', self.minter)
+        self.assertIn("path.parent.parent != SEAT_ROOT", self.minter)
+        self.assertIn("STAGE_PATTERN.fullmatch(path.parent.name)", self.minter)
+
+    def test_gate_is_triage_only_and_policy_activation_remains_separate(self) -> None:
+        self.assertFalse(self.routing["live_provider_execution"])
+        qualified = [
+            provider["display_name"]
+            for provider in self.providers["providers"].values()
+            if provider["credential_qualified"]
+        ]
+        self.assertEqual(qualified, ["Anthropic"])
+        self.assertIn('routing.resolve("triage")', self.bootstrap)
+        self.assertIn("credential_qualified is false in policy/provider-egress.json", self.bootstrap)
+        self.assertNotIn('commands.insert(\n        "implement"', self.bootstrap)
+        self.assertNotIn('commands.insert(\n        "implementation_review"', self.bootstrap)
+
+
+if __name__ == "__main__":
+    unittest.main()

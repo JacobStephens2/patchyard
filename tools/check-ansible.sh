@@ -77,6 +77,7 @@ TEST_FILES=(
   infra/ansible/tests/test_session14_qualification.py
   infra/ansible/tests/test_session15_proposer.py
   infra/ansible/tests/test_session16_cutover.py
+  infra/ansible/tests/test_triage_seat_deployment.py
   infra/ansible/tests/test_worker_firewall_readiness.py
 )
 for test_file in "${TEST_FILES[@]}"; do

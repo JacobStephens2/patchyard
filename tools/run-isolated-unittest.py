@@ -34,6 +34,7 @@ EXPECTED_TEST_FILES = (
     "test_session14_qualification.py",
     "test_session15_proposer.py",
     "test_session16_cutover.py",
+    "test_triage_seat_deployment.py",
     "test_worker_firewall_readiness.py",
 )
 STDLIB_MODULES = (hashlib, importlib, sysconfig, unittest)

@@ -18,6 +18,7 @@
       - policycoreutils-python-utils
       - polkit
       - python3-pip
+      - sudo
     state: present
   tags: [session13]
 
@@ -611,6 +612,51 @@
     mode: "0400"
   when: not (factory_restore_drill | default(false) | bool)
 
+- name: Install the triage seat and its source-pinned root mint adapter
+  ansible.builtin.copy:
+    src: "{{ item.source }}"
+    dest: "{{ item.destination }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - source: patchyard-triage-seat
+      destination: /usr/local/libexec/patchyard-triage-seat
+      mode: "0755"
+    - source: patchyard-mint-seat-bearer
+      destination: /usr/local/sbin/patchyard-mint-seat-bearer
+      mode: "0750"
+  when: not (factory_restore_drill | default(false) | bool)
+  notify: Restart factory supervisor
+
+- name: Install the exact factory-manager seat-mint sudo grant
+  ansible.builtin.copy:
+    src: patchyard-seat-mint.sudoers
+    dest: /etc/sudoers.d/patchyard-seat-mint
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+  when: not (factory_restore_drill | default(false) | bool)
+
+- name: Create the supervisor-owned seat tmpfs root
+  ansible.builtin.file:
+    path: /run/patchyard-seats
+    state: directory
+    owner: "{{ factory_manager_user }}"
+    group: factory
+    mode: "0700"
+  when: not (factory_restore_drill | default(false) | bool)
+
+- name: Recreate the seat tmpfs root after boot
+  ansible.builtin.copy:
+    src: patchyard-seat.tmpfiles
+    dest: /etc/tmpfiles.d/patchyard-seat.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: not (factory_restore_drill | default(false) | bool)
+
 - name: Keep the live Anthropic signing identity off restore drills
   ansible.builtin.file:
     path: "{{ item }}"
@@ -620,6 +666,11 @@
     - /etc/patchyard/anthropic-wif-signing.pem
     - /etc/patchyard/anthropic-worker-ip
     - /etc/tmpfiles.d/patchyard-anthropic.conf
+    - /etc/tmpfiles.d/patchyard-seat.conf
+    - /etc/sudoers.d/patchyard-seat-mint
+    - /run/patchyard-seats
+    - /usr/local/libexec/patchyard-triage-seat
+    - /usr/local/sbin/patchyard-mint-seat-bearer
     - /usr/local/sbin/patchyard-run-anthropic-issuance
   when: factory_restore_drill | default(false) | bool
 

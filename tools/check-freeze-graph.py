@@ -23,6 +23,7 @@ SOURCE_ROOTS = ("tools", "worker")
 RESULT_ROOT = PurePosixPath("research/isolation/results")
 SHA256 = re.compile(r"[0-9a-fA-F]{64}")
 SHA256_TOKEN = re.compile(r"(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])")
+SUPERSEDES_NAME = "SUPERSEDES_CHECKER_SHA256"
 STDLIB_MODULES = (
     argparse,
     ast,
@@ -227,7 +228,7 @@ def json_pins(
     return pins
 
 
-def python_pins(source: bytes, owner: str) -> set[Pin]:
+def python_pins(source: bytes, owner: str) -> tuple[set[Pin], set[str]]:
     try:
         tree = ast.parse(source, filename=owner)
     except (SyntaxError, ValueError) as error:
@@ -235,8 +236,40 @@ def python_pins(source: bytes, owner: str) -> set[Pin]:
             f"cannot parse Python source {owner}: {error}"
         ) from error
 
+    superseded: set[str] = set()
+    excluded_nodes: set[int] = set()
+    declarations = 0
+    for statement in tree.body:
+        if not isinstance(statement, ast.Assign) or not any(
+            isinstance(target, ast.Name) and target.id == SUPERSEDES_NAME
+            for target in statement.targets
+        ):
+            continue
+        declarations += 1
+        try:
+            values = ast.literal_eval(statement.value)
+        except (ValueError, TypeError, SyntaxError) as error:
+            raise FreezeGraphError(
+                f"invalid {SUPERSEDES_NAME} declaration in {owner}"
+            ) from error
+        if (
+            not isinstance(values, tuple)
+            or not values
+            or any(normalized_digest(value) is None for value in values)
+            or len(set(values)) != len(values)
+        ):
+            raise FreezeGraphError(
+                f"invalid {SUPERSEDES_NAME} declaration in {owner}"
+            )
+        superseded.update(value.lower() for value in values)
+        excluded_nodes.update(id(node) for node in ast.walk(statement.value))
+    if declarations > 1:
+        raise FreezeGraphError(f"duplicate {SUPERSEDES_NAME} declaration in {owner}")
+
     pins: set[Pin] = set()
     for node in ast.walk(tree):
+        if id(node) in excluded_nodes:
+            continue
         if isinstance(node, ast.Constant):
             digest = normalized_digest(node.value)
             if digest is not None:
@@ -250,7 +283,7 @@ def python_pins(source: bytes, owner: str) -> set[Pin]:
             digest = normalized_digest(value.value)
             if target is not None and digest is not None:
                 pins.add(Pin(digest, owner, f"{owner}:{value.lineno}", target))
-    return pins
+    return pins, superseded
 
 
 def text_pins(source: bytes, owner: str) -> set[Pin]:
@@ -267,15 +300,20 @@ def text_pins(source: bytes, owner: str) -> set[Pin]:
     return pins
 
 
-def source_pins(repo: Path, files: list[str]) -> dict[str, set[Pin]]:
+def source_pins(
+    repo: Path, files: list[str]
+) -> tuple[dict[str, set[Pin]], dict[str, set[str]]]:
     collected: dict[str, set[Pin]] = {}
+    supersessions: dict[str, set[str]] = {}
     for relative in files:
         parts = PurePosixPath(relative).parts
         if not parts or parts[0] not in SOURCE_ROOTS:
             continue
         source = read_regular(repo, relative)
         if relative.endswith(".py"):
-            pins = python_pins(source, relative)
+            pins, superseded = python_pins(source, relative)
+            if superseded:
+                supersessions[relative] = superseded
         elif relative.endswith(".json"):
             pins = json_pins(
                 load_json(source, relative),
@@ -286,7 +324,37 @@ def source_pins(repo: Path, files: list[str]) -> dict[str, set[Pin]]:
             pins = text_pins(source, relative)
         if pins:
             collected[relative] = pins
-    return collected
+    return collected, supersessions
+
+
+def checker_result_pins(
+    value: Any, owner: str, parts: tuple[str, ...] = ()
+) -> set[Pin]:
+    pins: set[Pin] = set()
+    if isinstance(value, dict):
+        checker = value.get("checker")
+        digest = normalized_digest(value.get("checker_sha256"))
+        if (
+            isinstance(checker, str)
+            and PurePosixPath(checker).name == checker
+            and checker.startswith("check-")
+            and checker.endswith(".py")
+            and digest is not None
+        ):
+            pins.add(
+                Pin(
+                    digest,
+                    owner,
+                    f"{owner}{json_pointer((*parts, 'checker_sha256'))}",
+                    f"tools/{checker}",
+                )
+            )
+        for key, child in value.items():
+            pins.update(checker_result_pins(child, owner, (*parts, key)))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            pins.update(checker_result_pins(child, owner, (*parts, str(index))))
+    return pins
 
 
 def result_pins(repo: Path, files: list[str]) -> set[Pin]:
@@ -298,13 +366,18 @@ def result_pins(repo: Path, files: list[str]) -> set[Pin]:
             continue
         if len(path.parts) != len(root_parts) + 1:
             continue
+        result = load_json(read_regular(repo, relative), relative)
+        generic = json_pins(result, relative, bind_path_keys=False)
+        checker_pins = checker_result_pins(result, relative)
+        checker_locations = {
+            (pin.digest, pin.owner, pin.location) for pin in checker_pins
+        }
         pins.update(
-            json_pins(
-                load_json(read_regular(repo, relative), relative),
-                relative,
-                bind_path_keys=False,
-            )
+            pin
+            for pin in generic
+            if (pin.digest, pin.owner, pin.location) not in checker_locations
         )
+        pins.update(checker_pins)
     return pins
 
 
@@ -383,6 +456,59 @@ def historical_digest_matches(repo: Path, candidates: set[str]) -> set[str]:
     return matches
 
 
+def historical_path_digests(repo: Path, relative: str) -> set[str]:
+    commits = (
+        git(repo, "log", "--format=%H", "HEAD", "--", relative)
+        .decode("ascii")
+        .splitlines()
+    )
+    digests: set[str] = set()
+    for commit in commits:
+        try:
+            source = git(repo, "show", f"{commit}:{relative}")
+        except FreezeGraphError:
+            continue
+        digests.add(hashlib.sha256(source).hexdigest())
+    return digests
+
+
+def validated_supersessions(
+    repo: Path,
+    declarations: dict[str, set[str]],
+    results: set[Pin],
+    by_path: dict[str, str],
+) -> set[tuple[str, str]]:
+    result_checker_pins = {
+        (pin.digest, pin.target)
+        for pin in results
+        if pin.target is not None
+        and pin.owner.startswith(f"{RESULT_ROOT.as_posix()}/")
+    }
+    validated: set[tuple[str, str]] = set()
+    for path, digests in declarations.items():
+        candidate = PurePosixPath(path)
+        if (
+            candidate.parent != PurePosixPath("tools")
+            or not candidate.name.startswith("check-")
+            or candidate.suffix != ".py"
+        ):
+            raise FreezeGraphError(
+                f"{SUPERSEDES_NAME} is permitted only in checker files: {path}"
+            )
+        historical = historical_path_digests(repo, path)
+        for digest in digests:
+            if by_path.get(path) == digest or digest not in historical:
+                raise FreezeGraphError(
+                    f"{path} does not replace its declared historical digest: {digest}"
+                )
+            if (digest, path) not in result_checker_pins:
+                raise FreezeGraphError(
+                    f"{path} declares an unpinned checker digest: {digest}"
+                )
+            validated.add((digest, path))
+    return validated
+
+
 def freeze_closure(
     results: set[Pin],
     sources: dict[str, set[Pin]],
@@ -422,9 +548,16 @@ def drift_rows(
     by_path: dict[str, str],
     by_digest: dict[str, set[str]],
     historical: set[str],
+    superseded: set[tuple[str, str]],
 ) -> list[dict[str, Any]]:
     drift: dict[str, dict[str, set[str]]] = {}
     for pin in sorted(pins, key=pin_sort_key):
+        if (
+            pin.target is not None
+            and (pin.digest, pin.target) in superseded
+            and pin.owner.startswith(f"{RESULT_ROOT.as_posix()}/")
+        ):
+            continue
         expected_path_drift = (
             pin.target is not None and by_path.get(pin.target) != pin.digest
         )
@@ -450,16 +583,19 @@ def drift_rows(
 
 def build_report(repo: Path) -> dict[str, Any]:
     files = repository_files(repo)
-    sources = source_pins(repo, files)
+    sources, declarations = source_pins(repo, files)
     results = result_pins(repo, files)
     all_pins = set(results)
     for pins in sources.values():
         all_pins.update(pins)
     candidates = {pin.digest for pin in all_pins}
     by_path, by_digest = current_digests(repo, files)
+    superseded = validated_supersessions(
+        repo, declarations, results, by_path
+    )
     historical = historical_digest_matches(repo, candidates)
     frozen, pinned_by = freeze_closure(results, sources, by_digest)
-    drift = drift_rows(all_pins, by_path, by_digest, historical)
+    drift = drift_rows(all_pins, by_path, by_digest, historical, superseded)
     frozen_rows = [
         {
             "path": path,

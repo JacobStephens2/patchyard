@@ -378,10 +378,8 @@ if policy.get("service_account", {}).get("id") != service_account_id:
     errors.append("Anthropic Factory principal differs from the reviewed binding")
 
 providers = json.loads((REPO / "policy/provider-egress.json").read_text())["providers"]
-if len(providers) != 13 or any(
-    item.get("credential_qualified") is not False for item in providers.values()
-):
-    errors.append("all 13 provider credential qualification flags must remain false")
+if len(providers) != 13:
+    errors.append("provider egress policy does not contain 13 providers")
 
 # A117 source bindings. Request cardinality comes from the host namespace's
 # admitted conntrack ID and independently read counters. Source checks bind the

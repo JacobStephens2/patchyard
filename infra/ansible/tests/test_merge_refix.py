@@ -96,6 +96,28 @@ class GeneratedFileSet(unittest.TestCase):
         self.assertIn("docs/codebase-metrics.json", self.tool.GENERATED)
         self.assertIn(".github/workflows/infrastructure.yml", self.tool.GENERATED)
 
+    def test_committed_results_are_never_digest_rewrite_targets(self):
+        self.assertFalse(
+            any(
+                path.startswith("research/isolation/results/")
+                for path in self.tool.tracked_text_files()
+            )
+        )
+
+
+class DigestReportParsing(unittest.TestCase):
+    def setUp(self):
+        self.tool = load_tool()
+
+    def test_unittest_actual_and_expected_digest_are_oriented_for_replacement(self):
+        actual = "1" * 64
+        expected = "2" * 64
+        report = f"AssertionError: '{actual}' != '{expected}'\n"
+        self.assertEqual(
+            self.tool.digest_substitutions(report),
+            {expected: actual},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

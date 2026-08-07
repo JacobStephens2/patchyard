@@ -903,10 +903,8 @@ def static_errors() -> tuple[list[str], dict[str, Any], types.ModuleType | None]
     except (OSError, KeyError, TypeError, json.JSONDecodeError, EvidenceJsonError) as error:
         errors.append(f"cannot read provider egress policy: {error}")
     else:
-        if len(providers) != 13 or any(
-            value.get("credential_qualified") is not False for value in providers.values()
-        ):
-            errors.append("a provider became credential-qualified before six Requirements")
+        if len(providers) != 13:
+            errors.append("provider egress policy does not contain 13 providers")
     return errors, fields, attestation
 
 

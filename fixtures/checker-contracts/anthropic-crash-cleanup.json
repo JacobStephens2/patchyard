@@ -4,19 +4,19 @@
     {
       "accepted": false,
       "checker": "check-anthropic-expiry.py",
-      "checker_sha256": "41904ee87d54c362c9714c3c06853e5f67047365847edc9431620d62bc5a9c54",
+      "checker_sha256": "8d9de38c16bbcc4ad63a73a0f570703581f8264371503385ef513057ff0f8ca8",
       "exit_code": 1
     },
     {
       "accepted": false,
       "checker": "check-anthropic-revocation.py",
-      "checker_sha256": "deeba4038169d466a31bbcf4d263fe8ac1bdf0aa5bd9365f4449da8e80db085c",
+      "checker_sha256": "748cea22f9ece87dee2b6915f3609c8041cae1b5d6fdfd27b1f165901d9d7297",
       "exit_code": 1
     },
     {
       "accepted": false,
       "checker": "check-anthropic-crash-cleanup.py",
-      "checker_sha256": "770a339f2d6c36c849968b9fed914ebb2fce518e0cc1458c8c0fb98648a6e278",
+      "checker_sha256": "35dd6d624e4302dd230560b1380736eb43df3aa6b345015a4fce3f429d354e66",
       "exit_code": 1
     }
   ],

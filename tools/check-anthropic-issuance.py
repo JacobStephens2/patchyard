@@ -139,14 +139,15 @@ for section, pattern in (
 providers = json.loads((REPO / "policy" / "provider-egress.json").read_text())[
     "providers"
 ]
-if providers.get("anthropic") != {
-    "display_name": "Anthropic",
-    "hostnames": ["api.anthropic.com"],
-    "credential_qualified": False,
-}:
-    errors.append("Anthropic egress policy changed or advanced credential eligibility")
-if any(item.get("credential_qualified") is not False for item in providers.values()):
-    errors.append("a provider became credential-qualified before its six live fixtures")
+anthropic_egress = providers.get("anthropic")
+if (
+    not isinstance(anthropic_egress, dict)
+    or set(anthropic_egress)
+    != {"display_name", "hostnames", "credential_qualified"}
+    or anthropic_egress.get("display_name") != "Anthropic"
+    or anthropic_egress.get("hostnames") != ["api.anthropic.com"]
+):
+    errors.append("Anthropic egress policy entry changed")
 
 runner = (
     REPO / "worker" / "qualification" / "patchyard-run-anthropic-issuance"

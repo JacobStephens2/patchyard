@@ -1,6 +1,9 @@
 //! Versioned static seat routing resolved against the canonical bench.
 
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
@@ -50,9 +53,29 @@ pub struct RoutingConfig {
     pub schema_version: u16,
     pub version: String,
     pub bench_sha256: String,
-    /// False until a provider completes its later A-5 credential gate.
+    /// False until a separate reviewed change activates provider execution.
     pub live_provider_execution: bool,
     pub rules: BTreeMap<String, RoutingRule>,
+}
+
+/// One serving host's provider-egress and credential eligibility record.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderEgress {
+    pub display_name: String,
+    pub hostnames: Vec<String>,
+    pub credential_qualified: bool,
+}
+
+/// The fail-closed provider policy consulted before a live seat is created.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderEgressConfig {
+    pub schema_version: u16,
+    pub default: String,
+    pub runtime_dns: String,
+    pub qualification_rule: String,
+    pub providers: BTreeMap<String, ProviderEgress>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -200,6 +223,54 @@ impl RoutingConfig {
     }
 }
 
+impl ProviderEgressConfig {
+    /// Parse the provider policy and reject ambiguous serving-host names.
+    pub fn load(path: &Path) -> Result<Self, ProviderEgressError> {
+        let bytes = std::fs::read(path)?;
+        let config: Self = serde_json::from_slice(&bytes)?;
+        config.validate()?;
+        Ok(config)
+    }
+
+    fn validate(&self) -> Result<(), ProviderEgressError> {
+        if self.schema_version != 1
+            || self.default != "deny"
+            || self.runtime_dns != "deny"
+            || self.qualification_rule.trim().is_empty()
+            || self.providers.is_empty()
+        {
+            return Err(ProviderEgressError::InvalidEnvelope);
+        }
+        let mut display_names = BTreeSet::new();
+        for (key, provider) in &self.providers {
+            if key.is_empty()
+                || provider.display_name.trim().is_empty()
+                || provider.hostnames.is_empty()
+                || !display_names.insert(provider.display_name.as_str())
+            {
+                return Err(ProviderEgressError::InvalidProvider(key.clone()));
+            }
+            let mut hostnames = BTreeSet::new();
+            if provider.hostnames.iter().any(|hostname| {
+                hostname.trim().is_empty()
+                    || hostname.contains(['/', ':', '@'])
+                    || !hostnames.insert(hostname.as_str())
+            }) {
+                return Err(ProviderEgressError::InvalidProvider(key.clone()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Resolve a canonical bench host through its human-facing provider name.
+    #[must_use]
+    pub fn by_display_name(&self, display_name: &str) -> Option<&ProviderEgress> {
+        self.providers
+            .values()
+            .find(|provider| provider.display_name == display_name)
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum RoutingError {
     #[error("routing policy or canonical bench could not be read: {0}")]
@@ -224,11 +295,23 @@ pub enum RoutingError {
     ArbiterNotThirdFamily,
 }
 
+#[derive(Debug, Error)]
+pub enum ProviderEgressError {
+    #[error("provider-egress policy could not be read: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("provider-egress policy JSON is invalid: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("provider-egress policy envelope is invalid")]
+    InvalidEnvelope,
+    #[error("provider-egress entry is invalid or ambiguous: {0}")]
+    InvalidProvider(String),
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
-    use super::RoutingConfig;
+    use super::{ProviderEgressConfig, RoutingConfig};
 
     #[test]
     fn canonical_routing_resolves_against_bench() {
@@ -254,5 +337,24 @@ mod tests {
                 .provider,
             "xAI"
         );
+    }
+
+    #[test]
+    fn canonical_provider_policy_has_one_qualified_serving_host() {
+        let config = ProviderEgressConfig::load(Path::new("../../policy/provider-egress.json"))
+            .expect("canonical provider policy");
+        assert!(
+            config
+                .by_display_name("Anthropic")
+                .expect("Anthropic")
+                .credential_qualified
+        );
+        assert!(
+            !config
+                .by_display_name("OpenAI")
+                .expect("OpenAI")
+                .credential_qualified
+        );
+        assert!(config.by_display_name("missing-provider").is_none());
     }
 }

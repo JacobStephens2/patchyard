@@ -20,6 +20,7 @@ EXPECTED_FROZEN_PATHS = [
     "tools/check-anthropic-crash-cleanup.py",
     "tools/check-anthropic-expiry.py",
     "tools/check-anthropic-revocation.py",
+    "tools/openai-wif-expiry.py",
     "tools/openai-wif-issuance.py",
     "worker/image/patchyard-guest-run",
     "worker/image/production-parity.json",

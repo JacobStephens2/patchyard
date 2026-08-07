@@ -72,9 +72,9 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 25494,
+      "code": 25892,
       "comments": 539,
-      "blanks": 2131,
+      "blanks": 2167,
       "files": 158,
       "languages": [
         {
@@ -135,9 +135,9 @@
         },
         {
           "language": "Python",
-          "code": 12194,
+          "code": 12592,
           "comments": 59,
-          "blanks": 967,
+          "blanks": 1003,
           "files": 30
         },
         {
@@ -173,10 +173,10 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 17532,
-      "comments": 291,
-      "blanks": 1535,
-      "files": 113,
+      "code": 21335,
+      "comments": 299,
+      "blanks": 1840,
+      "files": 119,
       "languages": [
         {
           "language": "BASH",
@@ -201,15 +201,15 @@
         },
         {
           "language": "JSON",
-          "code": 2486,
+          "code": 2851,
           "comments": 0,
           "blanks": 0,
-          "files": 24
+          "files": 26
         },
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 184,
+          "comments": 188,
           "blanks": 30,
           "files": 18
         },
@@ -229,14 +229,14 @@
         },
         {
           "language": "Python",
-          "code": 13771,
-          "comments": 64,
-          "blanks": 1360,
-          "files": 38
+          "code": 17207,
+          "comments": 68,
+          "blanks": 1665,
+          "files": 42
         },
         {
           "language": "Shell",
-          "code": 639,
+          "code": 641,
           "comments": 33,
           "blanks": 101,
           "files": 19
@@ -267,31 +267,31 @@
     {
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
-      "code": 10204,
-      "comments": 21524,
-      "blanks": 5891,
-      "files": 201,
+      "code": 10325,
+      "comments": 21872,
+      "blanks": 5990,
+      "files": 202,
       "languages": [
         {
           "language": "BASH",
-          "code": 585,
+          "code": 690,
           "comments": 18,
           "blanks": 21,
-          "files": 21
+          "files": 22
         },
         {
           "language": "JSON",
-          "code": 9252,
+          "code": 9268,
           "comments": 0,
           "blanks": 1,
-          "files": 39
+          "files": 40
         },
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 21504,
-          "blanks": 5838,
-          "files": 167
+          "comments": 21852,
+          "blanks": 5937,
+          "files": 168
         },
         {
           "language": "Python",

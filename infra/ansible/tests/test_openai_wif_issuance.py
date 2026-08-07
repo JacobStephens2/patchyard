@@ -17,15 +17,38 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[3]
 ADAPTER_PATH = ROOT / "tools/openai-wif-issuance.py"
 CHECKER_PATH = ROOT / "tools/check-openai-wif-issuance.py"
+EXPIRY_ADAPTER_PATH = ROOT / "tools/openai-wif-expiry.py"
+EXPIRY_CHECKER_PATH = ROOT / "tools/check-openai-wif-expiry.py"
+CRASH_ADAPTER_PATH = ROOT / "tools/openai-wif-crash-cleanup.py"
+CRASH_CHECKER_PATH = ROOT / "tools/check-openai-wif-crash-cleanup.py"
 POLICY_PATH = ROOT / "policy/openai-wif.json"
 FIXTURE_PATH = ROOT / "fixtures/checker-contracts/openai-first-token-exchange.json"
+EXPIRY_FIXTURE_PATH = (
+    ROOT / "fixtures/checker-contracts/openai-expiry-denial.json"
+)
+CRASH_FIXTURE_PATH = (
+    ROOT / "fixtures/checker-contracts/openai-crash-cleanup.json"
+)
 EXPECTED_ADAPTER_SHA256 = (
     "7f7515d9279116a9daf59e7c5cfee4b4361b64247c44f1899453b754fbb20132"
 )
 EXPECTED_FIXTURE_SHA256 = (
     "af043e252ee64bba09af507ffbccf844fd0624e2c0ed1bfec3b19e44f0de2992"
 )
+EXPECTED_EXPIRY_ADAPTER_SHA256 = (
+    "bcc5da8d92d1cb12c1dbe450f9acf35684d4388c932b4e41e841ac9e8b20b5dc"
+)
+EXPECTED_CRASH_ADAPTER_SHA256 = (
+    "a160cc713f8ef528244fc4a9aaf81c21d94f99ee6636ccae4558acb93d2c49b5"
+)
+EXPECTED_EXPIRY_FIXTURE_SHA256 = (
+    "0fde013cce9fed1d22425ea36548605d68c586fa99a78033ad7eada8cbf9b196"
+)
+EXPECTED_CRASH_FIXTURE_SHA256 = (
+    "44f43324a1377f8d578741b8fdf99eb2d789d53f6e83d8205b39ed6a1bc7debc"
+)
 RUN_ID = "openai-wif-20260806-0123456789"
+EXPIRY_RUN_ID = "openai-expiry-20260807-0123456789"
 
 
 def digest(path: Path) -> str:
@@ -47,6 +70,14 @@ def load_exact_source_module(
 
 ADAPTER = load_exact_source_module(
     "openai_wif_issuance", ADAPTER_PATH, EXPECTED_ADAPTER_SHA256
+)
+EXPIRY_ADAPTER = load_exact_source_module(
+    "openai_wif_expiry", EXPIRY_ADAPTER_PATH, EXPECTED_EXPIRY_ADAPTER_SHA256
+)
+CRASH_ADAPTER = load_exact_source_module(
+    "openai_wif_crash_cleanup",
+    CRASH_ADAPTER_PATH,
+    EXPECTED_CRASH_ADAPTER_SHA256,
 )
 
 
@@ -389,6 +420,395 @@ class OpenAIWifIssuanceCheckerContract(unittest.TestCase):
         result = self.run_checker("--observation", str(path))
         self.assertEqual(result.returncode, 1)
         self.assertIn("duplicate JSON key", result.stderr)
+
+
+class OpenAIWifExpiryAdapterContract(unittest.TestCase):
+    def setUp(self) -> None:
+        self.policy = json.loads(POLICY_PATH.read_text())
+
+    def test_adapter_loads_frozen_base_and_derives_the_active_key_id(self) -> None:
+        self.assertEqual(
+            digest(EXPIRY_ADAPTER.BASE_HARNESS_PATH),
+            EXPIRY_ADAPTER.BASE_HARNESS_SHA256,
+        )
+        derived = (
+            "patchyard-"
+            + hashlib.sha256(b"synthetic-public-der").hexdigest()[:16]
+        )
+        fake_jwk = {
+            "kid": derived,
+            "kty": "RSA",
+            "use": "sig",
+            "alg": "RS256",
+            "n": "synthetic-modulus",
+            "e": "AQAB",
+        }
+        completed = types.SimpleNamespace(stdout=b"synthetic-signature")
+        with (
+            mock.patch.object(
+                EXPIRY_ADAPTER.BASE, "load_public_jwk", return_value=fake_jwk
+            ),
+            mock.patch.object(
+                EXPIRY_ADAPTER.BASE,
+                "jwk_descriptor",
+                return_value={
+                    "kid": derived,
+                    "jwk_thumbprint_sha256": "ab" * 32,
+                },
+            ),
+            mock.patch.object(
+                EXPIRY_ADAPTER.subprocess, "run", return_value=completed
+            ),
+        ):
+            assertion, descriptor = EXPIRY_ADAPTER.mint_expired_assertion(
+                self.policy, Path("/unused"), EXPIRY_RUN_ID, 1786104000
+            )
+        header = json.loads(
+            base64.urlsafe_b64decode(
+                assertion.split(".")[0] + "=" * (-len(assertion.split(".")[0]) % 4)
+            )
+        )
+        self.assertEqual(header["kid"], derived)
+        self.assertIs(descriptor["kid_derived_from_public_der"], True)
+        self.assertNotIn("kid", descriptor)
+
+    def test_assertion_is_expired_before_mint_and_exchange_is_attempted_once(self) -> None:
+        fixture = json.loads(EXPIRY_FIXTURE_PATH.read_text())
+        descriptor = deepcopy(fixture["assertion_descriptor"])
+        response = deepcopy(fixture["expiry_denial"])
+        response.update(
+            {
+                "source": "openai_http_response",
+                "http_status": 418,
+                "body_format": "json_object",
+                "response_shape": {
+                    "body_kind": "json_object",
+                    "top_level_fields": [],
+                    "error_fields": [],
+                },
+            }
+        )
+        calls = []
+
+        def request(body: dict[str, object]) -> dict[str, object]:
+            calls.append(deepcopy(body))
+            return deepcopy(response)
+
+        with mock.patch.object(
+            EXPIRY_ADAPTER,
+            "mint_expired_assertion",
+            return_value=("synthetic.assertion.signature", descriptor),
+        ):
+            result = EXPIRY_ADAPTER.expiry_observation(
+                self.policy,
+                Path("/unused"),
+                EXPIRY_RUN_ID,
+                fixture["started_at"],
+                request=request,
+                clock=lambda: 1786104000,
+            )
+        minted = datetime.fromisoformat(
+            descriptor["minted_at"].replace("Z", "+00:00")
+        )
+        expires = datetime.fromisoformat(
+            descriptor["expires_at"].replace("Z", "+00:00")
+        )
+        self.assertLess(expires, minted)
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("scope", calls[0])
+        self.assertEqual(result["exchange_request"]["attempt_count"], 1)
+        self.assertEqual(result["response_predicate"], EXPIRY_ADAPTER.RESPONSE_PREDICATE)
+        self.assertIs(result["qualification_evidence"], False)
+
+
+class OpenAIWifExpiryCheckerContract(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.fixture = json.loads(EXPIRY_FIXTURE_PATH.read_text())
+
+    def run_checker(
+        self, *arguments: str, isolated: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        command = ["python3"]
+        if isolated:
+            command.append("-I")
+        command.extend([str(EXPIRY_CHECKER_PATH), *arguments])
+        return subprocess.run(
+            command, cwd=ROOT, check=False, capture_output=True, text=True
+        )
+
+    def write(self, value: dict[str, object], name: str) -> Path:
+        path = self.root / name
+        path.write_text(json.dumps(value))
+        return path
+
+    def observed(self) -> dict[str, object]:
+        value = deepcopy(self.fixture)
+        del value["fixture_kind"]
+        del value["fixture_lineage"]
+        value["provider_response_observed"] = True
+        value["expiry_denial"] = {
+            "source": "openai_http_response",
+            "http_status": 418,
+            "request_started_at": "2026-08-07T12:00:00.100000Z",
+            "observed_at": "2026-08-07T12:00:00.200000Z",
+            "provider_date": "2026-08-07T12:00:00Z",
+            "request_id": "synthetic-request-id",
+            "request_id_supplied": True,
+            "content_type": "application/json",
+            "body_bytes": 42,
+            "body_format": "json_object",
+            "response_shape": {
+                "body_kind": "json_object",
+                "top_level_fields": [],
+                "error_fields": [],
+            },
+            "access_token_supplied": False,
+            "error_type": "synthetic-unenforced",
+        }
+        return value
+
+    def test_fixture_passes_but_is_refused_as_qualification_evidence(self) -> None:
+        self.assertEqual(digest(EXPIRY_FIXTURE_PATH), EXPECTED_EXPIRY_FIXTURE_SHA256)
+        self.assertIs(self.fixture["provider_response_observed"], False)
+        self.assertIs(self.fixture["qualification_evidence"], False)
+        accepted = self.run_checker(
+            "--contract-fixture", str(EXPIRY_FIXTURE_PATH)
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        refused = self.run_checker("--evidence", str(EXPIRY_FIXTURE_PATH))
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("cannot be qualification evidence", refused.stderr)
+
+    def test_unenforced_arbitrary_response_is_accepted_as_observation(self) -> None:
+        result = self.run_checker(
+            "--observation", str(self.write(self.observed(), "observed.json"))
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_exact_keys_utc_and_credential_hygiene_fail_closed(self) -> None:
+        extra = self.observed()
+        extra["unexpected"] = True
+        result = self.run_checker(
+            "--observation", str(self.write(extra, "extra.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("unexpected evidence shape", result.stderr)
+
+        order = self.observed()
+        order["credential_removed_at"] = "2026-08-07T11:59:59Z"
+        result = self.run_checker(
+            "--observation", str(self.write(order, "order.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("UTC observations are out of order", result.stderr)
+
+        credential = self.observed()
+        credential["expiry_denial"]["request_id"] = (
+            "eyJsynthetic.payload.signature"
+        )
+        result = self.run_checker(
+            "--observation", str(self.write(credential, "credential.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("credential-shaped material", result.stderr)
+
+    def test_premature_enforcement_and_nonisolated_execution_are_rejected(self) -> None:
+        enforced = self.observed()
+        enforced["response_predicate"]["enforced"] = True
+        result = self.run_checker(
+            "--observation", str(self.write(enforced, "enforced.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("predicate was enforced", result.stderr)
+        result = self.run_checker("--allow-missing-results", isolated=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("requires python3 -I", result.stderr)
+
+
+class OpenAIWifCrashAdapterContract(unittest.TestCase):
+    def test_adapter_binds_base_and_scans_process_image_without_a_worker(self) -> None:
+        self.assertEqual(
+            digest(CRASH_ADAPTER.BASE_HARNESS_PATH),
+            CRASH_ADAPTER.BASE_HARNESS_SHA256,
+        )
+        contract = CRASH_ADAPTER.search_contract(
+            Path("/run/patchyard-openai/openai-crash-20260807-0123456789"),
+            42420,
+            12345678,
+        )
+        self.assertEqual(
+            contract["process_image_scope"],
+            "target-readable-mappings-when-present",
+        )
+        self.assertNotIn("worker", json.dumps(contract, sort_keys=True))
+        self.assertEqual(CRASH_ADAPTER.RESPONSE_PREDICATE["enforced"], False)
+
+    def test_process_image_positive_control_finds_exact_live_material(self) -> None:
+        assertion = bytearray(b"synthetic-assertion-material")
+        bearer = bytearray(b"synthetic-bearer-material")
+        blob = b"prefix" + bytes(assertion) + b"middle" + bytes(bearer) + b"suffix"
+        materials = {"jwt_assertion": assertion, "openai_bearer": bearer}
+        with (
+            mock.patch.object(
+                CRASH_ADAPTER, "target_process_present", return_value=True
+            ),
+            mock.patch.object(
+                CRASH_ADAPTER,
+                "readable_memory_ranges",
+                return_value=[(4096, 4096 + len(blob))],
+            ),
+            mock.patch.object(CRASH_ADAPTER.os, "open", return_value=77),
+            mock.patch.object(CRASH_ADAPTER.os, "pread", return_value=blob),
+            mock.patch.object(CRASH_ADAPTER.os, "close"),
+        ):
+            found, regions, examined, _ = CRASH_ADAPTER.find_material_in_process(
+                42420, 12345678, materials
+            )
+        self.assertEqual(found, {"jwt_assertion", "openai_bearer"})
+        self.assertEqual(regions, 1)
+        self.assertEqual(examined, len(blob))
+
+    def test_material_fingerprints_never_retain_the_values(self) -> None:
+        assertion = bytearray(b"synthetic-assertion-material")
+        bearer = bytearray(b"synthetic-bearer-material")
+        result = CRASH_ADAPTER.material_fingerprints(assertion, bearer)
+        encoded = json.dumps(result, sort_keys=True)
+        self.assertNotIn(assertion.decode(), encoded)
+        self.assertNotIn(bearer.decode(), encoded)
+        self.assertEqual(
+            [item["material_class"] for item in result],
+            ["jwt_assertion", "openai_bearer"],
+        )
+
+
+class OpenAIWifCrashCheckerContract(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.fixture = json.loads(CRASH_FIXTURE_PATH.read_text())
+
+    def run_checker(
+        self, *arguments: str, isolated: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        command = ["python3"]
+        if isolated:
+            command.append("-I")
+        command.extend([str(CRASH_CHECKER_PATH), *arguments])
+        return subprocess.run(
+            command, cwd=ROOT, check=False, capture_output=True, text=True
+        )
+
+    def write(self, value: dict[str, object], name: str) -> Path:
+        path = self.root / name
+        path.write_text(json.dumps(value))
+        return path
+
+    @staticmethod
+    def encoded_digest(value: dict[str, object]) -> str:
+        encoded = (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
+        return hashlib.sha256(encoded).hexdigest()
+
+    def observed(self) -> dict[str, object]:
+        value = deepcopy(self.fixture)
+        del value["fixture_kind"]
+        del value["fixture_lineage"]
+        value["provider_response_observed"] = True
+        value["checkpoint"]["exchange_response"]["source"] = (
+            "openai_http_response"
+        )
+        value["kill"]["checkpoint_sha256"] = self.encoded_digest(
+            value["checkpoint"]
+        )
+        return value
+
+    def test_fixture_passes_but_is_refused_as_qualification_evidence(self) -> None:
+        self.assertEqual(digest(CRASH_FIXTURE_PATH), EXPECTED_CRASH_FIXTURE_SHA256)
+        self.assertIs(self.fixture["provider_response_observed"], False)
+        self.assertIs(self.fixture["qualification_evidence"], False)
+        accepted = self.run_checker(
+            "--contract-fixture", str(CRASH_FIXTURE_PATH)
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        refused = self.run_checker("--evidence", str(CRASH_FIXTURE_PATH))
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("cannot be qualification evidence", refused.stderr)
+
+    def test_conforming_local_observation_is_accepted(self) -> None:
+        result = self.run_checker(
+            "--observation", str(self.write(self.observed(), "observed.json"))
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_exact_keys_utc_and_credential_hygiene_fail_closed(self) -> None:
+        extra = self.observed()
+        extra["unexpected"] = True
+        result = self.run_checker(
+            "--observation", str(self.write(extra, "extra.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("unexpected evidence shape", result.stderr)
+
+        order = self.observed()
+        order["post_kill_search"]["observed_at"] = (
+            "2026-08-07T11:59:59Z"
+        )
+        result = self.run_checker(
+            "--observation", str(self.write(order, "order.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("observations are out of order", result.stderr)
+
+        credential = self.observed()
+        credential["checkpoint"]["exchange_response"]["request_id"] = (
+            "eyJsynthetic.payload.signature"
+        )
+        result = self.run_checker(
+            "--observation", str(self.write(credential, "credential.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("credential-shaped material", result.stderr)
+
+    def test_sigterm_vacuous_search_and_premature_enforcement_are_rejected(self) -> None:
+        sigterm = self.observed()
+        sigterm["kill"].update(
+            {"signal_name": "SIGTERM", "signal_number": 15, "child_returncode": -15}
+        )
+        result = self.run_checker(
+            "--observation", str(self.write(sigterm, "sigterm.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("not terminated by SIGKILL", result.stderr)
+
+        vacuous = self.observed()
+        vacuous["positive_control"].update(
+            {
+                "credential_material_found": False,
+                "material_classes_found": [],
+                "matches": [],
+            }
+        )
+        result = self.run_checker(
+            "--observation", str(self.write(vacuous, "vacuous.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("positive control found no credential material", result.stderr)
+
+        enforced = self.observed()
+        enforced["response_predicate"]["enforced"] = True
+        result = self.run_checker(
+            "--observation", str(self.write(enforced, "enforced.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("predicate was enforced prematurely", result.stderr)
+
+    def test_checker_requires_isolated_python(self) -> None:
+        result = self.run_checker("--allow-missing-results", isolated=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("requires python3 -I", result.stderr)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,288 @@
+{
+  "schema_version": 1,
+  "provider": "openai",
+  "qualification_requirement": "crash-cleanup-local-non-recoverability",
+  "authorization_ruling": "A130",
+  "run_id": "openai-crash-20260807-0123456789",
+  "checkpoint": {
+    "schema_version": 1,
+    "provider": "openai",
+    "run_id": "openai-crash-20260807-0123456789",
+    "phase": "bearer_live_before_terminal_write",
+    "observed_at": "2026-08-07T12:00:00.300000Z",
+    "target_pid": 42420,
+    "target_start_ticks": 12345678,
+    "assertion_live": true,
+    "bearer_live": true,
+    "terminal_record_written": false,
+    "core_dump_limits": [0, 0],
+    "swap_entries": 0,
+    "signing_key": {
+      "kid_derived_from_public_der": true,
+      "jwk_thumbprint_sha256": "abababababababababababababababababababababababababababababababab",
+      "stable_source_preserved": true,
+      "copied_to_run_stage": false,
+      "private_key_bytes_loaded_by_adapter": false
+    },
+    "assertion": {
+      "issued_at": "2026-08-07T11:59:55Z",
+      "minted_at": "2026-08-07T12:00:00Z",
+      "expires_at": "2026-08-07T12:04:55Z",
+      "lifetime_seconds": 300
+    },
+    "exchange_request": {
+      "endpoint": "https://auth.openai.com/oauth/token",
+      "attempt_count": 1,
+      "requested_at": "2026-08-07T12:00:00.100000Z"
+    },
+    "exchange_response": {
+      "source": "synthetic_observed_response_shape",
+      "http_status": 200,
+      "request_started_at": "2026-08-07T12:00:00.100000Z",
+      "observed_at": "2026-08-07T12:00:00.200000Z",
+      "provider_date": "2026-08-07T12:00:00Z",
+      "request_id": "synthetic-request-id",
+      "request_id_supplied": true,
+      "content_type": "application/json",
+      "body_bytes": 1537,
+      "body_format": "json_object",
+      "response_shape": {
+        "body_kind": "json_object",
+        "top_level_fields": [
+          {
+            "name": "access_token",
+            "name_recorded": true,
+            "value_type": "string"
+          },
+          {
+            "name": "expires_in",
+            "name_recorded": true,
+            "value_type": "integer"
+          },
+          {
+            "name": "issued_token_type",
+            "name_recorded": true,
+            "value_type": "string"
+          },
+          {
+            "name": "token_type",
+            "name_recorded": true,
+            "value_type": "string"
+          }
+        ],
+        "error_fields": []
+      },
+      "access_token_supplied": true,
+      "expires_in": 295,
+      "error_type": null
+    },
+    "material_fingerprints": [
+      {
+        "material_class": "jwt_assertion",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "byte_length": 512
+      },
+      {
+        "material_class": "openai_bearer",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "byte_length": 1536
+      }
+    ],
+    "attempt_sha256": "4eed254374dc8e32f1105e4a03af8841cca477bed4da5c3106272ee4545e505d",
+    "source": {
+      "policy_sha256": "14d2b8be570163f331de22adec382252f286a53b117f7311a0448479edff1ef2",
+      "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+      "crash_adapter_sha256": "a160cc713f8ef528244fc4a9aaf81c21d94f99ee6636ccae4558acb93d2c49b5"
+    }
+  },
+  "kill": {
+    "schema_version": 1,
+    "provider": "openai",
+    "run_id": "openai-crash-20260807-0123456789",
+    "event_type": "credential_process_sigkill_observed",
+    "observed_at": "2026-08-07T12:00:00.500000Z",
+    "target_pid": 42420,
+    "target_start_ticks": 12345678,
+    "signal_name": "SIGKILL",
+    "signal_number": 9,
+    "child_returncode": -9,
+    "supervisor_timed_out": false,
+    "target_process_present": false,
+    "scan_socket_present_after_cleanup": false,
+    "scan_socket_cleanup_required": false,
+    "checkpoint_sha256": "98bbd13a21f5392a1d65ff95e652f8052a56860a0e93b69c4b73b895d3299531",
+    "positive_control_sha256": "becb6674a4dd73f183f34ee4f4f87c8579fcb1ae69416254e507f11df98d53bf",
+    "attempt_sha256": "4eed254374dc8e32f1105e4a03af8841cca477bed4da5c3106272ee4545e505d",
+    "source": {
+      "policy_sha256": "14d2b8be570163f331de22adec382252f286a53b117f7311a0448479edff1ef2",
+      "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+      "crash_adapter_sha256": "a160cc713f8ef528244fc4a9aaf81c21d94f99ee6636ccae4558acb93d2c49b5"
+    }
+  },
+  "positive_control": {
+    "schema_version": 1,
+    "provider": "openai",
+    "run_id": "openai-crash-20260807-0123456789",
+    "event_type": "credential_surface_search",
+    "observed_at": "2026-08-07T12:00:00.400000Z",
+    "search_contract": {
+      "version": "a130-openai-run-stage-process-image-v1",
+      "stage_path": "/run/patchyard-openai/openai-crash-20260807-0123456789",
+      "target_pid": 42420,
+      "target_start_ticks": 12345678,
+      "file_scope": "all-recursive-regular-files-no-symlinks",
+      "process_image_scope": "target-readable-mappings-when-present",
+      "material_classes": ["jwt_assertion", "openai_bearer", "private_key"],
+      "max_files": 128,
+      "max_file_bytes": 1000000,
+      "max_total_file_bytes": 8000000,
+      "max_memory_regions": 1024,
+      "max_memory_bytes": 536870912
+    },
+    "search_contract_sha256": "1e20610d1a9c5903c875f360cc0a8f914db1cbcf332e52974df9c39d6646ed1f",
+    "files_examined": 3,
+    "file_bytes_examined": 2048,
+    "memory_regions_examined": 12,
+    "memory_bytes_examined": 65536,
+    "unreadable_memory_regions": 0,
+    "credential_material_found": true,
+    "material_classes_found": ["jwt_assertion", "openai_bearer"],
+    "matches": [
+      {
+        "material_class": "jwt_assertion",
+        "surface": "process_image",
+        "location": "target-process-image",
+        "occurrences": 1
+      },
+      {
+        "material_class": "openai_bearer",
+        "surface": "process_image",
+        "location": "target-process-image",
+        "occurrences": 1
+      }
+    ],
+    "target_process_present": true,
+    "scan_socket_used": true,
+    "scanner_core_dump_limits": [0, 0],
+    "swap_entries": 0,
+    "source": {
+      "policy_sha256": "14d2b8be570163f331de22adec382252f286a53b117f7311a0448479edff1ef2",
+      "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+      "crash_adapter_sha256": "a160cc713f8ef528244fc4a9aaf81c21d94f99ee6636ccae4558acb93d2c49b5"
+    }
+  },
+  "post_kill_search": {
+    "schema_version": 1,
+    "provider": "openai",
+    "run_id": "openai-crash-20260807-0123456789",
+    "event_type": "credential_surface_search",
+    "observed_at": "2026-08-07T12:00:00.600000Z",
+    "search_contract": {
+      "version": "a130-openai-run-stage-process-image-v1",
+      "stage_path": "/run/patchyard-openai/openai-crash-20260807-0123456789",
+      "target_pid": 42420,
+      "target_start_ticks": 12345678,
+      "file_scope": "all-recursive-regular-files-no-symlinks",
+      "process_image_scope": "target-readable-mappings-when-present",
+      "material_classes": ["jwt_assertion", "openai_bearer", "private_key"],
+      "max_files": 128,
+      "max_file_bytes": 1000000,
+      "max_total_file_bytes": 8000000,
+      "max_memory_regions": 1024,
+      "max_memory_bytes": 536870912
+    },
+    "search_contract_sha256": "1e20610d1a9c5903c875f360cc0a8f914db1cbcf332e52974df9c39d6646ed1f",
+    "files_examined": 6,
+    "file_bytes_examined": 8192,
+    "memory_regions_examined": 0,
+    "memory_bytes_examined": 0,
+    "unreadable_memory_regions": 0,
+    "credential_material_found": false,
+    "material_classes_found": [],
+    "matches": [],
+    "target_process_present": false,
+    "scan_socket_used": false,
+    "scanner_core_dump_limits": [0, 0],
+    "swap_entries": 0,
+    "source": {
+      "policy_sha256": "14d2b8be570163f331de22adec382252f286a53b117f7311a0448479edff1ef2",
+      "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+      "crash_adapter_sha256": "a160cc713f8ef528244fc4a9aaf81c21d94f99ee6636ccae4558acb93d2c49b5"
+    }
+  },
+  "in_progress_record": {
+    "path": "/run/patchyard-openai/openai-crash-20260807-0123456789/crash-attempt.json",
+    "record": {
+      "schema_version": 1,
+      "provider": "openai",
+      "status": "in_progress",
+      "action": "crash-cleanup-probe",
+      "run_id": "openai-crash-20260807-0123456789",
+      "started_at": "2026-08-07T12:00:00.000000Z",
+      "source": {
+        "policy_sha256": "14d2b8be570163f331de22adec382252f286a53b117f7311a0448479edff1ef2",
+        "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+        "crash_adapter_sha256": "a160cc713f8ef528244fc4a9aaf81c21d94f99ee6636ccae4558acb93d2c49b5"
+      }
+    },
+    "sha256_at_checkpoint": "4eed254374dc8e32f1105e4a03af8841cca477bed4da5c3106272ee4545e505d",
+    "sha256_after_sigkill": "4eed254374dc8e32f1105e4a03af8841cca477bed4da5c3106272ee4545e505d",
+    "sha256_at_collection": "4eed254374dc8e32f1105e4a03af8841cca477bed4da5c3106272ee4545e505d",
+    "unchanged": true,
+    "terminal_fields_present": []
+  },
+  "checker_rejections": [
+    {
+      "checker": "check-openai-wif-issuance.py",
+      "checker_sha256": "d23b3cac210c9c80982409adf85d130a7a8042b772b500773e837954c41c62b6",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "checker": "check-openai-wif-expiry.py",
+      "checker_sha256": "99566b358fb0e16da154c758c45aa607f76ae2b497d8c9cb3b0f56e12168b858",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "checker": "check-openai-wif-crash-cleanup.py",
+      "checker_sha256": "4bcf134f51b72e058b6c7720089dec9c60734e7e6c01aeb6997cae205b9e8474",
+      "exit_code": 1,
+      "accepted": false
+    }
+  ],
+  "provider_exposure_boundary": {
+    "proof_scope": "local-host-non-recoverability-only",
+    "provider_side_invalidation_proven": false,
+    "provider_denial_observed": false,
+    "killed_bearer_may_remain_valid_until": "natural-expiry",
+    "maximum_assertion_lifetime_seconds": 300,
+    "separate_expiry_requirement": "credential-expiry-denial",
+    "stable_signing_identity_preserved": true,
+    "stable_signing_identity_in_proof_scope": false
+  },
+  "response_predicate": {
+    "enforced": false,
+    "basis": "no-observed-openai-crash-cleanup-exchange-response"
+  },
+  "control_plane_provenance": {
+    "control_plane_mutation_claimed": false,
+    "mutation_receipt_obtained": false,
+    "attestation_required": false
+  },
+  "provenance_limitation": "A128-attended-record-not-provider-attestation",
+  "provider_response_observed": false,
+  "qualification_evidence": false,
+  "source": {
+    "policy_sha256": "14d2b8be570163f331de22adec382252f286a53b117f7311a0448479edff1ef2",
+    "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+    "crash_adapter_sha256": "a160cc713f8ef528244fc4a9aaf81c21d94f99ee6636ccae4558acb93d2c49b5"
+  },
+  "fixture_kind": "synthetic-openai-crash-cleanup-satisfiability",
+  "fixture_lineage": {
+    "issuance_shape_source": "research/isolation/results/openai-first-token-exchange.json",
+    "issuance_shape_source_sha256": "f04e9a7de56e8c32d076331633ed39211882ef52eb0b134f9febd842c8384dfc",
+    "provider_response_shape": "exchange_response.response_shape",
+    "local_outcome": "synthetic-sigkill-and-same-surface-observation"
+  }
+}

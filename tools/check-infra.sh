@@ -53,5 +53,7 @@ run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-expiry.py" --allow-missing
 run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-revocation.py" --allow-missing-results
 run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-crash-cleanup.py" --allow-missing-results
 run_gate python3 -I "$REPO_ROOT/tools/check-openai-wif-issuance.py" --allow-missing-results
+run_gate python3 -I "$REPO_ROOT/tools/check-openai-wif-expiry.py" --allow-missing-results
+run_gate python3 -I "$REPO_ROOT/tools/check-openai-wif-crash-cleanup.py" --allow-missing-results
 run_gate python3 -I "$REPO_ROOT/tools/check-preview-runtime.py"
 exit "$gate_status"

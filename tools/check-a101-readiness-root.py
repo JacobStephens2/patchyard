@@ -24,9 +24,9 @@ BOUND_SOURCES = {
     "infra/tool-versions.env": "63fa7fa217d98d914a73394c98b41f97571c5c776b3a9b2d4c51d95e56ab917f",
     "tools/read-infra-tool-version.py": "d94d97d605736d0201d0fc0517e0e780d6c346ab79ddc3bd84de7b472edeccd8",
     "tools/install-shellcheck.sh": "715047c90f6a877c57a5495f1bc24feecd40f365ccd8239a6dc711be22a3f535",
-    "tools/check-infra.sh": "28f4c20642d711204424a6958677299589acbf1f6140f42c8faad2333c2901ae",
-    "tools/check-ansible.sh": "bc84ab57f07afc837103e8c0ef8c63ca7452196afe4b52ced6d2d9883060f77d",
-    "tools/run-isolated-unittest.py": "518e4f3fb9f39e7f9679618a8106471ad08a57cab117d32d5dc6ec8487c00e7e",
+    "tools/check-infra.sh": "2b3d220f26cb7e1d43e6cde3aacfc214d0943a4ee72aa3175f18c698d26d461e",
+    "tools/check-ansible.sh": "5506004cd1658979e907acddcf5aafe6fa46788993b477bb25d6c8150224e88b",
+    "tools/run-isolated-unittest.py": "93cac4593b3d3cf928bb4310b856dc7163351b104602c9788092b00c7df1935e",
     "tools/anthropic-spend-evidence.py": "494cba4a628e592004dc975ead283aa32fe1fbfe6236c6d6a4a7c7d7ee733099",
     "tools/anthropic-wif-admin.py": "89794bd6235d5b37dfa4999a792588396ece9935b17820954b75d8b055822c91",
     "tools/anthropic-wif-lifecycle.py": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
@@ -36,8 +36,13 @@ BOUND_SOURCES = {
     "tools/openai-wif-issuance.py": "7f7515d9279116a9daf59e7c5cfee4b4361b64247c44f1899453b754fbb20132",
     "tools/openai-wif-expiry.py": "bcc5da8d92d1cb12c1dbe450f9acf35684d4388c932b4e41e841ac9e8b20b5dc",
     "tools/openai-wif-crash-cleanup.py": "a160cc713f8ef528244fc4a9aaf81c21d94f99ee6636ccae4558acb93d2c49b5",
+    "tools/control-plane-attestation-v1.py": "0d32e80b980c334977e51eb706783896a687d29faef46d50e53f3ee56e8e4d47",
+    "tools/openai-wif-federation-revocation.py": "e00892365e8392c1c97a7add258813c0824d3d141cfe33650122acf4074153e7",
+    "tools/check-openai-wif-federation-revocation.py": "58a1a2c10fbae5511d51feec774c8bc328a3271899343ef967d482a8e902f623",
+    "tools/openai-wif-signing-key-rotation.py": "b06b5b1f424ccb7a1dbb640aa85e3658c746e93385b08beff3c99c580a2e5234",
+    "tools/check-openai-wif-signing-key-rotation.py": "88fdd4991f18375be19d39a213e0b753af169432796cde8c771a24457972b0b8",
     "tools/check-anthropic-expiry.py": "41904ee87d54c362c9714c3c06853e5f67047365847edc9431620d62bc5a9c54",
-    "tools/check-anthropic-spend.py": "718968d840b801d6f0156a0dcb50ef67511cb73efe24c311fe8f6d1f9c8ad807",
+    "tools/check-anthropic-spend.py": "9d225ad42fe5391ddfc41859a5c3432d2416eff5aaa99babdbbf3b16230f0938",
     "tools/check-anthropic-issuance.py": "905dc24ee6ea8ed2aa171c0bc3fc677ff3ff73a4c2f781f6340a76a311229e76",
     "tools/check-anthropic-revocation.py": "deeba4038169d466a31bbcf4d263fe8ac1bdf0aa5bd9365f4449da8e80db085c",
     "tools/check-anthropic-crash-cleanup.py": "770a339f2d6c36c849968b9fed914ebb2fce518e0cc1458c8c0fb98648a6e278",
@@ -49,14 +54,17 @@ BOUND_SOURCES = {
     "tools/check-stack.py": "ddce869a4bd4983c35c1b246ba01b5e8b1ea25219c761ebbdb2d5b4a8194deff",
     "tools/check-worker-qualification.py": "357d756da3c83004db6766956a8c31b9682953a50b470dbb3ff7b9acb879e99a",
     "tools/check-worker-runtime.py": "db1646d9bcf738d1df35679e131b1afdb9e35af73be1859d85c8f4017385ce75",
-    "infra/ansible/tests/test_a101_readiness_root.py": "608adab49425e679ad4f9eacbabb40589bac69c8fbd85eacd0e2c0911999afdf",
+    "infra/ansible/tests/test_a101_readiness_root.py": "78f21b312f14cdde162ece12c7a80e3fa45f872f6a0df959bcabbd2120e1ef8c",
     "infra/ansible/tests/test_freeze_graph.py": "5d83e2ab9c0902b54650e5588c718eb01edfee71b47c0f9693f55853d0a24938",
-    "infra/ansible/tests/test_worker_firewall_readiness.py": "f9626ce822c43baccdfa4f415cbb623162b4c5b5091a4ff86736af3de296432e",
-    "infra/ansible/tests/test_anthropic_spend.py": "1290c839a15a9fa46b897646b877485a1feed081160c86674d605cb2567bfe89",
+    "infra/ansible/tests/test_worker_firewall_readiness.py": "5b95a144237751685b62503c7425bdcc36c1ec9eea1f05afb18d5d904dab25f4",
+    "infra/ansible/tests/test_anthropic_spend.py": "24f68c5e32d12868501f2adcb8262b158052227b0e9b5e82bbc30abba0f40e3b",
     "infra/ansible/tests/test_anthropic_issuance.py": "1cd6f3b71df6987c94a3bb02447aebfbb7106a8cfb412f0d751c2ddc76a7f882",
     "infra/ansible/tests/test_anthropic_lifecycle.py": "dba785d7000509be4e9495bfd4d6cf932e8a93f71a92b95877131db4452d14b9",
     "infra/ansible/tests/test_anthropic_wif_admin.py": "1d53f8ffe4ef6ad55b8d7187705344836aed831337c26f310bd11538888a9670",
     "infra/ansible/tests/test_openai_wif_issuance.py": "c74f628a4fa576c613a397f97260e0c2ad9181fd910bebeab64a6a30bd79c590",
+    "infra/ansible/tests/test_openai_control_plane_lifecycle.py": "160f0b12c1b0ba362176bc037e9686036ee5d94f15b5594d9dd6238180418c67",
+    "fixtures/checker-contracts/openai-federation-revocation.json": "c04b44479b6a670a4bc7466ee0b93958c52922b8c66681d5319b5500198e9a4f",
+    "fixtures/checker-contracts/openai-signing-key-rotation.json": "c3e0faada73986b1ee7a4f2f8b8ef4807d1f20dc2edd2e1aa9b919e8a979bb8f",
     "infra/ansible/tests/test_child_launcher.py": "bff549994263407f9b96ec52383b120a159de2c987e2bada49ad13a99c6cd9c0",
     "infra/ansible/tests/test_cloud_init_bootstrap.py": "c0c79b21c2f0ed236667fc8176c1c834f1753991fef35ef6a03f4a21fe6bca04",
     "infra/ansible/tests/test_dashboard_checkout.py": "3f953bb76b11d9d8f8853310fb99938437691024f59a6c55aa5b5fb5cafefcad",
@@ -80,6 +88,7 @@ EXPECTED_TEST_FILES = (
     "infra/ansible/tests/test_freeze_graph.py",
     "infra/ansible/tests/test_log_secret_scan.py",
     "infra/ansible/tests/test_merge_refix.py",
+    "infra/ansible/tests/test_openai_control_plane_lifecycle.py",
     "infra/ansible/tests/test_openai_wif_issuance.py",
     "infra/ansible/tests/test_preview_capability_deployment.py",
     "infra/ansible/tests/test_replace_worker.py",
@@ -112,6 +121,8 @@ EXPECTED_TOOL_PYTHON_FILES = (
     "tools/check-openai-wif-issuance.py",
     "tools/check-openai-wif-expiry.py",
     "tools/check-openai-wif-crash-cleanup.py",
+    "tools/check-openai-wif-federation-revocation.py",
+    "tools/check-openai-wif-signing-key-rotation.py",
     "tools/check-preview-runtime.py",
     "tools/check-seats.py",
     "tools/check-stack.py",
@@ -119,6 +130,9 @@ EXPECTED_TOOL_PYTHON_FILES = (
     "tools/check-worker-runtime.py",
     "tools/codebase-metrics.py",
     "tools/merge-refix.py",
+    "tools/control-plane-attestation-v1.py",
+    "tools/openai-wif-federation-revocation.py",
+    "tools/openai-wif-signing-key-rotation.py",
     "tools/openai-wif-issuance.py",
     "tools/openai-wif-expiry.py",
     "tools/openai-wif-crash-cleanup.py",
@@ -140,6 +154,8 @@ INFRA_CHECKERS = (
     "check-openai-wif-issuance.py",
     "check-openai-wif-expiry.py",
     "check-openai-wif-crash-cleanup.py",
+    "check-openai-wif-federation-revocation.py",
+    "check-openai-wif-signing-key-rotation.py",
     "check-preview-runtime.py",
 )
 PROTECTED_MODULE_FILES = {
@@ -388,6 +404,12 @@ def validate() -> list[str]:
         openai_crash_call = (
             'run_gate python3 -I "$REPO_ROOT/tools/check-openai-wif-crash-cleanup.py"'
         )
+        openai_revocation_call = (
+            'run_gate python3 -I "$REPO_ROOT/tools/check-openai-wif-federation-revocation.py"'
+        )
+        openai_rotation_call = (
+            'run_gate python3 -I "$REPO_ROOT/tools/check-openai-wif-signing-key-rotation.py"'
+        )
         preview_call = 'run_gate python3 -I "$REPO_ROOT/tools/check-preview-runtime.py"'
         try:
             spend_index = infra_wrapper.index(spend_call)
@@ -398,6 +420,8 @@ def validate() -> list[str]:
             openai_index = infra_wrapper.index(openai_call)
             openai_expiry_index = infra_wrapper.index(openai_expiry_call)
             openai_crash_index = infra_wrapper.index(openai_crash_call)
+            openai_revocation_index = infra_wrapper.index(openai_revocation_call)
+            openai_rotation_index = infra_wrapper.index(openai_rotation_call)
             preview_index = infra_wrapper.index(preview_call)
         except ValueError:
             errors.append(
@@ -413,6 +437,8 @@ def validate() -> list[str]:
                 < openai_index
                 < openai_expiry_index
                 < openai_crash_index
+                < openai_revocation_index
+                < openai_rotation_index
                 < preview_index
             ):
                 errors.append("infrastructure aggregate checker ordering differs")

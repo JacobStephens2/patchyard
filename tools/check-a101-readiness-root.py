@@ -50,7 +50,7 @@ BOUND_SOURCES = {
     "tools/check-worker-qualification.py": "357d756da3c83004db6766956a8c31b9682953a50b470dbb3ff7b9acb879e99a",
     "tools/check-worker-runtime.py": "db1646d9bcf738d1df35679e131b1afdb9e35af73be1859d85c8f4017385ce75",
     "infra/ansible/tests/test_a101_readiness_root.py": "608adab49425e679ad4f9eacbabb40589bac69c8fbd85eacd0e2c0911999afdf",
-    "infra/ansible/tests/test_freeze_graph.py": "74b113b69dedab985c4fb51f114acd965e6e7234aa50e0104446f57756e643d9",
+    "infra/ansible/tests/test_freeze_graph.py": "5d83e2ab9c0902b54650e5588c718eb01edfee71b47c0f9693f55853d0a24938",
     "infra/ansible/tests/test_worker_firewall_readiness.py": "f9626ce822c43baccdfa4f415cbb623162b4c5b5091a4ff86736af3de296432e",
     "infra/ansible/tests/test_anthropic_spend.py": "1290c839a15a9fa46b897646b877485a1feed081160c86674d605cb2567bfe89",
     "infra/ansible/tests/test_anthropic_issuance.py": "1cd6f3b71df6987c94a3bb02447aebfbb7106a8cfb412f0d751c2ddc76a7f882",

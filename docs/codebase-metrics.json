@@ -72,7 +72,7 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 25921,
+      "code": 25926,
       "comments": 539,
       "blanks": 2170,
       "files": 158,
@@ -135,7 +135,7 @@
         },
         {
           "language": "Python",
-          "code": 12621,
+          "code": 12626,
           "comments": 59,
           "blanks": 1006,
           "files": 30
@@ -267,10 +267,10 @@
     {
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
-      "code": 10424,
+      "code": 10725,
       "comments": 21872,
       "blanks": 5990,
-      "files": 203,
+      "files": 204,
       "languages": [
         {
           "language": "BASH",
@@ -281,10 +281,10 @@
         },
         {
           "language": "JSON",
-          "code": 9367,
+          "code": 9668,
           "comments": 0,
           "blanks": 1,
-          "files": 41
+          "files": 42
         },
         {
           "language": "Markdown",

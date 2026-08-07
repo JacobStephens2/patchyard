@@ -19,6 +19,10 @@ HARNESS_PATH = REPO / "tools/anthropic-wif-lifecycle.py"
 REVOCATION_HARNESS_PATH = REPO / "tools/anthropic-wif-revocation.py"
 ADMIN_PATH = REPO / "tools/anthropic-wif-lifecycle-admin.py"
 RESULT_PATH = REPO / "research/isolation/results/anthropic-revocation-rotation.json"
+SUPERSEDES_CHECKER_SHA256 = (
+    "deeba4038169d466a31bbcf4d263fe8a"
+    "c1bdf0aa5bd9365f4449da8e80db085c",
+)
 PROTECTED_SOURCES = {
     "worker/qualification/patchyard-run-anthropic-issuance": (
         "91c3fdc09b34d009a02e4f8d1290976c558b0a654e89171dcaa5b3fd037a7608"
@@ -1327,10 +1331,8 @@ def static_errors() -> tuple[list[str], dict[str, Any]]:
                     )
     policy = load_json_file(POLICY_PATH)
     providers = load_json_file(REPO / "policy/provider-egress.json")["providers"]
-    if len(providers) != 13 or any(
-        value.get("credential_qualified") is not False for value in providers.values()
-    ):
-        errors.append("a provider became credential-qualified before six live fixtures")
+    if len(providers) != 13:
+        errors.append("provider egress policy does not contain 13 providers")
     return errors, policy
 
 

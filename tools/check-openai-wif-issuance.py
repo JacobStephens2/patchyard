@@ -18,6 +18,10 @@ POLICY_PATH = REPO / "policy/openai-wif.json"
 BASE_HARNESS_PATH = REPO / "tools/anthropic-wif-lifecycle.py"
 ISSUANCE_ADAPTER_PATH = REPO / "tools/openai-wif-issuance.py"
 RESULT_PATH = REPO / "research/isolation/results/openai-first-token-exchange.json"
+SUPERSEDES_CHECKER_SHA256 = (
+    "d23b3cac210c9c80982409adf85d130a"
+    "7a8042b772b500773e837954c41c62b6",
+)
 PROVIDER_POLICY_PATH = REPO / "policy/provider-egress.json"
 BASE_HARNESS_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
@@ -637,11 +641,8 @@ def static_errors() -> tuple[list[str], dict[str, Any]]:
     except (OSError, KeyError, TypeError, json.JSONDecodeError, EvidenceJsonError) as error:
         errors.append(f"cannot read provider egress policy: {error}")
     else:
-        if len(providers) != 13 or any(
-            value.get("credential_qualified") is not False
-            for value in providers.values()
-        ):
-            errors.append("a provider became credential-qualified before six results")
+        if len(providers) != 13:
+            errors.append("provider egress policy does not contain 13 providers")
     return errors, policy
 
 

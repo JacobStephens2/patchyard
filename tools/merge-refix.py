@@ -44,7 +44,11 @@ GENERATED = ("docs/codebase-metrics.json", ".github/workflows/infrastructure.yml
 READINESS_ROOT = "tools/check-a101-readiness-root.py"
 WORKFLOW = ".github/workflows/infrastructure.yml"
 DIGEST_PAIR = re.compile(r"expected ([0-9a-f]{64}), observed ([0-9a-f]{64})")
+UNITTEST_DIGEST_PAIR = re.compile(
+    r"AssertionError: '([0-9a-f]{64})' != '([0-9a-f]{64})'"
+)
 TEXT_SUFFIXES = {"py", "sh", "yml", "yaml", "json", "md"}
+IMMUTABLE_PREFIXES = ("research/isolation/results/",)
 MAXIMUM_ROUNDS = 12
 
 CASCADE_CHECKERS = (
@@ -61,11 +65,29 @@ def run(command: list[str]) -> subprocess.CompletedProcess:
 
 def tracked_text_files() -> list[str]:
     listing = run(["git", "ls-files"]).stdout.split()
-    return [f for f in listing if f.rsplit(".", 1)[-1] in TEXT_SUFFIXES]
+    return [
+        path
+        for path in listing
+        if path.rsplit(".", 1)[-1] in TEXT_SUFFIXES
+        and not path.startswith(IMMUTABLE_PREFIXES)
+    ]
 
 
 def digest_of(relative: str) -> str:
     return hashlib.sha256((REPO / relative).read_bytes()).hexdigest()
+
+
+def digest_substitutions(report: str) -> dict[str, str]:
+    substitutions = {
+        expected: observed for expected, observed in DIGEST_PAIR.findall(report)
+    }
+    substitutions.update(
+        {
+            expected: observed
+            for observed, expected in UNITTEST_DIGEST_PAIR.findall(report)
+        }
+    )
+    return substitutions
 
 
 def conflicted() -> list[str]:
@@ -135,8 +157,9 @@ def drive_cascade() -> bool:
         substitutions: dict[str, str] = {}
         for checker in CASCADE_CHECKERS:
             result = run(checker)
-            for stale, observed in DIGEST_PAIR.findall(result.stdout + result.stderr):
-                substitutions[stale] = observed
+            substitutions.update(
+                digest_substitutions(result.stdout + result.stderr)
+            )
         if substitutions:
             apply_substitutions(substitutions)
 

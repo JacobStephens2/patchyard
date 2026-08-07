@@ -4,19 +4,19 @@
     {
       "accepted": false,
       "checker": "check-openai-wif-issuance.py",
-      "checker_sha256": "d23b3cac210c9c80982409adf85d130a7a8042b772b500773e837954c41c62b6",
+      "checker_sha256": "ebe448f5e8039ceafb47394eba7f319a74c9761c6738fa4809a030f7aa9f1c16",
       "exit_code": 1
     },
     {
       "accepted": false,
       "checker": "check-openai-wif-expiry.py",
-      "checker_sha256": "2f66e0b540829fad6d8813471c7e106eaeb71aacbd63f6c7f7abab22ce31f917",
+      "checker_sha256": "fb88d5a36354a93dc44b74030772916e2dabb8cb829f07972889829427a799ae",
       "exit_code": 1
     },
     {
       "accepted": false,
       "checker": "check-openai-wif-crash-cleanup.py",
-      "checker_sha256": "4bcf134f51b72e058b6c7720089dec9c60734e7e6c01aeb6997cae205b9e8474",
+      "checker_sha256": "435dbb0e3ca62383e9131b26cc685e95d8edcad42345a700bd9adb856addabbc",
       "exit_code": 1
     }
   ],

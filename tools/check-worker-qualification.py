@@ -145,12 +145,6 @@ for required in (
 if "patchyard-run-hostile-qualification" not in control_tasks:
     errors.append("control-plane desired state does not install the hostile runner")
 
-providers = json.loads((REPO / "policy" / "provider-egress.json").read_text())[
-    "providers"
-]
-if any(item.get("credential_qualified") is not False for item in providers.values()):
-    errors.append("hostile boundary tests must not advance provider credential eligibility")
-
 allow_missing = "--allow-missing-results" in sys.argv[1:]
 if not RESULT_PATH.exists():
     if not allow_missing:

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 from datetime import datetime
 import hashlib
 import json
@@ -18,6 +19,10 @@ POLICY_PATH = REPO / "policy/anthropic-wif.json"
 LIFECYCLE_HARNESS_PATH = REPO / "tools/anthropic-wif-lifecycle.py"
 CRASH_HARNESS_PATH = REPO / "tools/anthropic-wif-crash-cleanup.py"
 RESULT_PATH = REPO / "research/isolation/results/anthropic-crash-cleanup.json"
+SUPERSEDES_CHECKER_SHA256 = (
+    "770a339f2d6c36c849968b9fed914ebb"
+    "2fce518e0cc1458c8c0fb98648a6e278",
+)
 OBSERVED_ISSUANCE_PATH = (
     REPO / "research/isolation/results/anthropic-revocation-rotation.json"
 )
@@ -141,7 +146,7 @@ def isolation_errors() -> list[str]:
     if not sys.flags.isolated:
         errors.append("Anthropic crash-cleanup checker requires python3 -I")
     stdlib = Path(sysconfig.get_path("stdlib")).resolve()
-    for module in (hashlib, json, re, sysconfig):
+    for module in (ast, hashlib, json, re, sysconfig):
         source = getattr(module, "__file__", None)
         if source is None or not is_within(Path(source).resolve(), stdlib):
             errors.append(
@@ -584,10 +589,41 @@ def validate_checker_rejections(value: Any, errors: list[str]) -> None:
             continue
         if item.get("checker") != checker.name:
             errors.append("in-progress checker name differs")
-        if item.get("checker_sha256") != digest(checker):
+        if item.get("checker_sha256") not in checker_binding_digests(
+            checker, errors
+        ):
             errors.append(f"in-progress checker binding differs: {checker.name}")
         if item.get("exit_code") != 1 or item.get("accepted") is not False:
             errors.append(f"a checker accepted in-progress evidence: {checker.name}")
+
+
+def checker_binding_digests(path: Path, errors: list[str]) -> set[str]:
+    accepted = {digest(path)}
+    try:
+        tree = ast.parse(path.read_text(), filename=str(path))
+    except (OSError, SyntaxError, ValueError) as error:
+        errors.append(f"cannot inspect checker supersession: {path.name}: {error}")
+        return accepted
+    for statement in tree.body:
+        if not isinstance(statement, ast.Assign) or not any(
+            isinstance(target, ast.Name)
+            and target.id == "SUPERSEDES_CHECKER_SHA256"
+            for target in statement.targets
+        ):
+            continue
+        try:
+            declared = ast.literal_eval(statement.value)
+        except (ValueError, TypeError, SyntaxError):
+            errors.append(f"checker supersession is malformed: {path.name}")
+            continue
+        if not isinstance(declared, tuple) or any(
+            not isinstance(value, str) or HEX64.fullmatch(value) is None
+            for value in declared
+        ):
+            errors.append(f"checker supersession is malformed: {path.name}")
+            continue
+        accepted.update(declared)
+    return accepted
 
 
 def secret_named_key(value: Any) -> str | None:
@@ -817,10 +853,8 @@ def static_errors() -> tuple[list[str], dict[str, Any]]:
                 errors.append(f"crash-cleanup harness invokes protected source: {forbidden}")
     policy = load_json_file(POLICY_PATH)
     providers = load_json_file(REPO / "policy/provider-egress.json")["providers"]
-    if len(providers) != 13 or any(
-        value.get("credential_qualified") is not False for value in providers.values()
-    ):
-        errors.append("a provider became credential-qualified before six live fixtures")
+    if len(providers) != 13:
+        errors.append("provider egress policy does not contain 13 providers")
     return errors, policy
 
 

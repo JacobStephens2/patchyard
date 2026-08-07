@@ -12,6 +12,7 @@ their own.
 | `check-state.sh` | PostgreSQL durability, complete grant matrix, A94 canary, shared catalog, and ERD drift gate |
 | `check-state-restart.sh` | Restart PostgreSQL at the declared post-commit boundary and prove retry idempotence |
 | `check-constitution.sh` | Verify the reviewed `AGENTS.md` digest |
+| `check-freeze-graph.py` | Report the stable result-rooted frozen set and fail on digest drift |
 | `install-rustup.sh` | Install checksum-pinned rustup and resolve `rust-toolchain.toml` |
 | `install-rust-tools.sh` | Install checksum-pinned cargo-audit, cargo-deny, cargo-vet, and cargo-machete binaries |
 | `install-shellcheck.sh` | Install the checksum-pinned ShellCheck used for privileged boundary scripts |

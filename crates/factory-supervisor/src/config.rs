@@ -324,10 +324,8 @@ mod tests {
         // that the flag is off, but that it is never on for a seat whose
         // provider is unqualified - the condition bootstrap enforces.
         if config.live_provider_execution {
-            let egress = ProviderEgressConfig::load(Path::new(
-                "../../policy/provider-egress.json",
-            ))
-            .expect("canonical provider egress");
+            let egress = ProviderEgressConfig::load(Path::new("../../policy/provider-egress.json"))
+                .expect("canonical provider egress");
             let provider = &config.resolve("triage").expect("triage").seat.provider;
             assert!(
                 egress

@@ -6,7 +6,7 @@
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 40788,
+      "code": 40786,
       "comments": 603,
       "blanks": 2401,
       "files": 89,
@@ -48,7 +48,7 @@
         },
         {
           "language": "Rust",
-          "code": 38356,
+          "code": 38354,
           "comments": 163,
           "blanks": 2126,
           "files": 56

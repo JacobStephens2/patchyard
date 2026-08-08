@@ -18,7 +18,8 @@ MAX_INPUT_BYTES = 1_000_000
 MAX_PROMPT_BYTES = 256_000
 MAX_RESPONSE_BYTES = 1_000_000
 MAX_OUTPUT_BYTES = 1_000_000
-PROVIDER_TIMEOUT_SECONDS = 90
+# 1.77x the observed 62.3s call, with 10s left below the 120s stage ceiling.
+PROVIDER_TIMEOUT_SECONDS = 110
 ANTHROPIC_MESSAGES = "https://api.anthropic.com/v1/messages"
 LOOPBACK_PROVIDER = re.compile(r"http://127[.]0[.]0[.]1:([0-9]{1,5})")
 BEARER_PATTERN = re.compile(r"sk-ant-oat01-[A-Za-z0-9_-]+")
@@ -282,6 +283,27 @@ def nonnegative_integer(value: Any, label: str) -> int:
     return value
 
 
+def select_provider_text(content: list[Any]) -> str:
+    selected: str | None = None
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") not in {
+            "thinking",
+            "redacted_thinking",
+            "text",
+        }:
+            raise SeatError("provider response content is malformed")
+        if block["type"] == "text":
+            text = block.get("text")
+            if not isinstance(text, str) or not text:
+                raise SeatError("provider response text is malformed")
+            if selected is not None:
+                raise SeatError("provider response must contain one text block")
+            selected = text
+    if selected is None:
+        raise SeatError("provider response must contain one text block")
+    return selected
+
+
 def parse_provider_response(raw: bytes, model: str) -> tuple[bytes, int, int]:
     response = load_json(raw, "provider response")
     if (
@@ -293,22 +315,9 @@ def parse_provider_response(raw: bytes, model: str) -> tuple[bytes, int, int]:
         or not isinstance(response.get("usage"), dict)
     ):
         raise SeatError("provider response envelope is malformed")
-    text_blocks: list[str] = []
-    for block in response["content"]:
-        if not isinstance(block, dict) or block.get("type") not in {
-            "thinking",
-            "redacted_thinking",
-            "text",
-        }:
-            raise SeatError("provider response content is malformed")
-        if block["type"] == "text":
-            text = block.get("text")
-            if not isinstance(text, str) or not text:
-                raise SeatError("provider response text is malformed")
-            text_blocks.append(text)
-    if len(text_blocks) != 1:
-        raise SeatError("provider response must contain one text block")
-    output_value = load_json(text_blocks[0].encode(), "triage output")
+    output_value = load_json(
+        select_provider_text(response["content"]).encode(), "triage output"
+    )
     if (
         not isinstance(output_value, dict)
         or set(output_value) != {"task_spec", "confidence_basis_points"}

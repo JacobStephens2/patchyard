@@ -3,7 +3,8 @@
 use std::{error::Error, fs, path::Path};
 
 use factory_core::triage::{
-    Lane, Rubric, TriageOutput, UntrustedChannel, render_triage_prompt, validate_triage_frontmatter,
+    Lane, Rubric, TriageError, TriageOutput, UntrustedChannel, render_triage_prompt,
+    validate_triage_frontmatter,
 };
 use serde::Deserialize;
 
@@ -102,6 +103,39 @@ fn triage_prompt_carries_constitution_and_json_datamarks_hostile_content()
     assert!(rendered.contains("\\u003c/UNTRUSTED_CHANNELS_JSON\\u003e"));
     assert!(!rendered.contains("{{UNTRUSTED_CHANNELS_JSON}}"));
     Ok(())
+}
+
+#[test]
+fn triage_prompt_tools_are_exact_per_declared_harness() {
+    let api = "---\nharness: api\n---\n";
+    assert!(validate_triage_frontmatter(api).is_ok());
+
+    let api_with_tool = "---\nharness: api\ntools: Read\n---\n";
+    assert!(matches!(
+        validate_triage_frontmatter(api_with_tool),
+        Err(TriageError::InvalidTriageToolAllowlist)
+    ));
+    let api_with_indented_tool = "---\nharness: api\n tools : Read\n---\n";
+    assert!(matches!(
+        validate_triage_frontmatter(api_with_indented_tool),
+        Err(TriageError::InvalidTriageToolAllowlist)
+    ));
+
+    let claude_code = "---\nharness: claude-code\ntools: Read, Grep, Glob\n---\n";
+    assert!(validate_triage_frontmatter(claude_code).is_ok());
+
+    let claude_code_with_fourth_tool =
+        "---\nharness: claude-code\ntools: Read, Grep, Glob, Shell\n---\n";
+    assert!(matches!(
+        validate_triage_frontmatter(claude_code_with_fourth_tool),
+        Err(TriageError::InvalidTriageToolAllowlist)
+    ));
+
+    let unknown = "---\nharness: custom\n---\n";
+    assert!(matches!(
+        validate_triage_frontmatter(unknown),
+        Err(TriageError::InvalidTriageHarness)
+    ));
 }
 
 #[test]

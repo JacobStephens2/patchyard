@@ -6,8 +6,8 @@
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 40776,
-      "comments": 600,
+      "code": 40786,
+      "comments": 603,
       "blanks": 2401,
       "files": 89,
       "languages": [
@@ -48,8 +48,8 @@
         },
         {
           "language": "Rust",
-          "code": 38344,
-          "comments": 160,
+          "code": 38354,
+          "comments": 163,
           "blanks": 2126,
           "files": 56
         },
@@ -72,8 +72,8 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 27426,
-      "comments": 554,
+      "code": 27452,
+      "comments": 559,
       "blanks": 2336,
       "files": 162,
       "languages": [
@@ -135,8 +135,8 @@
         },
         {
           "language": "Python",
-          "code": 14063,
-          "comments": 62,
+          "code": 14089,
+          "comments": 67,
           "blanks": 1168,
           "files": 34
         },

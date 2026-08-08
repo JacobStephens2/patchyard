@@ -93,8 +93,28 @@ class TriageSeatDeployment(unittest.TestCase):
         self.assertIn("path.parent.parent != SEAT_ROOT", self.minter)
         self.assertIn("STAGE_PATTERN.fullmatch(path.parent.name)", self.minter)
 
-    def test_gate_is_triage_only_and_policy_activation_remains_separate(self) -> None:
-        self.assertFalse(self.routing["live_provider_execution"])
+    def test_gate_is_triage_only_and_live_execution_requires_a_qualified_seat(self) -> None:
+        """Live execution is permitted only while the triage seat is qualified.
+
+        This assertion previously required `live_provider_execution` to be
+        false, which kept seat installation and policy activation in separate
+        changes. Activation has now happened, in its own reviewed change, so
+        the transitional assertion is replaced by the invariant that outlasts
+        it: if live execution is on, the provider triage resolves to must be
+        credential_qualified. Turning the flag on for an unqualified seat is
+        the thing that must never pass.
+        """
+        triage_provider = self.routing["rules"]["triage"]["seat"]["provider"]
+        if self.routing["live_provider_execution"]:
+            entry = next(
+                provider
+                for provider in self.providers["providers"].values()
+                if provider["display_name"] == triage_provider
+            )
+            self.assertTrue(
+                entry["credential_qualified"],
+                f"live execution is on but {triage_provider} is not qualified",
+            )
         qualified = [
             provider["display_name"]
             for provider in self.providers["providers"].values()

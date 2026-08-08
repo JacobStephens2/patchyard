@@ -320,7 +320,20 @@ mod tests {
             Path::new("../../docs/bench.json"),
         )
         .expect("canonical routing");
-        assert!(!config.live_provider_execution);
+        // Live execution is on for the triage seat. What must stay true is not
+        // that the flag is off, but that it is never on for a seat whose
+        // provider is unqualified - the condition bootstrap enforces.
+        if config.live_provider_execution {
+            let egress = ProviderEgressConfig::load(Path::new("../../policy/provider-egress.json"))
+                .expect("canonical provider egress");
+            let provider = &config.resolve("triage").expect("triage").seat.provider;
+            assert!(
+                egress
+                    .by_display_name(provider)
+                    .is_some_and(|entry| entry.credential_qualified),
+                "live execution is on but the triage provider is not qualified"
+            );
+        }
         assert_eq!(
             config
                 .resolve("implement")

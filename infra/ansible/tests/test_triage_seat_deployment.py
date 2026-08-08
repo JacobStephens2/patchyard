@@ -107,5 +107,47 @@ class TriageSeatDeployment(unittest.TestCase):
         self.assertNotIn('commands.insert(\n        "implementation_review"', self.bootstrap)
 
 
+
+
+class WorkerQualificationInvariant(unittest.TestCase):
+    """A138's invariant lives in one checker, and the worker is not it.
+
+    A135 recorded that credential_qualified is read at ten sites, nine of which
+    assert every flag is false. PR 130 narrowed the nine Python checkers and
+    missed this one, an Ansible-deployed shell script - which A135 also names as
+    the only site that actually gates anything. The first converge after
+    Anthropic qualified shipped a correct policy to the worker and its own
+    qualification then refused it.
+    """
+
+    SCRIPT = (
+        Path(__file__).resolve().parents[3]
+        / "infra/ansible/roles/worker/files/qualify-factory-worker"
+    )
+    POLICY = (
+        Path(__file__).resolve().parents[3] / "policy/provider-egress.json"
+    )
+
+    def test_worker_does_not_assert_that_no_provider_is_qualified(self) -> None:
+        source = self.SCRIPT.read_text()
+        self.assertNotIn("all(. == false)", source)
+        self.assertNotIn("[.providers[].credential_qualified]", source)
+
+    def test_worker_shape_assertion_accepts_a_qualified_provider(self) -> None:
+        """The live policy has one qualified provider and must still qualify."""
+        policy = json.loads(self.POLICY.read_text())
+        qualified = [
+            name
+            for name, entry in policy["providers"].items()
+            if entry.get("credential_qualified")
+        ]
+        self.assertTrue(qualified, "expected at least one qualified provider")
+        self.assertEqual(policy["schema_version"], 1)
+        self.assertEqual(len(policy["providers"]), 13)
+        for entry in policy["providers"].values():
+            self.assertIsInstance(entry["credential_qualified"], bool)
+            self.assertGreaterEqual(len(entry["hostnames"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

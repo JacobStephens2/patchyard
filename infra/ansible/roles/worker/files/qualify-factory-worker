@@ -70,8 +70,27 @@ echo "$(</opt/patchyard-worker/images/fieldbook-parity.sha256)  /opt/patchyard-w
 e2fsck -fn /opt/patchyard-worker/images/fieldbook-parity.ext4 >/dev/null
 test "$(</opt/patchyard-worker/images/fieldbook-parity.recipe-sha256)" = \
   "$EXPECTED_RECIPE_SHA256"
-jq -e '[.providers[].credential_qualified] | all(. == false)' \
-  /etc/patchyard-worker/provider-egress.json >/dev/null
+# A138 moved the qualification invariant into exactly one checker on the
+# control plane, tools/check-credential-qualification.py, because a predicate
+# about evidence changes when qualification changes and nine copies of it each
+# had to be superseded. This site was the tenth, and the only one A135 records
+# as actually gating anything. It asserted that no provider was qualified,
+# which stopped being true when Anthropic proved its six Requirements and made
+# worker qualification fail on a correct policy.
+#
+# What the worker legitimately owns is the SHAPE of the file it was given, not
+# the question of who is qualified. It has no access to the committed Results
+# and cannot answer that question; asserting it here could only ever restate a
+# constant.
+jq -e '
+  .schema_version == 1
+  and (.providers | type == "object")
+  and (.providers | length == 13)
+  and all(.providers[];
+    has("credential_qualified")
+    and (.credential_qualified | type == "boolean")
+    and (.hostnames | type == "array" and length >= 1))
+' /etc/patchyard-worker/provider-egress.json >/dev/null
 jq -e '.schema_version == 1 and .run_max_seconds == 300 and .worker_host_max_age_days == 30' \
   /etc/patchyard-worker/worker-lifecycle.json >/dev/null
 BOOT_EPOCH=$(stat -c %Y /var/lib/cloud/instance/boot-finished)

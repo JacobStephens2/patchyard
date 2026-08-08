@@ -84,6 +84,7 @@ BOUND_SOURCE_PATHS = (
     "infra/ansible/tests/test_triage_seat_deployment.py",
     "infra/ansible/roles/control_plane/files/patchyard-log-secret-scan",
     "infra/ansible/roles/control_plane/files/patchyard-mint-seat-bearer",
+    "infra/ansible/roles/control_plane/files/patchyard-request-seat-bearer",
     "infra/ansible/roles/control_plane/files/patchyard-triage-seat",
 )
 

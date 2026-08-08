@@ -36,6 +36,7 @@ run_gate shellcheck --exclude=SC2329 --shell=bash \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-reap-child" \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-spawn-child" \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-cancel-child" \
+  "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-request-seat-bearer" \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-run-session14-qualification" \
   "$REPO_ROOT/worker/qualification/patchyard-run-anthropic-issuance" \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-stage-session14-qualification" \

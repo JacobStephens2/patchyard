@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import grp
 import hashlib
 import os
 from pathlib import Path
+import pwd
 import re
 import secrets
 import stat
@@ -21,6 +23,8 @@ BASE_HARNESS_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
 )
 SEAT_ROOT = Path("/run/patchyard-seats")
+PROBE_ROOT = Path("/run/patchyard-seat-mint-probes")
+PROBE_BEARER = "patchyard-providerless-seat-mint-probe"
 STAGE_PATTERN = re.compile(
     r"agent-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 )
@@ -47,16 +51,16 @@ def load_base_harness() -> types.ModuleType:
     return module
 
 
-def sudo_identity() -> tuple[int, int]:
-    if os.geteuid() != 0 or os.environ.get("SUDO_USER") != "factory-manager":
-        raise MintError("seat bearer mint requires the factory-manager sudo boundary")
+def target_identity() -> tuple[int, int]:
+    if os.geteuid() != 0:
+        raise MintError("seat bearer mint requires a root service context")
     try:
-        uid = int(os.environ["SUDO_UID"])
-        gid = int(os.environ["SUDO_GID"])
-    except (KeyError, ValueError) as error:
-        raise MintError("sudo caller identity is absent") from error
+        uid = pwd.getpwnam("factory-manager").pw_uid
+        gid = grp.getgrnam("factory").gr_gid
+    except KeyError as error:
+        raise MintError("seat bearer target identity is absent") from error
     if uid <= 0 or gid <= 0:
-        raise MintError("sudo caller identity is invalid")
+        raise MintError("seat bearer target identity is invalid")
     return uid, gid
 
 
@@ -148,10 +152,41 @@ def write_bearer(path: Path, bearer: str, uid: int, gid: int) -> None:
         raise MintError("bearer output postcondition failed")
 
 
+def consume_providerless_probe(path: Path) -> str | None:
+    marker = PROBE_ROOT / path.parent.name
+    if not os.path.lexists(marker):
+        return None
+    try:
+        root = PROBE_ROOT.resolve(strict=True)
+        root_metadata = root.lstat()
+        marker_metadata = marker.lstat()
+        run_metadata = Path("/run").stat()
+    except OSError as error:
+        raise MintError("seat mint probe cannot be resolved") from error
+    if (
+        root != PROBE_ROOT
+        or root.is_symlink()
+        or marker.is_symlink()
+        or not stat.S_ISDIR(root_metadata.st_mode)
+        or not stat.S_ISREG(marker_metadata.st_mode)
+        or root_metadata.st_uid != 0
+        or root_metadata.st_gid != 0
+        or marker_metadata.st_uid != 0
+        or marker_metadata.st_gid != 0
+        or stat.S_IMODE(root_metadata.st_mode) != 0o700
+        or stat.S_IMODE(marker_metadata.st_mode) != 0o400
+        or marker_metadata.st_size != 0
+        or root_metadata.st_dev != run_metadata.st_dev
+    ):
+        raise MintError("seat mint probe boundary is invalid")
+    marker.unlink()
+    return PROBE_BEARER
+
+
 def run(arguments: list[str]) -> int:
     if len(arguments) != 2 or arguments[0] != "Anthropic":
         raise MintError("usage: patchyard-mint-seat-bearer Anthropic OUTPUT")
-    uid, gid = sudo_identity()
+    uid, gid = target_identity()
     output = Path(arguments[1])
     validate_output(output, uid, gid)
     base = load_base_harness()
@@ -163,6 +198,11 @@ def run(arguments: list[str]) -> int:
         + "-"
         + secrets.token_hex(5)
     )
+    probe_bearer = consume_providerless_probe(output)
+    if probe_bearer is not None:
+        base.load_public_jwk(base.ACTIVE_SIGNING_KEY)
+        write_bearer(output, probe_bearer, uid, gid)
+        return 0
     bearer = ""
     try:
         _, bearer = base.accepted_exchange(

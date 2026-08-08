@@ -1,8 +1,13 @@
 import ast
+import grp
 import hashlib
 import json
+import os
 from pathlib import Path
+import pwd
 import re
+import subprocess
+import tempfile
 import unittest
 
 
@@ -10,8 +15,11 @@ ROOT = Path(__file__).resolve().parents[3]
 CONTROL = ROOT / "infra/ansible/roles/control_plane"
 SEAT = CONTROL / "files/patchyard-triage-seat"
 MINTER = CONTROL / "files/patchyard-mint-seat-bearer"
-SUDOERS = CONTROL / "files/patchyard-seat-mint.sudoers"
+REQUESTER = CONTROL / "files/patchyard-request-seat-bearer"
+MINT_UNIT = CONTROL / "files/patchyard-seat-mint@.service"
+POLKIT = CONTROL / "files/50-patchyard-seat-mint.rules"
 TMPFILES = CONTROL / "files/patchyard-seat.tmpfiles"
+PROBE_TMPFILES = CONTROL / "files/patchyard-seat-mint-probe.tmpfiles"
 UNIT = CONTROL / "files/factory-supervisor.service"
 TASKS = CONTROL / "tasks/main.yml"
 ENVIRONMENT = CONTROL / "templates/patchyard-supervisor.env.j2"
@@ -28,8 +36,11 @@ class TriageSeatDeployment(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.seat = SEAT.read_text()
         cls.minter = MINTER.read_text()
-        cls.sudoers = SUDOERS.read_text()
+        cls.requester = REQUESTER.read_text()
+        cls.mint_unit = MINT_UNIT.read_text()
+        cls.polkit = POLKIT.read_text()
         cls.tmpfiles = TMPFILES.read_text()
+        cls.probe_tmpfiles = PROBE_TMPFILES.read_text()
         cls.unit = UNIT.read_text()
         cls.tasks = TASKS.read_text()
         cls.environment = ENVIRONMENT.read_text()
@@ -42,12 +53,34 @@ class TriageSeatDeployment(unittest.TestCase):
     def test_runtime_scripts_parse_and_are_installed_with_fixed_roles(self) -> None:
         ast.parse(self.seat)
         ast.parse(self.minter)
+        syntax = subprocess.run(
+            ["/usr/bin/bash", "-n", str(REQUESTER)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
         self.assertIn("destination: /usr/local/libexec/patchyard-triage-seat", self.tasks)
         self.assertIn(
             "destination: /usr/local/sbin/patchyard-mint-seat-bearer", self.tasks
         )
-        self.assertIn("validate: /usr/sbin/visudo -cf %s", self.tasks)
+        self.assertIn(
+            "dest: /usr/local/libexec/patchyard-request-seat-bearer",
+            self.tasks,
+        )
+        self.assertIn(
+            "dest: /etc/systemd/system/patchyard-seat-mint@.service",
+            self.tasks,
+        )
+        self.assertIn(
+            "dest: /etc/polkit-1/rules.d/50-patchyard-seat-mint.rules",
+            self.tasks,
+        )
         self.assertIn("test -x /usr/local/libexec/patchyard-triage-seat", self.qualify)
+        self.assertIn(
+            "test -x /usr/local/libexec/patchyard-request-seat-bearer",
+            self.qualify,
+        )
         self.assertIn("test -x /usr/local/sbin/patchyard-mint-seat-bearer", self.qualify)
 
     def test_minter_reuses_the_exact_qualified_wif_source(self) -> None:
@@ -72,6 +105,10 @@ class TriageSeatDeployment(unittest.TestCase):
             self.tmpfiles,
             "d /run/patchyard-seats 0700 factory-manager factory -\n",
         )
+        self.assertEqual(
+            self.probe_tmpfiles,
+            "d /run/patchyard-seat-mint-probes 0700 root root -\n",
+        )
         self.assertIn("FACTORY_SEAT_SCRATCH_ROOT=/run/patchyard-seats", self.environment)
         self.assertIn("ReadWritePaths=", self.unit)
         self.assertIn("/run/patchyard-seats", self.unit)
@@ -81,17 +118,139 @@ class TriageSeatDeployment(unittest.TestCase):
         self.assertIn("NoNewPrivileges=true", self.unit)
         self.assertIn("ProtectSystem=strict", self.unit)
 
-    def test_sudo_grant_cannot_select_a_provider_or_non_stage_destination(self) -> None:
-        self.assertEqual(
-            self.sudoers,
-            "Cmnd_Alias PATCHYARD_MINT_SEAT_BEARER = "
-            "/usr/local/sbin/patchyard-mint-seat-bearer Anthropic "
-            "/run/patchyard-seats/agent-*/bearer\n"
-            "factory-manager ALL=(root) NOPASSWD: PATCHYARD_MINT_SEAT_BEARER\n",
+    def test_root_service_cannot_select_a_provider_or_non_stage_destination(self) -> None:
+        self.assertIn(
+            "ExecStart=/usr/local/sbin/patchyard-mint-seat-bearer Anthropic "
+            "/run/patchyard-seats/%i/bearer",
+            self.mint_unit,
         )
+        self.assertIn('[[ $# -eq 2 && "$PROVIDER" == Anthropic ]]', self.requester)
+        self.assertIn('[[ "$OUTPUT" == "$ROOT/$ID/bearer" ]]', self.requester)
         self.assertIn('arguments[0] != "Anthropic"', self.minter)
         self.assertIn("path.parent.parent != SEAT_ROOT", self.minter)
         self.assertIn("STAGE_PATTERN.fullmatch(path.parent.name)", self.minter)
+        self.assertIn("state: absent", self.tasks.split(
+            "Remove the superseded seat-mint sudo grant", 1
+        )[1].split("- name:", 1)[0])
+
+    def test_root_activation_preserves_supervisor_hardening(self) -> None:
+        self.assertIn("NoNewPrivileges=true", self.unit)
+        self.assertIn("ProtectSystem=strict", self.unit)
+        self.assertIn("User=root", self.mint_unit)
+        self.assertIn("NoNewPrivileges=true", self.mint_unit)
+        self.assertIn("ProtectSystem=strict", self.mint_unit)
+        self.assertIn(
+            "CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE", self.mint_unit
+        )
+        self.assertIn("ReadWritePaths=/run/patchyard-seats", self.mint_unit)
+        self.assertNotIn("/usr/bin/sudo", self.bootstrap)
+        self.assertIn(
+            '/usr/local/libexec/patchyard-request-seat-bearer', self.bootstrap
+        )
+
+    def test_polkit_delegation_is_uuid_only_start_and_carries_no_bearer(self) -> None:
+        self.assertIn('subject.user == "factory-manager"', self.polkit)
+        self.assertIn("^patchyard-seat-mint@agent-", self.polkit)
+        self.assertIn('action.lookup("verb") == "start"', self.polkit)
+        self.assertNotIn('action.lookup("verb") == "stop"', self.polkit)
+        self.assertNotIn("bearer", self.polkit)
+
+    def test_hardened_caller_probe_has_accepting_and_rejection_cases(self) -> None:
+        self.assertIn(
+            "Only root can create the one-use marker that selects this path",
+            self.qualify,
+        )
+        self.assertEqual(
+            self.qualify.count(
+                "/usr/local/libexec/patchyard-request-seat-bearer"
+            ),
+            3,
+        )
+        self.assertIn("/usr/bin/setpriv --no-new-privs", self.qualify)
+        self.assertIn(
+            "Anthropic \"$SEAT_MINT_PROBE_STAGE/bearer\"", self.qualify
+        )
+        self.assertIn("patchyard-providerless-seat-mint-probe", self.qualify)
+        self.assertIn(
+            "OpenAI \"$SEAT_MINT_PROBE_STAGE/bearer\"", self.qualify
+        )
+        self.assertIn('test ! -e "$SEAT_MINT_PROBE_STAGE/bearer"', self.qualify)
+        self.assertIn("consume_providerless_probe(output)", self.minter)
+        self.assertIn("base.load_public_jwk(base.ACTIVE_SIGNING_KEY)", self.minter)
+        self.assertIn("marker_metadata.st_uid != 0", self.minter)
+        self.assertIn("marker_metadata.st_gid != 0", self.minter)
+
+    def test_caller_runs_with_no_new_privileges_and_rejects_other_providers(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="patchyard-seat-request-") as temporary:
+            fixture = Path(temporary)
+            seat_root = fixture / "seats"
+            stage_id = "agent-00000000-0000-4000-8000-000000000000"
+            stage = seat_root / stage_id
+            stage.mkdir(parents=True, mode=0o700)
+            stub = fixture / "systemctl"
+            calls = fixture / "systemctl.calls"
+            stub.write_text(
+                "#!/usr/bin/bash\n"
+                "set -euo pipefail\n"
+                f"printf '%s\\n' \"$*\" >> {calls}\n"
+                'unit=${!#}\n'
+                'id=${unit#patchyard-seat-mint@}\n'
+                'id=${id%.service}\n'
+                f"printf '%s' patchyard-providerless-seat-mint-probe > "
+                f'"{seat_root}/$id/bearer"\n'
+                f'chmod 0600 "{seat_root}/$id/bearer"\n'
+            )
+            stub.chmod(0o700)
+            user = pwd.getpwuid(os.getuid()).pw_name
+            group = grp.getgrgid(os.getgid()).gr_name
+            requester = fixture / "requester"
+            requester.write_text(
+                self.requester.replace(
+                    "ROOT=/run/patchyard-seats", f"ROOT={seat_root}"
+                )
+                .replace("/usr/bin/systemctl", str(stub))
+                .replace("factory-manager:factory", f"{user}:{group}")
+            )
+            requester.chmod(0o700)
+            bearer = stage / "bearer"
+            accepted = subprocess.run(
+                [
+                    "/usr/bin/setpriv",
+                    "--no-new-privs",
+                    "--",
+                    str(requester),
+                    "Anthropic",
+                    str(bearer),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertEqual(
+                bearer.read_text(), "patchyard-providerless-seat-mint-probe"
+            )
+            self.assertEqual(bearer.stat().st_mode & 0o777, 0o600)
+            accepted_calls = calls.read_text()
+            self.assertIn(f"patchyard-seat-mint@{stage_id}.service", accepted_calls)
+
+            bearer.unlink()
+            rejected = subprocess.run(
+                [
+                    "/usr/bin/setpriv",
+                    "--no-new-privs",
+                    "--",
+                    str(requester),
+                    "OpenAI",
+                    str(bearer),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertFalse(bearer.exists())
+            self.assertEqual(calls.read_text(), accepted_calls)
 
     def test_gate_is_triage_only_and_live_execution_requires_a_qualified_seat(self) -> None:
         """Live execution is permitted only while the triage seat is qualified.

@@ -1,4 +1,13 @@
 ---
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart Polkit
+  ansible.builtin.systemd:
+    name: polkit.service
+    state: restarted
+
 - name: Restart PostgreSQL
   ansible.builtin.systemd:
     name: postgresql.service
@@ -40,8 +49,3 @@
     name: caddy.service
     state: reloaded
   when: not (factory_restore_drill | default(false) | bool)
-
-- name: Restart Polkit
-  ansible.builtin.systemd:
-    name: polkit.service
-    state: restarted

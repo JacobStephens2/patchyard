@@ -156,14 +156,17 @@ async fn stub_provider(
     (format!("http://{address}"), captured, task)
 }
 
-fn provider_success() -> Vec<u8> {
-    let output = fs::read_to_string(project_root().join("fixtures/triage/alphabetize.json"))
-        .expect("triage fixture");
+fn triage_output_text() -> String {
+    fs::read_to_string(project_root().join("fixtures/triage/alphabetize.json"))
+        .expect("triage fixture")
+}
+
+fn provider_success(content: serde_json::Value) -> Vec<u8> {
     serde_json::to_vec(&json!({
         "type": "message",
         "model": "claude-fable-5",
         "stop_reason": "end_turn",
-        "content": [{"type": "text", "text": output}],
+        "content": content,
         "usage": {
             "input_tokens": INPUT_TOKENS,
             "output_tokens": OUTPUT_TOKENS,
@@ -197,11 +200,19 @@ fn triage_input() -> TriageInvocation {
 }
 
 #[tokio::test]
-async fn real_triage_seat_returns_typed_output_usage_and_no_bearer_residue() {
+async fn real_triage_seat_parses_thinking_then_text_without_bearer_residue() {
     let fixture = tmpfs();
     let bearer = synthetic_bearer();
     let (minter, argv_log, environment_log) = write_minter(fixture.path(), &bearer);
-    let (provider, captured, server) = stub_provider(200, provider_success()).await;
+    let provider_response = provider_success(json!([
+        {
+            "type": "thinking",
+            "thinking": "Synthetic classification reasoning with no repository claims.",
+            "signature": "synthetic-signature"
+        },
+        {"type": "text", "text": triage_output_text()}
+    ]));
+    let (provider, captured, server) = stub_provider(200, provider_response).await;
     let root = project_root();
     let (seat, seat_argv_log, seat_environment_log) = write_seat_wrapper(
         fixture.path(),
@@ -263,6 +274,7 @@ async fn real_triage_seat_returns_typed_output_usage_and_no_bearer_residue() {
     assert_eq!(request_json["model"], "claude-fable-5");
     assert_eq!(request_json["output_config"]["effort"], "max");
     assert_eq!(request_json["thinking"]["type"], "adaptive");
+    assert!(request_json.get("tools").is_none());
 
     let minter_argv = fs::read(&argv_log).expect("mint argv");
     let minter_environment = fs::read(&environment_log).expect("mint environment");
@@ -336,7 +348,18 @@ fn direct_stage(fixture: &TempDir, bearer: &str) -> (PathBuf, PathBuf, Vec<OsStr
     (output, bearer_path, arguments)
 }
 
-async fn assert_clean_failure(status: u16, body: Vec<u8>) {
+async fn run_direct_response(
+    status: u16,
+    body: Vec<u8>,
+) -> (
+    TempDir,
+    String,
+    String,
+    PathBuf,
+    PathBuf,
+    Vec<OsString>,
+    std::process::Output,
+) {
     let fixture = tmpfs();
     let bearer = synthetic_bearer();
     let (provider, _captured, server) = stub_provider(status, body).await;
@@ -364,11 +387,26 @@ async fn assert_clean_failure(status: u16, body: Vec<u8>) {
     .await
     .expect("seat failure task");
     server.await.expect("failure stub server");
+    (
+        fixture,
+        bearer,
+        provider,
+        output,
+        bearer_path,
+        arguments,
+        process,
+    )
+}
+
+async fn assert_clean_failure(status: u16, body: Vec<u8>, expected_error: &str) {
+    let (_fixture, bearer, provider, output, bearer_path, arguments, process) =
+        run_direct_response(status, body).await;
     assert!(!process.status.success());
     assert!(!output.exists(), "no partial output may be written");
     assert!(!bearer_path.exists(), "seat removes its bearer on failure");
     assert!(!String::from_utf8_lossy(&process.stdout).contains(&bearer));
     assert!(!String::from_utf8_lossy(&process.stderr).contains(&bearer));
+    assert!(String::from_utf8_lossy(&process.stderr).contains(expected_error));
     assert!(
         arguments
             .iter()
@@ -395,7 +433,38 @@ async fn provider_refusal_and_malformed_response_leave_no_output_or_bearer() {
             "error": {"type": "authentication_error", "message": "refused"}
         }))
         .expect("refusal"),
+        "provider refused triage request with HTTP 401",
     )
     .await;
-    assert_clean_failure(200, b"{\"type\":\"message\",\"content\":[]}".to_vec()).await;
+    assert_clean_failure(
+        200,
+        provider_success(json!([{
+            "type": "thinking",
+            "thinking": "Synthetic reasoning without an answer.",
+            "signature": "synthetic-signature"
+        }])),
+        "provider response must contain one text block",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn text_only_provider_response_still_parses() {
+    let response = provider_success(json!([{
+        "type": "text",
+        "text": triage_output_text()
+    }]));
+    let (_fixture, _bearer, _provider, output, bearer_path, _arguments, process) =
+        run_direct_response(200, response).await;
+    assert!(
+        process.status.success(),
+        "{}",
+        String::from_utf8_lossy(&process.stderr)
+    );
+    assert!(
+        !bearer_path.exists(),
+        "seat removes its bearer after success"
+    );
+    let persisted = fs::read_to_string(output).expect("triage output");
+    TriageOutput::parse_json(&persisted).expect("valid text-only triage output");
 }

@@ -615,12 +615,13 @@ pub fn render_triage_prompt(
     Ok(with_constitution.replace(UNTRUSTED_PLACEHOLDER, &datamarked))
 }
 
-/// Assert that the agent frontmatter grants only the A37 tools.
+/// Assert that the prompt frontmatter exactly matches its declared harness.
 pub fn validate_triage_frontmatter(template: &str) -> Result<(), TriageError> {
     let mut lines = template.lines();
     if lines.next() != Some("---") {
         return Err(TriageError::InvalidTriageFrontmatter);
     }
+    let mut harness = None;
     let mut tools = None;
     let mut closed = false;
     for line in &mut lines {
@@ -628,26 +629,42 @@ pub fn validate_triage_frontmatter(template: &str) -> Result<(), TriageError> {
             closed = true;
             break;
         }
-        if let Some(value) = line.strip_prefix("tools:") {
-            if tools.is_some() {
-                return Err(TriageError::InvalidTriageFrontmatter);
+        if line.trim().is_empty() {
+            continue;
+        }
+        let (key, value) = line
+            .split_once(':')
+            .ok_or(TriageError::InvalidTriageFrontmatter)?;
+        match key.trim() {
+            "harness" => {
+                if harness.is_some() {
+                    return Err(TriageError::InvalidTriageFrontmatter);
+                }
+                harness = Some(value.trim());
             }
-            tools = Some(
-                value
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .collect::<Vec<_>>(),
-            );
+            "tools" => {
+                if tools.is_some() {
+                    return Err(TriageError::InvalidTriageFrontmatter);
+                }
+                tools = Some(
+                    value
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .collect::<Vec<_>>(),
+                );
+            }
+            _ => {}
         }
     }
     if !closed {
         return Err(TriageError::InvalidTriageFrontmatter);
     }
-    if tools.as_deref() != Some(&["Read", "Grep", "Glob"][..]) {
-        return Err(TriageError::InvalidTriageToolAllowlist);
+    match (harness, tools.as_deref()) {
+        (Some("api"), None) | (Some("claude-code"), Some(["Read", "Grep", "Glob"])) => Ok(()),
+        (Some("api" | "claude-code"), _) => Err(TriageError::InvalidTriageToolAllowlist),
+        _ => Err(TriageError::InvalidTriageHarness),
     }
-    Ok(())
 }
 
 fn validate_rubric(document: &RubricDocument) -> Result<(), TriageError> {
@@ -788,7 +805,9 @@ pub enum TriageError {
     HumanApprovalMissingAcceptance,
     #[error("triage frontmatter is missing or malformed")]
     InvalidTriageFrontmatter,
-    #[error("triage tools must be exactly Read, Grep, Glob")]
+    #[error("triage harness must be exactly api or claude-code")]
+    InvalidTriageHarness,
+    #[error("triage tools do not exactly match the declared harness")]
     InvalidTriageToolAllowlist,
     #[error("constitution hard-rules section is missing")]
     ConstitutionHardRulesMissing,

@@ -80,7 +80,7 @@ BOUND_SOURCES = {
     "infra/ansible/tests/test_triage_seat_deployment.py": "21746f8d4cea52a6a00b33fa7c7fa4097f57c766d83d8d9f6bceacbcabe8b233",
     "infra/ansible/roles/control_plane/files/patchyard-log-secret-scan": "356c4a962a262f4128cd22496b068dbf4b02c8a3867214c7c31f80e1ebb11eb8",
     "infra/ansible/roles/control_plane/files/patchyard-mint-seat-bearer": "acee51549c35fa5e5b548ca0020c413e1de5f49d475d4f1dd78d02fa95771df2",
-    "infra/ansible/roles/control_plane/files/patchyard-triage-seat": "713ec65f48aea60e206ed186902fb0bb441905012442bbbd4ed7066db1e3d9b6",
+    "infra/ansible/roles/control_plane/files/patchyard-triage-seat": "ae414ec9427f8b0cbace8fc140850fb4a7b3bfd041880ae927677ebc98fc30a3",
 }
 EXPECTED_TEST_FILES = (
     "infra/ansible/tests/test_a101_readiness_root.py",

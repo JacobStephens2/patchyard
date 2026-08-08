@@ -52,7 +52,18 @@ class Session15ProposerContract(unittest.TestCase):
             'FACTORY_PROPOSER_BASE_SHA={{ factory_repo_revision }}',
             self.environment,
         )
-        self.assertFalse(self.routing['live_provider_execution'])
+        # The proposer's dormancy does not depend on live_provider_execution and
+        # must not be read as depending on it. This previously asserted that flag
+        # was false, which bundled two unrelated gates and would have made
+        # enabling live triage look like it woke the proposer. The proposer has
+        # its own gate, defaulting to false, and that is what keeps it dormant.
+        bootstrap = (
+            Path(__file__).resolve().parents[3]
+            / "crates/factory-supervisor/src/bootstrap.rs"
+        ).read_text()
+        self.assertIn(
+            'bool_env("FACTORY_PROPOSER_SCHEDULING_ENABLED", false)', bootstrap
+        )
 
     def test_ideas_projection_is_private_append_state_not_the_installed_repo(self) -> None:
         self.assertIn(

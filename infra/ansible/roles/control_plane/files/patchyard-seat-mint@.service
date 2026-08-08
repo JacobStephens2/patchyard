@@ -1,0 +1,30 @@
+[Unit]
+Description=Patchyard Factory root-only seat bearer mint %i
+After=network-online.target
+Wants=network-online.target
+CollectMode=inactive-or-failed
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/sbin/patchyard-mint-seat-bearer Anthropic /run/patchyard-seats/%i/bearer
+TimeoutStartSec=40s
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+ReadWritePaths=/run/patchyard-seats /run/patchyard-seat-mint-probes
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native

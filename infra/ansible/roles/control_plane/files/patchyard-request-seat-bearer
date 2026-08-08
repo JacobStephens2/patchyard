@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROVIDER=${1:-}
+OUTPUT=${2:-}
+ROOT=/run/patchyard-seats
+
+[[ $# -eq 2 && "$PROVIDER" == Anthropic ]]
+[[ "$OUTPUT" == "$ROOT/"*/bearer ]]
+STAGE=${OUTPUT%/bearer}
+ID=${STAGE#"$ROOT/"}
+[[ "$ID" =~ ^agent-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]
+[[ "$OUTPUT" == "$ROOT/$ID/bearer" ]]
+[[ ! -L "$STAGE" && -d "$STAGE" ]]
+[[ "$(/usr/bin/readlink -f -- "$STAGE")" == "$STAGE" ]]
+[[ "$(/usr/bin/stat -c '%U:%G:%a' -- "$STAGE")" == factory-manager:factory:700 ]]
+[[ ! -e "$OUTPUT" && ! -L "$OUTPUT" ]]
+
+UNIT="patchyard-seat-mint@$ID.service"
+/usr/bin/systemctl --quiet --no-ask-password start "$UNIT" >/dev/null 2>&1
+
+[[ -f "$OUTPUT" && ! -L "$OUTPUT" ]]
+IFS=: read -r owner group mode size \
+    <<< "$(/usr/bin/stat -c '%U:%G:%a:%s' -- "$OUTPUT")"
+[[ "$owner:$group:$mode" == factory-manager:factory:600 ]]
+((size >= 1 && size <= 8192))

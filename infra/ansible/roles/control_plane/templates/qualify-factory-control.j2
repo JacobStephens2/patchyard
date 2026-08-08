@@ -6,7 +6,19 @@ EXPECTED_REVISION=${1:?expected repository revision required}
 PRIVATE_IP=${2:?private address required}
 CONTROL_PLANE_PRIVATE_CIDR=${3:?control-plane private CIDR required}
 QUALIFICATION_TEMP=$(mktemp -d /tmp/patchyard-control-qualification.XXXXXX)
-trap 'rm -r -- "$QUALIFICATION_TEMP"' EXIT
+SEAT_MINT_PROBE_STAGE=
+SEAT_MINT_PROBE_MARKER=
+cleanup() {
+  if [[ -n "$SEAT_MINT_PROBE_MARKER" ]]; then
+    rm -f -- "$SEAT_MINT_PROBE_MARKER"
+  fi
+  if [[ -n "$SEAT_MINT_PROBE_STAGE" ]]; then
+    rm -f -- "$SEAT_MINT_PROBE_STAGE/bearer"
+    rmdir -- "$SEAT_MINT_PROBE_STAGE" 2>/dev/null || true
+  fi
+  rm -r -- "$QUALIFICATION_TEMP"
+}
+trap cleanup EXIT
 
 systemctl is-active --quiet node-exporter.service
 systemctl is-active --quiet postgres-exporter.service
@@ -84,6 +96,7 @@ assert_path /var/lib/patchyard/spool factory-web factory-web 700
 assert_path /var/lib/patchyard/worktrees factory-manager factory 750
 assert_path /run/patchyard-children factory-manager factory-manager 700
 assert_path /run/patchyard-seats factory-manager factory 700
+assert_path /run/patchyard-seat-mint-probes root root 700
 assert_path /run/patchyard-evidence-qualification root factory-manager 770
 assert_path /run/patchyard-postgres postgres factory 770
 assert_path /var/lib/pgsql/patchyard-tls postgres postgres 700
@@ -104,9 +117,9 @@ test -x /usr/local/sbin/patchyard-run-isolation-probe
 test -x /usr/local/sbin/patchyard-run-hostile-qualification
 test -x /usr/local/sbin/patchyard-run-anthropic-issuance
 test -x /usr/local/libexec/patchyard-triage-seat
+test -x /usr/local/libexec/patchyard-request-seat-bearer
 test -x /usr/local/sbin/patchyard-mint-seat-bearer
-test "$(stat -c '%U:%G:%a' /etc/sudoers.d/patchyard-seat-mint)" = root:root:440
-/usr/sbin/visudo -cf /etc/sudoers.d/patchyard-seat-mint >/dev/null
+test ! -e /etc/sudoers.d/patchyard-seat-mint
 grep -Fxq -- '{{ hostvars[groups['worker'][0]].private_ip }}' \
   /etc/patchyard/anthropic-worker-ip
 test -x /usr/local/bin/factory-supervisor
@@ -202,6 +215,54 @@ systemctl show factory-supervisor.service --property=ReadWritePaths --value \
   | grep -Fq /run/patchyard-children
 systemctl show factory-supervisor.service --property=ReadWritePaths --value \
   | grep -Fq /run/patchyard-seats
+systemd-analyze verify /etc/systemd/system/patchyard-seat-mint@.service
+test "$(systemctl show \
+  patchyard-seat-mint@agent-00000000-0000-4000-8000-000000000000.service \
+  --property=User --value)" = root
+test "$(systemctl show \
+  patchyard-seat-mint@agent-00000000-0000-4000-8000-000000000000.service \
+  --property=NoNewPrivileges --value)" = yes
+test "$(systemctl show \
+  patchyard-seat-mint@agent-00000000-0000-4000-8000-000000000000.service \
+  --property=ProtectSystem --value)" = strict
+systemctl show \
+  patchyard-seat-mint@agent-00000000-0000-4000-8000-000000000000.service \
+  --property=ReadWritePaths --value | grep -Fq /run/patchyard-seats
+grep -Fxq 'CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE' \
+  /etc/systemd/system/patchyard-seat-mint@.service
+grep -Fq 'subject.user == "factory-manager"' \
+  /etc/polkit-1/rules.d/50-patchyard-seat-mint.rules
+grep -Fq '/^patchyard-seat-mint@agent-' \
+  /etc/polkit-1/rules.d/50-patchyard-seat-mint.rules
+grep -Fq 'action.lookup("verb") == "start"' \
+  /etc/polkit-1/rules.d/50-patchyard-seat-mint.rules
+
+# Exercise the real hardened caller -> systemd -> root minter seam without a
+# provider call. Only root can create the one-use marker that selects this path.
+SEAT_MINT_PROBE_ID="agent-$(</proc/sys/kernel/random/uuid)"
+[[ "$SEAT_MINT_PROBE_ID" =~ ^agent-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]
+SEAT_MINT_PROBE_STAGE="/run/patchyard-seats/$SEAT_MINT_PROBE_ID"
+SEAT_MINT_PROBE_MARKER="/run/patchyard-seat-mint-probes/$SEAT_MINT_PROBE_ID"
+install -d -o factory-manager -g factory -m 0700 "$SEAT_MINT_PROBE_STAGE"
+install -o root -g root -m 0400 /dev/null "$SEAT_MINT_PROBE_MARKER"
+/usr/sbin/runuser --user factory-manager --group factory -- \
+  /usr/bin/setpriv --no-new-privs -- \
+  /usr/local/libexec/patchyard-request-seat-bearer \
+  Anthropic "$SEAT_MINT_PROBE_STAGE/bearer"
+test ! -e "$SEAT_MINT_PROBE_MARKER"
+test "$(stat -c '%U:%G:%a' "$SEAT_MINT_PROBE_STAGE/bearer")" = \
+  factory-manager:factory:600
+test "$(<"$SEAT_MINT_PROBE_STAGE/bearer")" = \
+  patchyard-providerless-seat-mint-probe
+rm -f -- "$SEAT_MINT_PROBE_STAGE/bearer"
+! /usr/sbin/runuser --user factory-manager --group factory -- \
+  /usr/bin/setpriv --no-new-privs -- \
+  /usr/local/libexec/patchyard-request-seat-bearer \
+  OpenAI "$SEAT_MINT_PROBE_STAGE/bearer"
+test ! -e "$SEAT_MINT_PROBE_STAGE/bearer"
+rmdir -- "$SEAT_MINT_PROBE_STAGE"
+SEAT_MINT_PROBE_STAGE=
+SEAT_MINT_PROBE_MARKER=
 systemd-analyze verify /etc/systemd/system/patchyard-child@.service
 systemd-analyze verify /etc/systemd/system/factory-evidence-qualification.service
 test "$(systemctl show factory-evidence-qualification.service --property=User --value)" = \

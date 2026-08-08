@@ -629,15 +629,42 @@
   when: not (factory_restore_drill | default(false) | bool)
   notify: Restart factory supervisor
 
-- name: Install the exact factory-manager seat-mint sudo grant
+- name: Install the hardened supervisor seat-mint requester
   ansible.builtin.copy:
-    src: patchyard-seat-mint.sudoers
-    dest: /etc/sudoers.d/patchyard-seat-mint
+    src: patchyard-request-seat-bearer
+    dest: /usr/local/libexec/patchyard-request-seat-bearer
+    owner: root
+    group: "{{ factory_manager_user }}"
+    mode: "0750"
+  when: not (factory_restore_drill | default(false) | bool)
+  notify: Restart factory supervisor
+
+- name: Remove the superseded seat-mint sudo grant
+  ansible.builtin.file:
+    path: /etc/sudoers.d/patchyard-seat-mint
+    state: absent
+
+- name: Install the root-only seat-mint systemd template
+  ansible.builtin.copy:
+    src: patchyard-seat-mint@.service
+    dest: /etc/systemd/system/patchyard-seat-mint@.service
     owner: root
     group: root
-    mode: "0440"
-    validate: /usr/sbin/visudo -cf %s
+    mode: "0644"
   when: not (factory_restore_drill | default(false) | bool)
+  notify:
+    - Reload systemd
+    - Restart factory supervisor
+
+- name: Install the exact seat-mint Polkit delegation
+  ansible.builtin.copy:
+    src: 50-patchyard-seat-mint.rules
+    dest: /etc/polkit-1/rules.d/50-patchyard-seat-mint.rules
+    owner: root
+    group: root
+    mode: "0644"
+  when: not (factory_restore_drill | default(false) | bool)
+  notify: Restart Polkit
 
 - name: Create the supervisor-owned seat tmpfs root
   ansible.builtin.file:
@@ -657,6 +684,24 @@
     mode: "0644"
   when: not (factory_restore_drill | default(false) | bool)
 
+- name: Recreate the root-only seat-mint probe root after boot
+  ansible.builtin.copy:
+    src: patchyard-seat-mint-probe.tmpfiles
+    dest: /etc/tmpfiles.d/patchyard-seat-mint-probe.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: not (factory_restore_drill | default(false) | bool)
+
+- name: Create the root-only seat-mint probe root
+  ansible.builtin.command:
+    argv:
+      - systemd-tmpfiles
+      - --create
+      - /etc/tmpfiles.d/patchyard-seat-mint-probe.conf
+  changed_when: false
+  when: not (factory_restore_drill | default(false) | bool)
+
 - name: Keep the live Anthropic signing identity off restore drills
   ansible.builtin.file:
     path: "{{ item }}"
@@ -667,12 +712,20 @@
     - /etc/patchyard/anthropic-worker-ip
     - /etc/tmpfiles.d/patchyard-anthropic.conf
     - /etc/tmpfiles.d/patchyard-seat.conf
+    - /etc/tmpfiles.d/patchyard-seat-mint-probe.conf
+    - /etc/polkit-1/rules.d/50-patchyard-seat-mint.rules
     - /etc/sudoers.d/patchyard-seat-mint
+    - /etc/systemd/system/patchyard-seat-mint@.service
+    - /run/patchyard-seat-mint-probes
     - /run/patchyard-seats
+    - /usr/local/libexec/patchyard-request-seat-bearer
     - /usr/local/libexec/patchyard-triage-seat
     - /usr/local/sbin/patchyard-mint-seat-bearer
     - /usr/local/sbin/patchyard-run-anthropic-issuance
   when: factory_restore_drill | default(false) | bool
+  notify:
+    - Reload systemd
+    - Restart Polkit
 
 - name: Create the root-only Anthropic qualification tmpfs root
   ansible.builtin.file:

@@ -119,11 +119,8 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
 
     let triage_credential = if routing.live_provider_execution {
         Some(CredentialCommand {
-            program: PathBuf::from("/usr/bin/sudo"),
-            arguments: vec![
-                OsString::from("-n"),
-                OsString::from("/usr/local/sbin/patchyard-mint-seat-bearer"),
-            ],
+            program: PathBuf::from("/usr/local/libexec/patchyard-request-seat-bearer"),
+            arguments: Vec::new(),
             timeout: duration_env("FACTORY_SEAT_CREDENTIAL_TIMEOUT_SECONDS", 45)?,
         })
     } else {

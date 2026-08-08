@@ -6,7 +6,7 @@
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 40900,
+      "code": 40897,
       "comments": 603,
       "blanks": 2409,
       "files": 89,
@@ -48,7 +48,7 @@
         },
         {
           "language": "Rust",
-          "code": 38468,
+          "code": 38465,
           "comments": 163,
           "blanks": 2134,
           "files": 56
@@ -72,17 +72,17 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 27458,
-      "comments": 560,
-      "blanks": 2338,
-      "files": 162,
+      "code": 27792,
+      "comments": 561,
+      "blanks": 2356,
+      "files": 164,
       "languages": [
         {
           "language": "BASH",
-          "code": 5963,
-          "comments": 135,
-          "blanks": 404,
-          "files": 40
+          "code": 5984,
+          "comments": 136,
+          "blanks": 408,
+          "files": 41
         },
         {
           "language": "Forge Config",
@@ -100,9 +100,9 @@
         },
         {
           "language": "Jinja2",
-          "code": 945,
+          "code": 1005,
           "comments": 0,
-          "blanks": 59,
+          "blanks": 60,
           "files": 18
         },
         {
@@ -135,9 +135,9 @@
         },
         {
           "language": "Python",
-          "code": 14095,
+          "code": 14288,
           "comments": 68,
-          "blanks": 1170,
+          "blanks": 1177,
           "files": 34
         },
         {
@@ -149,10 +149,10 @@
         },
         {
           "language": "Snakemake",
-          "code": 11,
+          "code": 20,
           "comments": 0,
           "blanks": 0,
-          "files": 1
+          "files": 2
         },
         {
           "language": "SQL",
@@ -163,9 +163,9 @@
         },
         {
           "language": "YAML",
-          "code": 3506,
+          "code": 3557,
           "comments": 17,
-          "blanks": 359,
+          "blanks": 365,
           "files": 22
         }
       ]
@@ -173,7 +173,7 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 26312,
+      "code": 26314,
       "comments": 330,
       "blanks": 2187,
       "files": 129,
@@ -229,14 +229,14 @@
         },
         {
           "language": "Python",
-          "code": 21225,
+          "code": 21226,
           "comments": 93,
           "blanks": 2012,
           "files": 48
         },
         {
           "language": "Shell",
-          "code": 646,
+          "code": 647,
           "comments": 33,
           "blanks": 101,
           "files": 19

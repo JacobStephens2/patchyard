@@ -2,7 +2,7 @@
   "schema_version": 1,
   "version": "2026-07-26.1",
   "bench_sha256": "7e214d16e2b5cdcc60113b9d7806660de2c0950de1e5b53f1aa24f4d6a2ce3e0",
-  "live_provider_execution": false,
+  "live_provider_execution": true,
   "rules": {
     "triage": {
       "selection_rule": "max_intelligence",

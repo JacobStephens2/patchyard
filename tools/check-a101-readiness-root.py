@@ -77,7 +77,7 @@ BOUND_SOURCES = {
     "infra/ansible/tests/test_session14_qualification.py": "4a121aeec4dff797e67f2a4d5f151c5a0a3f080cdef3499f0ab8f3fef84f41d3",
     "infra/ansible/tests/test_session15_proposer.py": "732b56e62a789f3f442539f5bf88431dd5285558f67274d369784395d6510cb5",
     "infra/ansible/tests/test_session16_cutover.py": "a93f1c4b4a844222473ce787ce4e5430621c3c496b049621d38e051bbe976ba3",
-    "infra/ansible/tests/test_triage_seat_deployment.py": "9a95529eaea2f92a9262ade5dbac4c7bb791090fcd770c1eeffd8d0005297b54",
+    "infra/ansible/tests/test_triage_seat_deployment.py": "39c59226c5c472525ef1a95d5ff6c3398617e1303d271cecdf0afbe64b313e49",
     "infra/ansible/roles/control_plane/files/patchyard-log-secret-scan": "356c4a962a262f4128cd22496b068dbf4b02c8a3867214c7c31f80e1ebb11eb8",
     "infra/ansible/roles/control_plane/files/patchyard-mint-seat-bearer": "6b0c88263b4ff4ba2cc22ecc3d892c3b962a62aa64f1375eb31ab25705f6baaf",
     "infra/ansible/roles/control_plane/files/patchyard-request-seat-bearer": "20958c674ecb24e19a8aabb11910189e10a6413187f90cd017e8698978b254a0",

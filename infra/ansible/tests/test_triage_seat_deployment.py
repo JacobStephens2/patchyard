@@ -328,5 +328,30 @@ class WorkerQualificationInvariant(unittest.TestCase):
             self.assertGreaterEqual(len(entry["hostnames"]), 1)
 
 
+
+class RequesterReachableByTheRealCaller(unittest.TestCase):
+    """The requester must be executable by the identity that actually calls it.
+
+    The supervisor's primary group is factory; factory-manager reaches it only as
+    a supplementary group. Installing the requester group-owned by
+    factory-manager at 0750 left it executable by the running service but NOT by
+    `runuser --user factory-manager --group factory`, which drops supplementary
+    groups - so the qualification probe added to catch unreachable-callers was
+    itself unable to reach the requester, and blocked every qualification.
+
+    Granting to factory removes the dependency on a supplementary group and makes
+    the probe a faithful stand-in for the caller rather than a stricter one.
+    """
+
+    def test_requester_is_group_owned_by_the_supervisor_primary_group(self) -> None:
+        block = TASKS.read_text().split(
+            "Install the hardened supervisor seat-mint requester"
+        )[1]
+        block = block.split("- name:")[0]
+        self.assertIn("group: factory\n", block)
+        self.assertNotIn("group: \"{{ factory_manager_user }}\"", block)
+        self.assertIn('mode: "0750"', block)
+
+
 if __name__ == "__main__":
     unittest.main()

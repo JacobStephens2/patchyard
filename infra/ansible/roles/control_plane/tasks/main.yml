@@ -634,7 +634,12 @@
     src: patchyard-request-seat-bearer
     dest: /usr/local/libexec/patchyard-request-seat-bearer
     owner: root
-    group: "{{ factory_manager_user }}"
+    # The supervisor's PRIMARY group is factory; factory-manager reaches it only
+    # as a supplementary group. Granting to factory means execute access does not
+    # depend on supplementary groups being present, and makes the qualification
+    # probe - which runs `runuser --group factory` and therefore drops
+    # supplementaries - a faithful stand-in for the real caller.
+    group: factory
     mode: "0750"
   when: not (factory_restore_drill | default(false) | bool)
   notify: Restart factory supervisor

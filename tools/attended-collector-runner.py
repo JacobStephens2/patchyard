@@ -106,6 +106,13 @@ class SessionChannel:
         self.seq = 0
         self.prompt_path = session / "prompt.json"
         self.status_path = session / "status.json"
+        # Replies arrive from the front end, which runs as an unprivileged
+        # account. They live in their own directory so that account can be
+        # granted write access to answers without write access to the run's
+        # own state - and, more importantly, so no root write primitive has to
+        # be handed to a web tier to accept a reading.
+        self.replies = session / "replies"
+        self.replies.mkdir(mode=0o700, exist_ok=True)
 
     # -- state files -----------------------------------------------------
 
@@ -144,7 +151,7 @@ class SessionChannel:
         opened would otherwise produce a conforming-looking record whose
         readings were never read.
         """
-        for entry in self.session.iterdir():
+        for entry in self.replies.iterdir():
             match = REPLY_NAME.match(entry.name)
             if match and int(match.group("seq")) >= opening:
                 raise RunnerError(
@@ -204,7 +211,7 @@ class SessionChannel:
             },
         )
         self.write_status("awaiting_input")
-        reply_path = self.session / f"reply-{self.seq}.json"
+        reply_path = self.replies / f"reply-{self.seq}.json"
         while not reply_path.exists():
             time.sleep(POLL_SECONDS)
         value = self._read_reply(reply_path)
@@ -213,11 +220,24 @@ class SessionChannel:
         return value
 
 
-def prepare_session(path: Path) -> Path:
-    """Create a fresh root-owned 0700 session directory.
+def prepare_session(path: Path, reply_group: str | None = None) -> Path:
+    """Create a fresh root-owned session directory and its replies inbox.
 
     Refuses to reuse one: a second run writing into a directory that already
     holds a prompt or replies could answer the wrong window.
+
+    With no `reply_group` the whole session is root-only 0700, which is right
+    for a run driven from a terminal on the box. With one, the session becomes
+    root:<group> 0750 and the replies inbox root:<group> 2770, so a front end
+    running as a member of that group can submit answers and read the open
+    prompt without any route to root.
+
+    Relaxing to 0750 is deliberate and bounded. The session holds prompts,
+    status and console readings; the collector already refuses to record
+    credential-shaped material, and the signing key is not here. Granting one
+    group read access to that is a far smaller concession than granting a web
+    tier a root-owned write primitive, which is the only other way to get a
+    reply onto a root-only path.
     """
     if path.is_symlink():
         raise RunnerError("session directory is a symlink")
@@ -229,8 +249,28 @@ def prepare_session(path: Path) -> Path:
         if error.errno == errno.ENOENT:
             raise RunnerError("session directory parent does not exist") from None
         raise
-    os.chown(path, 0, 0)
-    os.chmod(path, 0o700)
+    replies = path / "replies"
+    replies.mkdir(mode=0o700)
+    if reply_group is None:
+        os.chown(path, 0, 0)
+        os.chmod(path, 0o700)
+        os.chown(replies, 0, 0)
+        os.chmod(replies, 0o700)
+        return path
+
+    import grp
+
+    try:
+        gid = grp.getgrnam(reply_group).gr_gid
+    except KeyError:
+        raise RunnerError("reply group does not exist") from None
+    if gid == 0:
+        raise RunnerError("reply group must not be root")
+    os.chown(path, 0, gid)
+    os.chmod(path, 0o750)
+    os.chown(replies, 0, gid)
+    # setgid so replies keep the group regardless of the submitter's umask.
+    os.chmod(replies, 0o2770)
     return path
 
 
@@ -240,6 +280,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--collector", required=True, choices=sorted(COLLECTORS))
     parser.add_argument("--session-dir", required=True, type=Path)
+    parser.add_argument(
+        "--reply-group",
+        default=None,
+        help=(
+            "unix group permitted to submit replies and read the open prompt; "
+            "omit for a root-only session driven from a terminal on the box"
+        ),
+    )
     parser.add_argument(
         "collector_args",
         nargs=argparse.REMAINDER,
@@ -260,7 +308,7 @@ def main() -> int:
     if not passthrough:
         raise RunnerError("no collector arguments supplied")
 
-    session = prepare_session(args.session_dir.resolve())
+    session = prepare_session(args.session_dir.resolve(), args.reply_group)
     channel = SessionChannel(session)
     channel.write_status("running")
 

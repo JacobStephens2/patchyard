@@ -100,7 +100,7 @@ class ChannelTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def answer(self, seq: int, value: str) -> None:
-        (self.session / f"reply-{seq}.json").write_text(
+        (self.session / "replies" / f"reply-{seq}.json").write_text(
             json.dumps({"seq": seq, "value": value})
         )
 
@@ -195,7 +195,7 @@ class ChannelTests(unittest.TestCase):
         """A renamed file cannot answer a prompt it was not written for."""
         out = self.drive(
             self.runner.READING_PROMPT,
-            lambda seq: (self.session / f"reply-{seq}.json").write_text(
+            lambda seq: (self.session / "replies" / f"reply-{seq}.json").write_text(
                 json.dumps({"seq": 7, "value": active_reading()})
             ),
         )
@@ -205,14 +205,14 @@ class ChannelTests(unittest.TestCase):
     def test_malformed_reply_is_refused(self) -> None:
         out = self.drive(
             self.runner.READING_PROMPT,
-            lambda seq: (self.session / f"reply-{seq}.json").write_text("{not json"),
+            lambda seq: (self.session / "replies" / f"reply-{seq}.json").write_text("{not json"),
         )
         self.assertIsInstance(out.get("error"), self.runner.RunnerError)
 
     def test_non_string_value_is_refused(self) -> None:
         out = self.drive(
             self.runner.READING_PROMPT,
-            lambda seq: (self.session / f"reply-{seq}.json").write_text(
+            lambda seq: (self.session / "replies" / f"reply-{seq}.json").write_text(
                 json.dumps({"seq": seq, "value": 5})
             ),
         )
@@ -221,7 +221,7 @@ class ChannelTests(unittest.TestCase):
     def test_oversized_reply_is_refused(self) -> None:
         out = self.drive(
             self.runner.READING_PROMPT,
-            lambda seq: (self.session / f"reply-{seq}.json").write_text(
+            lambda seq: (self.session / "replies" / f"reply-{seq}.json").write_text(
                 json.dumps(
                     {"seq": seq, "value": "x" * (self.runner.MAX_REPLY_BYTES + 10)}
                 )
@@ -234,7 +234,7 @@ class ChannelTests(unittest.TestCase):
         target.write_text(json.dumps({"seq": 1, "value": active_reading()}))
         out = self.drive(
             self.runner.READING_PROMPT,
-            lambda seq: (self.session / f"reply-{seq}.json").symlink_to(target),
+            lambda seq: (self.session / "replies" / f"reply-{seq}.json").symlink_to(target),
         )
         self.assertIsInstance(out.get("error"), self.runner.RunnerError)
 
@@ -267,6 +267,20 @@ class SessionDirectoryTests(unittest.TestCase):
         with self.assertRaises(self.runner.RunnerError) as caught:
             self.runner.prepare_session(path)
         self.assertIn("already exists", str(caught.exception))
+
+    def test_unknown_reply_group_is_refused(self) -> None:
+        with self.assertRaises(self.runner.RunnerError) as caught:
+            self.runner.prepare_session(
+                Path(self.tmp.name) / "s1", "no-such-group-exists-here"
+            )
+        self.assertIn("group", str(caught.exception))
+
+    def test_root_reply_group_is_refused(self) -> None:
+        """Granting the reply group to gid 0 would hand the front end the very
+        privilege this split exists to avoid."""
+        with self.assertRaises(self.runner.RunnerError) as caught:
+            self.runner.prepare_session(Path(self.tmp.name) / "s2", "root")
+        self.assertIn("root", str(caught.exception))
 
     def test_symlinked_session_is_refused(self) -> None:
         target = Path(self.tmp.name) / "target"
@@ -378,7 +392,7 @@ class EquivalenceTests(unittest.TestCase):
                 if seq <= answered or seq > len(ANSWERS):
                     time.sleep(0.02)
                     continue
-                (session / f"reply-{seq}.json").write_text(
+                (session / "replies" / f"reply-{seq}.json").write_text(
                     json.dumps({"seq": seq, "value": ANSWERS[seq - 1]})
                 )
                 answered = seq
@@ -407,7 +421,7 @@ class EquivalenceTests(unittest.TestCase):
                 time.sleep(0.02)
             if channel.prompt_path.exists():
                 seq = json.loads(channel.prompt_path.read_text())["seq"]
-                (session / f"reply-{seq}.json").write_text(
+                (session / "replies" / f"reply-{seq}.json").write_text(
                     json.dumps({"seq": seq, "value": active_reading()})
                 )
 

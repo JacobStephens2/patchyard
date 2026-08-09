@@ -17,6 +17,7 @@ REPO = Path(__file__).resolve().parent.parent
 TEST_ROOT = REPO / "infra/ansible/tests"
 EXPECTED_TEST_FILES = (
     "test_a101_readiness_root.py",
+    "test_attended_collector_runner.py",
     "test_anthropic_issuance.py",
     "test_anthropic_lifecycle.py",
     "test_anthropic_spend.py",

@@ -30,7 +30,7 @@ caddy_sha512: 8220d1f013b6f27510247b2360c9e0ca9f018feebd82515f07635318b34ff9777c
 chromium_nevra: chromium-150.0.7871.181-1.el9.x86_64
 chromium_common_nevra: chromium-common-150.0.7871.181-1.el9.x86_64
 factory_grafana_column_privilege_count: 20
-factory_migration_count: 11
+factory_migration_count: 12
 chromium_rpm_mirror_directory: /var/cache/patchyard/rpm-mirror
 chromium_rpm_mirror:
   - filename: chromium-150.0.7871.181-1.el9.x86_64.rpm

@@ -6,10 +6,10 @@
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 41805,
-      "comments": 615,
-      "blanks": 2451,
-      "files": 90,
+      "code": 41808,
+      "comments": 623,
+      "blanks": 2453,
+      "files": 91,
       "languages": [
         {
           "language": "CSS",
@@ -42,16 +42,16 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 420,
-          "blanks": 22,
-          "files": 47
+          "comments": 428,
+          "blanks": 24,
+          "files": 48
         },
         {
           "language": "Rust",
-          "code": 39285,
+          "code": 39288,
           "comments": 168,
           "blanks": 2171,
-          "files": 56
+          "files": 57
         },
         {
           "language": "SQL",

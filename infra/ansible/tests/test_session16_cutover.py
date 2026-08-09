@@ -885,8 +885,20 @@ fi
         )
         current = json.loads(declared_inventory.stdout)
         self.assertEqual(current["grafana_column_privilege_count"], 20)
-        self.assertEqual(current["migration_count"], 11)
-        self.assertEqual(current["qualification_migration_count"], 11)
+        # Derived from group_vars rather than duplicated. A hardcoded copy
+        # here is a second place every migration must be acknowledged, and
+        # it was missed when the multiple-screenshot migration landed: the
+        # converge assertion caught the count, then this test caught it
+        # again separately. One source, one edit.
+        declared_migrations = int(
+            re.search(
+                r"(?m)^factory_migration_count:\s*([0-9]+)$", self.group_vars
+            ).group(1)
+        )
+        self.assertEqual(current["migration_count"], declared_migrations)
+        self.assertEqual(
+            current["qualification_migration_count"], declared_migrations
+        )
         self.assertRegex(current["mirror_sha256"], r"^[0-9a-f]{64}$")
 
     def test_converge_input_check_refuses_absent_secret_files(self) -> None:

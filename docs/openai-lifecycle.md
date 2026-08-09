@@ -471,6 +471,135 @@ or either positive fails, restore the safe mapping state but do not describe the
 run as conforming. A recovery outside the bounded window is operationally
 necessary and cannot repair the Attestation.
 
+### Attended procedure
+
+Do not run this procedure during build, review, CI, or an unattended session.
+It requires separate authorization for three live OpenAI exchanges and two
+console mutations. Unlike Requirement 3, this run deliberately changes the
+control plane's federation configuration, and it is not finished until the
+original mapping is back.
+
+**Run it inside tmux.** The collector prompts on a terminal and blocks. A
+dropped SSH connection destroys the pseudo-TTY, the kernel SIGHUPs the
+collector, and the run dies holding an open mutation window with the mapping
+still removed. That has already happened once. tmux owns the pseudo-TTY
+itself, so a disconnect costs nothing and `tmux attach -t rev` resumes at the
+same prompt.
+
+```bash
+ssh conductor@factory.example.com
+tmux new -s rev
+cd /opt/patchyard
+```
+
+Verify the deployed revision and static contracts before opening the window:
+
+```bash
+git status --short
+git rev-parse HEAD
+python3 -I tools/check-freeze-graph.py
+python3 -I tools/check-openai-wif-federation-revocation.py --allow-missing-results
+sudo test "$(stat -c '%U:%G:%a' \
+  /etc/patchyard/anthropic-wif-signing.pem)" = root:root:400
+```
+
+Stop if the checkout is dirty, the revision is not the reviewed revision for
+the attended run, the freeze graph reports drift, a checker rejects static
+preflight, or another OpenAI lifecycle run is active.
+
+Have the console open on the provider page before starting, and confirm the
+subject mapping is present and enabled. The run cannot begin from a removed
+mapping: the first reading is checked against `require_active_mapping`.
+
+Create one fresh root-owned tmpfs stage and one new output. The run ID must
+match `openai-revocation-[0-9]{8}-[0-9a-f]{10}`, and the output must sit
+inside the stage:
+
+```bash
+RUN_ID="openai-revocation-$(date -u +%Y%m%d)-$(openssl rand -hex 5)"
+CONTROL_STAGE="/run/patchyard-openai/$RUN_ID"
+RESULT="$CONTROL_STAGE/openai-federation-revocation.json"
+sudo install -d -m 0700 -o root -g root "$CONTROL_STAGE"
+sudo python3 -I tools/openai-wif-federation-revocation.py \
+  --run-id "$RUN_ID" --actor "<named actor>" \
+  --actor-kind accountable_human --attester "<named attester>" \
+  --mapping-mutation remove --output "$RESULT"
+```
+
+Under A136 one accountable human may occupy both roles, but the record then
+carries no independence and must not later be described as corroboration.
+
+The collector asks for five console readings and two acknowledgements, in this
+order. Answer each prompt only when it appears; do not queue answers ahead.
+
+| Step | Prompt | Mapping state to report |
+|------|--------|-------------------------|
+| 1 | enabled mapping before the baseline control | present and enabled |
+| 2 | immediate state before the mutation | unchanged from step 1 |
+| — | `MUTATION COMPLETE` | remove the subject mapping first |
+| 3 | immediate state after the mutation | removed |
+| 4 | current mapping before safe restoration | **still removed** |
+| — | `RESTORATION COMPLETE` | restore the exact original mapping first |
+| 5 | the safely restored mapping | present and enabled, identical to step 1 |
+
+**Read the console at each step. Do not prepare the JSON in advance.** The
+capture method is `operator_console_readback_bounded_by_control_plane_utc`,
+and the entire evidentiary value is that a named human read the live console
+inside the bounded window. Pasting values written before the window began
+produces a file that passes every checker while attesting to nothing.
+
+Step 4 is the step that gets missed. It is captured *before* restoring, so
+the mapping must still be removed when you answer it. Restoring early fails
+the run with `mapping returned to its original state before captured
+restoration`, and the collector treats that as a failure even though the
+console is safe.
+
+Each reading is one line of JSON with exactly these keys: `console_location`,
+`enabled`, `identity_provider_id`, `mapped_service_account_id`,
+`mapping_present`, `subject_mapping_expression`, `uploaded_jwks_mode`.
+`mapping_present`, `enabled` and `uploaded_jwks_mode` are strictly boolean.
+A run has already been rejected for sending the string `"Uploaded JWKS"`
+where `true` was required. Absent fields are `null`, not empty strings.
+
+The run pauses twice for the standing 90-second settling floor, once before
+the denial attempt and once before the bracketing control. It prints the
+remaining time. An exchange before the floor measures propagation and cannot
+become Evidence of revocation.
+
+If any step fails, restore the original mapping anyway. The collector's
+`finally` block still prompts for restoration on the failure path, and
+`safe_mapping_restored` records whether the mapping came back. A recovery
+outside the bounded window is operationally necessary and cannot repair the
+Attestation: the run is then not conforming, and it is re-run from a clean
+window rather than patched.
+
+Check the terminal record without editing it:
+
+```bash
+sudo python3 -I tools/check-openai-wif-federation-revocation.py \
+  --observation "$RESULT"
+```
+
+Confirm on the record that `bounded_window` covers all three exchanges, that
+`baseline_control` and `bracketing_control` both supplied a bearer, that
+`denial_observation` sits between them on the same surface with the same
+instrument digest, and that `safe_mapping_restored` is true.
+
+Copy only the sanitized JSON through the reviewed management path to a new
+operator-host path. Never copy the stage, request body, assertion, response
+body, bearer, process memory, or signing key.
+
+Note what this run does *not* do. `--evidence` mode currently fails by
+construction: `validate_qualification_evidence` appends
+`federation-revocation predicate is unenforced pending observation` to every
+input. That is A125 working as intended - the response predicate is still
+`{"enforced": false, "basis":
+"no-observed-openai-federation-revocation-response"}` because no OpenAI
+federation-revocation denial has ever been observed. This run produces that
+first observation; a reviewed predicate is written against what was actually
+returned, afterwards, as a separate change. A Requirement becomes Proven only
+after a conforming Result is committed and accepted.
+
 ## Requirement 5: signing-key rotation capture
 
 ### Non-recoverable precondition

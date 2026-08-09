@@ -61,6 +61,7 @@ run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-spend.py"
 # non-package module name, so repository package initializers cannot execute.
 TEST_FILES=(
   infra/ansible/tests/test_a101_readiness_root.py
+  infra/ansible/tests/test_attended_collector_runner.py
   infra/ansible/tests/test_anthropic_issuance.py
   infra/ansible/tests/test_anthropic_lifecycle.py
   infra/ansible/tests/test_anthropic_spend.py

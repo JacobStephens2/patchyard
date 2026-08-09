@@ -63,8 +63,8 @@ use crate::{
         RequestRecord, RequestSummary, RunRecord, UploadAdmission, UploadSummary,
     },
     upload::{
-        CleanFormat, MAX_CONCURRENT_DECODES, MAX_MULTIPART_BYTES, MAX_UPLOAD_BYTES, UPLOAD_ACCEPT,
-        UploadError, UploadStorage, sanitize_image_timed,
+        CleanFormat, MAX_CONCURRENT_DECODES, MAX_MULTIPART_BYTES, MAX_UPLOAD_BYTES,
+        MAX_UPLOAD_FILES, UPLOAD_ACCEPT, UploadError, UploadStorage, sanitize_images_timed,
     },
 };
 
@@ -94,6 +94,7 @@ const TERMINAL_STATES: &[&str] = &[
     "pr_contract_failed",
 ];
 const MAX_FORM_BYTES: usize = 64 * 1024;
+const MEBIBYTE: usize = 1024 * 1024;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -364,14 +365,13 @@ async fn new_form(State(state): State<AppState>, headers: HeaderMap) -> Response
         Err(response) => return response,
     };
     render_page(
-        NewTemplate {
-            chrome: chrome(&authenticated),
-            request_max: REQUEST_BODY_MAX_UTF16_CODE_UNITS,
-            request_required: REQUEST_BODY_HTML_REQUIRED,
-            upload_accept: UPLOAD_ACCEPT,
-            request_body: String::new(),
-            error: String::new(),
-        },
+        new_template(
+            &authenticated,
+            String::new(),
+            Vec::new(),
+            false,
+            String::new(),
+        ),
         None,
     )
     .await
@@ -451,18 +451,23 @@ async fn submit(State(state): State<AppState>, request: Request) -> Response {
     }
     let parsed = match remaining_upload_fields(&mut multipart).await {
         Ok(value) => value,
-        Err(error) => {
+        Err(failure) => {
             reject_admission(
                 &state,
                 &authenticated,
                 admission_id,
-                error.reason(),
+                failure.error.reason(),
                 &client,
             )
             .await;
-            return upload_form_error(error).await;
+            return render_upload_form_failure(&authenticated, failure).await;
         }
     };
+    let submitted_files = parsed
+        .screenshots
+        .iter()
+        .map(|screenshot| screenshot.filename.clone())
+        .collect::<Vec<_>>();
     let source = format!("dashboard:{}", authenticated.principal.id);
     let request = match NewRequest::from_intake(
         Uuid::new_v4(),
@@ -480,22 +485,17 @@ async fn submit(State(state): State<AppState>, request: Request) -> Response {
                 &client,
             )
             .await;
-            return render_page_status(
-                NewTemplate {
-                    chrome: chrome(&authenticated),
-                    request_max: REQUEST_BODY_MAX_UTF16_CODE_UNITS,
-                    request_required: REQUEST_BODY_HTML_REQUIRED,
-                    upload_accept: UPLOAD_ACCEPT,
-                    request_body: parsed.request_body,
-                    error: error.to_string(),
-                },
-                None,
+            return render_new_form_error(
+                &authenticated,
+                parsed.request_body,
+                submitted_files,
                 StatusCode::UNPROCESSABLE_ENTITY,
+                error.to_string(),
             )
             .await;
         }
     };
-    let Some(original) = parsed.screenshot else {
+    if parsed.screenshots.is_empty() {
         reject_admission(
             &state,
             &authenticated,
@@ -512,39 +512,68 @@ async fn submit(State(state): State<AppState>, request: Request) -> Response {
             Ok(value) => value,
             Err(error) => return internal_error(error).await,
         };
-        return receipt(&state, &authenticated, created).await;
-    };
+        return receipt(&state, &authenticated, created, Vec::new()).await;
+    }
 
-    let clean = match sanitize_image_timed(original, Arc::clone(&state.decode_slots)).await {
+    let request_body = parsed.request_body;
+    let originals = parsed
+        .screenshots
+        .into_iter()
+        .map(|screenshot| screenshot.bytes)
+        .collect::<Vec<_>>();
+    let clean_images = match sanitize_images_timed(originals, Arc::clone(&state.decode_slots)).await
+    {
         Ok(value) => value,
         Err(error) => {
-            let reason = upload_error_reason(&error);
+            let reason = upload_error_reason(&error.source);
             reject_admission(&state, &authenticated, admission_id, reason, &client).await;
-            return upload_pipeline_error(error).await;
-        }
-    };
-    let upload_id = Uuid::new_v4();
-    let format = clean.format;
-    let sha256 = clean.sha256;
-    let clean_bytes = match i64::try_from(clean.bytes.len()) {
-        Ok(value) => value,
-        Err(_) => {
-            reject_admission(
-                &state,
+            return upload_pipeline_error(
                 &authenticated,
-                admission_id,
-                "clean-size-overflow",
-                &client,
+                request_body,
+                submitted_files,
+                error.index,
+                error.source,
             )
             .await;
-            return upload_pipeline_error(UploadError::CleanImageTooLarge).await;
         }
     };
-    let storage = state.upload_storage.clone();
-    let relative_path =
-        match tokio::task::spawn_blocking(move || storage.store(upload_id, &clean)).await {
+
+    let mut uploads = Vec::with_capacity(clean_images.len());
+    for (index, clean) in clean_images.into_iter().enumerate() {
+        let upload_id = Uuid::new_v4();
+        let format = clean.format;
+        let sha256 = clean.sha256;
+        let clean_bytes = match i64::try_from(clean.bytes.len()) {
+            Ok(value) => value,
+            Err(_) => {
+                cleanup_stored_uploads(&state, &uploads).await;
+                reject_admission(
+                    &state,
+                    &authenticated,
+                    admission_id,
+                    "clean-size-overflow",
+                    &client,
+                )
+                .await;
+                return upload_pipeline_error(
+                    &authenticated,
+                    request_body,
+                    submitted_files,
+                    index,
+                    UploadError::CleanImageTooLarge,
+                )
+                .await;
+            }
+        };
+        let storage = state.upload_storage.clone();
+        let relative_path = match tokio::task::spawn_blocking(move || {
+            storage.store(upload_id, &clean)
+        })
+        .await
+        {
             Ok(Ok(value)) => value,
             Ok(Err(error)) => {
+                cleanup_stored_uploads(&state, &uploads).await;
                 reject_admission(
                     &state,
                     &authenticated,
@@ -553,9 +582,17 @@ async fn submit(State(state): State<AppState>, request: Request) -> Response {
                     &client,
                 )
                 .await;
-                return upload_pipeline_error(error).await;
+                return upload_pipeline_error(
+                    &authenticated,
+                    request_body,
+                    submitted_files,
+                    index,
+                    error,
+                )
+                .await;
             }
             Err(error) => {
+                cleanup_stored_uploads(&state, &uploads).await;
                 reject_admission(
                     &state,
                     &authenticated,
@@ -564,33 +601,47 @@ async fn submit(State(state): State<AppState>, request: Request) -> Response {
                     &client,
                 )
                 .await;
-                return internal_error(error).await;
+                tracing::error!(%error, "upload storage task failed");
+                let filename = submitted_files
+                    .get(index)
+                    .map_or_else(|| "file".to_owned(), Clone::clone);
+                return render_new_form_error(
+                    &authenticated,
+                    request_body,
+                    submitted_files,
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!(
+                        "Screenshot \"{filename}\" could not be stored; no screenshots were accepted."
+                    ),
+                )
+                .await;
             }
         };
-    let upload = NewUploadArtifact {
-        id: upload_id,
-        relative_path: relative_path.clone(),
-        sha256,
-        kind: match format {
-            CleanFormat::Png => "request-screenshot-png",
-            CleanFormat::Jpeg => "request-screenshot-jpeg",
-        },
-        clean_bytes,
-    };
+        uploads.push(NewUploadArtifact {
+            id: upload_id,
+            relative_path,
+            sha256,
+            kind: match format {
+                CleanFormat::Png => "request-screenshot-png",
+                CleanFormat::Jpeg => "request-screenshot-jpeg",
+            },
+            clean_bytes,
+        });
+    }
     let created = match state
         .store
-        .submit_request_with_upload(
+        .submit_request_with_uploads(
             &request,
             &authenticated.principal,
             admission_id,
-            &upload,
+            &uploads,
             &client,
         )
         .await
     {
         Ok(value) => value,
         Err(error) => {
-            cleanup_stored_upload(&state, upload_id, relative_path).await;
+            cleanup_stored_uploads(&state, &uploads).await;
             reject_admission(
                 &state,
                 &authenticated,
@@ -599,23 +650,46 @@ async fn submit(State(state): State<AppState>, request: Request) -> Response {
                 &client,
             )
             .await;
-            return internal_error(error).await;
+            tracing::error!(%error, "upload database registration failed");
+            return render_new_form_error(
+                &authenticated,
+                request_body,
+                submitted_files,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "The screenshots could not be registered; no screenshots were accepted.".to_owned(),
+            )
+            .await;
         }
     };
     if !created.inserted {
-        cleanup_stored_upload(&state, upload_id, relative_path).await;
-        return error_page(
+        cleanup_stored_uploads(&state, &uploads).await;
+        return render_new_form_error(
+            &authenticated,
+            request_body,
+            submitted_files,
             StatusCode::CONFLICT,
-            "Duplicate request rejected; the existing intake was left unchanged.",
+            "Duplicate request rejected; the existing intake was left unchanged and no screenshots were accepted."
+                .to_owned(),
         )
         .await;
     }
-    receipt(&state, &authenticated, created).await
+    receipt(&state, &authenticated, created, submitted_files).await
 }
 
 struct ParsedUploadForm {
     request_body: String,
-    screenshot: Option<Vec<u8>>,
+    screenshots: Vec<ParsedScreenshot>,
+}
+
+struct ParsedScreenshot {
+    filename: String,
+    bytes: Vec<u8>,
+}
+
+struct UploadFormFailure {
+    error: UploadFormError,
+    request_body: String,
+    submitted_files: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -625,9 +699,12 @@ enum UploadFormError {
     MissingRequest,
     RequestShape,
     InvalidUtf8,
-    SuspiciousFilename,
+    SuspiciousFilename { filename: String },
+    MissingFilename { position: usize },
+    RequestUploadTooLarge { filename: String },
+    TooManyFiles { filename: String },
     TooLarge,
-    ExtraField,
+    ExtraField { name: String },
     Multipart,
 }
 
@@ -639,11 +716,62 @@ impl UploadFormError {
             Self::MissingRequest => "missing-request",
             Self::RequestShape => "request-shape",
             Self::InvalidUtf8 => "invalid-utf8",
-            Self::SuspiciousFilename => "unsafe-filename",
+            Self::SuspiciousFilename { .. } => "unsafe-filename",
+            Self::MissingFilename { .. } => "missing-filename",
+            Self::RequestUploadTooLarge { .. } => "request-upload-too-large",
+            Self::TooManyFiles { .. } => "too-many-files",
             Self::TooLarge => "field-too-large",
-            Self::ExtraField => "extra-field",
+            Self::ExtraField { .. } => "extra-field",
             Self::Multipart => "malformed-multipart",
         }
+    }
+
+    const fn status(&self) -> StatusCode {
+        if matches!(self, Self::TooLarge | Self::RequestUploadTooLarge { .. }) {
+            StatusCode::PAYLOAD_TOO_LARGE
+        } else {
+            StatusCode::UNPROCESSABLE_ENTITY
+        }
+    }
+
+    fn message(&self) -> String {
+        match self {
+            Self::MissingCsrf => "The upload form is missing its CSRF token.".to_owned(),
+            Self::CsrfShape => "The upload form's CSRF field is malformed.".to_owned(),
+            Self::MissingRequest => "The upload form is missing the request text.".to_owned(),
+            Self::RequestShape => "The upload form's request field is malformed.".to_owned(),
+            Self::InvalidUtf8 => "A text form field is not valid UTF-8.".to_owned(),
+            Self::SuspiciousFilename { filename } => format!(
+                "Screenshot \"{filename}\" was rejected because its filename is unsafe; no screenshots were accepted."
+            ),
+            Self::MissingFilename { position } => format!(
+                "Screenshot file #{position} was rejected because it has no filename; no screenshots were accepted."
+            ),
+            Self::RequestUploadTooLarge { filename } => format!(
+                "Screenshot \"{filename}\" was rejected because adding it exceeds the {} MiB combined screenshot limit; no screenshots were accepted.",
+                MAX_UPLOAD_BYTES / MEBIBYTE
+            ),
+            Self::TooManyFiles { filename } => format!(
+                "Screenshot \"{filename}\" was rejected because at most {MAX_UPLOAD_FILES} screenshots may be submitted; no screenshots were accepted."
+            ),
+            Self::TooLarge => "A required form field exceeds its size limit.".to_owned(),
+            Self::ExtraField { name } => format!(
+                "Unexpected form field \"{name}\" was rejected; no screenshots were accepted."
+            ),
+            Self::Multipart => "The multipart upload form could not be read.".to_owned(),
+        }
+    }
+}
+
+fn upload_form_failure(
+    error: UploadFormError,
+    request_body: &str,
+    submitted_files: &[String],
+) -> UploadFormFailure {
+    UploadFormFailure {
+        error,
+        request_body: request_body.to_owned(),
+        submitted_files: submitted_files.to_vec(),
     }
 }
 
@@ -689,47 +817,97 @@ async fn first_csrf_field(multipart: &mut Multipart) -> Result<String, UploadFor
 
 async fn remaining_upload_fields(
     multipart: &mut Multipart,
-) -> Result<ParsedUploadForm, UploadFormError> {
+) -> Result<ParsedUploadForm, UploadFormFailure> {
     let request = multipart
         .next_field()
         .await
-        .map_err(|_| UploadFormError::Multipart)?
-        .ok_or(UploadFormError::MissingRequest)?;
+        .map_err(|_| upload_form_failure(UploadFormError::Multipart, "", &[]))?
+        .ok_or_else(|| upload_form_failure(UploadFormError::MissingRequest, "", &[]))?;
     if request.name() != Some("request_body") || request.file_name().is_some() {
-        return Err(UploadFormError::RequestShape);
+        return Err(upload_form_failure(UploadFormError::RequestShape, "", &[]));
     }
-    let request_body = String::from_utf8(read_field_limited(request, MAX_FORM_BYTES).await?)
-        .map_err(|_| UploadFormError::InvalidUtf8)?;
+    let request_bytes = read_field_limited(request, MAX_FORM_BYTES)
+        .await
+        .map_err(|error| upload_form_failure(error, "", &[]))?;
+    let request_body = String::from_utf8(request_bytes)
+        .map_err(|_| upload_form_failure(UploadFormError::InvalidUtf8, "", &[]))?;
 
-    let screenshot = match multipart
-        .next_field()
-        .await
-        .map_err(|_| UploadFormError::Multipart)?
-    {
-        None => None,
-        Some(field) => {
-            if field.name() != Some("screenshot") {
-                return Err(UploadFormError::ExtraField);
-            }
-            let filename = field.file_name().unwrap_or_default();
-            if !filename.is_empty() && suspicious_filename(filename) {
-                return Err(UploadFormError::SuspiciousFilename);
-            }
-            let bytes = read_field_limited(field, MAX_UPLOAD_BYTES).await?;
-            (!bytes.is_empty()).then_some(bytes)
+    let mut screenshots = Vec::new();
+    let mut submitted_files = Vec::new();
+    let mut screenshot_fields = 0_usize;
+    let mut upload_bytes = 0_usize;
+    loop {
+        let field = multipart.next_field().await.map_err(|_| {
+            upload_form_failure(UploadFormError::Multipart, &request_body, &submitted_files)
+        })?;
+        let Some(field) = field else {
+            break;
+        };
+        if field.name() != Some("screenshot") {
+            let name = display_untrusted_name(field.name().unwrap_or("unnamed field"));
+            return Err(upload_form_failure(
+                UploadFormError::ExtraField { name },
+                &request_body,
+                &submitted_files,
+            ));
         }
-    };
-    if multipart
-        .next_field()
-        .await
-        .map_err(|_| UploadFormError::Multipart)?
-        .is_some()
-    {
-        return Err(UploadFormError::ExtraField);
+        screenshot_fields += 1;
+        let raw_filename = field.file_name().unwrap_or_default().to_owned();
+        let filename = if raw_filename.is_empty() {
+            format!("unnamed file #{screenshot_fields}")
+        } else {
+            display_untrusted_name(&raw_filename)
+        };
+        if screenshot_fields > MAX_UPLOAD_FILES {
+            submitted_files.push(filename.clone());
+            return Err(upload_form_failure(
+                UploadFormError::TooManyFiles { filename },
+                &request_body,
+                &submitted_files,
+            ));
+        }
+        if !raw_filename.is_empty() && suspicious_filename(&raw_filename) {
+            submitted_files.push(filename.clone());
+            return Err(upload_form_failure(
+                UploadFormError::SuspiciousFilename { filename },
+                &request_body,
+                &submitted_files,
+            ));
+        }
+        let remaining = MAX_UPLOAD_BYTES.saturating_sub(upload_bytes);
+        let bytes = match read_field_limited(field, remaining).await {
+            Ok(value) => value,
+            Err(UploadFormError::TooLarge) => {
+                submitted_files.push(filename.clone());
+                return Err(upload_form_failure(
+                    UploadFormError::RequestUploadTooLarge { filename },
+                    &request_body,
+                    &submitted_files,
+                ));
+            }
+            Err(error) => {
+                return Err(upload_form_failure(error, &request_body, &submitted_files));
+            }
+        };
+        if raw_filename.is_empty() && bytes.is_empty() {
+            continue;
+        }
+        submitted_files.push(filename.clone());
+        if raw_filename.is_empty() {
+            return Err(upload_form_failure(
+                UploadFormError::MissingFilename {
+                    position: screenshot_fields,
+                },
+                &request_body,
+                &submitted_files,
+            ));
+        }
+        upload_bytes += bytes.len();
+        screenshots.push(ParsedScreenshot { filename, bytes });
     }
     Ok(ParsedUploadForm {
         request_body,
-        screenshot,
+        screenshots,
     })
 }
 
@@ -764,19 +942,34 @@ fn suspicious_filename(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b' '))
 }
 
+fn display_untrusted_name(value: &str) -> String {
+    value.chars().flat_map(char::escape_default).collect()
+}
+
 async fn upload_form_error(error: UploadFormError) -> Response {
-    let status = if matches!(error, UploadFormError::TooLarge) {
-        StatusCode::PAYLOAD_TOO_LARGE
-    } else {
-        StatusCode::UNPROCESSABLE_ENTITY
-    };
-    error_page(status, "Malformed or disallowed upload form.").await
+    error_page(error.status(), &error.message()).await
+}
+
+async fn render_upload_form_failure(
+    authenticated: &Authenticated,
+    failure: UploadFormFailure,
+) -> Response {
+    let status = failure.error.status();
+    render_new_form_error(
+        authenticated,
+        failure.request_body,
+        failure.submitted_files,
+        status,
+        failure.error.message(),
+    )
+    .await
 }
 
 fn upload_error_reason(error: &UploadError) -> &'static str {
     match error {
         UploadError::UnsupportedType => "unsupported-type",
         UploadError::Dimensions => "dimension-limit",
+        UploadError::RequestPixels => "request-pixel-limit",
         UploadError::InvalidImage => "invalid-image",
         UploadError::CleanImageTooLarge => "clean-image-too-large",
         UploadError::DecodeTimeout => "decode-timeout",
@@ -789,46 +982,114 @@ fn upload_error_reason(error: &UploadError) -> &'static str {
     }
 }
 
-async fn upload_pipeline_error(error: UploadError) -> Response {
-    match error {
-        UploadError::UnsupportedType => {
-            error_page(
-                StatusCode::UNSUPPORTED_MEDIA_TYPE,
-                "Only valid PNG and JPEG screenshots are accepted.",
-            )
-            .await
-        }
-        UploadError::Dimensions | UploadError::InvalidImage | UploadError::CleanImageTooLarge => {
-            error_page(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "Screenshot failed the image safety limits.",
-            )
-            .await
-        }
-        UploadError::DecodeTimeout => {
-            error_page(
-                StatusCode::REQUEST_TIMEOUT,
-                "Screenshot decode exceeded the safety timeout.",
-            )
-            .await
-        }
-        UploadError::DecodeBusy => {
-            error_page(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "Screenshot decoder is temporarily at capacity.",
-            )
-            .await
-        }
-        UploadError::DiskFull => {
-            tracing::error!("upload storage exhausted; intake failed closed");
-            error_page(
-                StatusCode::from_u16(507).expect("507 is a valid HTTP status"),
-                "Screenshot storage is full; nothing was accepted.",
-            )
-            .await
-        }
-        error => internal_error(error).await,
+fn new_template(
+    authenticated: &Authenticated,
+    request_body: String,
+    submitted_files: Vec<String>,
+    submission_rejected: bool,
+    error: String,
+) -> NewTemplate {
+    NewTemplate {
+        chrome: chrome(authenticated),
+        request_max: REQUEST_BODY_MAX_UTF16_CODE_UNITS,
+        request_required: REQUEST_BODY_HTML_REQUIRED,
+        upload_accept: UPLOAD_ACCEPT,
+        upload_max_bytes: MAX_UPLOAD_BYTES,
+        upload_max_files: MAX_UPLOAD_FILES,
+        upload_max_mib: MAX_UPLOAD_BYTES / MEBIBYTE,
+        request_body,
+        submitted_files,
+        submission_rejected,
+        error,
     }
+}
+
+async fn render_new_form_error(
+    authenticated: &Authenticated,
+    request_body: String,
+    submitted_files: Vec<String>,
+    status: StatusCode,
+    error: String,
+) -> Response {
+    render_page_status(
+        new_template(authenticated, request_body, submitted_files, true, error),
+        None,
+        status,
+    )
+    .await
+}
+
+async fn upload_pipeline_error(
+    authenticated: &Authenticated,
+    request_body: String,
+    submitted_files: Vec<String>,
+    failed_index: usize,
+    error: UploadError,
+) -> Response {
+    let filename = submitted_files
+        .get(failed_index)
+        .map_or_else(|| format!("file #{}", failed_index + 1), Clone::clone);
+    let (status, detail, log_error) = match &error {
+        UploadError::UnsupportedType => (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "is not a valid PNG or JPEG",
+            false,
+        ),
+        UploadError::Dimensions => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "exceeds the image dimension safety limit",
+            false,
+        ),
+        UploadError::RequestPixels => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "pushes the screenshots above the per-request decoded-pixel safety limit",
+            false,
+        ),
+        UploadError::InvalidImage => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "could not be safely decoded and re-encoded",
+            false,
+        ),
+        UploadError::CleanImageTooLarge => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "causes the neutralized screenshots to exceed the per-request safety limit",
+            false,
+        ),
+        UploadError::DecodeTimeout => (
+            StatusCode::REQUEST_TIMEOUT,
+            "exceeded the image decode safety timeout",
+            false,
+        ),
+        UploadError::DecodeBusy => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "could not be decoded because the decoder is temporarily at capacity",
+            false,
+        ),
+        UploadError::DiskFull => (
+            StatusCode::from_u16(507).expect("507 is a valid HTTP status"),
+            "could not be stored because screenshot storage is full",
+            true,
+        ),
+        UploadError::BlockingTask
+        | UploadError::InvalidPath
+        | UploadError::UnsafeFilesystemObject
+        | UploadError::Io(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "could not be processed because screenshot storage failed",
+            true,
+        ),
+    };
+    if log_error {
+        tracing::error!(%error, "upload intake failed closed");
+    }
+    render_new_form_error(
+        authenticated,
+        request_body,
+        submitted_files,
+        status,
+        format!("Screenshot \"{filename}\" {detail}; no screenshots were accepted."),
+    )
+    .await
 }
 
 async fn reject_admission(
@@ -860,10 +1121,17 @@ async fn cleanup_stored_upload(state: &AppState, id: Uuid, relative_path: PathBu
     }
 }
 
+async fn cleanup_stored_uploads(state: &AppState, uploads: &[NewUploadArtifact]) {
+    for upload in uploads {
+        cleanup_stored_upload(state, upload.id, upload.relative_path.clone()).await;
+    }
+}
+
 async fn receipt(
     state: &AppState,
     authenticated: &Authenticated,
     created: factory_core::state::RequestCreated,
+    accepted_files: Vec<String>,
 ) -> Response {
     let status = match state.store.request_status(created.id).await {
         Ok(value) => value,
@@ -875,6 +1143,7 @@ async fn receipt(
             request_id: created.id,
             inserted: created.inserted,
             status,
+            accepted_files,
         },
         None,
     )
@@ -1938,7 +2207,12 @@ struct NewTemplate {
     request_max: usize,
     request_required: bool,
     upload_accept: &'static str,
+    upload_max_bytes: usize,
+    upload_max_files: usize,
+    upload_max_mib: usize,
     request_body: String,
+    submitted_files: Vec<String>,
+    submission_rejected: bool,
     error: String,
 }
 
@@ -1949,6 +2223,7 @@ struct ReceiptTemplate {
     request_id: Uuid,
     inserted: bool,
     status: String,
+    accepted_files: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -2133,7 +2408,10 @@ mod tests {
 
     use factory_core::{REQUEST_BODY_MAX_UTF16_CODE_UNITS, auth::hash_password};
 
-    use super::{AppState, DashboardStore, NewTemplate, PageChrome, Template, UPLOAD_ACCEPT};
+    use super::{
+        AppState, DashboardStore, MAX_UPLOAD_BYTES, MAX_UPLOAD_FILES, NewTemplate, PageChrome,
+        ReceiptTemplate, Template, UPLOAD_ACCEPT,
+    };
 
     #[test]
     fn security_baseline_sets_corp_and_never_overrides_route_headers() {
@@ -2193,7 +2471,12 @@ mod tests {
             request_max: REQUEST_BODY_MAX_UTF16_CODE_UNITS,
             request_required: true,
             upload_accept: UPLOAD_ACCEPT,
+            upload_max_bytes: MAX_UPLOAD_BYTES,
+            upload_max_files: MAX_UPLOAD_FILES,
+            upload_max_mib: MAX_UPLOAD_BYTES / super::MEBIBYTE,
             request_body: String::new(),
+            submitted_files: Vec::new(),
+            submission_rejected: false,
             error: String::new(),
         }
         .render()
@@ -2201,6 +2484,12 @@ mod tests {
         assert!(rendered.contains(&format!(
             "maxlength=\"{REQUEST_BODY_MAX_UTF16_CODE_UNITS}\" required"
         )));
+        assert!(rendered.contains("name=\"screenshot\" type=\"file\""));
+        assert!(rendered.contains(" multiple "));
+        assert!(rendered.contains(&format!("data-max-files=\"{MAX_UPLOAD_FILES}\"")));
+        assert!(rendered.contains(&format!("data-max-bytes=\"{MAX_UPLOAD_BYTES}\"")));
+        assert!(rendered.contains("item.textContent"));
+        assert!(!rendered.contains("innerHTML"));
     }
 
     #[test]
@@ -2210,8 +2499,13 @@ mod tests {
             request_max: REQUEST_BODY_MAX_UTF16_CODE_UNITS,
             request_required: true,
             upload_accept: UPLOAD_ACCEPT,
+            upload_max_bytes: MAX_UPLOAD_BYTES,
+            upload_max_files: MAX_UPLOAD_FILES,
+            upload_max_mib: MAX_UPLOAD_BYTES / super::MEBIBYTE,
             request_body: "<script>alert(1)</script><a href=\"https://evil.invalid\">review</a>"
                 .to_owned(),
+            submitted_files: vec!["<img src=x onerror=alert(2)>.png".to_owned()],
+            submission_rejected: true,
             error: String::new(),
         }
         .render()
@@ -2220,6 +2514,20 @@ mod tests {
         assert!(rendered.contains("&#60;a href=&#34;https://evil.invalid&#34;&#62;"));
         assert!(!rendered.contains("<script>alert"));
         assert!(!rendered.contains("<a href=\"https://evil.invalid\""));
+        assert!(rendered.contains("&#60;img src=x onerror=alert(2)&#62;.png"));
+        assert!(!rendered.contains("<img src=x"));
+
+        let receipt = ReceiptTemplate {
+            chrome: PageChrome::anonymous("nonce".to_owned()),
+            request_id: uuid::Uuid::nil(),
+            inserted: true,
+            status: "queued".to_owned(),
+            accepted_files: vec!["<script>filename</script>.png".to_owned()],
+        }
+        .render()
+        .expect("receipt template");
+        assert!(receipt.contains("&#60;script&#62;filename&#60;/script&#62;.png"));
+        assert!(!receipt.contains("<script>filename"));
     }
 
     #[test]

@@ -13,7 +13,10 @@ use factory_web::{
     auth::{LOGIN_COOKIE, SESSION_COOKIE, csrf_for_secret, hash_secret, new_secret},
     router,
     store::{DashboardStore, LOGIN_PAIR_FAILURE_LIMIT},
-    upload::MAX_MULTIPART_BYTES,
+    upload::{
+        CanonicalUploadPath, MAX_CLEAN_BYTES, MAX_MULTIPART_BYTES, MAX_UPLOAD_BYTES,
+        MAX_UPLOAD_FILES, sanitize_image_bytes,
+    },
 };
 use http_body_util::BodyExt as _;
 use image::{DynamicImage, ImageBuffer, ImageFormat, Rgb};
@@ -329,6 +332,259 @@ async fn ideas_is_runtime_backed_and_uses_the_governance_content_filter()
     assert!(!html.contains("<script>"));
     assert!(!html.contains("data:image"));
     assert!(!html.contains("<img"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn alphabetize_submission_accepts_and_neutralizes_both_real_screenshots()
+-> Result<(), Box<dyn Error>> {
+    let Some(harness) = harness("alphabetize multi-screenshot harness").await? else {
+        return Ok(());
+    };
+    assert_eq!(MAX_UPLOAD_FILES, 2, "the founding request fixes the cap");
+    let identity = seed_identity(&harness.admin, AccountRole::Submitter).await?;
+    let first_name = "simple-sales-report-unsorted.png";
+    let second_name = "create-or-assign-school-unsorted.png";
+    let first =
+        include_bytes!("../../../fixtures/acceptance/alphabetize/simple-sales-report-unsorted.png");
+    let second = include_bytes!(
+        "../../../fixtures/acceptance/alphabetize/create-or-assign-school-unsorted.png"
+    );
+    let (response, content_length) = submit_screenshots(
+        &harness.app,
+        &identity,
+        "ALPHABETIZE",
+        &[
+            (first_name, "image/png", first.as_slice()),
+            (second_name, "image/png", second.as_slice()),
+        ],
+    )
+    .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(response.into_body().collect().await?.to_bytes().to_vec())?;
+    assert!(html.contains("2 screenshots accepted."));
+    assert!(html.contains(first_name));
+    assert!(html.contains(second_name));
+
+    let source = format!("dashboard:{}", identity.id);
+    let request_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM factory.requests WHERE source=$1 AND body='ALPHABETIZE'",
+    )
+    .bind(&source)
+    .fetch_one(&harness.admin)
+    .await?;
+    let rows = sqlx::query(
+        r#"
+        SELECT id,path,sha256,request_upload_ordinal
+        FROM factory.artifacts
+        WHERE request_id=$1 AND run_id IS NULL
+        ORDER BY request_upload_ordinal
+        "#,
+    )
+    .bind(request_id)
+    .fetch_all(&harness.admin)
+    .await?;
+    assert_eq!(rows.len(), 2);
+    let mut total_clean_bytes = 0_i64;
+    for (index, (row, original)) in rows
+        .iter()
+        .zip([first.as_slice(), second.as_slice()])
+        .enumerate()
+    {
+        let id: Uuid = sqlx::Row::try_get(row, "id")?;
+        let path: String = sqlx::Row::try_get(row, "path")?;
+        let sha256: Vec<u8> = sqlx::Row::try_get(row, "sha256")?;
+        let ordinal: i16 = sqlx::Row::try_get(row, "request_upload_ordinal")?;
+        assert_eq!(usize::try_from(ordinal)?, index + 1);
+        assert_eq!(
+            CanonicalUploadPath::parse(Path::new(&path)).map(|p| p.id),
+            Some(id)
+        );
+        assert!(!path.contains(first_name));
+        assert!(!path.contains(second_name));
+        let stored = fs::read(harness._artifacts.path().join(&path))?;
+        let expected = sanitize_image_bytes(original)?;
+        assert_eq!(stored, expected.bytes);
+        assert_eq!(sha256, expected.sha256);
+        total_clean_bytes += i64::try_from(stored.len())?;
+    }
+
+    let admission = sqlx::query(
+        r#"
+        SELECT id,content_length,reserved_bytes,actual_bytes
+        FROM factory.upload_admissions
+        WHERE request_id=$1 AND state='completed'
+        "#,
+    )
+    .bind(request_id)
+    .fetch_one(&harness.admin)
+    .await?;
+    let admission_id: Uuid = sqlx::Row::try_get(&admission, "id")?;
+    assert_eq!(
+        sqlx::Row::try_get::<i64, _>(&admission, "content_length")?,
+        i64::try_from(content_length)?
+    );
+    assert_eq!(
+        sqlx::Row::try_get::<i64, _>(&admission, "actual_bytes")?,
+        total_clean_bytes
+    );
+    assert_eq!(
+        sqlx::Row::try_get::<i64, _>(&admission, "reserved_bytes")?,
+        total_clean_bytes
+    );
+    let admitted_metadata: serde_json::Value = sqlx::query_scalar(
+        "SELECT metadata FROM factory.audit_events WHERE action='upload.admitted' AND subject=$1",
+    )
+    .bind(admission_id.to_string())
+    .fetch_one(&harness.admin)
+    .await?;
+    assert_eq!(
+        admitted_metadata["reserved_bytes"].as_i64(),
+        Some(i64::try_from(MAX_CLEAN_BYTES)?)
+    );
+    let admission_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM factory.upload_admissions WHERE user_id=$1")
+            .bind(identity.id)
+            .fetch_one(&harness.admin)
+            .await?;
+    assert_eq!(admission_count, 1, "one request consumes one admission");
+
+    let third_id = Uuid::new_v4();
+    let third_path = format!("uploads/{third_id}/{third_id}.png");
+    let third = sqlx::query(
+        r#"
+        INSERT INTO factory.artifacts (
+            id,request_id,run_id,path,sha256,kind,request_upload_ordinal
+        ) VALUES ($1,$2,NULL,$3,$4,'request-screenshot-png',3)
+        "#,
+    )
+    .bind(third_id)
+    .bind(request_id)
+    .bind(third_path)
+    .bind([7_u8; 32].as_slice())
+    .execute(&harness.admin)
+    .await;
+    assert!(
+        third.is_err(),
+        "the database must reject screenshot ordinal 3"
+    );
+
+    // A rolled-back single-file application omits the new column. NULL remains
+    // the legacy first slot, while the coalescing unique index still prevents a
+    // second legacy upload for the same request.
+    let legacy_request_id = Uuid::new_v4();
+    let legacy_fingerprint: [u8; 32] = Sha256::digest(legacy_request_id.as_bytes()).into();
+    sqlx::query(
+        "INSERT INTO factory.requests (id,fingerprint,source,body,trace_id) VALUES ($1,$2,'legacy-upload-fixture','legacy single screenshot',$3)",
+    )
+    .bind(legacy_request_id)
+    .bind(legacy_fingerprint.as_slice())
+    .bind(hex::encode(legacy_request_id.as_bytes()))
+    .execute(&harness.admin)
+    .await?;
+    let legacy_id = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO factory.artifacts (id,request_id,run_id,path,sha256,kind)
+        VALUES ($1,$2,NULL,$3,$4,'request-screenshot-png')
+        "#,
+    )
+    .bind(legacy_id)
+    .bind(legacy_request_id)
+    .bind(format!("uploads/{legacy_id}/{legacy_id}.png"))
+    .bind([8_u8; 32].as_slice())
+    .execute(&harness.admin)
+    .await?;
+    let second_legacy_id = Uuid::new_v4();
+    let second_legacy = sqlx::query(
+        r#"
+        INSERT INTO factory.artifacts (id,request_id,run_id,path,sha256,kind)
+        VALUES ($1,$2,NULL,$3,$4,'request-screenshot-png')
+        "#,
+    )
+    .bind(second_legacy_id)
+    .bind(legacy_request_id)
+    .bind(format!("uploads/{second_legacy_id}/{second_legacy_id}.png"))
+    .bind([9_u8; 32].as_slice())
+    .execute(&harness.admin)
+    .await;
+    assert!(
+        second_legacy.is_err(),
+        "legacy NULL ordinals must still consume the first screenshot slot"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn multi_screenshot_rejections_name_the_file_and_store_nothing() -> Result<(), Box<dyn Error>>
+{
+    let Some(harness) = harness("multi-screenshot rejection harness").await? else {
+        return Ok(());
+    };
+    let valid = png_fixture(1, 1);
+
+    let mut pushes_over_total = valid.clone();
+    pushes_over_total.resize(MAX_UPLOAD_BYTES + 1 - valid.len(), 0);
+    let identity = seed_identity(&harness.admin, AccountRole::Submitter).await?;
+    assert_rejected_submission(
+        &harness,
+        &identity,
+        "aggregate raw byte rejection",
+        &[
+            ("first.png", "image/png", valid.as_slice()),
+            ("pushes-over.png", "image/png", pushes_over_total.as_slice()),
+        ],
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "pushes-over.png",
+        "request-upload-too-large",
+    )
+    .await?;
+
+    let identity = seed_identity(&harness.admin, AccountRole::Submitter).await?;
+    assert_rejected_submission(
+        &harness,
+        &identity,
+        "file count rejection",
+        &[
+            ("first.png", "image/png", valid.as_slice()),
+            ("second.png", "image/png", valid.as_slice()),
+            ("third.png", "image/png", valid.as_slice()),
+        ],
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "third.png",
+        "too-many-files",
+    )
+    .await?;
+
+    let identity = seed_identity(&harness.admin, AccountRole::Submitter).await?;
+    assert_rejected_submission(
+        &harness,
+        &identity,
+        "mixed unsupported rejection",
+        &[
+            ("first.png", "image/png", valid.as_slice()),
+            ("not-an-image.txt", "text/plain", b"not an image"),
+        ],
+        StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        "not-an-image.txt",
+        "unsupported-type",
+    )
+    .await?;
+
+    let identity = seed_identity(&harness.admin, AccountRole::Submitter).await?;
+    assert_rejected_submission(
+        &harness,
+        &identity,
+        "mixed decode rejection",
+        &[
+            ("first.png", "image/png", valid.as_slice()),
+            ("broken.png", "image/png", b"\x89PNG\r\n\x1a\nmalformed"),
+        ],
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "broken.png",
+        "invalid-image",
+    )
+    .await?;
     Ok(())
 }
 
@@ -1089,12 +1345,24 @@ fn multipart_submission(
     request_body: &str,
     screenshot: Option<(&str, &str, &[u8])>,
 ) -> Vec<u8> {
+    match screenshot {
+        Some(screenshot) => multipart_submission_many(boundary, csrf, request_body, &[screenshot]),
+        None => multipart_submission_many(boundary, csrf, request_body, &[]),
+    }
+}
+
+fn multipart_submission_many(
+    boundary: &str,
+    csrf: &str,
+    request_body: &str,
+    screenshots: &[(&str, &str, &[u8])],
+) -> Vec<u8> {
     let mut body = format!(
         "--{boundary}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{csrf}\r\n\
          --{boundary}\r\nContent-Disposition: form-data; name=\"request_body\"\r\n\r\n{request_body}\r\n"
     )
     .into_bytes();
-    if let Some((filename, content_type, bytes)) = screenshot {
+    for (filename, content_type, bytes) in screenshots {
         body.extend_from_slice(
             format!(
                 "--{boundary}\r\nContent-Disposition: form-data; name=\"screenshot\"; filename=\"{filename}\"\r\nContent-Type: {content_type}\r\n\r\n"
@@ -1106,6 +1374,69 @@ fn multipart_submission(
     }
     body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
     body
+}
+
+async fn submit_screenshots(
+    app: &Router,
+    identity: &Identity,
+    request_body: &str,
+    screenshots: &[(&str, &str, &[u8])],
+) -> Result<(axum::response::Response, usize), Box<dyn Error>> {
+    let boundary = format!("patchyard-{}", Uuid::new_v4());
+    let bytes = multipart_submission_many(&boundary, &identity.csrf, request_body, screenshots);
+    let content_length = bytes.len();
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/new")
+        .header(header::COOKIE, &identity.cookie)
+        .header(
+            header::CONTENT_TYPE,
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .header(header::CONTENT_LENGTH, content_length.to_string())
+        .body(Body::from(bytes))?;
+    Ok((app.clone().oneshot(request).await?, content_length))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn assert_rejected_submission(
+    harness: &Harness,
+    identity: &Identity,
+    request_body: &str,
+    screenshots: &[(&str, &str, &[u8])],
+    expected_status: StatusCode,
+    rejected_filename: &str,
+    expected_reason: &str,
+) -> Result<(), Box<dyn Error>> {
+    let (response, _) =
+        submit_screenshots(&harness.app, identity, request_body, screenshots).await?;
+    assert_eq!(response.status(), expected_status, "{request_body}");
+    let html = String::from_utf8(response.into_body().collect().await?.to_bytes().to_vec())?;
+    assert!(html.contains(rejected_filename), "{request_body}: {html}");
+    assert!(html.contains("0 screenshots accepted."), "{request_body}");
+
+    let source = format!("dashboard:{}", identity.id);
+    let request_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM factory.requests WHERE source=$1 AND body=$2")
+            .bind(source)
+            .bind(request_body)
+            .fetch_one(&harness.admin)
+            .await?;
+    assert_eq!(request_count, 0, "{request_body}");
+    let reason: String = sqlx::query_scalar(
+        "SELECT reason FROM factory.upload_admissions WHERE user_id=$1 ORDER BY admitted_at DESC,id DESC LIMIT 1",
+    )
+    .bind(identity.id)
+    .fetch_one(&harness.admin)
+    .await?;
+    assert_eq!(reason, expected_reason, "{request_body}");
+    assert!(
+        fs::read_dir(harness._artifacts.path().join("uploads"))?
+            .next()
+            .is_none(),
+        "{request_body}: no neutralized file may survive a mixed rejection"
+    );
+    Ok(())
 }
 
 async fn submit_screenshot(

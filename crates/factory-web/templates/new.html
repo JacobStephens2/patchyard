@@ -8,8 +8,63 @@
   <input type="hidden" name="csrf_token" value="{{ chrome.csrf_token }}">
   <label for="request_body">Request</label>
   <textarea id="request_body" name="request_body" rows="16" maxlength="{{ request_max }}"{% if request_required %} required{% endif %}>{{ request_body }}</textarea>
-  <label for="screenshot">Screenshot (optional PNG/JPEG, maximum 8 MiB)</label>
-  <input id="screenshot" name="screenshot" type="file" accept="{{ upload_accept }}">
+  <label for="screenshot">Screenshots (optional; up to {{ upload_max_files }} PNG/JPEG files, {{ upload_max_mib }} MiB combined)</label>
+  <input id="screenshot" name="screenshot" type="file" accept="{{ upload_accept }}" multiple aria-describedby="screenshot-status" data-max-files="{{ upload_max_files }}" data-max-bytes="{{ upload_max_bytes }}">
+  <div id="screenshot-status" aria-live="polite">
+    {% if submission_rejected %}
+    <p>0 screenshots accepted.</p>
+      {% if submitted_files.len() > 0 %}
+      <p>{{ submitted_files.len() }} files were submitted:</p>
+      <ul>
+        {% for filename in submitted_files %}<li>{{ filename }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+    {% else %}
+    <p>No screenshots selected.</p>
+    {% endif %}
+  </div>
   <button type="submit">queue request</button>
 </form>
+{% endblock %}
+{% block script %}
+<script nonce="{{ chrome.nonce }}">
+(() => {
+  const input = document.getElementById("screenshot");
+  const status = document.getElementById("screenshot-status");
+  if (!(input instanceof HTMLInputElement) || status === null) return;
+  const maxFiles = Number(input.dataset.maxFiles);
+  const maxBytes = Number(input.dataset.maxBytes);
+  input.addEventListener("change", () => {
+    const files = Array.from(input.files || []);
+    const summary = document.createElement("p");
+    if (files.length === 0) {
+      summary.textContent = "No screenshots selected.";
+      status.replaceChildren(summary);
+      return;
+    }
+    let total = 0;
+    let overflowAt = -1;
+    for (const [index, file] of files.entries()) {
+      total += file.size;
+      if (overflowAt === -1 && total > maxBytes) overflowAt = index;
+    }
+    const rejected = files.length > maxFiles || overflowAt !== -1;
+    summary.textContent = rejected
+      ? `${files.length} files selected (${(total / 1048576).toFixed(2)} MiB); submission will be rejected unless the selection changes.`
+      : `${files.length} files selected for server validation (${(total / 1048576).toFixed(2)} MiB combined).`;
+    const list = document.createElement("ul");
+    for (const [index, file] of files.entries()) {
+      const item = document.createElement("li");
+      const reasons = [];
+      if (index >= maxFiles) reasons.push(`exceeds the ${maxFiles}-file maximum`);
+      if (index === overflowAt) reasons.push(`pushes the combined size above ${maxBytes / 1048576} MiB`);
+      item.textContent = reasons.length === 0
+        ? file.name
+        : `${file.name} — rejected: ${reasons.join(" and ")}`;
+      list.append(item);
+    }
+    status.replaceChildren(summary, list);
+  });
+})();
+</script>
 {% endblock %}

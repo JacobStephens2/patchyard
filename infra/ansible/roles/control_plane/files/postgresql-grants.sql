@@ -179,7 +179,9 @@ GRANT INSERT (
 GRANT UPDATE (
     request_id, state, reserved_bytes, actual_bytes, reason, finished_at
 ) ON factory.upload_admissions TO patchyard_dashboard;
-GRANT INSERT (id, request_id, run_id, path, sha256, kind)
+GRANT INSERT (
+    id, request_id, run_id, path, sha256, kind, request_upload_ordinal
+)
 ON factory.artifacts TO patchyard_dashboard;
 GRANT INSERT (id, request_id, requested_by)
 ON factory.reconcile_requests TO patchyard_dashboard;

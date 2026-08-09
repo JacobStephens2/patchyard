@@ -18,7 +18,7 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::upload::MAX_CLEAN_BYTES;
+use crate::upload::{MAX_CLEAN_BYTES, MAX_UPLOAD_FILES};
 
 pub const LOGIN_WINDOW: Duration = Duration::from_secs(15 * 60);
 pub const LOGIN_PAIR_FAILURE_LIMIT: i64 = 5;
@@ -696,14 +696,28 @@ impl DashboardStore {
         Ok(())
     }
 
-    pub async fn submit_request_with_upload(
+    pub async fn submit_request_with_uploads(
         &self,
         request: &NewRequest,
         principal: &Principal,
         admission_id: Uuid,
-        upload: &NewUploadArtifact,
+        uploads: &[NewUploadArtifact],
         client_key: &str,
     ) -> Result<RequestCreated, StoreError> {
+        let maximum_clean_bytes =
+            i64::try_from(MAX_CLEAN_BYTES).map_err(|_| StoreError::DurationOverflow)?;
+        let clean_bytes = uploads
+            .iter()
+            .try_fold(0_i64, |total, upload| total.checked_add(upload.clean_bytes));
+        let Some(clean_bytes) = clean_bytes.filter(|total| {
+            !uploads.is_empty()
+                && uploads.len() <= MAX_UPLOAD_FILES
+                && uploads.iter().all(|upload| upload.clean_bytes >= 0)
+                && *total >= 0
+                && *total <= maximum_clean_bytes
+        }) else {
+            return Err(StoreError::InvalidUploadBatch);
+        };
         let mut transaction = self.pool.begin().await?;
         let admission_valid: bool = sqlx::query_scalar(
             r#"
@@ -779,24 +793,28 @@ impl DashboardStore {
             });
         };
 
-        let relative_path = upload
-            .relative_path
-            .to_str()
-            .ok_or(StoreError::InvalidUploadPath)?;
-        sqlx::query(
-            r#"
-            INSERT INTO factory.artifacts (
-                id,request_id,run_id,path,sha256,kind
-            ) VALUES ($1,$2,NULL,$3,$4,$5)
-            "#,
-        )
-        .bind(upload.id)
-        .bind(id)
-        .bind(relative_path)
-        .bind(upload.sha256.as_slice())
-        .bind(upload.kind)
-        .execute(&mut *transaction)
-        .await?;
+        for (index, upload) in uploads.iter().enumerate() {
+            let relative_path = upload
+                .relative_path
+                .to_str()
+                .ok_or(StoreError::InvalidUploadPath)?;
+            let ordinal = i16::try_from(index + 1).map_err(|_| StoreError::InvalidUploadBatch)?;
+            sqlx::query(
+                r#"
+                INSERT INTO factory.artifacts (
+                    id,request_id,run_id,path,sha256,kind,request_upload_ordinal
+                ) VALUES ($1,$2,NULL,$3,$4,$5,$6)
+                "#,
+            )
+            .bind(upload.id)
+            .bind(id)
+            .bind(relative_path)
+            .bind(upload.sha256.as_slice())
+            .bind(upload.kind)
+            .bind(ordinal)
+            .execute(&mut *transaction)
+            .await?;
+        }
         sqlx::query(
             r#"
             UPDATE factory.upload_admissions
@@ -808,9 +826,10 @@ impl DashboardStore {
         )
         .bind(admission_id)
         .bind(id)
-        .bind(upload.clean_bytes)
+        .bind(clean_bytes)
         .execute(&mut *transaction)
         .await?;
+        let upload_ids = uploads.iter().map(|upload| upload.id).collect::<Vec<_>>();
         append_audit(
             &mut transaction,
             principal.id,
@@ -819,8 +838,9 @@ impl DashboardStore {
             client_key,
             serde_json::json!({
                 "source": request.source,
-                "upload_id": upload.id,
-                "clean_bytes": upload.clean_bytes,
+                "upload_ids": upload_ids,
+                "upload_count": uploads.len(),
+                "clean_bytes": clean_bytes,
             }),
         )
         .await?;
@@ -1311,4 +1331,6 @@ pub enum StoreError {
     InvalidUploadAdmission,
     #[error("upload artifact path is not valid UTF-8")]
     InvalidUploadPath,
+    #[error("upload artifact batch violates the request limits")]
+    InvalidUploadBatch,
 }

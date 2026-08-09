@@ -3,7 +3,7 @@
 erDiagram
     artifacts {
         uuid id PK
-        uuid request_id UK
+        uuid request_id
         uuid run_id nullable
         text path UK
         bytea sha256
@@ -11,6 +11,7 @@ erDiagram
         timestamptz created_at
         timestamptz expires_at nullable
         timestamptz deleted_at nullable
+        smallint request_upload_ordinal nullable
     }
     audit_events {
         bigint id PK
@@ -267,7 +268,7 @@ erDiagram
         timestamptz disabled_at nullable
         timestamptz password_reset_at nullable
     }
-    requests ||--o| artifacts : "artifacts_request_id_fkey"
+    requests ||--o{ artifacts : "artifacts_request_id_fkey"
     runs o|--o{ artifacts : "artifacts_run_id_fkey"
     users o|--o{ audit_events : "audit_events_user_id_fkey"
     runs o|--o{ controls : "controls_target_run_id_fkey"

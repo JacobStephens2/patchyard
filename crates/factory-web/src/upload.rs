@@ -6,6 +6,7 @@
 
 use std::{
     fs::File,
+    future::Future,
     io::{self, Cursor, Read as _, Write},
     os::fd::OwnedFd,
     os::unix::ffi::OsStrExt as _,
@@ -16,7 +17,10 @@ use std::{
 
 use image::{
     DynamicImage, ExtendedColorType, ImageEncoder as _, ImageFormat, ImageReader, Limits,
-    codecs::{jpeg::JpegEncoder, png::PngEncoder},
+    codecs::{
+        jpeg::JpegEncoder,
+        png::{CompressionType, FilterType, PngEncoder},
+    },
 };
 use rustix::{
     fs::{
@@ -31,10 +35,12 @@ use uuid::Uuid;
 
 pub const MAX_MULTIPART_BYTES: usize = MAX_UPLOAD_BYTES + 128 * 1024;
 pub const MAX_UPLOAD_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_UPLOAD_FILES: usize = 2;
 pub const UPLOAD_ACCEPT: &str = ".png,.jpg,.jpeg,image/png,image/jpeg";
 pub const MAX_CLEAN_BYTES: usize = 32 * 1024 * 1024;
 pub const MAX_IMAGE_WIDTH: u32 = 4_096;
 pub const MAX_IMAGE_HEIGHT: u32 = 4_096;
+pub const MAX_IMAGE_PIXELS: u64 = 16_777_216;
 pub const MAX_DECODER_ALLOC: u64 = 128 * 1024 * 1024;
 pub const MAX_CONCURRENT_DECODES: usize = 2;
 pub const DECODE_TIMEOUT: Duration = Duration::from_secs(2);
@@ -137,6 +143,8 @@ pub enum UploadError {
     UnsupportedType,
     #[error("image dimensions exceed {MAX_IMAGE_WIDTH}x{MAX_IMAGE_HEIGHT}")]
     Dimensions,
+    #[error("screenshots exceed the per-request decoded-pixel ceiling")]
+    RequestPixels,
     #[error("image decode or clean re-encode failed")]
     InvalidImage,
     #[error("clean image exceeds {MAX_CLEAN_BYTES} bytes")]
@@ -155,6 +163,14 @@ pub enum UploadError {
     DiskFull,
     #[error("upload storage operation failed: {0}")]
     Io(#[source] io::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("screenshot {index} failed neutralization: {source}")]
+pub struct BatchUploadError {
+    pub index: usize,
+    #[source]
+    pub source: UploadError,
 }
 
 impl UploadError {
@@ -193,39 +209,33 @@ pub fn sniff_format(bytes: &[u8]) -> Result<CleanFormat, UploadError> {
 /// The async route calls this only through [`sanitize_image_timed`]. It is
 /// public so the ingest fuzz target exercises the production implementation.
 pub fn sanitize_image_bytes(bytes: &[u8]) -> Result<CleanImage, UploadError> {
+    sanitize_image_bytes_with_limits(bytes, MAX_IMAGE_PIXELS, MAX_CLEAN_BYTES)
+}
+
+fn sanitize_image_bytes_with_limits(
+    bytes: &[u8],
+    pixel_limit: u64,
+    clean_byte_limit: usize,
+) -> Result<CleanImage, UploadError> {
     if bytes.len() > MAX_UPLOAD_BYTES {
         return Err(UploadError::UnsupportedType);
     }
     let format = sniff_format(bytes)?;
+    let mut dimension_reader = ImageReader::with_format(Cursor::new(bytes), format.image_format());
+    dimension_reader.limits(decoder_limits());
+    let (width, height) = dimension_reader
+        .into_dimensions()
+        .map_err(map_decode_error)?;
+    validate_dimensions(width, height, pixel_limit)?;
+
     let mut reader = ImageReader::with_format(Cursor::new(bytes), format.image_format());
-    let mut limits = Limits::no_limits();
-    limits.max_image_width = Some(MAX_IMAGE_WIDTH);
-    limits.max_image_height = Some(MAX_IMAGE_HEIGHT);
-    limits.max_alloc = Some(MAX_DECODER_ALLOC);
-    reader.limits(limits);
-    let image = reader.decode().map_err(|error| {
-        if matches!(
-            error,
-            image::ImageError::Limits(image::error::LimitError { .. })
-        ) {
-            UploadError::Dimensions
-        } else {
-            UploadError::InvalidImage
-        }
-    })?;
+    reader.limits(decoder_limits());
+    let image = reader.decode().map_err(map_decode_error)?;
     let width = image.width();
     let height = image.height();
-    if width == 0
-        || height == 0
-        || width > MAX_IMAGE_WIDTH
-        || height > MAX_IMAGE_HEIGHT
-        || u64::from(width) * u64::from(height)
-            > u64::from(MAX_IMAGE_WIDTH) * u64::from(MAX_IMAGE_HEIGHT)
-    {
-        return Err(UploadError::Dimensions);
-    }
+    validate_dimensions(width, height, pixel_limit)?;
 
-    let mut output = BoundedWriter::new(MAX_CLEAN_BYTES);
+    let mut output = BoundedWriter::new(clean_byte_limit);
     match format {
         CleanFormat::Png => encode_png(&image, &mut output)?,
         CleanFormat::Jpeg => encode_jpeg(&image, &mut output)?,
@@ -241,9 +251,51 @@ pub fn sanitize_image_bytes(bytes: &[u8]) -> Result<CleanImage, UploadError> {
     })
 }
 
+fn decoder_limits() -> Limits {
+    let mut limits = Limits::no_limits();
+    limits.max_image_width = Some(MAX_IMAGE_WIDTH);
+    limits.max_image_height = Some(MAX_IMAGE_HEIGHT);
+    limits.max_alloc = Some(MAX_DECODER_ALLOC);
+    limits
+}
+
+fn validate_dimensions(width: u32, height: u32, pixel_limit: u64) -> Result<(), UploadError> {
+    if width == 0 || height == 0 || width > MAX_IMAGE_WIDTH || height > MAX_IMAGE_HEIGHT {
+        return Err(UploadError::Dimensions);
+    }
+    let pixels = u64::from(width) * u64::from(height);
+    if pixels > MAX_IMAGE_PIXELS {
+        return Err(UploadError::Dimensions);
+    }
+    if pixels > pixel_limit {
+        return Err(UploadError::RequestPixels);
+    }
+    Ok(())
+}
+
+fn map_decode_error(error: image::ImageError) -> UploadError {
+    if matches!(
+        error,
+        image::ImageError::Limits(image::error::LimitError { .. })
+    ) {
+        UploadError::Dimensions
+    } else {
+        UploadError::InvalidImage
+    }
+}
+
 pub async fn sanitize_image_timed(
     bytes: Vec<u8>,
     decode_slots: Arc<Semaphore>,
+) -> Result<CleanImage, UploadError> {
+    sanitize_image_timed_with_limits(bytes, decode_slots, MAX_IMAGE_PIXELS, MAX_CLEAN_BYTES).await
+}
+
+async fn sanitize_image_timed_with_limits(
+    bytes: Vec<u8>,
+    decode_slots: Arc<Semaphore>,
+    pixel_limit: u64,
+    clean_byte_limit: usize,
 ) -> Result<CleanImage, UploadError> {
     // Classify before consuming a blocking slot. This is a fixed-prefix check,
     // not a decoder and not authority derived from multipart metadata.
@@ -257,7 +309,7 @@ pub async fn sanitize_image_timed(
         // drops its JoinHandle; detached timed-out work cannot exceed the
         // declared concurrency.
         let _permit = permit;
-        sanitize_image_bytes(&bytes)
+        sanitize_image_bytes_with_limits(&bytes, pixel_limit, clean_byte_limit)
     });
     tokio::time::timeout(DECODE_TIMEOUT, task)
         .await
@@ -265,28 +317,113 @@ pub async fn sanitize_image_timed(
         .map_err(|_| UploadError::BlockingTask)?
 }
 
+/// Neutralize a request's screenshots serially under the shared decode bound.
+///
+/// Awaiting each decode before starting the next prevents one request from
+/// occupying more than one of the global decode slots. Cumulative decoded
+/// pixels and clean output are capped at the bounds previously available to
+/// one screenshot.
+pub async fn sanitize_images_timed(
+    originals: Vec<Vec<u8>>,
+    decode_slots: Arc<Semaphore>,
+) -> Result<Vec<CleanImage>, BatchUploadError> {
+    sanitize_images_timed_with_limits(originals, decode_slots, MAX_IMAGE_PIXELS, MAX_CLEAN_BYTES)
+        .await
+}
+
+async fn sanitize_images_timed_with_limits(
+    originals: Vec<Vec<u8>>,
+    decode_slots: Arc<Semaphore>,
+    pixel_limit: u64,
+    clean_byte_limit: usize,
+) -> Result<Vec<CleanImage>, BatchUploadError> {
+    let (images, _, _) = try_fold_serial(
+        originals,
+        (Vec::new(), 0_usize, 0_u64),
+        move |(mut images, clean_bytes, pixels), bytes| {
+            let decode_slots = Arc::clone(&decode_slots);
+            async move {
+                let remaining_pixels = pixel_limit
+                    .checked_sub(pixels)
+                    .ok_or(UploadError::RequestPixels)?;
+                let remaining_clean_bytes = clean_byte_limit
+                    .checked_sub(clean_bytes)
+                    .filter(|remaining| *remaining > 0)
+                    .ok_or(UploadError::CleanImageTooLarge)?;
+                let image = sanitize_image_timed_with_limits(
+                    bytes,
+                    decode_slots,
+                    remaining_pixels,
+                    remaining_clean_bytes,
+                )
+                .await?;
+                let clean_bytes = clean_bytes
+                    .checked_add(image.bytes.len())
+                    .filter(|total| *total <= clean_byte_limit)
+                    .ok_or(UploadError::CleanImageTooLarge)?;
+                let pixels = pixels
+                    .checked_add(u64::from(image.width) * u64::from(image.height))
+                    .filter(|total| *total <= pixel_limit)
+                    .ok_or(UploadError::RequestPixels)?;
+                images.push(image);
+                Ok((images, clean_bytes, pixels))
+            }
+        },
+    )
+    .await
+    .map_err(|(index, source)| BatchUploadError { index, source })?;
+    Ok(images)
+}
+
+async fn try_fold_serial<T, S, E, F, Fut>(
+    items: impl IntoIterator<Item = T>,
+    mut state: S,
+    mut step: F,
+) -> Result<S, (usize, E)>
+where
+    F: FnMut(S, T) -> Fut,
+    Fut: Future<Output = Result<S, E>>,
+{
+    for (index, item) in items.into_iter().enumerate() {
+        state = step(state, item).await.map_err(|error| (index, error))?;
+    }
+    Ok(state)
+}
+
 fn encode_png(image: &DynamicImage, output: &mut BoundedWriter) -> Result<(), UploadError> {
     let pixels = image.to_rgba8();
-    PngEncoder::new(output)
+    // A fixed filter preserves the neutralization boundary while avoiding the
+    // adaptive filter's per-row search inside the wall-clock decode budget.
+    let result = PngEncoder::new_with_quality(&mut *output, CompressionType::Fast, FilterType::Sub)
         .write_image(
             pixels.as_raw(),
             image.width(),
             image.height(),
             ExtendedColorType::Rgba8,
-        )
-        .map_err(map_encode_error)
+        );
+    encode_result(result, output)
 }
 
 fn encode_jpeg(image: &DynamicImage, output: &mut BoundedWriter) -> Result<(), UploadError> {
     let pixels = image.to_rgb8();
-    JpegEncoder::new_with_quality(output, 90)
-        .write_image(
-            pixels.as_raw(),
-            image.width(),
-            image.height(),
-            ExtendedColorType::Rgb8,
-        )
-        .map_err(map_encode_error)
+    let result = JpegEncoder::new_with_quality(&mut *output, 90).write_image(
+        pixels.as_raw(),
+        image.width(),
+        image.height(),
+        ExtendedColorType::Rgb8,
+    );
+    encode_result(result, output)
+}
+
+fn encode_result(
+    result: Result<(), image::ImageError>,
+    output: &BoundedWriter,
+) -> Result<(), UploadError> {
+    if output.limit_exceeded {
+        Err(UploadError::CleanImageTooLarge)
+    } else {
+        result.map_err(map_encode_error)
+    }
 }
 
 fn map_encode_error(error: image::ImageError) -> UploadError {
@@ -301,6 +438,7 @@ fn map_encode_error(error: image::ImageError) -> UploadError {
 struct BoundedWriter {
     bytes: Vec<u8>,
     maximum: usize,
+    limit_exceeded: bool,
 }
 
 impl BoundedWriter {
@@ -308,6 +446,7 @@ impl BoundedWriter {
         Self {
             bytes: Vec::new(),
             maximum,
+            limit_exceeded: false,
         }
     }
 
@@ -319,6 +458,7 @@ impl BoundedWriter {
 impl Write for BoundedWriter {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
         if buffer.len() > self.maximum.saturating_sub(self.bytes.len()) {
+            self.limit_exceeded = true;
             return Err(io::Error::new(
                 io::ErrorKind::WriteZero,
                 "clean image output limit reached",
@@ -497,6 +637,8 @@ mod tests {
     use std::{
         fs,
         os::unix::fs::{PermissionsExt as _, symlink},
+        sync::atomic::{AtomicUsize, Ordering},
+        time::Duration,
     };
 
     use image::{ImageBuffer, Rgb};
@@ -654,5 +796,70 @@ mod tests {
             UploadError::from_io(io::Error::from_raw_os_error(Errno::NOSPC.raw_os_error())),
             UploadError::DiskFull
         ));
+    }
+
+    #[tokio::test]
+    async fn screenshot_batches_decode_serially_and_report_the_failing_index() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let observed = try_fold_serial([0, 1], Vec::new(), {
+            let active = Arc::clone(&active);
+            let peak = Arc::clone(&peak);
+            move |mut observed, item| {
+                let active = Arc::clone(&active);
+                let peak = Arc::clone(&peak);
+                async move {
+                    let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak.fetch_max(now, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    observed.push(item);
+                    Ok::<_, UploadError>(observed)
+                }
+            }
+        })
+        .await
+        .expect("serial fold");
+        assert_eq!(observed, [0, 1]);
+        assert_eq!(peak.load(Ordering::SeqCst), 1);
+
+        let valid = encoded(CleanFormat::Png);
+        let malformed = b"\x89PNG\r\n\x1a\nmalformed".to_vec();
+        let slots = Arc::new(Semaphore::new(MAX_CONCURRENT_DECODES));
+        let error = sanitize_images_timed(vec![valid.clone(), malformed], Arc::clone(&slots))
+            .await
+            .expect_err("second screenshot must fail");
+        assert_eq!(error.index, 1);
+        assert!(matches!(error.source, UploadError::InvalidImage));
+        assert_eq!(slots.available_permits(), MAX_CONCURRENT_DECODES);
+
+        let error = sanitize_images_timed_with_limits(
+            vec![valid.clone(), valid],
+            Arc::clone(&slots),
+            1,
+            MAX_CLEAN_BYTES,
+        )
+        .await
+        .expect_err("the second pixel must exceed the request budget");
+        assert_eq!(error.index, 1);
+        assert!(matches!(error.source, UploadError::RequestPixels));
+        assert_eq!(slots.available_permits(), MAX_CONCURRENT_DECODES);
+
+        let valid = encoded(CleanFormat::Png);
+        let one_clean_image = sanitize_image_bytes(&valid)
+            .expect("clean fixture")
+            .bytes
+            .len();
+        let error = sanitize_images_timed_with_limits(
+            vec![valid.clone(), valid],
+            Arc::clone(&slots),
+            MAX_IMAGE_PIXELS,
+            one_clean_image,
+        )
+        .await
+        .expect_err("the second clean image must exceed the request budget");
+        assert_eq!(error.index, 1);
+        assert!(matches!(error.source, UploadError::CleanImageTooLarge));
+        assert_eq!(slots.available_permits(), MAX_CONCURRENT_DECODES);
     }
 }

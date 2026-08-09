@@ -6,10 +6,10 @@
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 40897,
-      "comments": 603,
-      "blanks": 2409,
-      "files": 89,
+      "code": 41805,
+      "comments": 615,
+      "blanks": 2451,
+      "files": 90,
       "languages": [
         {
           "language": "CSS",
@@ -20,17 +20,17 @@
         },
         {
           "language": "HTML",
-          "code": 272,
+          "code": 295,
           "comments": 0,
           "blanks": 0,
           "files": 13
         },
         {
           "language": "JavaScript",
-          "code": 48,
+          "code": 86,
           "comments": 3,
           "blanks": 0,
-          "files": 2
+          "files": 3
         },
         {
           "language": "JSON",
@@ -42,23 +42,23 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 415,
-          "blanks": 21,
+          "comments": 420,
+          "blanks": 22,
           "files": 47
         },
         {
           "language": "Rust",
-          "code": 38465,
-          "comments": 163,
-          "blanks": 2134,
+          "code": 39285,
+          "comments": 168,
+          "blanks": 2171,
           "files": 56
         },
         {
           "language": "SQL",
-          "code": 1011,
-          "comments": 6,
-          "blanks": 84,
-          "files": 11
+          "code": 1038,
+          "comments": 8,
+          "blanks": 88,
+          "files": 12
         },
         {
           "language": "TOML",
@@ -72,7 +72,7 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 27813,
+      "code": 27815,
       "comments": 566,
       "blanks": 2360,
       "files": 164,
@@ -156,7 +156,7 @@
         },
         {
           "language": "SQL",
-          "code": 261,
+          "code": 263,
           "comments": 0,
           "blanks": 10,
           "files": 3

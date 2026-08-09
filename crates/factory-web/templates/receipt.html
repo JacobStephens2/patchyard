@@ -7,6 +7,12 @@
   <dt>result</dt><dd>{% if inserted %}created{% else %}matched existing request{% endif %}</dd>
   <dt>live status</dt><dd><span class="stage-badge active">{{ status }}</span></dd>
 </dl>
+<p><strong>{{ accepted_files.len() }} screenshots accepted.</strong></p>
+{% if accepted_files.len() > 0 %}
+<ul>
+  {% for filename in accepted_files %}<li>{{ filename }}</li>{% endfor %}
+</ul>
+{% endif %}
 <p>The supervisor listener receives the durable queue wake and claims the row when claiming is enabled and limits permit.</p>
 {% if chrome.admin %}<p><a href="/request/{{ request_id }}">open request detail</a></p>{% endif %}
 <p><a href="/new">submit another request</a></p>

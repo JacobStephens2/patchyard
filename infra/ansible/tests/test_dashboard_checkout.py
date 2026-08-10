@@ -41,6 +41,15 @@ class DashboardCheckoutContract(unittest.TestCase):
         self.assertIn("recurse: true", task)
         self.assertNotIn("group:", task)
 
+    def test_dashboard_umask_preserves_private_upload_directories(self) -> None:
+        setting = next(
+            line for line in self.service.splitlines() if line.startswith("UMask=")
+        )
+        umask = int(setting.removeprefix("UMask="), 8)
+
+        self.assertEqual(0o700 & ~umask, 0o700)
+        self.assertEqual(0o600 & ~umask, 0o600)
+
     def test_root_validation_cannot_take_ownership_of_the_caddy_access_log(self) -> None:
         task_name = "- name: Precreate the Caddy access log for the service identity"
         start = self.tasks.index(task_name)

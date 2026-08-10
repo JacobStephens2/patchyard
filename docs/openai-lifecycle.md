@@ -697,6 +697,126 @@ rollback under its own bounded capture. Preserve the failure observations. A
 rollback restores operation; it does not make the failed run conforming, and a
 fresh attempt needs a fresh run ID and replacement key.
 
+### Attended procedure
+
+Do not run this procedure during build, review, CI, or an unattended session.
+It requires separate authorization for five live OpenAI exchanges, two console
+mutations, and one local key activation.
+
+**This one is not reversible.** Requirement 4 removes a mapping and puts it
+back; a conforming rotation ends with the control plane signing under a new key
+and the console trusting only that key. The original private key survives only
+in the run's root tmpfs stage, which does not outlive a reboot. Treat a
+completed rotation as the new steady state, not as something to undo.
+
+**Confirm the console accepts two uploaded JWKs before starting.** The whole
+design depends on an overlap: upload both keys, prove an exchange on the
+replacement, and only then retire the original. If the console's uploaded-JWKS
+set is capped at one key, the collector cannot reach a conforming state and the
+run must not be attempted, because the only alternative is a hard cutover with a
+window in which neither key works. As of the last console reading, the provider
+holds `1 key`, so this has not yet been demonstrated.
+
+Run it inside tmux, for the same reason as Requirement 4:
+
+```bash
+ssh conductor@factory.example.com
+tmux new -s rotate
+```
+
+Preflight, as the checkout owner:
+
+```bash
+fm() { sudo -n -u factory-manager env -C /opt/patchyard "$@"; }
+fm git status --short
+fm git rev-parse HEAD
+fm python3 -I tools/check-freeze-graph.py
+fm python3 -I tools/check-openai-wif-signing-key-rotation.py --allow-missing-results
+sudo test "$(stat -c '%U:%G:%a' \
+  /etc/patchyard/anthropic-wif-signing.pem)" = root:root:400
+```
+
+Record the kid you are rotating away from by deriving it, never by quoting a
+remembered value:
+
+```bash
+sudo -n python3 -I -c "
+import importlib.util, pathlib
+s = importlib.util.spec_from_file_location('base', '/opt/patchyard/tools/anthropic-wif-lifecycle.py')
+m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+print(m.jwk_descriptor(m.load_public_jwk(pathlib.Path('/etc/patchyard/anthropic-wif-signing.pem')))['kid'])
+"
+```
+
+Then start the run:
+
+```bash
+RUN_ID="openai-rotation-$(date -u +%Y%m%d)-$(openssl rand -hex 5)"
+CONTROL_STAGE="/run/patchyard-openai/$RUN_ID"
+RESULT="$CONTROL_STAGE/openai-signing-key-rotation.json"
+sudo install -d -m 0700 -o root -g root "$CONTROL_STAGE"
+sudo python3 -I /opt/patchyard/tools/openai-wif-signing-key-rotation.py \
+  --run-id "$RUN_ID" --actor "<named actor>" \
+  --actor-kind accountable_human --attester "<named attester>" \
+  --output "$RESULT"
+```
+
+The collector asks for five console readings and three acknowledgements:
+
+| Step | Prompt | Console state to report |
+|------|--------|-------------------------|
+| 1 | original one-key state | only the original kid |
+| 2 | one-key state before the overlap upload | unchanged from step 1 |
+| — | `OVERLAP COMPLETE` | upload the replacement's public JWK alongside the original |
+| 3 | two-key overlap state | both kids present and enabled |
+| — | `ACTIVATE LOCALLY` | nothing to do in the console; the collector swaps the local key |
+| 4 | two-key overlap before retirement | still both kids |
+| — | `RETIREMENT COMPLETE` | remove only the original public JWK |
+| 5 | replacement-only state | only the replacement kid |
+
+**The collector generates the replacement key itself** and prints the derived
+public descriptors. Upload only those. No private key ever crosses to the
+console, and there is nothing to paste from the console into the collector
+except the state readings.
+
+The reading shape differs from Requirement 4. Exactly these keys:
+`console_location`, `identity_provider_id`, `uploaded_jwks_mode`,
+`public_keys`, `subject_mapping_expression`, `mapped_service_account_id`,
+`subject_mapping_enabled`. Note `subject_mapping_enabled`, not `enabled`.
+`public_keys` is a list, each entry exactly `kid`, `jwk_thumbprint_sha256`,
+`enabled`. Booleans are strictly boolean.
+
+There are two settling floors and, after retirement, a bounded subwindow
+carrying the A129 bracket: a positive on the replacement, the denial attempt on
+the retired key, and a second positive on the replacement.
+
+**There is no guided recovery.** Unlike the revocation collector, `collect()`
+wraps no part of this in a `finally`, so a failure between the overlap upload
+and retirement leaves the console in a two-key state, and a failure after local
+activation leaves the control plane signing with the replacement while the
+console may still trust both. Nothing prompts you to put it back. Before
+opening the window, know which state you are in at each step and what the safe
+rollback is: re-uploading the original public JWK restores the prior trust, and
+the original private key is in the stage until the next reboot. A rollback
+restores operation; it does not make the failed run conforming, and a fresh
+attempt needs a fresh run ID and a fresh replacement key.
+
+Check the terminal record without editing it:
+
+```bash
+sudo python3 -I /opt/patchyard/tools/check-openai-wif-signing-key-rotation.py \
+  --observation "$RESULT"
+```
+
+**After a successful run the live kid has changed.** Re-derive it with the
+command above and update anything that records it. The uploaded JWKS and the
+control plane must agree; if they do not, the seat cannot mint.
+
+As with Requirement 4, `--evidence` mode does not pass yet: the response
+predicate is still `no-observed-openai-retired-signing-key-response`, and a
+reviewed predicate is written against what OpenAI actually returns for a retired
+key, after this run has observed it.
+
 ## What remains unchanged
 
 - Requirement 2 is not implemented here.

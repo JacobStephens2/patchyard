@@ -13,6 +13,7 @@ The runner replaces a controlling terminal. Two properties carry the weight:
 """
 
 import builtins
+import grp
 import importlib.util
 import json
 import os
@@ -247,9 +248,43 @@ class ChannelTests(unittest.TestCase):
         self.assertEqual(status["pid"], os.getpid())
 
     def test_state_files_are_not_group_or_world_readable(self) -> None:
+        """With no reply group the session is root-only, so state is too."""
         self.channel.write_status("running")
         mode = (self.session / "status.json").stat().st_mode & 0o077
         self.assertEqual(mode, 0)
+
+    def test_state_files_are_group_readable_under_a_reply_group(self) -> None:
+        """A front end that cannot read the prompt cannot render a form.
+
+        The session directory and replies inbox are relaxed to the reply group,
+        but the state files were published 0600 root-only regardless. The front
+        end could submit an answer and never see the question, so a live run
+        showed as `unknown` with no form while the collector waited at prompt 1.
+        """
+        gid = os.getgid()
+        group = grp.getgrgid(gid).gr_name
+        session = Path(self.tmp.name) / "grouped"
+        session.mkdir(mode=0o750)
+        channel = self.runner.SessionChannel(session, group)
+        channel.write_status("awaiting_input")
+
+        status = session / "status.json"
+        self.assertEqual(status.stat().st_gid, gid)
+        mode = status.stat().st_mode & 0o777
+        self.assertEqual(mode, 0o640, "group must read; world must not")
+
+    def test_state_files_follow_the_prompt_too(self) -> None:
+        """The prompt is the file the front end most needs to read."""
+        gid = os.getgid()
+        group = grp.getgrgid(gid).gr_name
+        session = Path(self.tmp.name) / "grouped-prompt"
+        session.mkdir(mode=0o750)
+        channel = self.runner.SessionChannel(session, group)
+        channel._write_json(channel.prompt_path, {"seq": 1, "prompt": "x"})
+
+        mode = channel.prompt_path.stat().st_mode & 0o777
+        self.assertEqual(mode, 0o640)
+        self.assertEqual(channel.prompt_path.stat().st_gid, gid)
 
 
 class SessionDirectoryTests(unittest.TestCase):

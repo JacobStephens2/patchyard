@@ -790,16 +790,32 @@ There are two settling floors and, after retirement, a bounded subwindow
 carrying the A129 bracket: a positive on the replacement, the denial attempt on
 the retired key, and a second positive on the replacement.
 
-**There is no guided recovery.** Unlike the revocation collector, `collect()`
-wraps no part of this in a `finally`, so a failure between the overlap upload
-and retirement leaves the console in a two-key state, and a failure after local
-activation leaves the control plane signing with the replacement while the
-console may still trust both. Nothing prompts you to put it back. Before
-opening the window, know which state you are in at each step and what the safe
-rollback is: re-uploading the original public JWK restores the prior trust, and
-the original private key is in the stage until the next reboot. A rollback
-restores operation; it does not make the failed run conforming, and a fresh
-attempt needs a fresh run ID and a fresh replacement key.
+**Recovery is guided, and it decides the target for you.** Any failure after
+the overlap upload sends `main()` into `capture_safe_rotation_rollback`, which
+takes a bounded reading of the current console state, works out which state is
+safe, and prompts for it. Expect a rollback capture on the failure path in
+addition to the prompts in the table above.
+
+The target it picks depends on how far the run got, which is why it is not
+simply "put the original back":
+
+| Local active key | Retirement confirmed | Rollback target |
+|---|---|---|
+| original | — | original one-key state |
+| replacement | no | two-key overlap state |
+| replacement | yes | replacement-only state |
+
+The third row is the one to understand before you are staring at it. Once
+retirement has succeeded, the safe state is the replacement alone: the retired
+key is never re-trusted to recover a failed run, and the console is left as it
+already is. If the console is already in the target state the collector records
+`safe_state_already_present` and asks nothing.
+
+If the rollback itself fails, that is recorded as `rollback_failed` in the
+terminal record rather than being lost, and the console is then in a state you
+must reconcile by hand. A rollback restores operation; it does not make the
+failed run conforming, and a fresh attempt needs a fresh run ID and a fresh
+replacement key.
 
 Check the terminal record without editing it:
 

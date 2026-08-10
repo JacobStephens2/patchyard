@@ -492,16 +492,27 @@ tmux new -s rev
 cd /opt/patchyard
 ```
 
-Verify the deployed revision and static contracts before opening the window:
+Verify the deployed revision and static contracts before opening the window.
+
+`/opt/patchyard` is owned by `factory-manager:factory`, so anything that
+shells out to git has to run as that account: git refuses a repository whose
+owner is not the calling user, and that includes root. `conductor` can read
+the checkout, but `git status` and `check-freeze-graph.py` both fail for it
+with "detected dubious ownership" - which looks like the drift this preflight
+is meant to detect and is not. Run them as the owner:
 
 ```bash
-git status --short
-git rev-parse HEAD
-python3 -I tools/check-freeze-graph.py
-python3 -I tools/check-openai-wif-federation-revocation.py --allow-missing-results
+fm() { sudo -n -u factory-manager env -C /opt/patchyard "$@"; }
+fm git status --short
+fm git rev-parse HEAD
+fm python3 -I tools/check-freeze-graph.py
+fm python3 -I tools/check-openai-wif-federation-revocation.py --allow-missing-results
 sudo test "$(stat -c '%U:%G:%a' \
   /etc/patchyard/anthropic-wif-signing.pem)" = root:root:400
 ```
+
+The collector itself still runs as root, per its own check; only the git-backed
+preflight needs the owning account.
 
 Stop if the checkout is dirty, the revision is not the reviewed revision for
 the attended run, the freeze graph reports drift, a checker rejects static

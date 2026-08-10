@@ -34,17 +34,31 @@ needs three things the factory does not yet have for OpenAI:
 3. **A provider-neutral launcher**, which A133 rules must exist and must contain
    no provider name. It has not been built.
 
-The execution plane cannot be reused. Six worker artifacts are frozen by
-committed results and by the checkers those results pin:
+The execution plane cannot be reused. Six worker artifacts are protected, but
+not all in the same way, and the difference matters when planning the neutral
+launcher. Verify with `tools/check-freeze-graph.py` rather than trusting this
+table:
 
-| frozen artifact | pinned by |
-| :-- | :-- |
-| `worker/runtime/patchyard-firecracker-run` | `check-anthropic-expiry.py`, `check-anthropic-revocation.py` |
-| `worker/runtime/patchyard-anthropic-one-shot` | `anthropic-spend-enforcement.json` and both checkers above |
-| `worker/image/patchyard-guest-run` | both checkers above |
-| `worker/image/production-parity.json` | three committed results |
-| `worker/qualification/patchyard-run-anthropic-issuance` | both checkers above |
-| `worker/qualification/hostile-test-manifest.json` | `session-5-hostile-qualification.json` |
+| worker artifact | protection | held by |
+| :-- | :-- | :-- |
+| `worker/runtime/patchyard-anthropic-one-shot` | frozen | `anthropic-spend-enforcement.json` |
+| `worker/image/production-parity.json` | frozen | three committed results |
+| `worker/qualification/hostile-test-manifest.json` | frozen | `session-5-hostile-qualification.json` |
+| `worker/runtime/patchyard-firecracker-run` | checker-pinned | `check-anthropic-{spend,expiry,revocation}.py` |
+| `worker/image/patchyard-guest-run` | checker-pinned | `check-anthropic-{spend,expiry,revocation}.py` |
+| `worker/qualification/patchyard-run-anthropic-issuance` | checker-pinned | `check-anthropic-{spend,expiry,revocation}.py` |
+
+The bottom three left the freeze census when A134 superseded the checkers that
+had pinned them; the census is now "reachable from a Result at its *current*
+digest". **Absence from the census is not permission.** Their digests are still
+asserted by three checkers that guard Anthropic's six proven requirements, so
+editing one in place forces a repin of a checker whose job is to validate
+already-banked evidence. That is a worse move than duplication, not a cheaper
+one: it changes what Anthropic's evidence is checked against in order to make
+room for OpenAI.
+
+The conclusion is unchanged - build the neutral launcher as a new artifact -
+but the reason is "three frozen and three checker-pinned", not "six frozen".
 
 A133 recorded that the launcher names Anthropic in three places. It is
 materially more than that: 30 occurrences in the launcher, 24 in the guest

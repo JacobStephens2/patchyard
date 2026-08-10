@@ -60,15 +60,70 @@ room for OpenAI.
 The conclusion is unchanged - build the neutral launcher as a new artifact -
 but the reason is "three frozen and three checker-pinned", not "six frozen".
 
-A133 recorded that the launcher names Anthropic in three places. It is
-materially more than that: 30 occurrences in the launcher, 24 in the guest
-runner, 26 in the one-shot client. The occurrences A133 did not name are the
-expensive ones, because they are not string constants but structure:
+A133 recorded that the launcher names Anthropic in three places. A raw count
+gives more, but a count is a poor estimator in both directions and should not
+be used to plan the work. Measured on the launcher: 32 occurrences across 30
+lines, which is 8 logical sites once repeated identifiers are collapsed.
 
-- line 180 writes `api.anthropic.com` into the worker's hosts file;
-- lines 213-274 name the entire egress firewall `eta_anthropic_one_shot` - table,
-  three chains, three sets and two counters;
-- line 457 asserts that the provider host set *is* exactly `api.anthropic.com`.
+**The launcher is closer to neutral than the count suggests.** It reads
+`PROVIDER` from the manifest, resolves hostnames from
+`.providers[$provider].hostnames[]` in
+`/etc/patchyard-worker/provider-egress.json`, and derives every per-run
+resource name from `$SHORT_ID` - `PROVIDER_NETNS`, the veth pair, and
+`PROVIDER_NFT_TABLE="eta_fp_$SHORT_ID"`. Where its occurrences actually are:
+
+| what | occurrences | sites |
+| :-- | --: | :-- |
+| `eta_anthropic_one_shot` nft table | 18 | lines 213-274, one literal |
+| `ANTHROPIC_ONE_SHOT` client path | 6 | one variable, line 29 |
+| provider mode gates | 2 | lines 62, 91 |
+| hosts-file entry | 1 | line 180 |
+| spend-mode host assertion | 1 | line 457 |
+| error-string literals | 2 | lines 257, 554 |
+| jq result predicate | 1 | line 774 |
+
+The nft table is 18 of the 32 and is a single name; the run-scoped pattern to
+follow sits two lines above its first use. The two error strings and the jq
+predicate are easy to miss when planning from a count, which is why they are
+listed.
+
+**The guest runner is where the real coupling is**, and 24 occurrences
+understates it, because these are protocol rather than naming:
+
+- it calls `https://api.anthropic.com/v1/models?limit=1` as its provider probe;
+- it writes an auth config carrying `anthropic-version: 2023-06-01`;
+- its spend-qualification artifacts are named for the provider and its result
+  JSON hard-codes `provider:"anthropic"`.
+
+An endpoint path, an auth header shape and a version header are provider facts,
+not launcher facts, so neutralising the guest runner means deciding where they
+live rather than renaming anything.
+
+**Proposed adapter contract.** `policy/provider-egress.json` already holds the
+per-provider egress facts the launcher consumes, and it is the file the neutral
+launcher already reads. Extend each provider entry with the probe the guest
+runner needs:
+
+```json
+{
+  "probe": {
+    "url": "https://api.anthropic.com/v1/models?limit=1",
+    "method": "GET",
+    "auth_header": "x-api-key",
+    "extra_headers": { "anthropic-version": "2023-06-01" }
+  }
+}
+```
+
+The guest runner then carries no provider name and no endpoint, and adding a
+provider is a policy edit rather than a new runner. `hostnames` stays the
+authority for egress; `probe.url` must resolve to a host already in it, and the
+runner should assert that rather than trusting the policy to be internally
+consistent.
+
+**None of the three can be edited in place**, per the protection table above,
+so each neutral artifact is a new file and the Anthropic originals stay exactly
+as they are for as long as Anthropic's committed Results point at them.
 
 An OpenAI request cannot leave that worker. This is a sequencing fact, not a
 defect: A133 already ruled the neutral launcher must be built, and this is the

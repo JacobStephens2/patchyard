@@ -31,21 +31,85 @@ checked against `require_active_mapping`.
 
 ## Which way to drive it
 
-There are two ways to answer the collector's prompts. **Use the browser.**
+Three ways, and the choice is made **at start time** by whether you launch under
+the runner and whether you pass `--reply-group`. You cannot switch afterwards.
 
-| | Browser (`/collectors`) | Terminal |
-| :-- | :-- | :-- |
-| Where you answer | `https://status.example.com/collectors` | the tmux pane |
-| Booleans | real controls | you type raw JSON |
-| Pause steps | one **Acknowledge** button | you retype `MUTATION COMPLETE` |
-| Before submitting | shows the exact JSON | none |
+| | Browser form | Reply files | True terminal |
+| :-- | :-- | :-- | :-- |
+| Launch | runner, `--reply-group factory` | runner, `--reply-group factory` | collector directly, no runner |
+| Where you answer | `/collectors` | write `replies/reply-N.json` | the tmux pane |
+| Booleans | real controls | you hand-write JSON | you hand-write JSON |
+| Pause steps | **Acknowledge** button | same file mechanism | retype `MUTATION COMPLETE` |
+| Status | **needs the fix below** | works today | works today |
 
-The browser path exists because of two recorded failures. A live run was
-rejected for sending the string `"Uploaded JWKS"` where `true` was required —
-the form renders booleans as real controls and nullable fields with an explicit
-null toggle, because an empty text box is not the same value as null. And you
-are already reading the OpenAI console in a browser; alt-tabbing to a terminal
-to hand-assemble JSON is what produced that rejection.
+> **The browser form does not work until `factory/collectors-prompt-readable`
+> is deployed.** `prepare_session` relaxes the session directory to
+> `root:<group> 0750` and the replies inbox to `2770`, but `_write_json`
+> published `prompt.json` and `status.json` at `0600 root:root` regardless, so
+> `conductor` cannot read them. `collectors.py` cats both with `|| printf null`,
+> and the page renders the session as **unknown with no form** while the
+> collector waits. Confirmed live on 2026-08-10: both reads return
+> `Permission denied` as `conductor`.
+>
+> The write path worked and the read path did not, so the front end could submit
+> an answer it could never see the question for. Until that branch lands and
+> `/opt/patchyard` is redeployed, use reply files.
+
+**Answering under the runner without the browser.** This is the important one,
+because it is not obvious: the runner binds `builtins.input` to the file
+channel, so **the collector never reads stdin**. Typing into the tmux pane does
+nothing at all. It polls for `replies/reply-<seq>.json` and blocks until it
+appears.
+
+The reply is an envelope, and a console reading goes inside it *as a string*:
+
+```json
+{"seq": 1, "value": "{\"console_location\": \"...\", \"enabled\": true, ...}"}
+```
+
+`_read_reply` requires the `seq` in the file to match the filename and the open
+prompt, and `value` to be a string. Build it rather than hand-escaping it, and
+**write to a temporary file and rename** — the runner polls on existence, so it
+can read a partially written file and fail the run with `reply is not valid
+JSON`:
+
+```bash
+S=/run/patchyard-openai/<RUN_ID>-session
+SEQ=1
+python3 - "$S" "$SEQ" <<'PY'
+import json, os, sys, pathlib
+session, seq = pathlib.Path(sys.argv[1]), int(sys.argv[2])
+reading = {                       # values from YOUR live console read
+    "console_location": "...",
+    "enabled": True,
+    "identity_provider_id": "...",
+    "mapped_service_account_id": "...",
+    "mapping_present": True,
+    "subject_mapping_expression": "...",
+    "uploaded_jwks_mode": True,
+}
+final = session / "replies" / f"reply-{seq}.json"
+tmp = final.with_suffix(".json.tmp")
+tmp.write_text(json.dumps({"seq": seq, "value": json.dumps(reading)}))
+os.replace(tmp, final)            # atomic; the poller never sees a partial file
+PY
+```
+
+For a pause step, `value` is the phrase itself — `"MUTATION COMPLETE"` — not
+JSON. No `sudo`: `conductor` is in `factory` and the inbox is `2770`.
+
+**Never write a reply before its prompt opens.** `_refuse_staged_replies` fails
+the run closed if a reply for the open prompt or any later one already exists.
+That is structural, not advisory: staging every answer up front would produce a
+record that passes every checker while attesting to nothing.
+
+**Start the run inside tmux whichever way you answer.** The console *cannot
+start a run* — that is deliberate, and it is why the factory host is
+`tmux_readonly` in the inventory: an attachable panel would be a
+browser-reachable path to root on the box holding the WIF signing key. tmux owns
+the pseudo-TTY, so a dropped SSH connection costs nothing; without it the kernel
+SIGHUPs the collector and the run dies holding an open mutation window with the
+mapping still removed. That has happened once.
 
 **Start the run inside tmux either way.** The console *cannot start a run* —
 that is deliberate, and it is why the factory host is `tmux_readonly` in the
@@ -168,12 +232,14 @@ Four things about that command:
   the terminal.
 - **The `--` matters.** Everything after it is passed to the collector unchanged.
 
-Then open `https://status.example.com/collectors` and find your run.
+Then answer prompt 1 by whichever route § "Which way to drive it" left you with.
+The first prompt appearing is the confirmation that the wiring is right —
+nothing reaches OpenAI until after that reading.
 
-Each run now shows **two** entries: the session, and the root-only stage, which
-renders with a null status because `conductor` cannot read inside `0700`. Answer
-prompts in the session. The first prompt appearing is the confirmation that the
-wiring is right — nothing reaches OpenAI until after that reading.
+On `/collectors`, each run shows **two** entries: the session, and the root-only
+stage, which renders with a null status because `conductor` cannot read inside
+`0700`. That one is expected and is not the bug described above — the *session*
+rendering as unknown is.
 
 ## 3. Answer the seven prompts
 

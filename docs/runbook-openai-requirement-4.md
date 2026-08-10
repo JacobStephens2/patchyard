@@ -88,26 +88,38 @@ another OpenAI lifecycle run is genuinely active.
 > deployed revision is the one reviewed for this run rather than assuming the
 > newest commit is present.
 
-### The leftover from 2026-08-09
+### Inert leftovers from earlier attempts
 
-`/run/patchyard-openai/openai-revocation-20260809-c988690f41` holds an
-`in_progress` record from the run that died to SIGHUP. It is inert — its process
-is gone — but it **will appear on `/collectors`**, because that page lists every
-directory under `/run/patchyard-openai`. It has no `status.json` or
-`prompt.json`, so it renders with a null status and no prompt.
+Two directories under `/run/patchyard-openai` are dead runs, and both **appear
+on `/collectors`**, because that page lists every directory there:
 
-Do not answer anything into it and do not reuse its run ID. Your new run gets a
-new ID and its own directory. Clearing it is optional; it is tmpfs and a reboot
-removes it.
+| Directory | State | Cause |
+| :-- | :-- | :-- |
+| `openai-revocation-20260809-c988690f41` | `in_progress`, no live process | SIGHUP killed the collector; mutation window was left open |
+| `openai-revocation-20260810-b25e9cc3b3` | `failed` | Stage/session collision, before any OpenAI call or mutation |
+
+The 2026-08-10 run never reached an exchange or a mutation. Whatever the
+2026-08-09 run left behind, the mapping was confirmed present and enabled at the
+console immediately before the 2026-08-10 attempt — confirm it again yourself
+before opening a window rather than relying on that.
+
+Do not answer anything into either, and do not reuse their run IDs. Your
+new run gets a new ID and its own pair of directories. Clearing them is
+optional; this is tmpfs and a reboot removes them.
 
 ## 2. Start the run
 
-Generate the run ID and start the collector under the runner. The ID must match
+**The stage and the session are two different directories.** Collapsing them
+fails the run before anything happens — see the box below. Generate the run ID,
+create the stage, then start the collector under the runner. The ID must match
 `openai-revocation-[0-9]{8}-[0-9a-f]{10}`.
 
 ```bash
 RUN_ID="openai-revocation-$(date -u +%Y%m%d)-$(openssl rand -hex 5)"
-SESSION="/run/patchyard-openai/$RUN_ID"
+STAGE="/run/patchyard-openai/$RUN_ID"
+SESSION="$STAGE-session"
+
+sudo install -d -m 0700 -o root -g root "$STAGE"
 
 sudo python3 -I tools/attended-collector-runner.py \
   --collector federation-revocation \
@@ -119,16 +131,36 @@ sudo python3 -I tools/attended-collector-runner.py \
   --actor-kind accountable_human \
   --attester "<named attester>" \
   --mapping-mutation remove \
-  --output "$SESSION/openai-federation-revocation.json"
+  --output "$STAGE/openai-federation-revocation.json"
 ```
 
-Three things about that command:
+> **Do not point `--session-dir` at the stage.** A run on 2026-08-10 died at
+> `LifecycleError: lifecycle stage is not owned by root:root` before any OpenAI
+> call or console mutation, because an earlier version of this runbook used one
+> path for both.
+>
+> The collector derives its **lifecycle stage** from `--run-id`:
+> `openai-wif-federation-revocation.py:90` rebinds `BASE.STAGING_ROOT` to
+> `/run/patchyard-openai`, `:553` calls `validate_stage_directory(args.run_id)`,
+> and `anthropic-wif-lifecycle.py:271-274` requires that directory to be
+> `root:root` and mode `0700`. The collector never creates it — pre-create it.
+>
+> The runner's **session directory** is only the prompt/reply channel, and with
+> `--reply-group factory` it is deliberately `root:factory 0750` so the browser
+> can submit. That mode is exactly what the stage check rejects.
+>
+> `test_attended_collector_runner.py` does not cover this: it drives
+> `SessionChannel` against a scratch `tmpdir/session` and never runs the
+> collector's stage validation.
 
-- **Do not pre-create the session directory.** The runner creates it and
-  *refuses to reuse an existing one*, because a second run writing into a
-  directory that already holds a prompt could answer the wrong window. The
-  terminal-mode instructions in `openai-lifecycle.md` pre-create the stage with
-  `install -d -m 0700`; under the runner that makes the start fail.
+Four things about that command:
+
+- **The stage is pre-created; the session is not.** `install -d` makes the stage
+  because the collector requires one already there. The runner creates the
+  session itself and *refuses to reuse an existing one*, since a second run
+  writing where a prompt already sits could answer the wrong window.
+- **`--output` must sit inside the stage.** `require_stage_path` at `:554`
+  checks that its parent is exactly the stage directory.
 - **`--reply-group factory`** is what lets the browser submit. The runner sets
   the session `root:factory 0750` and the replies inbox `root:factory 2770`;
   `conductor` — the dashboard's SSH identity — is in `factory`. Omit the flag
@@ -136,7 +168,12 @@ Three things about that command:
   the terminal.
 - **The `--` matters.** Everything after it is passed to the collector unchanged.
 
-Then open `https://status.example.com/collectors` and find your run ID.
+Then open `https://status.example.com/collectors` and find your run.
+
+Each run now shows **two** entries: the session, and the root-only stage, which
+renders with a null status because `conductor` cannot read inside `0700`. Answer
+prompts in the session. The first prompt appearing is the confirmation that the
+wiring is right — nothing reaches OpenAI until after that reading.
 
 ## 3. Answer the seven prompts
 

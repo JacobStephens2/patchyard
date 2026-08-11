@@ -4,6 +4,12 @@
 # Activate once per clone: git config core.hooksPath .githooks
 set -euo pipefail
 
+# Git exports GIT_DIR (absolute, under .git/worktrees/<name> in a linked
+# worktree) to hooks. check-codebase.sh discovers the repository itself with
+# git -C, which that inherited variable misdirects; drop it so discovery works
+# identically from the main checkout and every linked worktree.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+
 REPO_ROOT=$(git rev-parse --show-toplevel)
 # shellcheck disable=SC1091
 source "$REPO_ROOT/tools/rust-tool-versions.env"

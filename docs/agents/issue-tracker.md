@@ -4,17 +4,21 @@ Wayfinding for this repo is tracked on Trello, not GitHub Issues. Board:
 **Patchyard Factory** — https://trello.com/b/Tdiikiov (id `6a7b2192db06f2d821023c62`).
 
 Credentials are already in the environment when launched via `va`:
-`TRELLO_API_KEY` + `TRELLO_API_TOKEN`. Use the REST API directly:
+`TRELLO_API_KEY` for the key, and `TRELLO_FACTORY_API_TOKEN` for the
+read-write token (vault item `trello-api` field `factory-token`, added to the
+`va` manifest 2026-08-11). The older `TRELLO_API_TOKEN` still resolves the
+original field, which reads fine but returns 401 on writes — prefer
+`TRELLO_FACTORY_API_TOKEN`, falling back to `TRELLO_API_TOKEN` only for
+read-only calls or in a session launched before the manifest gained the new
+variable:
 
 ```bash
-curl -s "https://api.trello.com/1/cards/<card>?key=$TRELLO_API_KEY&token=$TRELLO_API_TOKEN"
+TOKEN=${TRELLO_FACTORY_API_TOKEN:-$TRELLO_API_TOKEN}
+curl -s "https://api.trello.com/1/cards/<card>?key=$TRELLO_API_KEY&token=$TOKEN"
 ```
 
-Caveat (per the map's first decision, 2026-08-11): a read-write token was
-minted into vault item `trello-api` field `factory-token`, but the manifests
-may still resolve the older field. If a write (POST/PUT) returns 401 while
-reads work, that copy-across hasn't happened yet — say so and stop; do not
-prompt for the token.
+If a write (POST/PUT) returns 401 while reads work, you are holding the
+read-only token — say so and stop; do not prompt for the token.
 
 ## Wayfinding operations
 

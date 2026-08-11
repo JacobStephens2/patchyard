@@ -38,3 +38,4 @@
   gather_facts: false
   roles:
     - role: worker
+    - role: neutral_launcher

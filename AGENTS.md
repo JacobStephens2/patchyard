@@ -90,6 +90,12 @@ Lane A additionally requires you to name the exact page(s) and file(s) with evid
 
 Write ledger rows with timestamps, never self-reported durations. The cost metric is per SURVIVING fix (merged, not reverted/rewritten within 2 weeks). Never present PR count, LOC, or lines generated as success. Sustained first-pass approval >98% is a drift alarm to surface, not a win to report.
 
+## Agent skills
+
+### Issue tracker
+
+Wayfinding (`/wayfinder`) is tracked on Trello: board **Patchyard Factory** (https://trello.com/b/Tdiikiov), current map card [MAP: form -> daemon-claimed -> model-authored draft PR](https://trello.com/c/NfgyqpJf). Conventions, credentials, and API operations: `docs/agents/issue-tracker.md`. Everything else about this repo (specs, rulings, PRs) stays on GitHub as before.
+
 ## Updating this project
 
 Edit `model/factory-model.json` first, then update its identity and regenerate its projections using the workflow in `README.md`. The spec, constitution, decision log, model and reviews live in this repo; historical synthesis stays under `/srv/orchestration/projects/software-factory/synthesis/`. Hosted copies in `/srv/orchestration/hosted/` are deployment artifacts. This file is policy: change it only via a human-reviewed PR.

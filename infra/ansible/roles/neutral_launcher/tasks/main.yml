@@ -1,0 +1,19 @@
+# A133 provider-neutral launcher. Installed by its own role because the
+# worker role's task file is digest-bound by check-anthropic-spend.py, which
+# validates already-banked Anthropic evidence and must not be repinned to make
+# room for another provider.
+- name: Install the A133 provider-neutral launcher
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../worker/runtime/patchyard-provider-run"
+    dest: /usr/local/sbin/patchyard-provider-run
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install the provider qualification policy
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../policy/provider-qualification.json"
+    dest: /etc/patchyard-worker/provider-qualification.json
+    owner: root
+    group: root
+    mode: "0644"

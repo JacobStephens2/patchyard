@@ -32,7 +32,11 @@ needs three things the factory does not yet have for OpenAI:
    `worker/runtime/patchyard-firecracker-run`, recorded in the result as
    `provider_transport.mechanism = host-one-shot-network-namespace-v1`.
 3. **A provider-neutral launcher**, which A133 rules must exist and must contain
-   no provider name. It has not been built.
+   no provider name. Built 2026-08-11 as
+   `worker/runtime/patchyard-provider-run`, with its provider facts in
+   `policy/provider-qualification.json` and the no-provider-name condition
+   enforced by `tools/check-freeze-graph.py`. What remains for this requirement
+   is the OpenAI one-shot client and that policy file's OpenAI entry.
 
 The execution plane cannot be reused. Six worker artifacts are protected, but
 not all in the same way, and the difference matters when planning the neutral
@@ -101,8 +105,12 @@ live rather than renaming anything.
 
 **Proposed adapter contract.** `policy/provider-egress.json` already holds the
 per-provider egress facts the launcher consumes, and it is the file the neutral
-launcher already reads. Extend each provider entry with the probe the guest
-runner needs:
+launcher already reads. (The launcher build found this file cannot be extended
+in place: `factory-supervisor` deserializes it with `deny_unknown_fields`, and
+its shape is asserted by multiple committed checkers. The launcher's adapter
+facts therefore landed in the sibling `policy/provider-qualification.json`; the
+guest runner's probe block below faces the same constraint when it is built.)
+Extend each provider entry with the probe the guest runner needs:
 
 ```json
 {

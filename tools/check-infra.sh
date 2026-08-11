@@ -43,6 +43,11 @@ run_gate() {
 }
 
 run_gate python3 -I "$REPO_ROOT/tools/check-freeze-graph.py"
+# The A133 neutral launcher cannot ride check-ansible.sh's ShellCheck list,
+# because that file's digest is bound by check-anthropic-spend.py; the gate
+# lives here instead, and CI installs the pinned ShellCheck before this runs.
+run_gate shellcheck --exclude=SC2329 --shell=bash \
+  "$REPO_ROOT/worker/runtime/patchyard-provider-run"
 run_gate python3 -I "$REPO_ROOT/tools/check-credential-qualification.py"
 run_gate python3 -I "$REPO_ROOT/tools/check-stack.py"
 run_gate python3 -I "$REPO_ROOT/tools/check-independence.py"

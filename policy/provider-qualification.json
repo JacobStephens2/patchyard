@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "purpose": "Per-provider facts consumed by the A133 provider-neutral launcher (worker/runtime/patchyard-provider-run) for credential-bearing qualification runs. The launcher carries the structure; every provider-shaped value lives here. provider-egress.json remains the sole egress authority: a provider entry here is meaningful only for a provider that also exists there, and the launcher reads hostnames exclusively from the egress policy.",
+  "providers": {
+    "anthropic": {
+      "one_shot_client": "/usr/local/libexec/patchyard-anthropic-one-shot",
+      "authorization_ruling": "A115",
+      "phase_spend_cap_cents": {
+        "temporary_refusal": 100,
+        "operational_acceptance": 5000,
+        "restored_acceptance": 5000
+      },
+      "capability_field_patterns": {
+        "secret": "^sk-ant-oat01-[A-Za-z0-9_-]+$",
+        "scope": "^workspace:inference$",
+        "exchange_request_id": "^req_[A-Za-z0-9]+$",
+        "service_account_id": "^svac_[A-Za-z0-9]+$",
+        "rule_id": "^fdrl_[A-Za-z0-9]+$",
+        "workspace_id": "^wrkspc_[A-Za-z0-9]+$"
+      }
+    }
+  }
+}

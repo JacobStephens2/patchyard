@@ -1,0 +1,892 @@
+#!/usr/bin/env bash
+# A133 provider-neutral launcher: a sibling of the pinned production launcher.
+# It contains no provider name; every provider fact arrives as manifest data,
+# from /etc/patchyard-worker/provider-egress.json, or from
+# /etc/patchyard-worker/provider-qualification.json. The freeze-graph
+# checker enforces the no-provider-name condition on this file.
+set -euo pipefail
+umask 077
+
+usage() {
+  echo "usage: $0 /absolute/run.json /absolute/source.tar.gz /absolute/request.md /absolute/snapshot-dir /absolute/output-dir" >&2
+  exit 2
+}
+
+[[ $# -eq 5 ]] || usage
+MANIFEST=$1
+SOURCE_ARCHIVE=$2
+REQUEST=$3
+SNAPSHOT_DIR=$4
+OUTPUT_DIR=$5
+for path in "$MANIFEST" "$SOURCE_ARCHIVE" "$REQUEST" "$SNAPSHOT_DIR" "$OUTPUT_DIR"; do
+  [[ "$path" == /* ]] || usage
+done
+[[ -f "$MANIFEST" && -f "$SOURCE_ARCHIVE" && -f "$REQUEST" ]]
+[[ -f "$SNAPSHOT_DIR/snapshot.sql.gz" && -f "$SNAPSHOT_DIR/snapshot.json" ]]
+[[ ! -e "$OUTPUT_DIR" ]]
+
+RUNTIME_ROOT=/var/tmp/patchyard-worker
+TMPFS_ROOT=/run/patchyard-worker
+IMAGE_ROOT=/opt/patchyard-worker/images
+POLICY=/etc/patchyard-worker/provider-egress.json
+QUALIFICATION_POLICY=/etc/patchyard-worker/provider-qualification.json
+LIFECYCLE_POLICY=/etc/patchyard-worker/worker-lifecycle.json
+QUALIFICATION_MANIFEST=/usr/local/share/patchyard-worker/qualification/hostile-test-manifest.json
+ONE_SHOT_ROOT=/usr/local/libexec
+FIRECRACKER=/usr/local/bin/firecracker
+JAILER=/usr/local/bin/jailer
+FIRECRACKER_EXECUTABLE=$(readlink -f -- "$FIRECRACKER")
+FIRECRACKER_JAIL_NAME=$(basename -- "$FIRECRACKER_EXECUTABLE")
+KERNEL="$IMAGE_ROOT/vmlinux"
+ROOTFS_TEMPLATE="$IMAGE_ROOT/fieldbook-parity.ext4"
+ROOTFS_SHA_FILE="$IMAGE_ROOT/fieldbook-parity.sha256"
+ROOTFS_RECIPE_FILE="$IMAGE_ROOT/fieldbook-parity.recipe-sha256"
+RESULT_IMAGE_MAX_BYTES=16777216
+LOCK_FILE=/run/lock/patchyard-worker.lock
+TAINT_FILE=/var/lib/patchyard-worker/BOUNDARY_TAINTED
+FAILURE_STAGE=preflight
+FAILURE_LINE=unknown
+[[ ! -e "$TAINT_FILE" ]] || {
+  echo "worker is boundary-tainted and must be replaced and re-qualified" >&2
+  exit 1
+}
+
+jq -e '
+  .schema_version == 1
+  and (.run_id | test("^[a-z0-9][a-z0-9-]{0,62}$"))
+  and (.base_sha | test("^[0-9a-f]{40}$"))
+  and (.source_archive_sha256 | test("^[0-9a-f]{64}$"))
+  and (.request_sha256 | test("^[0-9a-f]{64}$"))
+  and (.snapshot_sql_sha256 | test("^[0-9a-f]{64}$"))
+  and (.snapshot_manifest_sha256 | test("^[0-9a-f]{64}$"))
+  and (.provider | test("^(none|[a-z0-9][a-z0-9-]{0,31})$"))
+  and (.mode == "fixture" or .mode == "provider-qualification" or .mode == "adversarial-qualification")
+  and (.credential_required | type == "boolean")
+  and (.spend_cap_cents | type == "number" and . >= 0 and . <= 5000)
+  and (if .credential_required then .mode == "provider-qualification" else true end)
+  and (if .mode == "adversarial-qualification" then
+    (.qualification_manifest_sha256 | test("^[0-9a-f]{64}$"))
+    and (.canary_sha256 | test("^[0-9a-f]{64}$"))
+  else true end)
+' "$MANIFEST" >/dev/null
+
+RUN_ID=$(jq -r .run_id "$MANIFEST")
+BASE_SHA=$(jq -r .base_sha "$MANIFEST")
+PROVIDER=$(jq -r .provider "$MANIFEST")
+MODE=$(jq -r .mode "$MANIFEST")
+CREDENTIAL_REQUIRED=$(jq -r .credential_required "$MANIFEST")
+SOURCE_EXPECTED=$(jq -r .source_archive_sha256 "$MANIFEST")
+REQUEST_EXPECTED=$(jq -r .request_sha256 "$MANIFEST")
+SNAPSHOT_SQL_EXPECTED=$(jq -r .snapshot_sql_sha256 "$MANIFEST")
+SNAPSHOT_MANIFEST_EXPECTED=$(jq -r .snapshot_manifest_sha256 "$MANIFEST")
+HOST_CONTRACT_SHA256=$(jq -r '.host_contract_sha256 // empty' "$MANIFEST")
+QUALIFICATION_REQUIREMENT=$(jq -r '.qualification_requirement // "none"' "$MANIFEST")
+SPEND_MODE=false
+if [[ "$MODE" == provider-qualification \
+  && "$QUALIFICATION_REQUIREMENT" == provider-spend-enforcement ]]; then
+  SPEND_MODE=true
+fi
+
+# Every provider fact for a credential-bearing run comes from the versioned
+# qualification policy entry for the manifest's provider: the one-shot client
+# path, the authorization ruling, the per-phase caps, and the value patterns of
+# the capability envelope's provider-shaped fields. The entry itself is
+# validated before anything reads it.
+ONE_SHOT=
+QUALIFICATION_RULING=
+PHASE_CAPS_JSON=
+FIELD_PATTERNS_JSON=
+if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
+  [[ -f "$QUALIFICATION_POLICY" && ! -L "$QUALIFICATION_POLICY" ]]
+  jq -e --arg provider "$PROVIDER" '
+    .schema_version == 1
+    and (.providers[$provider] | type == "object")
+    and (.providers[$provider] | (keys | sort) == ["authorization_ruling",
+      "capability_field_patterns","one_shot_client","phase_spend_cap_cents"])
+    and (.providers[$provider].authorization_ruling | test("^A[0-9]{1,4}$"))
+    and (.providers[$provider].one_shot_client
+      | test("^/usr/local/libexec/[a-z0-9][a-z0-9-]{0,79}$"))
+    and (.providers[$provider].phase_spend_cap_cents
+      | type == "object"
+      and (keys | length >= 1)
+      and all(keys[]; test("^[a-z_]{1,64}$"))
+      and all(.[]; type == "number" and . >= 0 and . <= 5000))
+    and (.providers[$provider].capability_field_patterns
+      | type == "object"
+      and (keys | sort) == ["exchange_request_id","rule_id","scope","secret",
+        "service_account_id","workspace_id"]
+      and all(.[]; type == "string" and length >= 1 and length <= 256))
+  ' "$QUALIFICATION_POLICY" >/dev/null
+  ONE_SHOT=$(jq -r --arg provider "$PROVIDER" \
+    '.providers[$provider].one_shot_client' "$QUALIFICATION_POLICY")
+  QUALIFICATION_RULING=$(jq -r --arg provider "$PROVIDER" \
+    '.providers[$provider].authorization_ruling' "$QUALIFICATION_POLICY")
+  PHASE_CAPS_JSON=$(jq -c --arg provider "$PROVIDER" \
+    '.providers[$provider].phase_spend_cap_cents' "$QUALIFICATION_POLICY")
+  FIELD_PATTERNS_JSON=$(jq -c --arg provider "$PROVIDER" \
+    '.providers[$provider].capability_field_patterns' "$QUALIFICATION_POLICY")
+  [[ "$ONE_SHOT" == "$ONE_SHOT_ROOT"/* ]]
+  jq -e --arg ruling "$QUALIFICATION_RULING" --argjson caps "$PHASE_CAPS_JSON" '
+    (.host_contract_sha256 | test("^[0-9a-f]{64}$"))
+    and ((.qualification_requirement == "issuance-delivery"
+      and .qualification_phase == "none" and .spend_cap_cents == 0)
+      or (.qualification_requirement == "provider-spend-enforcement"
+      and .authorization_ruling == $ruling
+      and (.qualification_phase as $phase | $caps | has($phase))
+      and (.qualification_phase as $phase | .spend_cap_cents == $caps[$phase])))
+  ' "$MANIFEST" >/dev/null
+fi
+
+[[ "$(sha256sum "$SOURCE_ARCHIVE" | cut -d' ' -f1)" == "$SOURCE_EXPECTED" ]]
+[[ "$(sha256sum "$REQUEST" | cut -d' ' -f1)" == "$REQUEST_EXPECTED" ]]
+[[ "$(sha256sum "$SNAPSHOT_DIR/snapshot.sql.gz" | cut -d' ' -f1)" == "$SNAPSHOT_SQL_EXPECTED" ]]
+[[ "$(sha256sum "$SNAPSHOT_DIR/snapshot.json" | cut -d' ' -f1)" == "$SNAPSHOT_MANIFEST_EXPECTED" ]]
+[[ "$(jq -r .snapshot_sql_sha256 "$SNAPSHOT_DIR/snapshot.json")" == "$SNAPSHOT_SQL_EXPECTED" ]]
+if [[ "$MODE" == adversarial-qualification ]]; then
+  [[ -f "$QUALIFICATION_MANIFEST" && ! -L "$QUALIFICATION_MANIFEST" ]]
+  [[ "$(sha256sum "$QUALIFICATION_MANIFEST" | cut -d' ' -f1)" \
+    == "$(jq -r .qualification_manifest_sha256 "$MANIFEST")" ]]
+fi
+/usr/local/sbin/check-snapshot-eligibility "$SNAPSHOT_DIR" >/dev/null
+ROOTFS_SHA256=$(<"$ROOTFS_SHA_FILE")
+IMAGE_RECIPE_SHA256=$(<"$ROOTFS_RECIPE_FILE")
+PARITY_MANIFEST_SHA256=$(sha256sum \
+  /usr/local/share/patchyard-worker/image/production-parity.json | cut -d' ' -f1)
+echo "$ROOTFS_SHA256  $ROOTFS_TEMPLATE" | sha256sum --check --status
+
+exec 9>"$LOCK_FILE"
+flock -n 9 || {
+  echo "worker already has an active microVM" >&2
+  exit 1
+}
+
+SHORT_ID=$(printf '%s' "$RUN_ID" | sha256sum | cut -c1-10)
+TAP="ef${SHORT_ID:0:8}"
+NFT_TABLE="eta_fc_${SHORT_ID}"
+HOST_IP=172.16.0.1
+JAIL_BASE="$RUNTIME_ROOT/jailer"
+JAIL_RUN_ROOT="$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID"
+JAIL_ROOT="$JAIL_RUN_ROOT/root"
+SOURCE_STAGE="$RUNTIME_ROOT/source-$RUN_ID"
+INPUT_STAGE="$RUNTIME_ROOT/input-$RUN_ID"
+RUN_TMPFS="$TMPFS_ROOT/$RUN_ID"
+RESULT_EXTRACT="$RUNTIME_ROOT/result-extract-$RUN_ID"
+ACCEPT_TEMP=
+CAPABILITY_NEEDLE=
+PROVIDER_STAGE=
+PROVIDER_NETNS="efp$SHORT_ID"
+PROVIDER_HOST_VETH="efh${SHORT_ID:0:8}"
+PROVIDER_NS_VETH="efn${SHORT_ID:0:8}"
+PROVIDER_NFT_TABLE="eta_fp_$SHORT_ID"
+PROVIDER_HOSTS_DIRECTORY="/etc/netns/$PROVIDER_NETNS"
+ONE_SHOT_NFT_TABLE=eta_provider_one_shot
+PROVIDER_TRANSPORT_IP=
+SPEND_HOSTNAME=
+JAILER_PID=
+VMM_PID=
+BASE_FORWARD=$(sysctl -n net.ipv4.ip_forward)
+
+remove_provider_transport() {
+  local -
+  set +e
+  nft delete table inet "$PROVIDER_NFT_TABLE" >/dev/null 2>&1 || true
+  ip netns delete "$PROVIDER_NETNS" >/dev/null 2>&1 || true
+  ip link delete "$PROVIDER_HOST_VETH" >/dev/null 2>&1 || true
+  rm -rf -- "$PROVIDER_HOSTS_DIRECTORY"
+  sysctl -q -w "net.ipv4.ip_forward=$BASE_FORWARD" >/dev/null
+}
+
+assert_provider_transport_removed() {
+  local nft_tables
+  if ip netns list | awk '{print $1}' | grep -Fxq "$PROVIDER_NETNS"; then
+    echo "factory worker teardown residue: provider namespace" >&2
+    return 1
+  fi
+  if [[ -e "/sys/class/net/$PROVIDER_HOST_VETH" ]]; then
+    echo "factory worker teardown residue: provider veth" >&2
+    return 1
+  fi
+  if ! nft_tables=$(nft list tables 2>/dev/null); then
+    echo "factory worker teardown check failed: provider nftables" >&2
+    return 1
+  fi
+  if grep -Fxq "table inet $PROVIDER_NFT_TABLE" <<<"$nft_tables"; then
+    echo "factory worker teardown residue: provider nftables" >&2
+    return 1
+  fi
+  if [[ -e "$PROVIDER_HOSTS_DIRECTORY" ]]; then
+    echo "factory worker teardown residue: provider hosts" >&2
+    return 1
+  fi
+}
+
+setup_provider_transport() {
+  [[ "$PROVIDER_TRANSPORT_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
+  [[ -n "$SPEND_HOSTNAME" ]]
+  install -d -m 0755 "$PROVIDER_HOSTS_DIRECTORY"
+  printf '127.0.0.1 localhost\n%s %s\n' \
+    "$PROVIDER_TRANSPORT_IP" "$SPEND_HOSTNAME" >"$PROVIDER_HOSTS_DIRECTORY/hosts"
+  chmod 0644 "$PROVIDER_HOSTS_DIRECTORY/hosts"
+
+  ip netns add "$PROVIDER_NETNS"
+  ip netns exec "$PROVIDER_NETNS" sysctl -q -w \
+    net.ipv6.conf.all.disable_ipv6=1
+  ip netns exec "$PROVIDER_NETNS" sysctl -q -w \
+    net.ipv6.conf.default.disable_ipv6=1
+  ip link add "$PROVIDER_HOST_VETH" type veth peer name "$PROVIDER_NS_VETH"
+  ip link set "$PROVIDER_NS_VETH" netns "$PROVIDER_NETNS"
+  ip addr add 172.30.255.249/30 dev "$PROVIDER_HOST_VETH"
+  ip link set "$PROVIDER_HOST_VETH" up
+  ip -n "$PROVIDER_NETNS" link set "$PROVIDER_NS_VETH" name eth0
+  ip -n "$PROVIDER_NETNS" addr add 172.30.255.250/30 dev eth0
+  ip -n "$PROVIDER_NETNS" link set lo up
+  ip -n "$PROVIDER_NETNS" link set eth0 up
+  ip -n "$PROVIDER_NETNS" route add default via 172.30.255.249 dev eth0
+  sysctl -q -w net.ipv4.ip_forward=1
+
+  nft add table inet "$PROVIDER_NFT_TABLE"
+  nft "add chain inet $PROVIDER_NFT_TABLE forward { type filter hook forward priority -110; policy accept; }"
+  nft "add chain inet $PROVIDER_NFT_TABLE postrouting { type nat hook postrouting priority srcnat; policy accept; }"
+  nft add rule inet "$PROVIDER_NFT_TABLE" forward \
+    iifname "$PROVIDER_HOST_VETH" ip daddr "$PROVIDER_TRANSPORT_IP" \
+    tcp dport 443 ct state new,established counter accept
+  nft add rule inet "$PROVIDER_NFT_TABLE" forward \
+    oifname "$PROVIDER_HOST_VETH" ct state established,related counter accept
+  nft add rule inet "$PROVIDER_NFT_TABLE" forward \
+    iifname "$PROVIDER_HOST_VETH" counter reject
+  nft add rule inet "$PROVIDER_NFT_TABLE" postrouting \
+    ip saddr 172.30.255.248/30 oifname != "$PROVIDER_HOST_VETH" masquerade
+
+  ip netns exec "$PROVIDER_NETNS" nft add table inet "$ONE_SHOT_NFT_TABLE"
+  ip netns exec "$PROVIDER_NETNS" nft \
+    "add chain inet $ONE_SHOT_NFT_TABLE input { type filter hook input priority 0; policy drop; }"
+  ip netns exec "$PROVIDER_NETNS" nft \
+    "add chain inet $ONE_SHOT_NFT_TABLE output { type filter hook output priority 0; policy drop; }"
+  ip netns exec "$PROVIDER_NETNS" nft \
+    "add set inet $ONE_SHOT_NFT_TABLE used { type ipv4_addr; flags dynamic; }"
+  ip netns exec "$PROVIDER_NETNS" nft \
+    "add set inet $ONE_SHOT_NFT_TABLE admitted { typeof ct id; flags dynamic; }"
+  ip netns exec "$PROVIDER_NETNS" nft \
+    "add set inet $ONE_SHOT_NFT_TABLE rejected { typeof ct id; flags dynamic; }"
+  ip netns exec "$PROVIDER_NETNS" nft \
+    "add counter inet $ONE_SHOT_NFT_TABLE admitted_new"
+  ip netns exec "$PROVIDER_NETNS" nft \
+    "add counter inet $ONE_SHOT_NFT_TABLE rejected_new"
+  ip netns exec "$PROVIDER_NETNS" nft add rule inet "$ONE_SHOT_NFT_TABLE" input \
+    iifname lo counter accept
+  ip netns exec "$PROVIDER_NETNS" nft add rule inet "$ONE_SHOT_NFT_TABLE" input \
+    ct state established,related counter accept
+  ip netns exec "$PROVIDER_NETNS" nft add rule inet "$ONE_SHOT_NFT_TABLE" output \
+    oifname lo counter accept
+  ip netns exec "$PROVIDER_NETNS" nft \
+    "add rule inet $ONE_SHOT_NFT_TABLE output ct id @admitted counter accept"
+  ip netns exec "$PROVIDER_NETNS" nft \
+    "add rule inet $ONE_SHOT_NFT_TABLE output ip saddr @used add @rejected { ct id } counter name rejected_new reject"
+  ip netns exec "$PROVIDER_NETNS" nft add rule inet "$ONE_SHOT_NFT_TABLE" output \
+    oifname eth0 ip saddr 172.30.255.250 ip daddr "$PROVIDER_TRANSPORT_IP" \
+    tcp dport 443 ct state new add @admitted '{' ct id '}' \
+    add @used '{' ip saddr '}' counter name admitted_new accept
+  # The nft protocol-selector keyword collides with a banned provider token,
+  # and every new flow reaching this rule is rejected regardless of protocol,
+  # so the rule matches on connection state alone instead of naming one.
+  ip netns exec "$PROVIDER_NETNS" nft \
+    "add rule inet $ONE_SHOT_NFT_TABLE output ct state new add @rejected { ct id } counter name rejected_new reject"
+  ip netns exec "$PROVIDER_NETNS" nft \
+    "add rule inet $ONE_SHOT_NFT_TABLE output counter name rejected_new reject"
+}
+
+assert_provider_transport_preflight() {
+  local ipv6_all ipv6_default ipv6_eth0
+  ipv6_all=$(ip netns exec "$PROVIDER_NETNS" sysctl -n \
+    net.ipv6.conf.all.disable_ipv6)
+  ipv6_default=$(ip netns exec "$PROVIDER_NETNS" sysctl -n \
+    net.ipv6.conf.default.disable_ipv6)
+  ipv6_eth0=$(ip netns exec "$PROVIDER_NETNS" sysctl -n \
+    net.ipv6.conf.eth0.disable_ipv6)
+  if [[ "$ipv6_all" != 1 || "$ipv6_default" != 1 || "$ipv6_eth0" != 1 ]]; then
+    echo 'provider-spend-transport-preflight-rejected-ipv6' >&2
+    return 1
+  fi
+}
+
+provider_counter_packets() {
+  local name=$1
+  ip netns exec "$PROVIDER_NETNS" nft --json \
+    list counter inet "$ONE_SHOT_NFT_TABLE" "$name" \
+    | jq -er --arg name "$name" '
+      [.nftables[] | .counter? | select(.name == $name) | .packets]
+      | if length == 1 then .[0] else error("counter cardinality") end'
+}
+
+provider_set_elements() {
+  local name=$1
+  ip netns exec "$PROVIDER_NETNS" nft --json \
+    list set inet "$ONE_SHOT_NFT_TABLE" "$name" \
+    | jq -er --arg name "$name" '
+      [.nftables[] | .set? | select(.name == $name) | (.elem // []) | length]
+      | if length == 1 then .[0] else error("set cardinality") end'
+}
+
+remove_runtime() {
+  local -
+  set +e
+  remove_provider_transport
+  if [[ -n "$VMM_PID" ]]; then
+    kill -KILL -- "-$VMM_PID" >/dev/null 2>&1 || true
+    kill -KILL "$VMM_PID" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$JAILER_PID" ]]; then
+    kill -KILL -- "-$JAILER_PID" >/dev/null 2>&1 || true
+    kill -KILL "$JAILER_PID" >/dev/null 2>&1 || true
+    wait "$JAILER_PID" >/dev/null 2>&1 || true
+  fi
+  pkill -KILL -u factory-worker -f -- "--id[ =]$RUN_ID" >/dev/null 2>&1 || true
+  mountpoint -q "$JAIL_ROOT/credential.ext4" && umount "$JAIL_ROOT/credential.ext4"
+  nft delete table inet "$NFT_TABLE" >/dev/null 2>&1 || true
+  ip link delete "$TAP" >/dev/null 2>&1 || true
+  sysctl -q -w "net.ipv4.ip_forward=$BASE_FORWARD" >/dev/null
+  rm -rf -- "${JAIL_BASE:?}/$FIRECRACKER_JAIL_NAME/$RUN_ID" \
+    "$SOURCE_STAGE" "$INPUT_STAGE" \
+    "$RUN_TMPFS" "$RESULT_EXTRACT" "$RUNTIME_ROOT/console-$RUN_ID.log"
+  rmdir "$JAIL_BASE/$FIRECRACKER_JAIL_NAME" "$JAIL_BASE" \
+    >/dev/null 2>&1 || true
+}
+
+assert_runtime_removed() {
+  local process_status nft_tables
+  if pgrep -u factory-worker -f -- "--id[ =]$RUN_ID" >/dev/null 2>&1; then
+    echo "factory worker teardown residue: process" >&2
+    return 1
+  else
+    process_status=$?
+    if [[ "$process_status" -ne 1 ]]; then
+      echo "factory worker teardown check failed: process" >&2
+      return 1
+    fi
+  fi
+  if [[ -e "/sys/class/net/$TAP" ]]; then
+    echo "factory worker teardown residue: tap" >&2
+    return 1
+  fi
+  if ! nft_tables=$(nft list tables 2>/dev/null); then
+    echo "factory worker teardown check failed: nftables" >&2
+    return 1
+  fi
+  if grep -Fxq "table inet $NFT_TABLE" <<<"$nft_tables"; then
+    echo "factory worker teardown residue: nftables" >&2
+    return 1
+  fi
+  if [[ -e "$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID" \
+    || -e "$RUN_TMPFS" || -e "$RUNTIME_ROOT/console-$RUN_ID.log" ]]; then
+    echo "factory worker teardown residue: runtime path" >&2
+    return 1
+  fi
+  assert_provider_transport_removed
+}
+
+cleanup_and_taint() {
+  local rc=$?
+  remove_runtime
+  if [[ -n "$ACCEPT_TEMP" ]]; then
+    rm -rf -- "$ACCEPT_TEMP"
+    ACCEPT_TEMP=
+  fi
+  local residue=0
+  pgrep -u factory-worker -f -- "--id[ =]$RUN_ID" >/dev/null 2>&1 && residue=1
+  ip -o link show "$TAP" >/dev/null 2>&1 && residue=1
+  nft list table inet "$NFT_TABLE" >/dev/null 2>&1 && residue=1
+  ip netns list | awk '{print $1}' | grep -Fxq "$PROVIDER_NETNS" && residue=1
+  ip -o link show "$PROVIDER_HOST_VETH" >/dev/null 2>&1 && residue=1
+  nft list table inet "$PROVIDER_NFT_TABLE" >/dev/null 2>&1 && residue=1
+  [[ -e "$PROVIDER_HOSTS_DIRECTORY" ]] && residue=1
+  [[ -e "$JAIL_BASE/$FIRECRACKER_JAIL_NAME/$RUN_ID" || -e "$RUN_TMPFS" \
+    || -e "$RUNTIME_ROOT/console-$RUN_ID.log" ]] && residue=1
+  local reason=
+  if [[ "$residue" -ne 0 ]]; then
+    reason=cleanup-residue
+  elif [[ "$MODE" =~ ^(provider|adversarial)-qualification$ && "$rc" -ne 0 ]]; then
+    reason=containment-qualification-failed
+  fi
+  if [[ -n "$reason" ]]; then
+    printf 'run=%s reason=%s stage=%s line=%s detected_at=%s\n' \
+      "$RUN_ID" "$reason" "$FAILURE_STAGE" "$FAILURE_LINE" \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      >"$TAINT_FILE"
+  fi
+}
+record_failure() {
+  FAILURE_LINE=$1
+  local rc=$2
+  printf 'factory worker run failed: stage=%s line=%s status=%s\n' \
+    "$FAILURE_STAGE" "$FAILURE_LINE" "$rc" >&2
+  return "$rc"
+}
+trap cleanup_and_taint EXIT
+trap 'record_failure "$LINENO" "$?"' ERR
+
+FAILURE_STAGE=runtime-staging
+install -d -m 0750 "$RUNTIME_ROOT" "$JAIL_ROOT" "$SOURCE_STAGE" "$INPUT_STAGE"
+if $SPEND_MODE; then
+  # The one-shot request runs as factory-worker. Grant that identity traversal of
+  # this exact run root without directory read or write access; the capability
+  # itself remains root:root 0600 and the worker-owned raw directory is 0700.
+  install -d -m 0710 -o root -g factory-worker "$RUN_TMPFS"
+  [[ "$(stat -c '%U:%G:%a' -- "$RUN_TMPFS")" == root:factory-worker:710 ]]
+  /usr/sbin/runuser -u factory-worker -- /usr/bin/test -x "$RUN_TMPFS"
+else
+  install -d -m 0700 -o root -g root "$RUN_TMPFS"
+  [[ "$(stat -c '%U:%G:%a' -- "$RUN_TMPFS")" == root:root:700 ]]
+fi
+install -d -m 0700 -o factory-worker -g factory-worker "$RESULT_EXTRACT"
+# Jailer creates the path above its chroot as root. Keep those directories
+# root-owned, but let the dedicated parser identity traverse the exact run path
+# after the VMM exits so e2fsck/debugfs can inspect the guest-written image.
+chown root:factory-worker \
+  "$JAIL_BASE" "$JAIL_BASE/$FIRECRACKER_JAIL_NAME" "$JAIL_RUN_ROOT"
+chmod 0750 \
+  "$JAIL_BASE" "$JAIL_BASE/$FIRECRACKER_JAIL_NAME" "$JAIL_RUN_ROOT"
+
+tar -xzf "$SOURCE_ARCHIVE" -C "$SOURCE_STAGE" --no-same-owner --no-same-permissions
+if [[ "$MODE" == fixture ]]; then
+  [[ -d "$SOURCE_STAGE/mfieldbook" ]]
+else
+  [[ -f "$SOURCE_STAGE/base.txt" ]]
+fi
+# The launcher umask protects host staging, but the guest's Apache identity
+# must be able to traverse and read the credential-free source projection.
+# Normalize only archive content before private Git metadata is created.
+find "$SOURCE_STAGE" -type d -exec chmod 0755 {} +
+find "$SOURCE_STAGE" -type f -perm /0111 -exec chmod 0755 {} +
+find "$SOURCE_STAGE" -type f ! -perm /0111 -exec chmod 0644 {} +
+git -C "$SOURCE_STAGE" init --quiet
+git -C "$SOURCE_STAGE" config user.name 'Patchyard Factory base'
+git -C "$SOURCE_STAGE" config user.email 'factory@example.invalid'
+git -C "$SOURCE_STAGE" add -A
+GIT_AUTHOR_DATE=2000-01-01T00:00:00Z GIT_COMMITTER_DATE=2000-01-01T00:00:00Z \
+  git -C "$SOURCE_STAGE" commit --quiet -m 'Exact transferred base tree'
+printf '%s\n' '.patchyard-base-sha' 'lost+found/' \
+  >>"$SOURCE_STAGE/.git/info/exclude"
+printf '%s\n' "$BASE_SHA" >"$SOURCE_STAGE/.patchyard-base-sha"
+chown -R 1000:1000 "$SOURCE_STAGE"
+
+install -m 0400 "$MANIFEST" "$INPUT_STAGE/run.json"
+# The guest runner validates every input as root, but the requested work is
+# intentionally executed by the unprivileged factory-agent identity (UID 1000).
+# Project only its request to that identity; snapshots and manifests stay root-only.
+install -m 0400 -o 1000 -g 1000 "$REQUEST" "$INPUT_STAGE/request.md"
+install -m 0400 "$SNAPSHOT_DIR/snapshot.sql.gz" "$INPUT_STAGE/snapshot.sql.gz"
+install -m 0400 "$SNAPSHOT_DIR/snapshot.json" "$INPUT_STAGE/snapshot.json"
+if [[ "$MODE" == adversarial-qualification ]]; then
+  install -m 0400 "$QUALIFICATION_MANIFEST" \
+    "$INPUT_STAGE/hostile-test-manifest.json"
+fi
+: >"$INPUT_STAGE/provider-hosts"
+jq -n \
+  --arg rootfs_sha256 "$ROOTFS_SHA256" \
+  --arg image_recipe_sha256 "$IMAGE_RECIPE_SHA256" \
+  --arg production_parity_sha256 "$PARITY_MANIFEST_SHA256" \
+  '{
+    schema_version: 1,
+    rootfs_sha256: $rootfs_sha256,
+    image_recipe_sha256: $image_recipe_sha256,
+    production_parity_sha256: $production_parity_sha256
+  }' >"$INPUT_STAGE/image.json"
+
+ALLOWED_IPS=()
+if [[ "$PROVIDER" == none ]]; then
+  [[ "$MODE" == fixture && "$CREDENTIAL_REQUIRED" == false ]]
+else
+  jq -e --arg provider "$PROVIDER" '.providers[$provider] != null' "$POLICY" >/dev/null
+  if [[ ! "$MODE" =~ ^(provider|adversarial)-qualification$ ]]; then
+    jq -e --arg provider "$PROVIDER" '.providers[$provider].credential_qualified == true' \
+      "$POLICY" >/dev/null
+  fi
+  mapfile -t PROVIDER_HOSTS < <(jq -r --arg provider "$PROVIDER" \
+    '.providers[$provider].hostnames[]' "$POLICY")
+  if $SPEND_MODE; then
+    # The one-shot transport admits exactly one destination, so the spend
+    # qualification requires the provider to publish exactly one hostname.
+    [[ ${#PROVIDER_HOSTS[@]} -eq 1 ]]
+    SPEND_HOSTNAME=${PROVIDER_HOSTS[0]}
+  fi
+  for hostname in "${PROVIDER_HOSTS[@]}"; do
+    mapfile -t resolved < <(getent ahostsv4 "$hostname" \
+      | awk '{print $1}' | sort -u)
+    [[ ${#resolved[@]} -gt 0 ]]
+    for address in "${resolved[@]}"; do
+      [[ "$address" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
+      if $SPEND_MODE; then
+        if [[ -z "$PROVIDER_TRANSPORT_IP" ]]; then
+          PROVIDER_TRANSPORT_IP=$address
+        fi
+      else
+        ALLOWED_IPS+=("$address")
+        printf '%s %s\n' "$address" "$hostname" >>"$INPUT_STAGE/provider-hosts"
+      fi
+    done
+  done
+fi
+
+if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
+  CAPABILITY="$RUN_TMPFS/capability.json"
+  dd if=/dev/stdin of="$CAPABILITY" bs=65536 count=1 iflag=fullblock status=none
+  [[ -s "$CAPABILITY" && "$(stat -c %s "$CAPABILITY")" -le 65536 ]]
+  CAPABILITY_SHA=$(sha256sum "$CAPABILITY" | cut -d' ' -f1)
+  [[ "$CAPABILITY_SHA" == "$(jq -r .capability_sha256 "$MANIFEST")" ]]
+  NOW=$(date -u +%s)
+  ISSUED=$(jq -r '.issued_at | fromdateiso8601' "$CAPABILITY")
+  EXPIRES=$(jq -r '.expires_at | fromdateiso8601' "$CAPABILITY")
+  EXPIRES_IN=$(jq -r .expires_in "$CAPABILITY")
+  jq -e --arg provider "$PROVIDER" \
+    --arg qualification_requirement "$(jq -r .qualification_requirement "$MANIFEST")" \
+    --arg qualification_phase "$(jq -r .qualification_phase "$MANIFEST")" \
+    --arg authorization_ruling "$(jq -r '.authorization_ruling // empty' "$MANIFEST")" \
+    --arg ruling "$QUALIFICATION_RULING" \
+    --argjson spend_cap_cents "$(jq -r .spend_cap_cents "$MANIFEST")" \
+    --argjson caps "$PHASE_CAPS_JSON" \
+    --argjson patterns "$FIELD_PATTERNS_JSON" '
+    (keys | sort) == ["authorization_ruling","capability_id","exchange_request_id",
+      "expires_at","expires_in","issued_at","provider","qualification_phase",
+      "qualification_requirement","rule_id","schema_version","scope","secret",
+      "service_account_id","spend_cap_cents","token_type","workspace_id"]
+    and .schema_version == 1 and .provider == $provider
+    and .qualification_requirement == $qualification_requirement
+    and .qualification_phase == $qualification_phase
+    and .authorization_ruling == $authorization_ruling
+    and .spend_cap_cents == $spend_cap_cents
+    and ((.qualification_requirement == "issuance-delivery"
+      and .qualification_phase == "none" and .spend_cap_cents == 0)
+      or (.qualification_requirement == "provider-spend-enforcement"
+      and .authorization_ruling == $ruling
+      and (.qualification_phase as $phase | $caps | has($phase))
+      and (.qualification_phase as $phase | .spend_cap_cents == $caps[$phase])))
+    and (.capability_id | test("^[a-zA-Z0-9_-]{8,128}$"))
+    and (.secret | type == "string" and test($patterns.secret) and length <= 8192)
+    and .token_type == "Bearer" and (.scope | test($patterns.scope))
+    and (.expires_in | type == "number" and . >= 60 and . <= 300)
+    and (.issued_at | fromdateiso8601 | type == "number")
+    and (.expires_at | fromdateiso8601 | type == "number")
+    and (.exchange_request_id | test($patterns.exchange_request_id))
+    and (.service_account_id | test($patterns.service_account_id))
+    and (.rule_id | test($patterns.rule_id))
+    and (.workspace_id | test($patterns.workspace_id))
+  ' "$CAPABILITY" >/dev/null
+  [[ "$EXPIRES" -gt "$NOW" && "$EXPIRES" -le $((NOW + 300)) ]]
+  [[ "$EXPIRES" -eq $((ISSUED + EXPIRES_IN)) ]]
+  CAPABILITY_NEEDLE="$RUN_TMPFS/capability-secret.needle"
+  jq -jr .secret "$CAPABILITY" >"$CAPABILITY_NEEDLE"
+  [[ "$(stat -c '%U:%G:%a' "$CAPABILITY_NEEDLE")" == root:root:600 ]]
+fi
+
+if $SPEND_MODE; then
+  FAILURE_STAGE=provider-one-shot-transport
+  [[ "$CREDENTIAL_REQUIRED" == true && -n "$CAPABILITY_NEEDLE" ]]
+  [[ -x "$ONE_SHOT" && ! -L "$ONE_SHOT" ]]
+  PROVIDER_STAGE="$RUN_TMPFS/provider"
+  install -d -m 0710 -o root -g factory-worker "$PROVIDER_STAGE"
+  setup_provider_transport
+  assert_provider_transport_preflight
+  "$ONE_SHOT" "$PROVIDER_NETNS" "$CAPABILITY" "$PROVIDER_STAGE"
+  [[ ! -e "$CAPABILITY" && ! -e "$PROVIDER_STAGE/raw" ]]
+  if grep -R -F -q -f "$CAPABILITY_NEEDLE" -- "$PROVIDER_STAGE"; then
+    echo "provider credential entered the sanitized host result" >&2
+    false
+  fi
+  rm -f -- "$CAPABILITY_NEEDLE"
+  CAPABILITY_NEEDLE=
+
+  PROVIDER_ADMITTED_NEW=$(provider_counter_packets admitted_new)
+  PROVIDER_REJECTED_NEW=$(provider_counter_packets rejected_new)
+  PROVIDER_ADMITTED_IDS=$(provider_set_elements admitted)
+  PROVIDER_REJECTED_IDS=$(provider_set_elements rejected)
+  PROVIDER_USED_SOURCES=$(provider_set_elements used)
+  if ! [[ "$PROVIDER_ADMITTED_NEW" -eq 1 \
+    && "$PROVIDER_REJECTED_NEW" -eq 0 \
+    && "$PROVIDER_ADMITTED_IDS" -eq 1 \
+    && "$PROVIDER_REJECTED_IDS" -eq 0 \
+    && "$PROVIDER_USED_SOURCES" -eq 1 ]]; then
+    printf 'provider-spend-transport-cardinality-rejected-%s-%s-%s-%s-%s\n' \
+      "$PROVIDER_ADMITTED_NEW" "$PROVIDER_REJECTED_NEW" \
+      "$PROVIDER_ADMITTED_IDS" "$PROVIDER_REJECTED_IDS" \
+      "$PROVIDER_USED_SOURCES" >&2
+    exit 1
+  fi
+
+  jq --argjson request_attempts "$PROVIDER_ADMITTED_NEW" \
+    '. + {$request_attempts}' "$PROVIDER_STAGE/provider-observation.json" \
+    >"$PROVIDER_STAGE/provider-observation.json.tmp"
+  mv "$PROVIDER_STAGE/provider-observation.json.tmp" \
+    "$PROVIDER_STAGE/provider-observation.json"
+  jq -n \
+    --arg client_sha256 "$(sha256sum "$ONE_SHOT" | cut -d' ' -f1)" \
+    --argjson admitted_conntrack_ids "$PROVIDER_ADMITTED_IDS" \
+    --argjson admitted_new_connections "$PROVIDER_ADMITTED_NEW" \
+    --argjson rejected_new_connections "$PROVIDER_REJECTED_IDS" \
+    --argjson rejected_connection_packets "$PROVIDER_REJECTED_NEW" \
+    --argjson guest_provider_allowlist_entries "${#ALLOWED_IPS[@]}" \
+    '{schema_version:1,authorization_ruling:"A117",
+      mechanism:"host-one-shot-network-namespace-v1",http_version:"1.0",
+      connection_close:true,$client_sha256,$admitted_conntrack_ids,
+      $admitted_new_connections,$rejected_new_connections,$rejected_connection_packets,
+      $guest_provider_allowlist_entries,namespace_ipv6_disabled:true,
+      credential_removed_before_guest_boot:true}' \
+    >"$PROVIDER_STAGE/provider-transport.json"
+  chmod 0600 "$PROVIDER_STAGE"/*.json
+  jq -e --arg client_sha256 "$(sha256sum "$ONE_SHOT" | cut -d' ' -f1)" '
+    .schema_version == 1 and .authorization_ruling == "A117"
+    and .mechanism == "host-one-shot-network-namespace-v1"
+    and .http_version == "1.0" and .connection_close == true
+    and .admitted_conntrack_ids == 1 and .admitted_new_connections == 1
+    and .rejected_new_connections == 0 and .rejected_connection_packets == 0
+    and .guest_provider_allowlist_entries == 0
+    and .namespace_ipv6_disabled == true
+    and .credential_removed_before_guest_boot == true
+    and .client_sha256 == $client_sha256
+  ' "$PROVIDER_STAGE/provider-transport.json" >/dev/null
+
+  remove_provider_transport
+  assert_provider_transport_removed
+  install -m 0400 "$PROVIDER_STAGE/issuance.json" "$INPUT_STAGE/issuance.json"
+  install -m 0400 "$PROVIDER_STAGE/provider-observation.json" \
+    "$INPUT_STAGE/provider-observation.json"
+  install -m 0400 "$PROVIDER_STAGE/provider-transport.json" \
+    "$INPUT_STAGE/provider-transport.json"
+fi
+
+truncate -s 256M "$JAIL_ROOT/input.ext4"
+mkfs.ext4 -q -F -L ETA_INPUT -d "$INPUT_STAGE" "$JAIL_ROOT/input.ext4"
+truncate -s 4G "$JAIL_ROOT/work.ext4"
+mkfs.ext4 -q -F -L ETA_WORK -d "$SOURCE_STAGE" "$JAIL_ROOT/work.ext4"
+truncate -s "$RESULT_IMAGE_MAX_BYTES" "$JAIL_ROOT/result.ext4"
+mkfs.ext4 -q -F -L ETA_RESULT "$JAIL_ROOT/result.ext4"
+if [[ "$CREDENTIAL_REQUIRED" == true ]] && ! $SPEND_MODE; then
+  install -d -m 0700 "$RUN_TMPFS/credential-root"
+  install -m 0400 "$RUN_TMPFS/capability.json" \
+    "$RUN_TMPFS/credential-root/capability.json"
+  truncate -s 4M "$RUN_TMPFS/credential.ext4"
+  mkfs.ext4 -q -F -L ETA_CREDENTIAL -d "$RUN_TMPFS/credential-root" \
+    "$RUN_TMPFS/credential.ext4"
+  # Keep the capability-backed drive on host tmpfs. A bind mount makes the
+  # image visible inside the jail without ever copying its bytes to disk.
+  touch "$JAIL_ROOT/credential.ext4"
+  mount --bind "$RUN_TMPFS/credential.ext4" "$JAIL_ROOT/credential.ext4"
+fi
+
+cp --reflink=auto --sparse=always "$ROOTFS_TEMPLATE" "$JAIL_ROOT/rootfs.ext4"
+cp "$KERNEL" "$JAIL_ROOT/vmlinux"
+touch "$JAIL_ROOT/firecracker.log"
+
+DRIVES=$(jq -n \
+  '[
+    {drive_id:"rootfs", path_on_host:"/rootfs.ext4", is_root_device:true, is_read_only:false},
+    {drive_id:"input", path_on_host:"/input.ext4", is_root_device:false, is_read_only:true},
+    {drive_id:"work", path_on_host:"/work.ext4", is_root_device:false, is_read_only:false},
+    {drive_id:"result", path_on_host:"/result.ext4", is_root_device:false, is_read_only:false}
+  ]')
+if [[ "$CREDENTIAL_REQUIRED" == true ]] && ! $SPEND_MODE; then
+  DRIVES=$(jq '. + [{drive_id:"credential", path_on_host:"/credential.ext4", is_root_device:false, is_read_only:true}]' <<<"$DRIVES")
+fi
+jq -n \
+  --argjson drives "$DRIVES" \
+  '{
+    "boot-source": {
+      "kernel_image_path": "/vmlinux",
+      "boot_args": "console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw ipv6.disable=1"
+    },
+    "drives": $drives,
+    "network-interfaces": [{
+      "iface_id": "net1",
+      "guest_mac": "06:00:AC:10:00:02",
+      "host_dev_name": "TAP_PLACEHOLDER"
+    }],
+    "machine-config": {"vcpu_count": 4, "mem_size_mib": 4096, "smt": false},
+    "logger": {
+      "log_path": "/firecracker.log",
+      "level": "Warning",
+      "show_level": true,
+      "show_log_origin": false
+    }
+  }' | sed "s/TAP_PLACEHOLDER/$TAP/" >"$JAIL_ROOT/config.json"
+
+FACTORY_UID=$(id -u factory-worker)
+FACTORY_GID=$(id -g factory-worker)
+chown -R "$FACTORY_UID:$FACTORY_GID" "$JAIL_ROOT"
+
+ip tuntap add dev "$TAP" mode tap user factory-worker
+ip addr add "$HOST_IP/30" dev "$TAP"
+ip link set "$TAP" up
+sysctl -q -w net.ipv4.ip_forward=1
+
+nft add table inet "$NFT_TABLE"
+nft "add chain inet $NFT_TABLE input { type filter hook input priority -100; policy accept; }"
+nft "add chain inet $NFT_TABLE forward { type filter hook forward priority -100; policy accept; }"
+nft "add chain inet $NFT_TABLE postrouting { type nat hook postrouting priority srcnat; policy accept; }"
+nft add counter inet "$NFT_TABLE" guest_rejected_egress
+nft add rule inet "$NFT_TABLE" input iifname "$TAP" counter reject
+nft add rule inet "$NFT_TABLE" forward oifname "$TAP" ct state established,related counter accept
+if [[ ${#ALLOWED_IPS[@]} -gt 0 ]]; then
+  ADDRESS_SET=$(IFS=,; echo "${ALLOWED_IPS[*]}")
+  nft "add rule inet $NFT_TABLE forward iifname $TAP ip daddr { $ADDRESS_SET } tcp dport 443 ct state new,established counter accept"
+fi
+nft add rule inet "$NFT_TABLE" forward iifname "$TAP" ip daddr 0.0.0.0/0 \
+  counter name guest_rejected_egress reject
+nft add rule inet "$NFT_TABLE" forward iifname "$TAP" ip6 daddr ::/0 \
+  counter name guest_rejected_egress reject
+nft add rule inet "$NFT_TABLE" postrouting ip saddr 172.16.0.0/30 oifname != "$TAP" masquerade
+
+FAILURE_STAGE=microvm-execution
+setsid env -i PATH=/usr/local/bin:/usr/bin:/bin "$JAILER" \
+  --id "$RUN_ID" \
+  --exec-file "$FIRECRACKER_EXECUTABLE" \
+  --uid "$FACTORY_UID" \
+  --gid "$FACTORY_GID" \
+  --chroot-base-dir "$JAIL_BASE" \
+  --cgroup-version 2 \
+  --resource-limit no-file=1024 \
+  --resource-limit fsize=17179869184 \
+  --new-pid-ns \
+  -- \
+  --api-sock /api.sock \
+  --config-file /config.json \
+  >"$RUNTIME_ROOT/console-$RUN_ID.log" 2>&1 &
+JAILER_PID=$!
+
+RUN_MAX_SECONDS=$(jq -r .run_max_seconds "$LIFECYCLE_POLICY")
+[[ "$RUN_MAX_SECONDS" =~ ^[0-9]+$ && "$RUN_MAX_SECONDS" -ge 1 && "$RUN_MAX_SECONDS" -le 900 ]]
+DEADLINE=$((SECONDS + RUN_MAX_SECONDS))
+VMM_PID_FILE="$JAIL_ROOT/$FIRECRACKER_JAIL_NAME.pid"
+while [[ ! -s "$VMM_PID_FILE" ]]; do
+  if ! kill -0 "$JAILER_PID" >/dev/null 2>&1; then
+    [[ -s "$VMM_PID_FILE" ]] && break
+    wait "$JAILER_PID" || true
+    echo "jailer exited before publishing the Firecracker PID" >&2
+    exit 1
+  fi
+  if [[ "$SECONDS" -ge "$DEADLINE" ]]; then
+    echo "jailer exceeded the ${RUN_MAX_SECONDS}-second startup ceiling" >&2
+    exit 1
+  fi
+  sleep 0.05
+done
+VMM_PID=$(<"$VMM_PID_FILE")
+[[ "$VMM_PID" =~ ^[0-9]+$ ]]
+VMM_CMDLINE=$(tr '\0' ' ' <"/proc/$VMM_PID/cmdline")
+[[ "$VMM_CMDLINE" == *"--id $RUN_ID"* ]]
+wait "$JAILER_PID" || {
+  echo "jailer exited before transferring lifecycle ownership" >&2
+  exit 1
+}
+JAILER_PID=
+while kill -0 "$VMM_PID" >/dev/null 2>&1; do
+  if [[ "$SECONDS" -ge "$DEADLINE" ]]; then
+    echo "microVM exceeded ${RUN_MAX_SECONDS}-second run ceiling" >&2
+    exit 1
+  fi
+  sleep 0.25
+done
+VMM_PID=
+
+GUEST_REJECTED_EGRESS_PACKETS=$(nft --json \
+  list counter inet "$NFT_TABLE" guest_rejected_egress \
+  | jq -er '
+    [.nftables[] | .counter? | select(.name == "guest_rejected_egress") | .packets]
+    | if length == 1 then .[0] else error("counter cardinality") end')
+if $SPEND_MODE; then
+  [[ "$GUEST_REJECTED_EGRESS_PACKETS" -eq 0 ]]
+fi
+
+# The guest controls this filesystem's bytes. The shared extractor parses it
+# in bounded user space and is exercised directly by Session 5 hostile cases.
+# It never host-mounts the image or invokes a filesystem parser as root.
+FAILURE_STAGE=result-filesystem-validation
+/usr/local/libexec/patchyard-extract-result-image \
+  "$JAIL_ROOT/result.ext4" "$RESULT_EXTRACT"
+if [[ -n "$CAPABILITY_NEEDLE" ]]; then
+  if grep -R -F -q -f "$CAPABILITY_NEEDLE" -- "$RESULT_EXTRACT"; then
+    echo "provider credential entered the guest result boundary" >&2
+    false
+  fi
+  rm -f -- "$CAPABILITY_NEEDLE"
+  CAPABILITY_NEEDLE=
+fi
+FAILURE_STAGE=guest-result-status
+RESULT_STATUS=$(<"$RESULT_EXTRACT/status")
+[[ "$RESULT_STATUS" =~ ^[a-z0-9,-]{1,128}$ ]]
+if [[ "$RESULT_STATUS" != success ]]; then
+  printf 'guest returned failure status=%s\n' "$RESULT_STATUS" >&2
+  false
+fi
+FAILURE_STAGE=result-evidence-validation
+QUALIFICATION_EVIDENCE=false
+if [[ "$MODE" == provider-qualification \
+  && ( "$QUALIFICATION_REQUIREMENT" == issuance-delivery \
+    || "$QUALIFICATION_REQUIREMENT" == provider-spend-enforcement ) ]]; then
+  QUALIFICATION_EVIDENCE=true
+fi
+jq -e --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
+  --arg rootfs_sha256 "$ROOTFS_SHA256" \
+  --arg image_recipe_sha256 "$IMAGE_RECIPE_SHA256" \
+  --arg production_parity_sha256 "$PARITY_MANIFEST_SHA256" \
+  --arg host_contract_sha256 "$HOST_CONTRACT_SHA256" \
+  --argjson qualification_evidence "$QUALIFICATION_EVIDENCE" \
+  '.schema_version == 1
+    and .run_id == $run_id
+    and .base_sha == $base_sha
+    and (if $qualification_evidence then
+        .observed_rootfs_sha256 == $rootfs_sha256
+        and (has("rootfs_sha256") | not)
+      else .rootfs_sha256 == $rootfs_sha256 end)
+    and .image_recipe_sha256 == $image_recipe_sha256
+    and .production_parity_sha256 == $production_parity_sha256
+    and (if $host_contract_sha256 == "" then true
+      else .host_contract_sha256 == $host_contract_sha256 end)
+    and .git_remote_count == 0
+    and .credential_removed_before_output == true' \
+  "$RESULT_EXTRACT/evidence.json" >/dev/null
+if $SPEND_MODE; then
+  jq -e \
+    --slurpfile issuance "$INPUT_STAGE/issuance.json" \
+    --slurpfile provider_observation "$INPUT_STAGE/provider-observation.json" \
+    --slurpfile provider_transport "$INPUT_STAGE/provider-transport.json" '
+    .issuance == $issuance[0]
+    and .provider_observation == $provider_observation[0]
+    and .provider_transport == $provider_transport[0]
+    and .delivery == {worker_host_tmpfs:true,credential_delivered_to_guest:false,
+      credential_removed_before_guest_boot:true,assertion_delivered:false,
+      signing_key_delivered:false,admin_credential_delivered:false}
+  ' "$RESULT_EXTRACT/evidence.json" >/dev/null
+fi
+[[ "$(sha256sum "$RESULT_EXTRACT/change.patch" | cut -d' ' -f1)" == "$(jq -r .patch_sha256 "$RESULT_EXTRACT/evidence.json")" ]]
+FAILURE_STAGE=patch-validation
+git -c safe.directory="$SOURCE_STAGE" -C "$SOURCE_STAGE" \
+  apply --check "$RESULT_EXTRACT/change.patch"
+
+ACCEPT_TEMP=$(mktemp -d "$(dirname "$OUTPUT_DIR")/.patchyard-result.XXXXXX")
+install -m 0600 "$RESULT_EXTRACT/change.patch" "$ACCEPT_TEMP/change.patch"
+install -m 0600 "$RESULT_EXTRACT/rationale.txt" "$ACCEPT_TEMP/rationale.txt"
+install -m 0600 "$RESULT_EXTRACT/evidence.json" "$ACCEPT_TEMP/evidence.json"
+
+FAILURE_STAGE=teardown
+remove_runtime
+assert_runtime_removed
+trap - EXIT
+trap - ERR
+
+FAILURE_STAGE=publish
+if $SPEND_MODE; then
+  HOST_TEARDOWN=$(jq -n --argjson guest_provider_egress_packets \
+    "$GUEST_REJECTED_EGRESS_PACKETS" \
+    '{processes:0,taps:0,nftables_tables:0,run_directories:0,credential_files:0,
+      $guest_provider_egress_packets}')
+else
+  HOST_TEARDOWN=$(jq -n \
+    '{processes:0,taps:0,nftables_tables:0,run_directories:0,credential_files:0}')
+fi
+jq --argjson host_teardown "$HOST_TEARDOWN" '. + {$host_teardown}' \
+  "$ACCEPT_TEMP/evidence.json" >"$ACCEPT_TEMP/evidence.json.tmp"
+mv "$ACCEPT_TEMP/evidence.json.tmp" "$ACCEPT_TEMP/evidence.json"
+mv "$ACCEPT_TEMP" "$OUTPUT_DIR"
+ACCEPT_TEMP=
+CALLER=${SUDO_USER:-root}
+chown -R "$CALLER:$CALLER" "$OUTPUT_DIR"
+echo "factory worker run complete: $RUN_ID"

@@ -13,6 +13,7 @@ The runner replaces a controlling terminal. Two properties carry the weight:
 """
 
 import builtins
+import grp
 import importlib.util
 import json
 import os
@@ -247,9 +248,43 @@ class ChannelTests(unittest.TestCase):
         self.assertEqual(status["pid"], os.getpid())
 
     def test_state_files_are_not_group_or_world_readable(self) -> None:
+        """With no reply group the session is root-only, so state is too."""
         self.channel.write_status("running")
         mode = (self.session / "status.json").stat().st_mode & 0o077
         self.assertEqual(mode, 0)
+
+    def test_state_files_are_group_readable_under_a_reply_group(self) -> None:
+        """A front end that cannot read the prompt cannot render a form.
+
+        The session directory and replies inbox are relaxed to the reply group,
+        but the state files were published 0600 root-only regardless. The front
+        end could submit an answer and never see the question, so a live run
+        showed as `unknown` with no form while the collector waited at prompt 1.
+        """
+        gid = os.getgid()
+        group = grp.getgrgid(gid).gr_name
+        session = Path(self.tmp.name) / "grouped"
+        session.mkdir(mode=0o750)
+        channel = self.runner.SessionChannel(session, group)
+        channel.write_status("awaiting_input")
+
+        status = session / "status.json"
+        self.assertEqual(status.stat().st_gid, gid)
+        mode = status.stat().st_mode & 0o777
+        self.assertEqual(mode, 0o640, "group must read; world must not")
+
+    def test_state_files_follow_the_prompt_too(self) -> None:
+        """The prompt is the file the front end most needs to read."""
+        gid = os.getgid()
+        group = grp.getgrgid(gid).gr_name
+        session = Path(self.tmp.name) / "grouped-prompt"
+        session.mkdir(mode=0o750)
+        channel = self.runner.SessionChannel(session, group)
+        channel._write_json(channel.prompt_path, {"seq": 1, "prompt": "x"})
+
+        mode = channel.prompt_path.stat().st_mode & 0o777
+        self.assertEqual(mode, 0o640)
+        self.assertEqual(channel.prompt_path.stat().st_gid, gid)
 
 
 class SessionDirectoryTests(unittest.TestCase):
@@ -438,6 +473,65 @@ class EquivalenceTests(unittest.TestCase):
             builtins.input = real
             worker.join(timeout=10)
         self.assertEqual(captured["state"]["identity_provider_id"], PROVIDER)
+
+
+class AnswerPromptTests(unittest.TestCase):
+    """The one-terminal front end for answering an open prompt."""
+
+    def setUp(self) -> None:
+        self.tool = load("answer_attended_prompt", ROOT / "tools/answer-attended-prompt.py")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_true_parses_to_a_boolean_not_a_string(self) -> None:
+        """A live run was rejected for a string where a boolean was required."""
+        self.assertIs(self.tool.parse_field("true"), True)
+        self.assertIs(self.tool.parse_field("false"), False)
+        self.assertIs(self.tool.parse_field(" true "), True)
+
+    def test_prose_stays_a_string(self) -> None:
+        self.assertEqual(self.tool.parse_field("Uploaded JWKS"), "Uploaded JWKS")
+
+    def test_blank_is_null_not_empty_string(self) -> None:
+        self.assertIsNone(self.tool.parse_field(""))
+        self.assertIsNone(self.tool.parse_field("   "))
+
+    def test_structured_values_parse_as_json(self) -> None:
+        self.assertEqual(self.tool.parse_field('["a", "b"]'), ["a", "b"])
+        self.assertEqual(self.tool.parse_field('{"kid": "x"}'), {"kid": "x"})
+
+    def test_malformed_structured_value_is_refused(self) -> None:
+        with self.assertRaises(self.tool.AnswerError):
+            self.tool.parse_field("{not json")
+
+    def test_reading_keys_come_from_the_collector_not_a_copy(self) -> None:
+        """Hardcoding the key set here would let the tool drift from the instrument."""
+        keys = self.tool.collector_keys("openai-wif-federation-revocation.py")
+        collector = load("collector_for_keys", COLLECTOR)
+        self.assertEqual(set(keys), collector.MAPPING_STATE_KEYS)
+
+    def test_publish_writes_the_envelope_the_runner_expects(self) -> None:
+        session = Path(self.tmp.name) / "s"
+        (session / "replies").mkdir(parents=True)
+        self.tool.publish(session, 4, '{"a": 1}')
+
+        payload = json.loads((session / "replies" / "reply-4.json").read_text())
+        self.assertEqual(payload, {"seq": 4, "value": '{"a": 1}'})
+
+    def test_publish_refuses_to_overwrite_an_answered_prompt(self) -> None:
+        session = Path(self.tmp.name) / "s2"
+        (session / "replies").mkdir(parents=True)
+        self.tool.publish(session, 1, "x")
+        with self.assertRaises(self.tool.AnswerError):
+            self.tool.publish(session, 1, "y")
+
+    def test_publish_leaves_no_temporary_file_behind(self) -> None:
+        """A stray .tmp in the inbox would trip the staged-reply refusal."""
+        session = Path(self.tmp.name) / "s3"
+        (session / "replies").mkdir(parents=True)
+        self.tool.publish(session, 2, "x")
+        names = sorted(entry.name for entry in (session / "replies").iterdir())
+        self.assertEqual(names, ["reply-2.json"])
 
 
 if __name__ == "__main__":

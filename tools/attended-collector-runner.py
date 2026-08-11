@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import builtins
 import errno
+import grp
 import importlib.util
 import json
 import os
@@ -93,6 +94,23 @@ def load_collector(name: str) -> types.ModuleType:
     return module
 
 
+def resolve_reply_gid(reply_group: str | None) -> int | None:
+    """Resolve a reply group to a gid, refusing root.
+
+    Shared by the session directory and the state files, so a group that is
+    accepted for one is accepted for the other and they cannot drift apart.
+    """
+    if reply_group is None:
+        return None
+    try:
+        gid = grp.getgrnam(reply_group).gr_gid
+    except KeyError:
+        raise RunnerError("reply group does not exist") from None
+    if gid == 0:
+        raise RunnerError("reply group must not be root")
+    return gid
+
+
 class SessionChannel:
     """The file-backed replacement for a controlling terminal.
 
@@ -101,9 +119,14 @@ class SessionChannel:
     refused.
     """
 
-    def __init__(self, session: Path) -> None:
+    def __init__(self, session: Path, reply_group: str | None = None) -> None:
         self.session = session
         self.seq = 0
+        # A front end can submit a reply without being able to read the prompt
+        # it is answering, which renders as a session stuck at "unknown" with
+        # no form. The state files therefore follow the same group as the
+        # session directory, and stay root-only when there is no reply group.
+        self.state_gid = resolve_reply_gid(reply_group)
         self.prompt_path = session / "prompt.json"
         self.status_path = session / "status.json"
         # Replies arrive from the front end, which runs as an unprivileged
@@ -117,10 +140,22 @@ class SessionChannel:
     # -- state files -----------------------------------------------------
 
     def _write_json(self, path: Path, payload: dict[str, Any]) -> None:
-        """Publish atomically: a reader must never see a half-written file."""
+        """Publish atomically: a reader must never see a half-written file.
+
+        Mode and owner are set on the temporary file, because `replace` keeps
+        the source's metadata - setting them afterwards would leave a window
+        where the published file is unreadable to the front end.
+        """
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-        os.chmod(tmp, 0o600)
+        if self.state_gid is None:
+            os.chmod(tmp, 0o600)
+        else:
+            # -1 leaves the owner alone: the runner already runs as root, and
+            # not asking for a uid change keeps this branch exercisable by a
+            # test running as an ordinary member of the target group.
+            os.chown(tmp, -1, self.state_gid)
+            os.chmod(tmp, 0o640)
         tmp.replace(path)
 
     def write_status(self, state: str, **extra: Any) -> None:
@@ -258,14 +293,8 @@ def prepare_session(path: Path, reply_group: str | None = None) -> Path:
         os.chmod(replies, 0o700)
         return path
 
-    import grp
-
-    try:
-        gid = grp.getgrnam(reply_group).gr_gid
-    except KeyError:
-        raise RunnerError("reply group does not exist") from None
-    if gid == 0:
-        raise RunnerError("reply group must not be root")
+    gid = resolve_reply_gid(reply_group)
+    assert gid is not None  # reply_group is not None on this branch
     os.chown(path, 0, gid)
     os.chmod(path, 0o750)
     os.chown(replies, 0, gid)
@@ -309,7 +338,7 @@ def main() -> int:
         raise RunnerError("no collector arguments supplied")
 
     session = prepare_session(args.session_dir.resolve(), args.reply_group)
-    channel = SessionChannel(session)
+    channel = SessionChannel(session, args.reply_group)
     channel.write_status("running")
 
     # Bind before import: the collectors' `input_fn` defaults are evaluated at

@@ -114,6 +114,7 @@ EXPECTED_TOOL_PYTHON_FILES = (
     "tools/anthropic-wif-crash-cleanup.py",
     "tools/anthropic-wif-lifecycle-admin.py",
     "tools/anthropic-wif-lifecycle.py",
+    "tools/answer-attended-prompt.py",
     "tools/anthropic-wif-revocation.py",
     "tools/attended-collector-runner.py",
     "tools/benchmark_harmonyagent_cerebras.py",

@@ -21,6 +21,12 @@ from typing import Any
 REPO = Path(__file__).resolve().parent.parent
 SOURCE_ROOTS = ("tools", "worker")
 RESULT_ROOT = PurePosixPath("research/isolation/results")
+# A133 rules the provider-neutral launcher may contain no provider name, and
+# assigns this checker the enforcement. Tokens come from the provider entries
+# of the egress policy, so a policy edit extends the ban without a code edit.
+NEUTRAL_ARTIFACTS = ("worker/runtime/patchyard-provider-run",)
+EGRESS_POLICY = "policy/provider-egress.json"
+NEUTRAL_TOKEN_MINIMUM_LENGTH = 3
 SHA256 = re.compile(r"[0-9a-fA-F]{64}")
 SHA256_TOKEN = re.compile(r"(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])")
 SUPERSEDES_NAME = "SUPERSEDES_CHECKER_SHA256"
@@ -581,6 +587,72 @@ def drift_rows(
     ]
 
 
+def provider_tokens(repo: Path) -> set[str]:
+    policy = load_json(read_regular(repo, EGRESS_POLICY), EGRESS_POLICY)
+    providers = policy.get("providers")
+    if not isinstance(providers, dict) or not providers:
+        raise FreezeGraphError(f"no provider entries in {EGRESS_POLICY}")
+    tokens: set[str] = set()
+    for key, entry in providers.items():
+        if not isinstance(entry, dict):
+            raise FreezeGraphError(f"invalid provider entry in {EGRESS_POLICY}: {key}")
+        names = [key, entry.get("display_name", "")]
+        for name in names:
+            if not isinstance(name, str):
+                raise FreezeGraphError(
+                    f"invalid provider name in {EGRESS_POLICY}: {key}"
+                )
+            for part in re.split(r"[^a-z0-9]+", name.lower()):
+                if len(part) >= NEUTRAL_TOKEN_MINIMUM_LENGTH:
+                    tokens.add(part)
+        hostnames = entry.get("hostnames", [])
+        if not isinstance(hostnames, list):
+            raise FreezeGraphError(
+                f"invalid provider hostnames in {EGRESS_POLICY}: {key}"
+            )
+        for hostname in hostnames:
+            if not isinstance(hostname, str) or not hostname:
+                raise FreezeGraphError(
+                    f"invalid provider hostname in {EGRESS_POLICY}: {key}"
+                )
+            tokens.add(hostname.lower())
+    return tokens
+
+
+def neutrality_rows(
+    repo: Path, files: list[str]
+) -> tuple[list[str], list[dict[str, str]]]:
+    scanned = [artifact for artifact in NEUTRAL_ARTIFACTS if artifact in files]
+    if not scanned:
+        return [], []
+    patterns = {
+        token: re.compile(
+            r"(?<![a-z0-9])" + re.escape(token) + r"(?![a-z0-9])"
+        )
+        for token in provider_tokens(repo)
+    }
+    violations: list[dict[str, str]] = []
+    for artifact in scanned:
+        try:
+            text = read_regular(repo, artifact).decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise FreezeGraphError(
+                f"neutral artifact is not UTF-8: {artifact}"
+            ) from error
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            lowered = line.lower()
+            for token in sorted(patterns):
+                if patterns[token].search(lowered) is not None:
+                    violations.append(
+                        {
+                            "artifact": artifact,
+                            "token": token,
+                            "location": f"{artifact}:{line_number}",
+                        }
+                    )
+    return scanned, violations
+
+
 def build_report(repo: Path) -> dict[str, Any]:
     files = repository_files(repo)
     sources, declarations = source_pins(repo, files)
@@ -604,11 +676,16 @@ def build_report(repo: Path) -> dict[str, Any]:
         }
         for path in sorted(frozen)
     ]
+    neutral_scanned, neutral_violations = neutrality_rows(repo, files)
     return {
         "schema_version": 1,
         "frozen_count": len(frozen_rows),
         "frozen": frozen_rows,
         "drift": drift,
+        "neutral": {
+            "artifacts": neutral_scanned,
+            "violations": neutral_violations,
+        },
     }
 
 
@@ -650,7 +727,7 @@ def main() -> int:
         print(f"freeze graph: failed\n  {error}", file=sys.stderr)
         return 2
     print(json.dumps(report, indent=2, sort_keys=True))
-    return 1 if report["drift"] else 0
+    return 1 if report["drift"] or report["neutral"]["violations"] else 0
 
 
 if __name__ == "__main__":

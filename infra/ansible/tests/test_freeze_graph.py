@@ -54,6 +54,11 @@ class FreezeGraphContract(unittest.TestCase):
         self.assertEqual(report["frozen_count"], len(EXPECTED_FROZEN_PATHS))
         self.assertEqual(paths, EXPECTED_FROZEN_PATHS)
         self.assertEqual(paths, sorted(paths))
+        self.assertEqual(
+            report["neutral"]["artifacts"],
+            ["worker/runtime/patchyard-provider-run"],
+        )
+        self.assertEqual(report["neutral"]["violations"], [])
 
     def test_nested_result_and_all_source_constant_shapes_are_reachable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -214,6 +219,90 @@ class FreezeGraphContract(unittest.TestCase):
                 "tools/check-example.py",
                 [row["path"] for row in parsed["frozen"]],
             )
+
+
+class NeutralityContract(unittest.TestCase):
+    """A133: the neutral launcher may contain no provider name."""
+
+    NEUTRAL_ARTIFACT = "worker/runtime/patchyard-provider-run"
+
+    def run_checker(self, repo: Path):
+        return subprocess.run(
+            ["python3", "-I", str(repo / "tools/check-freeze-graph.py"), "--repo", str(repo)],
+            cwd=repo,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def build_repo(self, repo: Path, *, policy, launcher: str) -> None:
+        for relative in ("tools", "worker/runtime", "policy", "research/isolation/results"):
+            (repo / relative).mkdir(parents=True, exist_ok=True)
+        shutil.copy2(CHECKER, repo / "tools/check-freeze-graph.py")
+        if policy is not None:
+            (repo / "policy/provider-egress.json").write_text(policy)
+        (repo / self.NEUTRAL_ARTIFACT).write_text(launcher)
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "-c",
+                "user.name=Freeze Graph Test",
+                "-c",
+                "user.email=freeze-graph@example.invalid",
+                "commit",
+                "-q",
+                "-m",
+                "fixture baseline",
+            ],
+            check=True,
+        )
+
+    def test_provider_tokens_in_the_neutral_artifact_are_violations(self) -> None:
+        policy = json.dumps(
+            {
+                "providers": {
+                    "meta": {
+                        "display_name": "Meta",
+                        "hostnames": ["api.meta.test"],
+                    }
+                }
+            }
+        )
+        launcher = (
+            "metadata stays legal because the token is boundary-guarded\n"
+            "a bare meta keyword is a violation\n"
+            "curl https://api.meta.test/v1 names the hostname\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            self.build_repo(repo, policy=policy, launcher=launcher)
+            result = self.run_checker(repo)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            report = json.loads(result.stdout)
+            self.assertEqual(report["neutral"]["artifacts"], [self.NEUTRAL_ARTIFACT])
+            self.assertEqual(
+                [
+                    (row["location"], row["token"])
+                    for row in report["neutral"]["violations"]
+                ],
+                [
+                    (f"{self.NEUTRAL_ARTIFACT}:2", "meta"),
+                    (f"{self.NEUTRAL_ARTIFACT}:3", "api.meta.test"),
+                    (f"{self.NEUTRAL_ARTIFACT}:3", "meta"),
+                ],
+            )
+
+    def test_a_neutral_artifact_without_an_egress_policy_cannot_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            self.build_repo(repo, policy=None, launcher="clean\n")
+            result = self.run_checker(repo)
+            self.assertEqual(result.returncode, 2, result.stdout)
+            self.assertIn("provider-egress.json", result.stderr)
 
 
 def declared_supersessions(path: Path) -> tuple[str, ...]:

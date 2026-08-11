@@ -1,7 +1,7 @@
 {
   "task_spec": {
     "schema_version": 1,
-    "rubric_version": "2026-07-23.1",
+    "rubric_version": "2026-08-11.1",
     "intent_class": "internal_display",
     "objective": "Use a new library to render an internal table.",
     "named_skill": "ui.sort-dropdown",

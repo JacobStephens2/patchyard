@@ -1,7 +1,7 @@
 {
   "task_spec": {
     "schema_version": 1,
-    "rubric_version": "2026-07-23.1",
+    "rubric_version": "2026-08-11.1",
     "intent_class": "data_correction",
     "objective": "Correct the misspelled passenger name in the existing record.",
     "named_skill": null,

@@ -1,6 +1,6 @@
 ---
 title: Patchyard Factory triage rubric
-rubric-version: 2026-07-23.1
+rubric-version: 2026-08-11.1
 task-spec-schema: policy/task-spec.schema.json
 ---
 
@@ -17,7 +17,7 @@ text. Rules may remove lane-A authority; no rule can add it.
 
 <!-- FACTORY_RUBRIC_JSON_BEGIN -->
 {
-  "version": "2026-07-23.1",
+  "version": "2026-08-11.1",
   "task_spec_schema_version": 1,
   "lane_a": {
     "max_files": 2,
@@ -60,6 +60,29 @@ text. Rules may remove lane-A authority; no rule can add it.
   ]
 }
 <!-- FACTORY_RUBRIC_JSON_END -->
+
+## Target catalogue (trusted)
+
+Human-ruled mapping from Fieldbook pages to the exact source paths that implement
+them, for the tool-less triage seat. The request (an untrusted channel) can
+*name* a page; only this catalogue — or a path the request states verbatim —
+can supply the *path*. A catalogue path is copied exactly as written here,
+never adjusted or extended. A catalogue entry is never a reason to add a
+target the request does not depict, and it grants no lane authority by itself:
+the lane automaton still applies every lane-A constraint.
+
+A request names a page when its subject, body, screenshot text, or attachment
+filename identifies that page (e.g. an attachment named
+`simple-sales-report-unsorted.png` names the Simple Sales Report page).
+
+| Page | Path | Where the behavior lives |
+| --- | --- | --- |
+| Simple Sales Report | `mfieldbook/common_functions.php` | `get_salespeople_usernames` supplies the Salesperson selector options |
+| Create or Assign School | `mfieldbook/leads/assign.php` | the page builds its Salesperson selector locally |
+
+Pages absent from this table have no catalogued path: for them, only a
+request-stated path can appear, and a request that names neither is routed
+`unclear` as before.
 
 ## Lane actions
 

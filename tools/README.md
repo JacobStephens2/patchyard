@@ -63,3 +63,11 @@ do not put keys in this directory.
 The state scripts require the disposable PostgreSQL service variables supplied
 by `.github/workflows/application.yml`; without those variables the ordinary
 local application gate runs only database-independent tests.
+
+## Local git hooks
+
+`.githooks/pre-push` re-runs `check-codebase.sh` before every push and blocks
+when `docs/codebase-metrics.json` is stale, so the projection failure lands
+locally instead of in the Application CI check. Activate once per clone with
+`git config core.hooksPath .githooks` (worktrees inherit it). The hook needs
+the pinned tokei; install with `tools/install-tokei.sh`.

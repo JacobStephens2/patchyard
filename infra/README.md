@@ -68,7 +68,11 @@ identity. It creates `factory-manager` on both hosts, generates the only private
 management key on the control plane, pins both host keys, and opens SSH from the
 control plane's private address. Normal host convergence can then run from the
 control plane with `/usr/local/sbin/patchyard-converge-hosts`; that path uses
-only the private VPC and the credential-free checkout. OpenTofu/cloud changes
+only the private VPC, the credential-free checkout, and host-resident runtime
+state the orchestration converge already installed (the backup bootstrap
+inputs are re-read from root-held `/etc/patchyard/backup.env`, and the
+reviewed-binary inputs from the installed `/usr/local/bin` copies) — it never
+holds orchestration or cloud-control credentials. OpenTofu/cloud changes
 remain orchestration-owned and human-reviewed. `conductor` remains authorized
 solely for bootstrap and break-glass use.
 

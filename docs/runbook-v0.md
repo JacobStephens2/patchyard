@@ -51,6 +51,14 @@ sudo -u factory-manager /usr/local/sbin/patchyard-converge-hosts --check
 sudo bash -c 'set -a; source /etc/patchyard/deployed-version.env; set +a; exec /usr/local/libexec/patchyard-deployed-version' | jq .
 ```
 
+The on-host management probe derives its backup bootstrap inputs from the
+host-resident `/etc/patchyard/backup.env` (installed by the orchestration
+converge) and its reviewed-binary inputs from the installed `/usr/local/bin`
+copies. Known limitation: the probe still fails at the bootstrap-injected
+inputs it cannot derive on-host (the dashboard accounts file and the GitHub
+App key/ids); until that contract is decided, expect the control-plane play
+to stop there while the worker play completes.
+
 `patchyard-deployed-version` must report the protected Fieldbook
 `refs/heads/deploy/production` commit. A missing, unreadable, malformed, or
 non-commit marker remains fail closed; it is never replaced with a guessed SHA.

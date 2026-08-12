@@ -7,9 +7,19 @@ ANSIBLE_ROOT=$REPO_ROOT/infra/ansible
 FACTORY_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
 FACTORYCTL_BINARY=/usr/local/bin/factoryctl
 FACTORY_VERIFY_BINARY=/usr/local/bin/factory-verify
+FACTORY_SUPERVISOR_BINARY=/usr/local/bin/factory-supervisor
+FACTORY_EVIDENCE_QUALIFY_BINARY=/usr/local/bin/factory-evidence-qualify
+FACTORY_WEB_BINARY=/usr/local/bin/factory-web
+BACKUP_ENV_FILE=/etc/patchyard/backup.env
 
 if [[ -n "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=all --ignored)" ]]; then
   echo "control-plane converge requires a clean desired-state checkout" >&2
+  exit 1
+fi
+
+if ! sudo -n test -f "$BACKUP_ENV_FILE"; then
+  echo "$BACKUP_ENV_FILE is missing; run the orchestration converge after" \
+    "applying the reviewed backup storage plan" >&2
   exit 1
 fi
 
@@ -19,6 +29,33 @@ FACTORY_BUNDLE=$CONVERGE_TEMP/factory.bundle
 git -C "$REPO_ROOT" bundle create "$FACTORY_BUNDLE" --all
 FACTORYCTL_SHA256=$(sha256sum "$FACTORYCTL_BINARY" | cut -d' ' -f1)
 FACTORY_VERIFY_SHA256=$(sha256sum "$FACTORY_VERIFY_BINARY" | cut -d' ' -f1)
+FACTORY_SUPERVISOR_SHA256=$(sha256sum "$FACTORY_SUPERVISOR_BINARY" | cut -d' ' -f1)
+FACTORY_EVIDENCE_QUALIFY_SHA256=$(
+  sha256sum "$FACTORY_EVIDENCE_QUALIFY_BINARY" | cut -d' ' -f1
+)
+FACTORY_WEB_SHA256=$(sha256sum "$FACTORY_WEB_BINARY" | cut -d' ' -f1)
+
+# The backup bootstrap inputs are host-resident state installed by the
+# orchestration converge; re-reading them here keeps this path free of
+# orchestration and cloud-control credentials while still satisfying the
+# role's backup-input gate.
+BACKUP_VARS_FILE=$CONVERGE_TEMP/backup-vars.json
+# shellcheck disable=SC2024  # the redirect must write as factory-manager so
+# the ansible controller (same user) can read the 0600 vars file
+sudo -n bash -c '
+  set -euo pipefail
+  set -a
+  source /etc/patchyard/backup.env
+  set +a
+  jq -n "{
+    factory_backup_bucket: env.FACTORY_BACKUP_BUCKET,
+    factory_backup_endpoint: env.FACTORY_BACKUP_ENDPOINT,
+    factory_backup_runtime_access_key: env.AWS_ACCESS_KEY_ID,
+    factory_backup_runtime_secret_key: env.AWS_SECRET_ACCESS_KEY,
+    factory_backup_age_recipient: env.FACTORY_BACKUP_AGE_RECIPIENT
+  }"
+' >"$BACKUP_VARS_FILE"
+chmod 0600 "$BACKUP_VARS_FILE"
 
 export ANSIBLE_COLLECTIONS_PATH=/opt/patchyard-ansible/collections
 cd "$ANSIBLE_ROOT"
@@ -31,4 +68,11 @@ cd "$ANSIBLE_ROOT"
   -e "factoryctl_sha256=$FACTORYCTL_SHA256" \
   -e "factory_verify_binary=$FACTORY_VERIFY_BINARY" \
   -e "factory_verify_sha256=$FACTORY_VERIFY_SHA256" \
+  -e "factory_supervisor_binary=$FACTORY_SUPERVISOR_BINARY" \
+  -e "factory_supervisor_sha256=$FACTORY_SUPERVISOR_SHA256" \
+  -e "factory_evidence_qualify_binary=$FACTORY_EVIDENCE_QUALIFY_BINARY" \
+  -e "factory_evidence_qualify_sha256=$FACTORY_EVIDENCE_QUALIFY_SHA256" \
+  -e "factory_web_binary=$FACTORY_WEB_BINARY" \
+  -e "factory_web_sha256=$FACTORY_WEB_SHA256" \
+  -e "@$BACKUP_VARS_FILE" \
   "$@"

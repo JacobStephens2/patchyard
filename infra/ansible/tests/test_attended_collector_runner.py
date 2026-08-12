@@ -475,5 +475,64 @@ class EquivalenceTests(unittest.TestCase):
         self.assertEqual(captured["state"]["identity_provider_id"], PROVIDER)
 
 
+class AnswerPromptTests(unittest.TestCase):
+    """The one-terminal front end for answering an open prompt."""
+
+    def setUp(self) -> None:
+        self.tool = load("answer_attended_prompt", ROOT / "tools/answer-attended-prompt.py")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_true_parses_to_a_boolean_not_a_string(self) -> None:
+        """A live run was rejected for a string where a boolean was required."""
+        self.assertIs(self.tool.parse_field("true"), True)
+        self.assertIs(self.tool.parse_field("false"), False)
+        self.assertIs(self.tool.parse_field(" true "), True)
+
+    def test_prose_stays_a_string(self) -> None:
+        self.assertEqual(self.tool.parse_field("Uploaded JWKS"), "Uploaded JWKS")
+
+    def test_blank_is_null_not_empty_string(self) -> None:
+        self.assertIsNone(self.tool.parse_field(""))
+        self.assertIsNone(self.tool.parse_field("   "))
+
+    def test_structured_values_parse_as_json(self) -> None:
+        self.assertEqual(self.tool.parse_field('["a", "b"]'), ["a", "b"])
+        self.assertEqual(self.tool.parse_field('{"kid": "x"}'), {"kid": "x"})
+
+    def test_malformed_structured_value_is_refused(self) -> None:
+        with self.assertRaises(self.tool.AnswerError):
+            self.tool.parse_field("{not json")
+
+    def test_reading_keys_come_from_the_collector_not_a_copy(self) -> None:
+        """Hardcoding the key set here would let the tool drift from the instrument."""
+        keys = self.tool.collector_keys("openai-wif-federation-revocation.py")
+        collector = load("collector_for_keys", COLLECTOR)
+        self.assertEqual(set(keys), collector.MAPPING_STATE_KEYS)
+
+    def test_publish_writes_the_envelope_the_runner_expects(self) -> None:
+        session = Path(self.tmp.name) / "s"
+        (session / "replies").mkdir(parents=True)
+        self.tool.publish(session, 4, '{"a": 1}')
+
+        payload = json.loads((session / "replies" / "reply-4.json").read_text())
+        self.assertEqual(payload, {"seq": 4, "value": '{"a": 1}'})
+
+    def test_publish_refuses_to_overwrite_an_answered_prompt(self) -> None:
+        session = Path(self.tmp.name) / "s2"
+        (session / "replies").mkdir(parents=True)
+        self.tool.publish(session, 1, "x")
+        with self.assertRaises(self.tool.AnswerError):
+            self.tool.publish(session, 1, "y")
+
+    def test_publish_leaves_no_temporary_file_behind(self) -> None:
+        """A stray .tmp in the inbox would trip the staged-reply refusal."""
+        session = Path(self.tmp.name) / "s3"
+        (session / "replies").mkdir(parents=True)
+        self.tool.publish(session, 2, "x")
+        names = sorted(entry.name for entry in (session / "replies").iterdir())
+        self.assertEqual(names, ["reply-2.json"])
+
+
 if __name__ == "__main__":
     unittest.main()

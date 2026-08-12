@@ -135,7 +135,7 @@ fn parse_usage(process: &ProcessOutput) -> InvocationUsage {
         .unwrap_or_default()
 }
 
-async fn mint_bearer(
+pub(crate) async fn mint_bearer(
     command: &CredentialCommand,
     provider: &str,
     path: PathBuf,

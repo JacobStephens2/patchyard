@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Blocks a push whose codebase-metrics projection is stale, so the failure
+# lands here (seconds to fix) instead of in the Application CI check.
+# Activate once per clone: git config core.hooksPath .githooks
+set -euo pipefail
+
+# Git exports GIT_DIR (absolute, under .git/worktrees/<name> in a linked
+# worktree) to hooks. check-codebase.sh discovers the repository itself with
+# git -C, which that inherited variable misdirects; drop it so discovery works
+# identically from the main checkout and every linked worktree.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+# shellcheck disable=SC1091
+source "$REPO_ROOT/tools/rust-tool-versions.env"
+
+PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+if ! command -v tokei >/dev/null 2>&1 \
+  || [[ "$(tokei --version | awk '{print $2}')" != "$TOKEI_VERSION" ]]; then
+  echo "pre-push: pinned tokei $TOKEI_VERSION is not installed, so the" >&2
+  echo "codebase-metrics projection cannot be verified before CI does." >&2
+  echo "Install it with tools/install-tokei.sh, then push again." >&2
+  exit 1
+fi
+
+if ! "$REPO_ROOT/tools/check-codebase.sh" >/dev/null; then
+  echo "pre-push: docs/codebase-metrics.json is stale for this tree." >&2
+  echo "Fix: tools/check-codebase.sh --write, commit the projection, push again." >&2
+  exit 1
+fi

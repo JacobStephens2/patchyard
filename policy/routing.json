@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "version": "2026-07-26.1",
-  "bench_sha256": "7e214d16e2b5cdcc60113b9d7806660de2c0950de1e5b53f1aa24f4d6a2ce3e0",
+  "version": "2026-08-12.1",
+  "bench_sha256": "e5737c474341f5d456e163fa97854cf48e90ddb2f6d42fc6e1448c5ce795203e",
   "live_provider_execution": true,
   "rules": {
     "triage": {
@@ -16,12 +16,12 @@
     },
     "implementation_review": {
       "selection_rule": "cross_family_max_intelligence",
-      "seat": {"model": "Claude Fable 5", "effort": "max", "harness": "Claude Code", "provider": "Anthropic"},
+      "seat": {"model": "Claude Opus 5", "effort": "max", "harness": "Claude Code", "provider": "Anthropic"},
       "reviewers": []
     },
     "author_disposition": {
-      "selection_rule": "same_as_author",
-      "seat": {"model": "GPT-5.6 Sol", "effort": "xhigh", "harness": "Codex", "provider": "OpenAI"},
+      "selection_rule": "qualified_provider_pending_author_qualification",
+      "seat": {"model": "Claude Opus 5", "effort": "max", "harness": "Claude Code", "provider": "Anthropic"},
       "reviewers": []
     },
     "dispute_arbitration": {

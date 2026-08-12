@@ -70,6 +70,7 @@ TEST_FILES=(
   infra/ansible/tests/test_cloud_init_bootstrap.py
   infra/ansible/tests/test_dashboard_checkout.py
   infra/ansible/tests/test_freeze_graph.py
+  infra/ansible/tests/test_live_review_disposition_seats.py
   infra/ansible/tests/test_log_secret_scan.py
   infra/ansible/tests/test_merge_refix.py
   infra/ansible/tests/test_openai_control_plane_lifecycle.py

@@ -301,6 +301,21 @@
     mode: "0700"
   tags: [session13]
 
+# The child unit's ReadWritePaths names both worktree roots; a missing entry
+# fails its mount namespace at spawn (status 226/NAMESPACE), so they must
+# exist before the first review rather than appearing lazily at first use.
+- name: Create the reviewer worktree roots the child unit projects
+  ansible.builtin.file:
+    path: "/var/lib/patchyard/supervisor/{{ item }}"
+    state: directory
+    owner: "{{ factory_manager_user }}"
+    group: factory
+    mode: "0700"
+  loop:
+    - review-worktrees
+    - proposer-review-worktrees
+  tags: [session13]
+
 - name: Recreate the isolated-child staging root after boot
   ansible.builtin.copy:
     dest: /etc/tmpfiles.d/patchyard-children.conf
@@ -623,6 +638,15 @@
     - source: patchyard-triage-seat
       destination: /usr/local/libexec/patchyard-triage-seat
       mode: "0755"
+    - source: patchyard-disposition-seat
+      destination: /usr/local/libexec/patchyard-disposition-seat
+      mode: "0755"
+    - source: patchyard-review-seat
+      destination: /usr/local/libexec/patchyard-review-seat
+      mode: "0755"
+    - source: patchyard-provider-resolver
+      destination: /usr/local/libexec/patchyard-provider-resolver
+      mode: "0755"
     - source: patchyard-mint-seat-bearer
       destination: /usr/local/sbin/patchyard-mint-seat-bearer
       mode: "0750"
@@ -725,6 +749,9 @@
     - /run/patchyard-seats
     - /usr/local/libexec/patchyard-request-seat-bearer
     - /usr/local/libexec/patchyard-triage-seat
+    - /usr/local/libexec/patchyard-disposition-seat
+    - /usr/local/libexec/patchyard-review-seat
+    - /usr/local/libexec/patchyard-provider-resolver
     - /usr/local/sbin/patchyard-mint-seat-bearer
     - /usr/local/sbin/patchyard-run-anthropic-issuance
   when: factory_restore_drill | default(false) | bool

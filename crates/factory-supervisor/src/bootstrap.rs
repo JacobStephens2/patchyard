@@ -29,7 +29,7 @@ use crate::{
         GhGitHub, GhGitHubConfig, PublishService, Publisher, PublisherConfig, RepositoryScope,
     },
     reconcile::{DeployedVersionConfig, Reconciler},
-    review::{ReviewSandboxConfig, SandboxedReviewer},
+    review::{LiveReviewSeat, ReviewSandboxConfig, SandboxedReviewer},
     secret_scan::ProcessSecretScanner,
     stages::{
         CredentialCommand, ProcessAgentBackend, ProcessVerifierBackend, ProcessWorkerBackend,
@@ -72,7 +72,6 @@ impl RuntimeComponents {
 
 pub async fn from_environment(database_url: String) -> Result<RuntimeComponents, BootstrapError> {
     let root = path_env("FACTORY_INSTALL_ROOT", "/opt/patchyard");
-    let base_sha = required("FACTORY_BASE_SHA")?;
     let scratch = path_env("FACTORY_SCRATCH_ROOT", "/var/lib/patchyard/supervisor");
     let artifact_root = path_env("FACTORY_ARTIFACT_ROOT", "/var/lib/patchyard/artifacts");
     let holder = env::var("FACTORY_HOLDER").unwrap_or_else(|_| "factory-supervisor".to_owned());
@@ -80,6 +79,18 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         "dry_run" => RunMode::DryRun,
         "pre_publish" => RunMode::PrePublish,
         _ => return Err(BootstrapError::InvalidEnvironment("FACTORY_RUN_MODE")),
+    };
+    // FACTORY_BASE_SHA is the versioned publisher base on real fieldbook. The
+    // dry-run target is a fixture repository that does not contain it, so the
+    // implement worktree in dry_run pins to the fixture's own commit instead
+    // (FACTORY_DRY_RUN_BASE_SHA, falling back to FACTORY_BASE_SHA for
+    // environments that only set the one variable).
+    let base_sha = match mode {
+        RunMode::DryRun => match env::var("FACTORY_DRY_RUN_BASE_SHA") {
+            Ok(value) if !value.trim().is_empty() => value,
+            _ => required("FACTORY_BASE_SHA")?,
+        },
+        RunMode::PrePublish => required("FACTORY_BASE_SHA")?,
     };
     let publish_branch_suffix = required_or("FACTORY_PUBLISH_BRANCH_SUFFIX", "change");
     if publish_branch_suffix.is_empty()
@@ -102,12 +113,23 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         move || RoutingConfig::load(&routing_path, &bench_path)
     })
     .await??;
-    if routing.live_provider_execution {
+    let provider_egress = if routing.live_provider_execution {
         let provider_egress_path = root.join("policy/provider-egress.json");
         let provider_egress =
             blocking(move || ProviderEgressConfig::load(&provider_egress_path)).await??;
-        require_qualified_triage_provider(&routing, &provider_egress)?;
-    }
+        // Every live seat fails closed at startup unless its provider is
+        // credential_qualified (A113); a routing edit cannot outrun policy.
+        for rule in [
+            routing.resolve("triage")?,
+            routing.resolve("author_disposition")?,
+            routing.resolve("implementation_review")?,
+        ] {
+            require_qualified_seat(rule, &provider_egress)?;
+        }
+        Some(provider_egress)
+    } else {
+        None
+    };
     let rubric_source = tokio::fs::read_to_string(&rubric_path).await?;
     let rubric = Rubric::parse_markdown(&rubric_source)?;
     ensure_private_roots(&scratch, &artifact_root).await?;
@@ -117,7 +139,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
     })
     .await??;
 
-    let triage_credential = if routing.live_provider_execution {
+    let seat_credential = if routing.live_provider_execution {
         Some(CredentialCommand {
             program: PathBuf::from("/usr/local/libexec/patchyard-request-seat-bearer"),
             arguments: Vec::new(),
@@ -137,7 +159,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
             prompt: root.join("policy/triage.md"),
             timeout: duration_env("FACTORY_TRIAGE_TIMEOUT_SECONDS", 120)?,
             cli_version: required_or("FACTORY_TRIAGE_CLI_VERSION", "fixture-stub/1"),
-            credential: triage_credential,
+            credential: seat_credential.clone(),
         },
     );
     commands.insert(
@@ -148,9 +170,9 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
                 "/usr/local/libexec/patchyard-disposition-stub",
             ),
             prompt: root.join("policy/disposition.md"),
-            timeout: duration_env("FACTORY_DISPOSITION_TIMEOUT_SECONDS", 120)?,
+            timeout: duration_env("FACTORY_DISPOSITION_TIMEOUT_SECONDS", 180)?,
             cli_version: required_or("FACTORY_DISPOSITION_CLI_VERSION", "fixture-stub/1"),
-            credential: None,
+            credential: seat_credential.clone(),
         },
     );
     let agent_scratch = if routing.live_provider_execution {
@@ -158,7 +180,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
     } else {
         scratch.join("agents")
     };
-    let agents = ProcessAgentBackend::new(commands, agent_scratch);
+    let agents = ProcessAgentBackend::new(commands, agent_scratch.clone());
     let worker = ProcessWorkerBackend::new(
         WorkerCommand {
             program: path_env(
@@ -199,11 +221,31 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         timeout: duration_env("FACTORY_CHILD_TIMEOUT_SECONDS", 300)?,
     });
     child_spawner.recover_orphans().await?;
+    let reviewer_live = match &provider_egress {
+        Some(egress) => {
+            let provider = &routing.resolve("implementation_review")?.seat.provider;
+            let entry = egress
+                .by_display_name(provider)
+                .expect("qualified seat gate ran before reviewer wiring");
+            Some(LiveReviewSeat {
+                credential: seat_credential
+                    .clone()
+                    .expect("live execution carries a seat credential"),
+                mint_root: agent_scratch.clone(),
+                egress_host: entry
+                    .hostnames
+                    .first()
+                    .cloned()
+                    .expect("provider-egress validation requires a hostname"),
+            })
+        }
+        None => None,
+    };
     let reviewer = SandboxedReviewer::new(ReviewSandboxConfig {
         spawner: child_spawner.clone(),
         prompt: root.join("policy/review.md"),
         worktree_root: scratch.join("review-worktrees"),
-        live_network: false,
+        live: reviewer_live,
     });
     let store = PgPipelineStore::connect(&database_url).await?;
     let reconciler = Reconciler::new(
@@ -336,7 +378,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
             spawner: child_spawner.clone(),
             prompt: root.join("policy/proposer-review.md"),
             worktree_root: scratch.join("proposer-review-worktrees"),
-            live_network: false,
+            live: None,
         })),
         policy_publisher,
         proposer_routing,
@@ -465,11 +507,11 @@ fn repository_scope() -> RepositoryScope {
     }
 }
 
-fn require_qualified_triage_provider(
-    routing: &RoutingConfig,
+fn require_qualified_seat(
+    rule: &crate::config::RoutingRule,
     provider_egress: &ProviderEgressConfig,
 ) -> Result<(), BootstrapError> {
-    let provider = &routing.resolve("triage")?.seat.provider;
+    let provider = &rule.seat.provider;
     let Some(entry) = provider_egress.by_display_name(provider) else {
         return Err(BootstrapError::LiveProviderForbidden {
             provider: provider.clone(),
@@ -597,7 +639,7 @@ pub enum BootstrapError {
     MissingEnvironment(&'static str),
     #[error("environment variable is invalid: {0}")]
     InvalidEnvironment(&'static str),
-    #[error("live triage provider {provider} is forbidden: {reason}")]
+    #[error("live seat provider {provider} is forbidden: {reason}")]
     LiveProviderForbidden {
         provider: String,
         reason: &'static str,
@@ -640,7 +682,7 @@ mod tests {
 
     use crate::config::{ProviderEgressConfig, RoutingConfig};
 
-    use super::{BootstrapError, require_qualified_triage_provider};
+    use super::{BootstrapError, require_qualified_seat};
 
     fn canonical_configs() -> (RoutingConfig, ProviderEgressConfig) {
         (
@@ -655,14 +697,19 @@ mod tests {
     }
 
     #[test]
-    fn qualified_triage_provider_lifts_only_the_live_triage_gate() {
+    fn qualified_seats_lift_the_live_gate_for_each_live_task_class() {
         let (routing, provider_egress) = canonical_configs();
-        require_qualified_triage_provider(&routing, &provider_egress)
-            .expect("Anthropic triage is qualified");
+        for task_class in ["triage", "author_disposition", "implementation_review"] {
+            require_qualified_seat(
+                routing.resolve(task_class).expect(task_class),
+                &provider_egress,
+            )
+            .expect("each live seat resolves to a qualified provider");
+        }
     }
 
     #[test]
-    fn unqualified_triage_provider_is_named_with_the_policy_reason() {
+    fn unqualified_seat_provider_is_named_with_the_policy_reason() {
         let (mut routing, provider_egress) = canonical_configs();
         routing
             .rules
@@ -670,8 +717,9 @@ mod tests {
             .expect("triage")
             .seat
             .provider = "OpenAI".to_owned();
-        let error = require_qualified_triage_provider(&routing, &provider_egress)
-            .expect_err("OpenAI remains unqualified");
+        let error =
+            require_qualified_seat(routing.resolve("triage").expect("triage"), &provider_egress)
+                .expect_err("OpenAI remains unqualified");
         assert!(matches!(
             error,
             BootstrapError::LiveProviderForbidden {
@@ -681,7 +729,7 @@ mod tests {
         ));
         assert_eq!(
             error.to_string(),
-            "live triage provider OpenAI is forbidden: credential_qualified is false in policy/provider-egress.json"
+            "live seat provider OpenAI is forbidden: credential_qualified is false in policy/provider-egress.json"
         );
     }
 }

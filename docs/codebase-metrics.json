@@ -6,9 +6,9 @@
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 41808,
-      "comments": 623,
-      "blanks": 2453,
+      "code": 41935,
+      "comments": 647,
+      "blanks": 2456,
       "files": 91,
       "languages": [
         {
@@ -42,15 +42,15 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 428,
+          "comments": 440,
           "blanks": 24,
           "files": 48
         },
         {
           "language": "Rust",
-          "code": 39288,
-          "comments": 168,
-          "blanks": 2171,
+          "code": 39415,
+          "comments": 180,
+          "blanks": 2174,
           "files": 57
         },
         {
@@ -72,17 +72,17 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 28232,
-      "comments": 578,
-      "blanks": 2431,
-      "files": 165,
+      "code": 30617,
+      "comments": 655,
+      "blanks": 2650,
+      "files": 171,
       "languages": [
         {
           "language": "BASH",
-          "code": 5984,
-          "comments": 136,
-          "blanks": 408,
-          "files": 41
+          "code": 6903,
+          "comments": 178,
+          "blanks": 457,
+          "files": 42
         },
         {
           "language": "Forge Config",
@@ -100,7 +100,7 @@
         },
         {
           "language": "Jinja2",
-          "code": 1005,
+          "code": 1011,
           "comments": 0,
           "blanks": 60,
           "files": 18
@@ -135,10 +135,10 @@
         },
         {
           "language": "Python",
-          "code": 14726,
-          "comments": 80,
-          "blanks": 1252,
-          "files": 35
+          "code": 16148,
+          "comments": 108,
+          "blanks": 1420,
+          "files": 39
         },
         {
           "language": "Shell",
@@ -163,20 +163,20 @@
         },
         {
           "language": "YAML",
-          "code": 3557,
-          "comments": 22,
-          "blanks": 365,
-          "files": 22
+          "code": 3595,
+          "comments": 29,
+          "blanks": 367,
+          "files": 23
         }
       ]
     },
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 26623,
-      "comments": 363,
-      "blanks": 2224,
-      "files": 130,
+      "code": 26959,
+      "comments": 430,
+      "blanks": 2278,
+      "files": 132,
       "languages": [
         {
           "language": "BASH",
@@ -209,8 +209,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 194,
-          "blanks": 30,
+          "comments": 200,
+          "blanks": 32,
           "files": 18
         },
         {
@@ -229,17 +229,17 @@
         },
         {
           "language": "Python",
-          "code": 21534,
-          "comments": 126,
-          "blanks": 2049,
-          "files": 49
+          "code": 21803,
+          "comments": 136,
+          "blanks": 2085,
+          "files": 50
         },
         {
           "language": "Shell",
-          "code": 648,
-          "comments": 33,
-          "blanks": 101,
-          "files": 19
+          "code": 715,
+          "comments": 84,
+          "blanks": 117,
+          "files": 20
         },
         {
           "language": "SVG",
@@ -267,31 +267,31 @@
     {
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
-      "code": 10849,
-      "comments": 22336,
-      "blanks": 6115,
-      "files": 205,
+      "code": 10874,
+      "comments": 22513,
+      "blanks": 6157,
+      "files": 208,
       "languages": [
         {
           "language": "BASH",
-          "code": 781,
+          "code": 783,
           "comments": 18,
           "blanks": 23,
-          "files": 23
+          "files": 24
         },
         {
           "language": "JSON",
-          "code": 9701,
+          "code": 9724,
           "comments": 0,
           "blanks": 1,
-          "files": 44
+          "files": 45
         },
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 22316,
-          "blanks": 6060,
-          "files": 169
+          "comments": 22493,
+          "blanks": 6102,
+          "files": 171
         },
         {
           "language": "Python",

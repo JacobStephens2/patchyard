@@ -107,11 +107,22 @@ class ChildLauncherContract(unittest.TestCase):
         self.assertIn(
             "sysctl_file: /etc/sysctl.d/90-patchyard-child.conf", self.tasks
         )
-        baseline = self.launcher.index("BASE_FORWARD=$(sysctl -n net.ipv4.ip_forward)")
-        required = self.launcher.index('[[ "$BASE_FORWARD" == 0 ]]', baseline)
-        network = self.launcher.index('ip netns add "$NETNS"', required)
-        self.assertLess(baseline, required)
-        self.assertLess(required, network)
+        # Namespace creation lives in one shared helper; each egress branch
+        # must verify the non-router baseline before invoking it.
+        definition = self.launcher.index("create_child_netns() {")
+        self.assertIn('ip netns add "$NETNS"', self.launcher[definition:])
+        for stage_marker in (
+            "FAILURE_STAGE=review_non_router_baseline",
+            "FAILURE_STAGE=evidence_non_router_baseline",
+        ):
+            stage = self.launcher.index(stage_marker)
+            baseline = self.launcher.rindex(
+                "BASE_FORWARD=$(sysctl -n net.ipv4.ip_forward)", 0, stage
+            )
+            required = self.launcher.index('[[ "$BASE_FORWARD" == 0 ]]', baseline)
+            network = self.launcher.index("create_child_netns\n", stage)
+            self.assertLess(baseline, required)
+            self.assertLess(required, network)
         self.assertIn('test "$(sysctl -n net.ipv4.ip_forward)" = 0', self.qualifier)
         self.assertIn("net.ipv4.ip_forward=0", self.reaper)
 

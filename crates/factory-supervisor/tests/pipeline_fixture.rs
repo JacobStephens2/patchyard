@@ -538,7 +538,7 @@ impl Fixture {
             }),
             prompt: project.join("policy/review.md"),
             worktree_root: scratch.join("review-worktrees"),
-            live_network: false,
+            live: None,
         });
         let artifacts = ArtifactStore::open(&artifact_root).expect("artifact store");
         let lifecycle = publisher.as_ref().map(|_| {
@@ -684,7 +684,7 @@ async fn alphabetize_dry_run_asserts_lane_targets_patch_barrier_and_stop_boundar
     );
     assert_eq!(
         snapshot.run.provenance.routing_config_version,
-        "2026-07-26.1"
+        "2026-08-12.1"
     );
     for digest in [
         &snapshot.run.provenance.model_id_hash,

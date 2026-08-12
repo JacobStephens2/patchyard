@@ -1,7 +1,7 @@
 {
   "$schema": "bench.schema.json",
-  "last_updated": "2026-07-21",
-  "update_note": "AA snapshot 2026-07-20 applies to all rows except Claude Opus 5 [max] and the Claude Fable 5 [max] cost, both re-read 2026-08-07.",
+  "last_updated": "2026-08-12",
+  "update_note": "AA snapshot 2026-07-20 applies to all rows except Claude Opus 5 [max] and the Claude Fable 5 [max] cost, both re-read 2026-08-07. 2026-08-12: Claude Opus 5 [max] floor probe passed 3/3 (research/floors/2026-08-12-opus5-max-floor-probe.md); status flipped untested->pass.",
   "aa_index_version": "4.1",
   "pairs": [
     {
@@ -57,8 +57,8 @@
       "preferred_harness": true,
       "host": "Anthropic",
       "floor": {
-        "status": "untested",
-        "detail": ""
+        "status": "pass",
+        "detail": "3/3 (2026-08-12 probe: Claude Code 2.1.228, content `factory` + trailing newline each run; see research/floors/2026-08-12-opus5-max-floor-probe.md)"
       },
       "image_input": {
         "status": "unknown",
@@ -387,7 +387,7 @@
         "detail": ""
       },
       "provenance": "US",
-      "standing": "**Speed-seat lead** - Cerebras ~1,000-1,100 tok/s \u00b15% vs Fireworks 118-234 ([head-to-head](../research/floors/2026-07-17-harness-smoke-test.md))",
+      "standing": "**Speed-seat lead** - Cerebras ~1,000-1,100 tok/s ±5% vs Fireworks 118-234 ([head-to-head](../research/floors/2026-07-17-harness-smoke-test.md))",
       "visible_tps": "Cerebras 1,000-1,100; Fireworks 118-234",
       "long_spec_wall": "",
       "aa_intelligence": 24,
@@ -584,7 +584,7 @@
       "effort": "default",
       "harness": "Kimi Code CLI",
       "preferred_harness": true,
-      "host": "OpenRouter \u2192 Moonshot",
+      "host": "OpenRouter → Moonshot",
       "floor": {
         "status": "pass",
         "detail": "3/3"
@@ -593,7 +593,7 @@
         "status": "yes",
         "detail": ""
       },
-      "provenance": "\u26a0\ufe0f **interim exception** (CN money; ruled by Jacob pending open weights + US host, ~weeks)",
+      "provenance": "⚠️ **interim exception** (CN money; ruled by Jacob pending open weights + US host, ~weeks)",
       "standing": "Prime triage/verify candidate (intelligence #3) once a US host exists; then: fresh floor probe, allowlist entry, fixture gauntlet",
       "visible_tps": "",
       "long_spec_wall": "",

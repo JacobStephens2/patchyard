@@ -14,21 +14,30 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::{
-    child::{ChildContract, ChildError, ChildTerminalState, IsolatedChildSpawner},
+    child::{ChildContract, ChildError, ChildSecret, ChildTerminalState, IsolatedChildSpawner},
     config::Seat,
     contracts::{ResolvedInvocation, ReviewArtifact, ReviewPacket},
     proposer::{EvidenceCitation, PromptBundleManifest},
-    stages::StageError,
+    stages::{CredentialCommand, StageError},
     worktree::{DetachedWorktree, WorktreeError},
 };
+
+/// Live-seat wiring for the isolated reviewer. Constructed only after
+/// bootstrap has proven the seat's provider `credential_qualified` (A113);
+/// its absence keeps the sealed `offline-review` network policy.
+#[derive(Clone, Debug)]
+pub struct LiveReviewSeat {
+    pub credential: CredentialCommand,
+    pub mint_root: PathBuf,
+    pub egress_host: String,
+}
 
 #[derive(Clone, Debug)]
 pub struct ReviewSandboxConfig {
     pub spawner: IsolatedChildSpawner,
     pub prompt: PathBuf,
     pub worktree_root: PathBuf,
-    /// Must remain false until the provider-native isolation path is A-5 qualified.
-    pub live_network: bool,
+    pub live: Option<LiveReviewSeat>,
 }
 
 #[derive(Clone, Debug)]
@@ -130,41 +139,71 @@ impl SandboxedReviewer {
             };
             workspaces.push((review_id, invocation, workspace));
         }
-        let mut set = JoinSet::new();
-        for (review_id, invocation, workspace) in &workspaces {
-            let reviewer = self.clone();
-            let reviewed_sha = reviewed_sha.to_owned();
-            let task_spec = task_spec.clone();
-            let patch_sha256 = patch_sha256.to_owned();
-            let manifest = manifest.clone();
-            let cancellation = cancellation.clone();
-            let review_id = *review_id;
-            let invocation = invocation.clone();
-            let workspace = workspace.path().to_path_buf();
-            set.spawn(async move {
-                reviewer
-                    .review_prepared(
-                        review_id,
-                        &workspace,
-                        &reviewed_sha,
-                        task_spec,
-                        patch_sha256,
-                        manifest,
-                        invocation,
-                        &cancellation,
-                    )
-                    .await
-            });
-        }
         let mut completed = Vec::new();
         let mut first_error = None;
-        while let Some(joined) = set.join_next().await {
-            match joined {
-                Ok(Ok(review)) => completed.push(review),
-                Ok(Err(error)) if first_error.is_none() => first_error = Some(error),
-                Ok(Err(_)) => {}
-                Err(error) if first_error.is_none() => first_error = Some(ReviewError::Join(error)),
-                Err(_) => {}
+        if self.config.live.is_some() {
+            // A live-egress child requires the host's non-router baseline
+            // (ip_forward=0) and holds the shared network lock for its whole
+            // run, so live reviewers execute one at a time. The A87 barrier
+            // is unaffected: outputs stay supervisor-held either way, and no
+            // reviewer's output is visible to another before all return.
+            for (review_id, invocation, workspace) in &workspaces {
+                match self
+                    .review_prepared(
+                        *review_id,
+                        workspace.path(),
+                        reviewed_sha,
+                        task_spec.clone(),
+                        patch_sha256.to_owned(),
+                        manifest.clone(),
+                        invocation.clone(),
+                        cancellation,
+                    )
+                    .await
+                {
+                    Ok(review) => completed.push(review),
+                    Err(error) => {
+                        first_error.get_or_insert(error);
+                    }
+                }
+            }
+        } else {
+            let mut set = JoinSet::new();
+            for (review_id, invocation, workspace) in &workspaces {
+                let reviewer = self.clone();
+                let reviewed_sha = reviewed_sha.to_owned();
+                let task_spec = task_spec.clone();
+                let patch_sha256 = patch_sha256.to_owned();
+                let manifest = manifest.clone();
+                let cancellation = cancellation.clone();
+                let review_id = *review_id;
+                let invocation = invocation.clone();
+                let workspace = workspace.path().to_path_buf();
+                set.spawn(async move {
+                    reviewer
+                        .review_prepared(
+                            review_id,
+                            &workspace,
+                            &reviewed_sha,
+                            task_spec,
+                            patch_sha256,
+                            manifest,
+                            invocation,
+                            &cancellation,
+                        )
+                        .await
+                });
+            }
+            while let Some(joined) = set.join_next().await {
+                match joined {
+                    Ok(Ok(review)) => completed.push(review),
+                    Ok(Err(error)) if first_error.is_none() => first_error = Some(error),
+                    Ok(Err(_)) => {}
+                    Err(error) if first_error.is_none() => {
+                        first_error = Some(ReviewError::Join(error));
+                    }
+                    Err(_) => {}
+                }
             }
         }
         let mut cleanup_error = None;
@@ -244,9 +283,6 @@ impl SandboxedReviewer {
         invocation: ResolvedInvocation,
         cancellation: &CancellationToken,
     ) -> Result<ReviewExecution, ReviewError> {
-        if self.config.live_network {
-            return Err(ReviewError::LiveProviderNotQualified);
-        }
         let packet = ReviewPacket {
             schema_version: 1,
             review_id,
@@ -275,6 +311,40 @@ impl SandboxedReviewer {
         })
     }
 
+    /// Mint one short-lived seat bearer through the same hardened requester
+    /// the process-backed agent stages use, holding it only in memory: the
+    /// mint stage is removed before the child spawns, and the only durable
+    /// copy is the `secret/` staging file the launcher deletes on teardown.
+    async fn mint_seat_bearer(
+        &self,
+        live: &LiveReviewSeat,
+        provider: &str,
+        cancellation: &CancellationToken,
+    ) -> Result<String, ReviewError> {
+        let stage = live.mint_root.join(format!("agent-{}", Uuid::new_v4()));
+        crate::stages::create_private_dir(stage.clone()).await?;
+        let result = async {
+            let bearer_path = stage.join("bearer");
+            crate::stages::mint_bearer(
+                &live.credential,
+                provider,
+                bearer_path.clone(),
+                cancellation,
+            )
+            .await?;
+            let bytes = crate::stages::read_bounded_file(bearer_path, 8192).await?;
+            String::from_utf8(bytes).map_err(|_| ReviewError::MalformedBearer)
+        }
+        .await;
+        let cleanup = crate::stages::remove_private_dir(stage).await;
+        match (result, cleanup) {
+            (Ok(bearer), Ok(())) if !bearer.is_empty() => Ok(bearer),
+            (Ok(_), Ok(())) => Err(ReviewError::MalformedBearer),
+            (Err(error), Ok(())) => Err(error),
+            (_, Err(error)) => Err(error.into()),
+        }
+    }
+
     async fn run_isolated(
         &self,
         input: IsolatedReviewInput,
@@ -287,6 +357,16 @@ impl SandboxedReviewer {
             .to_owned();
         let packet_sha256 = hex::encode(sha2::Sha256::digest(&input.packet_bytes));
         let prompt_sha256 = hex::encode(sha2::Sha256::digest(&input.prompt_bytes));
+        let (egress_host, secret) = match &self.config.live {
+            Some(live) => (
+                Some(live.egress_host.clone()),
+                Some(ChildSecret::SeatBearer(
+                    self.mint_seat_bearer(live, &input.seat.provider, cancellation)
+                        .await?,
+                )),
+            ),
+            None => (None, None),
+        };
         let child = self
             .config
             .spawner
@@ -300,12 +380,13 @@ impl SandboxedReviewer {
                     effort: input.seat.effort.clone(),
                     harness: input.seat.harness.clone(),
                     provider: input.seat.provider.clone(),
+                    egress_host,
                 },
                 vec![
                     ("packet.json".to_owned(), input.packet_bytes),
                     ("prompt.md".to_owned(), input.prompt_bytes),
                 ],
-                None,
+                secret,
                 cancellation,
             )
             .await?;
@@ -366,8 +447,8 @@ fn validate_artifact(
 
 #[derive(Debug, Error)]
 pub enum ReviewError {
-    #[error("live reviewer provider isolation is not A-5 qualified")]
-    LiveProviderNotQualified,
+    #[error("minted seat bearer is empty or not UTF-8")]
+    MalformedBearer,
     #[error("reviewer sandbox exposed sibling or shared scratch")]
     IsolationProbe,
     #[error("reviewer child returned fail-closed state {0:?}")]
@@ -463,7 +544,7 @@ mod tests {
             }),
             prompt: scratch.path().join("missing-review-prompt"),
             worktree_root: worktree_root.clone(),
-            live_network: false,
+            live: None,
         });
         let error = reviewer
             .review_many(

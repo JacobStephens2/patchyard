@@ -80,6 +80,16 @@ pub struct PreviewBearer {
     pub secret: String,
 }
 
+/// The one secret a child job may carry, staged under `secret/` and removed
+/// by the launcher on teardown.
+#[derive(Clone, Debug)]
+pub enum ChildSecret {
+    /// Evidence capture capability, staged as `secret/bearer.json`.
+    Preview(PreviewBearer),
+    /// Live seat bearer for a provider-egress child, staged as `secret/bearer`.
+    SeatBearer(String),
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ChildContract {
@@ -92,6 +102,10 @@ pub enum ChildContract {
         effort: String,
         harness: String,
         provider: String,
+        /// `None` keeps the sealed `offline-review` network policy; `Some`
+        /// pins egress to exactly this qualified provider host on tcp/443.
+        #[serde(default)]
+        egress_host: Option<String>,
     },
     Proposer {
         packet_sha256: String,
@@ -262,7 +276,7 @@ impl IsolatedChildSpawner {
         &self,
         contract: ChildContract,
         inputs: Vec<(String, Vec<u8>)>,
-        bearer: Option<PreviewBearer>,
+        secret: Option<ChildSecret>,
         cancellation: &CancellationToken,
     ) -> Result<ChildExecution, ChildError> {
         let job_id = Uuid::new_v4();
@@ -274,7 +288,7 @@ impl IsolatedChildSpawner {
         let job_directory = self.config.staging_root.join(job_id.simple().to_string());
         let request_bytes = serde_json::to_vec(&request)?;
         let request_sha256 = hex::encode(Sha256::digest(&request_bytes));
-        create_job(job_directory.clone(), request_bytes, inputs, bearer).await?;
+        create_job(job_directory.clone(), request_bytes, inputs, secret).await?;
 
         let mut spec = ProcessSpec::new(&self.config.spawn_program);
         spec.args = vec![job_directory.clone().into_os_string()];
@@ -494,7 +508,13 @@ fn output_maximum(contract: &ChildContract, name: &str) -> Result<usize, ChildEr
 
 fn expected_network_policy_sha256(contract: &ChildContract) -> Result<String, ChildError> {
     let policy = match contract {
-        ChildContract::Review { .. } => "offline-review".to_owned(),
+        ChildContract::Review {
+            egress_host: Some(host),
+            ..
+        } => format!("provider={host}\ntransport=tcp/443\ndns=none\n"),
+        ChildContract::Review {
+            egress_host: None, ..
+        } => "offline-review".to_owned(),
         ChildContract::Proposer { .. } => "offline-proposer".to_owned(),
         ChildContract::ProposerDisposition { .. } => "offline-proposer-disposition".to_owned(),
         ChildContract::Evidence { capture, .. } => {
@@ -517,7 +537,7 @@ async fn create_job(
     job_directory: PathBuf,
     request: Vec<u8>,
     inputs: Vec<(String, Vec<u8>)>,
-    bearer: Option<PreviewBearer>,
+    secret: Option<ChildSecret>,
 ) -> Result<(), ChildError> {
     tokio::task::spawn_blocking(move || {
         let root = job_directory
@@ -546,14 +566,19 @@ async fn create_job(
             }
             write_new(&input_directory.join(&name), &bytes)?;
         }
-        if let Some(bearer) = bearer {
+        if let Some(secret) = secret {
             let secret_directory = job_directory.join("secret");
             fs::create_dir(&secret_directory)?;
             fs::set_permissions(&secret_directory, fs::Permissions::from_mode(0o700))?;
-            write_new(
-                &secret_directory.join("bearer.json"),
-                &serde_json::to_vec(&bearer)?,
-            )?;
+            match secret {
+                ChildSecret::Preview(bearer) => write_new(
+                    &secret_directory.join("bearer.json"),
+                    &serde_json::to_vec(&bearer)?,
+                )?,
+                ChildSecret::SeatBearer(bearer) => {
+                    write_new(&secret_directory.join("bearer"), bearer.as_bytes())?;
+                }
+            }
         }
         let directory = fs::File::open(&job_directory)?;
         directory.sync_all()?;

@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""Resolve one qualified provider API host twice and bind it to one stable IPv4 set.
+
+The allowlist is policy, not code: a host resolves only if it appears in the
+`hostnames` of a `credential_qualified` provider in the installed
+`policy/provider-egress.json`. The double resolution mirrors the preview
+resolver: a set that changes between the two reads is a DNS binding change and
+fails closed rather than pinning a moving target.
+"""
+
+from __future__ import annotations
+
+import ipaddress
+import json
+import re
+import socket
+import sys
+import time
+from collections.abc import Callable
+from pathlib import Path
+
+
+PROVIDER_EGRESS = Path("/opt/patchyard/policy/provider-egress.json")
+HOSTNAME = re.compile(r"^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?)+$")
+MAX_POLICY_BYTES = 65_536
+
+
+class DnsBindingChanged(Exception):
+    pass
+
+
+def qualified_hosts(policy_path: Path = PROVIDER_EGRESS) -> frozenset[str]:
+    if policy_path.is_symlink() or not policy_path.is_file():
+        raise ValueError("provider egress policy is not a regular file")
+    raw = policy_path.read_bytes()
+    if len(raw) > MAX_POLICY_BYTES:
+        raise ValueError("provider egress policy exceeds the byte limit")
+    policy = json.loads(raw)
+    if policy.get("schema_version") != 1 or not isinstance(policy.get("providers"), dict):
+        raise ValueError("provider egress policy is malformed")
+    hosts: set[str] = set()
+    for entry in policy["providers"].values():
+        if not isinstance(entry, dict) or entry.get("credential_qualified") is not True:
+            continue
+        hostnames = entry.get("hostnames")
+        if not isinstance(hostnames, list):
+            raise ValueError("provider egress policy hostnames are malformed")
+        for hostname in hostnames:
+            if not isinstance(hostname, str) or HOSTNAME.fullmatch(hostname) is None:
+                raise ValueError("provider egress policy hostname is malformed")
+            hosts.add(hostname)
+    return frozenset(hosts)
+
+
+def resolve_once(host: str) -> tuple[str, ...]:
+    addresses = {
+        item[4][0]
+        for item in socket.getaddrinfo(
+            host,
+            443,
+            family=socket.AF_INET,
+            type=socket.SOCK_STREAM,
+            proto=socket.IPPROTO_TCP,
+        )
+    }
+    if not addresses or any(not ipaddress.ip_address(item).is_global for item in addresses):
+        raise ValueError("provider resolution is empty or non-public")
+    return tuple(sorted(addresses))
+
+
+def resolve_stable(
+    host: str,
+    *,
+    allowed: frozenset[str] | None = None,
+    resolver: Callable[[str], tuple[str, ...]] = resolve_once,
+    pause: Callable[[float], None] = time.sleep,
+) -> tuple[str, ...]:
+    if allowed is None:
+        allowed = qualified_hosts()
+    if host not in allowed:
+        raise ValueError("host is outside the qualified-provider contract")
+    first = resolver(host)
+    pause(0.05)
+    second = resolver(host)
+    if first != second:
+        raise DnsBindingChanged
+    return first
+
+
+def main() -> int:
+    if len(sys.argv) != 2:
+        return 43
+    host = sys.argv[1]
+    try:
+        addresses = resolve_stable(host)
+    except DnsBindingChanged:
+        print(json.dumps({"schema_version": 1, "state": "dns_binding_changed"}))
+        return 42
+    except (OSError, ValueError):
+        print(json.dumps({"schema_version": 1, "state": "contract_rejected"}))
+        return 43
+    print(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "state": "stable",
+                "host": host,
+                "addresses": addresses,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

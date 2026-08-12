@@ -623,6 +623,15 @@
     - source: patchyard-triage-seat
       destination: /usr/local/libexec/patchyard-triage-seat
       mode: "0755"
+    - source: patchyard-disposition-seat
+      destination: /usr/local/libexec/patchyard-disposition-seat
+      mode: "0755"
+    - source: patchyard-review-seat
+      destination: /usr/local/libexec/patchyard-review-seat
+      mode: "0755"
+    - source: patchyard-provider-resolver
+      destination: /usr/local/libexec/patchyard-provider-resolver
+      mode: "0755"
     - source: patchyard-mint-seat-bearer
       destination: /usr/local/sbin/patchyard-mint-seat-bearer
       mode: "0750"
@@ -725,6 +734,9 @@
     - /run/patchyard-seats
     - /usr/local/libexec/patchyard-request-seat-bearer
     - /usr/local/libexec/patchyard-triage-seat
+    - /usr/local/libexec/patchyard-disposition-seat
+    - /usr/local/libexec/patchyard-review-seat
+    - /usr/local/libexec/patchyard-provider-resolver
     - /usr/local/sbin/patchyard-mint-seat-bearer
     - /usr/local/sbin/patchyard-run-anthropic-issuance
   when: factory_restore_drill | default(false) | bool

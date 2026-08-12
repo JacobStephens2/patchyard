@@ -99,8 +99,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
-git bundle create "$BUNDLE" "$DEPLOYED_SHA..$TARGET_SHA" >/dev/null 2>&1 \
-  || die "could not build the incremental bundle"
+# The tip must be named by a ref, not by a bare SHA. A bundle carries refs, and
+# a range ending in a raw object id contributes none, so git refuses to build an
+# empty bundle - which is what happened on the first real run. The remote fetch
+# asks for the same ref name, so the two cannot disagree.
+#
+# stderr is captured rather than discarded: the first failure here reported only
+# "could not build the incremental bundle" and the reason was thrown away.
+if ! BUNDLE_ERROR=$(git bundle create "$BUNDLE" "$DEPLOYED_SHA..$TARGET_REF" 2>&1 >/dev/null); then
+  die "could not build the incremental bundle: $BUNDLE_ERROR"
+fi
 # The bundle is read by the owning account, not by the login user.
 chmod 644 "$BUNDLE"
 scp -q "$BUNDLE" "$SSH_USER@$HOST:$REMOTE_BUNDLE"

@@ -375,6 +375,24 @@ attempt requires a new run ID and new output paths.
 
 ## Requirement 4: federation-rule revocation capture
 
+### The mutation is `disable`; `remove` is forbidden (A140)
+
+On OpenAI, deleting the federation subject mapping cascades provider-side into
+destroying the mapped service account. Observed 2026-08-12: after a `remove`
+mutation, run `openai-revocation-20260812-4924ca4ef5` failed its bracketing
+control (`bracketing control did not supply a bearer`) even though its baseline
+had exchanged HTTP 200 against `user-ibYSGwJI5TPOPeJ3ioADcfDH`; the follow-up
+run `openai-revocation-20260812-64a8668459` failed its baseline outright, and
+recreating the mapping minted a same-named service account with a **new** id.
+
+`remove` therefore violates step 3's own "do not change the service account"
+constraint by provider cascade, and makes step 6's "restore the exact original
+mapping" unsatisfiable at the id level - every future attempt would re-break
+the policy pin. **The requirement-4 mutation is `--mapping-mutation disable`.**
+Under `disable`, restoration is re-enabling the same mapping, and step 5's
+"identical to step 1" is literally satisfiable. A140 records the 2026-08-12
+discontinuity once; no lineage annotation attaches anywhere else.
+
 ### Non-recoverable precondition
 
 **The subject-mapping control-plane mutation must not be made before the capture
@@ -442,18 +460,19 @@ All steps below occur in one bounded window:
    endpoint with the fixed instrument. It must supply a bearer. Record the
    provider response as a Receipt where OpenAI supplies a request ID.
 3. With capture already active, record the mutation's immediate before-bound,
-   have the named actor remove, disable, or alter only the subject mapping, then
-   record the immediate after-bound and console after-state. The attester records
-   the Attestation. Do not change the service account or uploaded JWK in this
-   Requirement.
+   have the named actor **disable** only the subject mapping (never remove it -
+   A140), then record the immediate after-bound and console after-state. The
+   attester records the Attestation. Do not change the service account or
+   uploaded JWK in this Requirement.
 4. Wait at least the standing 90-second settling floor. An exchange before the
    floor measures propagation and cannot become Evidence of revocation.
 5. Attempt exactly one fresh exchange with the same surface and instrument.
    Record whatever bounded response OpenAI returns. Do not require a status,
    error type, error code, message, or request-ID shape.
-6. While capture remains active, capture the disabled state, restore the exact
-   original mapping, and capture the restored state. Record the restoration as
-   a second console-only control-plane mutation in the Attestation.
+6. While capture remains active, capture the disabled state, re-enable the
+   exact original mapping, and capture the restored state. Record the
+   restoration as a second console-only control-plane mutation in the
+   Attestation.
 7. Wait the same settling floor. Make the bracketing control: one fresh exchange
    with the same surface and instrument, which must supply a bearer.
 8. Record the window end and bind the baseline control, denial observation,
@@ -482,7 +501,7 @@ original mapping is back.
 **Run it inside tmux.** The collector prompts on a terminal and blocks. A
 dropped SSH connection destroys the pseudo-TTY, the kernel SIGHUPs the
 collector, and the run dies holding an open mutation window with the mapping
-still removed. That has already happened once. tmux owns the pseudo-TTY
+still disabled. That has already happened once. tmux owns the pseudo-TTY
 itself, so a disconnect costs nothing and `tmux attach -t rev` resumes at the
 same prompt.
 
@@ -519,8 +538,9 @@ the attended run, the freeze graph reports drift, a checker rejects static
 preflight, or another OpenAI lifecycle run is active.
 
 Have the console open on the provider page before starting, and confirm the
-subject mapping is present and enabled. The run cannot begin from a removed
-mapping: the first reading is checked against `require_active_mapping`.
+subject mapping is present and enabled. The run cannot begin from a disabled
+or missing mapping: the first reading is checked against
+`require_active_mapping`.
 
 Create one fresh root-owned tmpfs stage and one new output. The run ID must
 match `openai-revocation-[0-9]{8}-[0-9a-f]{10}`, and the output must sit
@@ -534,7 +554,7 @@ sudo install -d -m 0700 -o root -g root "$CONTROL_STAGE"
 sudo python3 -I tools/openai-wif-federation-revocation.py \
   --run-id "$RUN_ID" --actor "<named actor>" \
   --actor-kind accountable_human --attester "<named attester>" \
-  --mapping-mutation remove --output "$RESULT"
+  --mapping-mutation disable --output "$RESULT"
 ```
 
 Under A136 one accountable human may occupy both roles, but the record then
@@ -547,10 +567,10 @@ order. Answer each prompt only when it appears; do not queue answers ahead.
 |------|--------|-------------------------|
 | 1 | enabled mapping before the baseline control | present and enabled |
 | 2 | immediate state before the mutation | unchanged from step 1 |
-| — | `MUTATION COMPLETE` | remove the subject mapping first |
-| 3 | immediate state after the mutation | removed |
-| 4 | current mapping before safe restoration | **still removed** |
-| — | `RESTORATION COMPLETE` | restore the exact original mapping first |
+| — | `MUTATION COMPLETE` | disable the subject mapping first |
+| 3 | immediate state after the mutation | disabled |
+| 4 | current mapping before safe restoration | **still disabled** |
+| — | `RESTORATION COMPLETE` | re-enable the original mapping first |
 | 5 | the safely restored mapping | present and enabled, identical to step 1 |
 
 **Read the console at each step. Do not prepare the JSON in advance.** The
@@ -560,7 +580,7 @@ inside the bounded window. Pasting values written before the window began
 produces a file that passes every checker while attesting to nothing.
 
 Step 4 is the step that gets missed. It is captured *before* restoring, so
-the mapping must still be removed when you answer it. Restoring early fails
+the mapping must still be disabled when you answer it. Restoring early fails
 the run with `mapping returned to its original state before captured
 restoration`, and the collector treats that as a failure even though the
 console is safe.
@@ -703,7 +723,7 @@ Do not run this procedure during build, review, CI, or an unattended session.
 It requires separate authorization for five live OpenAI exchanges, two console
 mutations, and one local key activation.
 
-**This one is not reversible.** Requirement 4 removes a mapping and puts it
+**This one is not reversible.** Requirement 4 disables a mapping and puts it
 back; a conforming rotation ends with the control plane signing under a new key
 and the console trusting only that key. The original private key survives only
 in the run's root tmpfs stage, which does not outlive a reboot. Treat a

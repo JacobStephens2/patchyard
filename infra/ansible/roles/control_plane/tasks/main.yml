@@ -301,6 +301,21 @@
     mode: "0700"
   tags: [session13]
 
+# The child unit's ReadWritePaths names both worktree roots; a missing entry
+# fails its mount namespace at spawn (status 226/NAMESPACE), so they must
+# exist before the first review rather than appearing lazily at first use.
+- name: Create the reviewer worktree roots the child unit projects
+  ansible.builtin.file:
+    path: "/var/lib/patchyard/supervisor/{{ item }}"
+    state: directory
+    owner: "{{ factory_manager_user }}"
+    group: factory
+    mode: "0700"
+  loop:
+    - review-worktrees
+    - proposer-review-worktrees
+  tags: [session13]
+
 - name: Recreate the isolated-child staging root after boot
   ansible.builtin.copy:
     dest: /etc/tmpfiles.d/patchyard-children.conf

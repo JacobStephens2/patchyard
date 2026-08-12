@@ -414,6 +414,18 @@ class LiveSeatDeployment(unittest.TestCase):
         self.assertIn('provider=%s\\ntransport=tcp/443\\ndns=none\\n', section)
         self.assertIn("offline-review", section)
         self.assertIn('path_contract "$JOB/secret/bearer" "$MANAGER_USER" 600 file', section)
+        # Bearer validation must stay builtin pattern matching: a bounded
+        # regex repetition ({16,8192}) made glibc allocate >1GB and tripped
+        # the child unit's MemoryMax before the seat ran.
+        self.assertNotIn('"$REVIEW_BEARER" =~', section)
+        self.assertIn('[[ "$REVIEW_BEARER" != *[![:graph:]]* ]]', section)
+        # Both worktree roots in the unit's ReadWritePaths are provisioned,
+        # not left to appear lazily at first use.
+        self.assertIn(
+            "Create the reviewer worktree roots the child unit projects", self.tasks
+        )
+        self.assertIn("- review-worktrees", self.tasks)
+        self.assertIn("- proposer-review-worktrees", self.tasks)
         self.assertIn("PATCHYARD_BEARER_FILE /secret/bearer", section)
         self.assertIn("bearer_disclosure_blocked", section)
         self.assertIn("STATE=dns_binding_changed", section)

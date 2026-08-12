@@ -588,7 +588,12 @@ if [[ "$KIND" == review ]]; then
     path_contract "$JOB/secret" "$MANAGER_USER" 700 directory
     path_contract "$JOB/secret/bearer" "$MANAGER_USER" 600 file
     REVIEW_BEARER=$(<"$JOB/secret/bearer")
-    [[ "$REVIEW_BEARER" =~ ^[!-~]{16,8192}$ ]]
+    # Pattern-match, never =~: glibc compiles a bounded repetition of a
+    # bracket expression into >1GB of state, which trips the unit's 768M
+    # MemoryMax before the seat ever runs. Length and character class are
+    # checked separately with constant-space builtins.
+    (( ${#REVIEW_BEARER} >= 16 && ${#REVIEW_BEARER} <= 8192 ))
+    [[ "$REVIEW_BEARER" != *[![:graph:]]* ]]
 
     FAILURE_STAGE=review_network_policy
     set +e

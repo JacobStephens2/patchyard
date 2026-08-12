@@ -72,7 +72,6 @@ impl RuntimeComponents {
 
 pub async fn from_environment(database_url: String) -> Result<RuntimeComponents, BootstrapError> {
     let root = path_env("FACTORY_INSTALL_ROOT", "/opt/patchyard");
-    let base_sha = required("FACTORY_BASE_SHA")?;
     let scratch = path_env("FACTORY_SCRATCH_ROOT", "/var/lib/patchyard/supervisor");
     let artifact_root = path_env("FACTORY_ARTIFACT_ROOT", "/var/lib/patchyard/artifacts");
     let holder = env::var("FACTORY_HOLDER").unwrap_or_else(|_| "factory-supervisor".to_owned());
@@ -80,6 +79,18 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         "dry_run" => RunMode::DryRun,
         "pre_publish" => RunMode::PrePublish,
         _ => return Err(BootstrapError::InvalidEnvironment("FACTORY_RUN_MODE")),
+    };
+    // FACTORY_BASE_SHA is the versioned publisher base on real fieldbook. The
+    // dry-run target is a fixture repository that does not contain it, so the
+    // implement worktree in dry_run pins to the fixture's own commit instead
+    // (FACTORY_DRY_RUN_BASE_SHA, falling back to FACTORY_BASE_SHA for
+    // environments that only set the one variable).
+    let base_sha = match mode {
+        RunMode::DryRun => match env::var("FACTORY_DRY_RUN_BASE_SHA") {
+            Ok(value) if !value.trim().is_empty() => value,
+            _ => required("FACTORY_BASE_SHA")?,
+        },
+        RunMode::PrePublish => required("FACTORY_BASE_SHA")?,
     };
     let publish_branch_suffix = required_or("FACTORY_PUBLISH_BRANCH_SUFFIX", "change");
     if publish_branch_suffix.is_empty()

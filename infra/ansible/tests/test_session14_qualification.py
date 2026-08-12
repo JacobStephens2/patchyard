@@ -73,7 +73,14 @@ class Session14QualificationContract(unittest.TestCase):
 
     def test_real_publisher_base_is_versioned_desired_state_not_a_fixture_sha(self) -> None:
         self.assertIn("FACTORY_BASE_SHA={{ factory_fieldbook_base_sha }}", self.environment)
-        self.assertNotIn("session9_target_sha", self.environment)
+        # The dry-run implement worktree pins to the fixture target's own
+        # commit; the publisher base above stays the versioned fieldbook SHA.
+        # One variable serving both roles is what broke dry_run after
+        # 670626f pinned it to fieldbook master.
+        self.assertIn(
+            "FACTORY_DRY_RUN_BASE_SHA={{ session9_target_sha.stdout | trim }}",
+            self.environment,
+        )
         self.assertRegex(
             self.group_vars,
             r"(?m)^factory_fieldbook_base_sha: [0-9a-f]{40}$",

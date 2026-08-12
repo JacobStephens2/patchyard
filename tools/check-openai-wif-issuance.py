@@ -18,10 +18,6 @@ POLICY_PATH = REPO / "policy/openai-wif.json"
 BASE_HARNESS_PATH = REPO / "tools/anthropic-wif-lifecycle.py"
 ISSUANCE_ADAPTER_PATH = REPO / "tools/openai-wif-issuance.py"
 RESULT_PATH = REPO / "research/isolation/results/openai-first-token-exchange.json"
-SUPERSEDES_CHECKER_SHA256 = (
-    "d23b3cac210c9c80982409adf85d130a"
-    "7a8042b772b500773e837954c41c62b6",
-)
 PROVIDER_POLICY_PATH = REPO / "policy/provider-egress.json"
 BASE_HARNESS_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
@@ -59,7 +55,7 @@ EXPECTED_POLICY = {
         "authorization_ruling": "A132",
     },
     "service_account": {
-        "id": "user-ibYSGwJI5TPOPeJ3ioADcfDH",
+        "id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
         "name": "patchyard-worker",
         "api_key_count": 0,
     },
@@ -78,7 +74,7 @@ EXPECTED_POLICY = {
         "subject": "patchyard-control-plane",
         "audience": "https://api.openai.com",
         "claims": {"factory_environment": "production"},
-        "service_account_id": "user-ibYSGwJI5TPOPeJ3ioADcfDH",
+        "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
         "token_lifetime_seconds": 300,
     },
 }

@@ -4,31 +4,31 @@
     {
       "accepted": false,
       "checker": "check-openai-wif-issuance.py",
-      "checker_sha256": "d23b3cac210c9c80982409adf85d130a7a8042b772b500773e837954c41c62b6",
+      "checker_sha256": "aab91925999b35be7e955bc5f628b70bf4ad7290097c18ad8f76c1201c082478",
       "exit_code": 1
     },
     {
       "accepted": false,
       "checker": "check-openai-wif-expiry.py",
-      "checker_sha256": "2f66e0b540829fad6d8813471c7e106eaeb71aacbd63f6c7f7abab22ce31f917",
+      "checker_sha256": "b190f6cadd01945153b116225e525a410cda412ba875ed64196719f994d77171",
       "exit_code": 1
     },
     {
       "accepted": false,
       "checker": "check-openai-wif-crash-cleanup.py",
-      "checker_sha256": "4bcf134f51b72e058b6c7720089dec9c60734e7e6c01aeb6997cae205b9e8474",
+      "checker_sha256": "5e5b2c124d3cab03ac6c20418568a0449d75c1b72ad8b747d57c37fec941e465",
       "exit_code": 1
     }
   ],
   "checkpoint": {
     "assertion": {
-      "expires_at": "2026-08-07T12:28:47Z",
-      "issued_at": "2026-08-07T12:23:47Z",
+      "expires_at": "2026-08-12T20:04:19Z",
+      "issued_at": "2026-08-12T19:59:19Z",
       "lifetime_seconds": 300,
-      "minted_at": "2026-08-07T12:23:52Z"
+      "minted_at": "2026-08-12T19:59:24Z"
     },
     "assertion_live": true,
-    "attempt_sha256": "7058bed85480912262addde90995bec4d2a03d2399cf74f5279c51698c9f8c01",
+    "attempt_sha256": "c137890d5f8bf4321c6bb0ab791b2a182b032d1e87c3b8309c98629629367d68",
     "bearer_live": true,
     "core_dump_limits": [
       0,
@@ -37,7 +37,7 @@
     "exchange_request": {
       "attempt_count": 1,
       "endpoint": "https://auth.openai.com/oauth/token",
-      "requested_at": "2026-08-07T12:23:52.480106Z"
+      "requested_at": "2026-08-12T19:59:25.015792Z"
     },
     "exchange_response": {
       "access_token_supplied": true,
@@ -47,11 +47,11 @@
       "error_type": null,
       "expires_in": 294,
       "http_status": 200,
-      "observed_at": "2026-08-07T12:23:53.118694Z",
-      "provider_date": "2026-08-07T12:23:53Z",
-      "request_id": "70637dd1-7f2c-4290-a056-d409e0477c64",
+      "observed_at": "2026-08-12T19:59:25.512180Z",
+      "provider_date": "2026-08-12T19:59:25Z",
+      "request_id": "56d3cecf-ad2c-4c05-9678-fae78409d768",
       "request_id_supplied": true,
-      "request_started_at": "2026-08-07T12:23:52.480106Z",
+      "request_started_at": "2026-08-12T19:59:25.015792Z",
       "response_shape": {
         "body_kind": "json_object",
         "error_fields": [],
@@ -84,18 +84,18 @@
       {
         "byte_length": 947,
         "material_class": "jwt_assertion",
-        "sha256": "9a8c71b973ac8f4eb8db0befc770a8bc14b307ae09379d3bd55dee7b16765b10"
+        "sha256": "76f2bbdf3a9825878100c8b202cdff264128b240b216950a4022e4b79a80f8d0"
       },
       {
         "byte_length": 1394,
         "material_class": "openai_bearer",
-        "sha256": "70218ac53334169006023d163b20469647455833193d8dc3a3d30df0b995482d"
+        "sha256": "542417b7ca42c62a4a68c763db3d6b5270bccfdba13d4fee672492a782d0e464"
       }
     ],
-    "observed_at": "2026-08-07T12:23:53.120187Z",
+    "observed_at": "2026-08-12T19:59:25.513384Z",
     "phase": "bearer_live_before_terminal_write",
     "provider": "openai",
-    "run_id": "openai-crash-20260807-8f8ce592d0",
+    "run_id": "openai-crash-20260812-e12437747f",
     "schema_version": 1,
     "signing_key": {
       "copied_to_run_stage": false,
@@ -106,12 +106,12 @@
     },
     "source": {
       "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
-      "crash_adapter_sha256": "a160cc713f8ef528244fc4a9aaf81c21d94f99ee6636ccae4558acb93d2c49b5",
-      "policy_sha256": "14d2b8be570163f331de22adec382252f286a53b117f7311a0448479edff1ef2"
+      "crash_adapter_sha256": "6878691254bffdbc40e2b803538b3e775ae892e2fa7602b2e4d2168a4b2d0866",
+      "policy_sha256": "87cf13bb136ed9a365bd14822a14d4808a6ef585ce1c278b926fa173d1152e5f"
     },
     "swap_entries": 0,
-    "target_pid": 1317826,
-    "target_start_ticks": 145359228,
+    "target_pid": 3189854,
+    "target_start_ticks": 191292485,
     "terminal_record_written": false
   },
   "control_plane_provenance": {
@@ -120,35 +120,35 @@
     "mutation_receipt_obtained": false
   },
   "in_progress_record": {
-    "path": "/run/patchyard-openai/openai-crash-20260807-8f8ce592d0/crash-attempt.json",
+    "path": "/run/patchyard-openai/openai-crash-20260812-e12437747f/crash-attempt.json",
     "record": {
       "action": "crash-cleanup-probe",
       "provider": "openai",
-      "run_id": "openai-crash-20260807-8f8ce592d0",
+      "run_id": "openai-crash-20260812-e12437747f",
       "schema_version": 1,
       "source": {
         "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
-        "crash_adapter_sha256": "a160cc713f8ef528244fc4a9aaf81c21d94f99ee6636ccae4558acb93d2c49b5",
-        "policy_sha256": "14d2b8be570163f331de22adec382252f286a53b117f7311a0448479edff1ef2"
+        "crash_adapter_sha256": "6878691254bffdbc40e2b803538b3e775ae892e2fa7602b2e4d2168a4b2d0866",
+        "policy_sha256": "87cf13bb136ed9a365bd14822a14d4808a6ef585ce1c278b926fa173d1152e5f"
       },
-      "started_at": "2026-08-07T12:23:52.433886Z",
+      "started_at": "2026-08-12T19:59:24.975850Z",
       "status": "in_progress"
     },
-    "sha256_after_sigkill": "7058bed85480912262addde90995bec4d2a03d2399cf74f5279c51698c9f8c01",
-    "sha256_at_checkpoint": "7058bed85480912262addde90995bec4d2a03d2399cf74f5279c51698c9f8c01",
-    "sha256_at_collection": "7058bed85480912262addde90995bec4d2a03d2399cf74f5279c51698c9f8c01",
+    "sha256_after_sigkill": "c137890d5f8bf4321c6bb0ab791b2a182b032d1e87c3b8309c98629629367d68",
+    "sha256_at_checkpoint": "c137890d5f8bf4321c6bb0ab791b2a182b032d1e87c3b8309c98629629367d68",
+    "sha256_at_collection": "c137890d5f8bf4321c6bb0ab791b2a182b032d1e87c3b8309c98629629367d68",
     "terminal_fields_present": [],
     "unchanged": true
   },
   "kill": {
-    "attempt_sha256": "7058bed85480912262addde90995bec4d2a03d2399cf74f5279c51698c9f8c01",
-    "checkpoint_sha256": "4ea6d4f7d576d41fd1a1c9ad955cfae232fb66a960036818de4fa81b4c6b2c9f",
+    "attempt_sha256": "c137890d5f8bf4321c6bb0ab791b2a182b032d1e87c3b8309c98629629367d68",
+    "checkpoint_sha256": "08ab33c0ed8760aab40aae7894bf876da160e862bc23f71e7dad7b9b01d2e2c0",
     "child_returncode": -9,
     "event_type": "credential_process_sigkill_observed",
-    "observed_at": "2026-08-07T12:23:53.581019Z",
-    "positive_control_sha256": "04a0e28ace12a3b15220e9ca696b5fcb6b13290f866086bbcef63210642dba9a",
+    "observed_at": "2026-08-12T19:59:38.100741Z",
+    "positive_control_sha256": "72822d951ff81cb33f64cee4fa13c991b1bb7fd691cb2c447e528d7c241a09ac",
     "provider": "openai",
-    "run_id": "openai-crash-20260807-8f8ce592d0",
+    "run_id": "openai-crash-20260812-e12437747f",
     "scan_socket_cleanup_required": false,
     "scan_socket_present_after_cleanup": false,
     "schema_version": 1,
@@ -156,13 +156,13 @@
     "signal_number": 9,
     "source": {
       "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
-      "crash_adapter_sha256": "a160cc713f8ef528244fc4a9aaf81c21d94f99ee6636ccae4558acb93d2c49b5",
-      "policy_sha256": "14d2b8be570163f331de22adec382252f286a53b117f7311a0448479edff1ef2"
+      "crash_adapter_sha256": "6878691254bffdbc40e2b803538b3e775ae892e2fa7602b2e4d2168a4b2d0866",
+      "policy_sha256": "87cf13bb136ed9a365bd14822a14d4808a6ef585ce1c278b926fa173d1152e5f"
     },
     "supervisor_timed_out": false,
-    "target_pid": 1317826,
+    "target_pid": 3189854,
     "target_process_present": false,
-    "target_start_ticks": 145359228
+    "target_start_ticks": 191292485
   },
   "positive_control": {
     "credential_material_found": true,
@@ -189,9 +189,9 @@
     ],
     "memory_bytes_examined": 6311936,
     "memory_regions_examined": 6,
-    "observed_at": "2026-08-07T12:23:53.451506Z",
+    "observed_at": "2026-08-12T19:59:37.996347Z",
     "provider": "openai",
-    "run_id": "openai-crash-20260807-8f8ce592d0",
+    "run_id": "openai-crash-20260812-e12437747f",
     "scan_socket_used": true,
     "scanner_core_dump_limits": [
       0,
@@ -211,16 +211,16 @@
       "max_memory_regions": 1024,
       "max_total_file_bytes": 8000000,
       "process_image_scope": "target-readable-mappings-when-present",
-      "stage_path": "/run/patchyard-openai/openai-crash-20260807-8f8ce592d0",
-      "target_pid": 1317826,
-      "target_start_ticks": 145359228,
+      "stage_path": "/run/patchyard-openai/openai-crash-20260812-e12437747f",
+      "target_pid": 3189854,
+      "target_start_ticks": 191292485,
       "version": "a130-openai-run-stage-process-image-v1"
     },
-    "search_contract_sha256": "ac8597d64cdaee9c9171d65cc6c49a2fbac195803a3e819aced37d377821fe83",
+    "search_contract_sha256": "5455455d7e7b5217b01a16342144bb5eb9ce01729b52bb8e775f12e9508b2543",
     "source": {
       "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
-      "crash_adapter_sha256": "a160cc713f8ef528244fc4a9aaf81c21d94f99ee6636ccae4558acb93d2c49b5",
-      "policy_sha256": "14d2b8be570163f331de22adec382252f286a53b117f7311a0448479edff1ef2"
+      "crash_adapter_sha256": "6878691254bffdbc40e2b803538b3e775ae892e2fa7602b2e4d2168a4b2d0866",
+      "policy_sha256": "87cf13bb136ed9a365bd14822a14d4808a6ef585ce1c278b926fa173d1152e5f"
     },
     "swap_entries": 0,
     "target_process_present": true,
@@ -235,9 +235,9 @@
     "material_classes_found": [],
     "memory_bytes_examined": 0,
     "memory_regions_examined": 0,
-    "observed_at": "2026-08-07T12:23:53.843105Z",
+    "observed_at": "2026-08-12T20:00:15.285521Z",
     "provider": "openai",
-    "run_id": "openai-crash-20260807-8f8ce592d0",
+    "run_id": "openai-crash-20260812-e12437747f",
     "scan_socket_used": false,
     "scanner_core_dump_limits": [
       0,
@@ -257,16 +257,16 @@
       "max_memory_regions": 1024,
       "max_total_file_bytes": 8000000,
       "process_image_scope": "target-readable-mappings-when-present",
-      "stage_path": "/run/patchyard-openai/openai-crash-20260807-8f8ce592d0",
-      "target_pid": 1317826,
-      "target_start_ticks": 145359228,
+      "stage_path": "/run/patchyard-openai/openai-crash-20260812-e12437747f",
+      "target_pid": 3189854,
+      "target_start_ticks": 191292485,
       "version": "a130-openai-run-stage-process-image-v1"
     },
-    "search_contract_sha256": "ac8597d64cdaee9c9171d65cc6c49a2fbac195803a3e819aced37d377821fe83",
+    "search_contract_sha256": "5455455d7e7b5217b01a16342144bb5eb9ce01729b52bb8e775f12e9508b2543",
     "source": {
       "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
-      "crash_adapter_sha256": "a160cc713f8ef528244fc4a9aaf81c21d94f99ee6636ccae4558acb93d2c49b5",
-      "policy_sha256": "14d2b8be570163f331de22adec382252f286a53b117f7311a0448479edff1ef2"
+      "crash_adapter_sha256": "6878691254bffdbc40e2b803538b3e775ae892e2fa7602b2e4d2168a4b2d0866",
+      "policy_sha256": "87cf13bb136ed9a365bd14822a14d4808a6ef585ce1c278b926fa173d1152e5f"
     },
     "swap_entries": 0,
     "target_process_present": false,
@@ -291,11 +291,11 @@
     "basis": "no-observed-openai-crash-cleanup-exchange-response",
     "enforced": false
   },
-  "run_id": "openai-crash-20260807-8f8ce592d0",
+  "run_id": "openai-crash-20260812-e12437747f",
   "schema_version": 1,
   "source": {
     "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
-    "crash_adapter_sha256": "a160cc713f8ef528244fc4a9aaf81c21d94f99ee6636ccae4558acb93d2c49b5",
-    "policy_sha256": "14d2b8be570163f331de22adec382252f286a53b117f7311a0448479edff1ef2"
+    "crash_adapter_sha256": "6878691254bffdbc40e2b803538b3e775ae892e2fa7602b2e4d2168a4b2d0866",
+    "policy_sha256": "87cf13bb136ed9a365bd14822a14d4808a6ef585ce1c278b926fa173d1152e5f"
   }
 }

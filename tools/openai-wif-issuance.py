@@ -64,7 +64,7 @@ EXPECTED_POLICY = {
         "authorization_ruling": "A132",
     },
     "service_account": {
-        "id": "user-ibYSGwJI5TPOPeJ3ioADcfDH",
+        "id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
         "name": "patchyard-worker",
         "api_key_count": 0,
     },
@@ -83,7 +83,7 @@ EXPECTED_POLICY = {
         "subject": "patchyard-control-plane",
         "audience": "https://api.openai.com",
         "claims": {"factory_environment": "production"},
-        "service_account_id": "user-ibYSGwJI5TPOPeJ3ioADcfDH",
+        "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
         "token_lifetime_seconds": 300,
     },
 }

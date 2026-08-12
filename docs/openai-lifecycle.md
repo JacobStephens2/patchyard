@@ -133,15 +133,16 @@ git status --short
 git rev-parse HEAD
 python3 -I tools/check-freeze-graph.py
 python3 -I tools/check-openai-wif-expiry.py --allow-missing-results
-jq -e '[.providers[].credential_qualified] | length == 13 and all(. == false)' \
-  policy/provider-egress.json
+jq -e '.providers.openai.credential_qualified == false' policy/provider-egress.json
 sudo test "$(stat -c '%U:%G:%a' \
   /etc/patchyard/anthropic-wif-signing.pem)" = root:root:400
 ```
 
 Stop if the checkout is dirty, the revision is not the reviewed revision for
 the attended run, the freeze graph reports drift, a checker rejects static
-preflight, a `credential_qualified` value is true, another OpenAI lifecycle run
+preflight, the OpenAI `credential_qualified` value is true (the gate is
+OpenAI-scoped: other providers' qualification changes independently, and
+Anthropic is qualified since the live review seats), another OpenAI lifecycle run
 is active, or the read-only console comparison does not match the public JWK
 derived from the active key.
 

@@ -26,6 +26,7 @@ EXPECTED_TEST_FILES = (
     "test_cloud_init_bootstrap.py",
     "test_dashboard_checkout.py",
     "test_freeze_graph.py",
+    "test_live_review_disposition_seats.py",
     "test_log_secret_scan.py",
     "test_merge_refix.py",
     "test_openai_control_plane_lifecycle.py",

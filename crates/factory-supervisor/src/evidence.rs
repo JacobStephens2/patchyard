@@ -109,7 +109,7 @@ impl EvidenceCapture {
                     capability_id_sha256,
                 },
                 vec![("capture.json".to_owned(), capture_bytes)],
-                Some(bearer.clone()),
+                Some(crate::child::ChildSecret::Preview(bearer.clone())),
                 cancellation,
             )
             .await?;

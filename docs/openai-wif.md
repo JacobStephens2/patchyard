@@ -3,13 +3,17 @@
 ## Status and provenance
 
 An attended operator reported the following OpenAI state on 2026-08-06. This
-build seat did not create, query, or mutate it:
+build seat did not create, query, or mutate it. The service account row is the
+exception: the 2026-08-06 account was destroyed by the provider-side deletion
+cascade A140 records, and the row now names its 2026-08-12 recreation, which an
+attended operator verified at the console on 2026-08-12 (zero API keys, the
+unchanged provider's sole mapping pointing at it):
 
 | Object | Identifier | Name |
 | :-- | :-- | :-- |
 | Organization | `org-000000000000000000000000` | Example Company |
 | Project | `proj_4zpZhhPPNYCvPRE5vGuRBALH` | `patchyard` |
-| Service account | `user-ibYSGwJI5TPOPeJ3ioADcfDH` | `patchyard-worker` |
+| Service account | `user-6tzs2hdFVN7GoYQbWfC0eu7k` | `patchyard-worker` |
 | Workload identity provider | `idp_DlzD7RlQXgXxd1VSG2V93eEU` | `patchyard` |
 
 The operator reported that the service account has zero API keys, the project
@@ -68,7 +72,7 @@ grant_type           urn:ietf:params:oauth:grant-type:token-exchange
 subject_token_type   urn:ietf:params:oauth:token-type:jwt
 subject_token        the in-memory signed assertion
 identity_provider_id idp_DlzD7RlQXgXxd1VSG2V93eEU
-service_account_id   user-ibYSGwJI5TPOPeJ3ioADcfDH
+service_account_id   user-6tzs2hdFVN7GoYQbWfC0eu7k
 ```
 
 No `scope` is sent because OpenAI says a request-body scope grants nothing.

@@ -30,7 +30,7 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
 POLICY_PATH = ROOT / "policy/openai-wif.json"
-POLICY_SHA256 = "14d2b8be570163f331de22adec382252f286a53b117f7311a0448479edff1ef2"
+POLICY_SHA256 = "87cf13bb136ed9a365bd14822a14d4808a6ef585ce1c278b926fa173d1152e5f"
 BASE_HARNESS_PATH = ROOT / "tools/anthropic-wif-lifecycle.py"
 BASE_HARNESS_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
@@ -127,7 +127,7 @@ def load_policy() -> dict[str, Any]:
         "issuer_url": "https://factory.example.com/workload-identity",
         "audience": "https://api.openai.com",
         "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
-        "service_account_id": "user-ibYSGwJI5TPOPeJ3ioADcfDH",
+        "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
         "subject": "patchyard-control-plane",
         "maximum_lifetime": 300,
     }

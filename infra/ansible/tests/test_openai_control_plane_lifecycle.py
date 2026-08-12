@@ -115,7 +115,7 @@ class AttestationAndCollectorContract(unittest.TestCase):
         self.assertEqual(self.rotation.ATTESTATION_DEFINITION_SHA256, expected)
         self.assertEqual(
             self.revocation.LIFECYCLE_INSTRUMENT_SHA256,
-            "7f7515d9279116a9daf59e7c5cfee4b4361b64247c44f1899453b754fbb20132",
+            "739396b9982218e909d933a74674cfc53c4ec76f7e202e08418a1d0910867923",
         )
         self.assertEqual(
             self.rotation.LIFECYCLE_INSTRUMENT_SHA256,

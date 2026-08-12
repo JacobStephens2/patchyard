@@ -30,22 +30,22 @@ CRASH_FIXTURE_PATH = (
     ROOT / "fixtures/checker-contracts/openai-crash-cleanup.json"
 )
 EXPECTED_ADAPTER_SHA256 = (
-    "7f7515d9279116a9daf59e7c5cfee4b4361b64247c44f1899453b754fbb20132"
+    "739396b9982218e909d933a74674cfc53c4ec76f7e202e08418a1d0910867923"
 )
 EXPECTED_FIXTURE_SHA256 = (
-    "af043e252ee64bba09af507ffbccf844fd0624e2c0ed1bfec3b19e44f0de2992"
+    "a70a8553fe1c74fa37976be4bedb069cd200147891e5c6d56a6beec72f761d55"
 )
 EXPECTED_EXPIRY_ADAPTER_SHA256 = (
-    "bcc5da8d92d1cb12c1dbe450f9acf35684d4388c932b4e41e841ac9e8b20b5dc"
+    "511b9499b47701138d8d52b87e04f7614be1b8d4938f03714cfdcbbd777976e1"
 )
 EXPECTED_CRASH_ADAPTER_SHA256 = (
-    "a160cc713f8ef528244fc4a9aaf81c21d94f99ee6636ccae4558acb93d2c49b5"
+    "6878691254bffdbc40e2b803538b3e775ae892e2fa7602b2e4d2168a4b2d0866"
 )
 EXPECTED_EXPIRY_FIXTURE_SHA256 = (
-    "12430b18c24a413d429ef752eba48fb338b7b10694d070e9ba28c74c6d68e952"
+    "5425e41f6cc278916ccc075091599acd8564323ba49ab4544b291af160328ad9"
 )
 EXPECTED_CRASH_FIXTURE_SHA256 = (
-    "79fe7355ebec8a2aea5827cd058596b93f7a62082ac3b3f3073517e2f6c54323"
+    "7a66d5ce1fb000b235ce6e2afac36c1302242d72faa15ff41f960127f274b5e3"
 )
 RUN_ID = "openai-wif-20260806-0123456789"
 EXPIRY_RUN_ID = "openai-expiry-20260807-0123456789"
@@ -169,7 +169,7 @@ class OpenAIWifIssuanceAdapterContract(unittest.TestCase):
                 "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
                 "subject_token": "synthetic-subject-token",
                 "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
-                "service_account_id": "user-ibYSGwJI5TPOPeJ3ioADcfDH",
+                "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
             },
         )
         self.assertNotIn("scope", request)

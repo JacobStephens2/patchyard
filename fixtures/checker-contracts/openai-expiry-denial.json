@@ -29,7 +29,7 @@
     "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
     "requested_at": "2026-08-07T12:00:00.100000Z",
     "scope_supplied": false,
-    "service_account_id": "user-ibYSGwJI5TPOPeJ3ioADcfDH",
+    "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
     "subject_token_supplied": true,
     "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
   },
@@ -70,8 +70,8 @@
   "schema_version": 1,
   "source": {
     "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
-    "expiry_adapter_sha256": "bcc5da8d92d1cb12c1dbe450f9acf35684d4388c932b4e41e841ac9e8b20b5dc",
-    "policy_sha256": "14d2b8be570163f331de22adec382252f286a53b117f7311a0448479edff1ef2"
+    "expiry_adapter_sha256": "511b9499b47701138d8d52b87e04f7614be1b8d4938f03714cfdcbbd777976e1",
+    "policy_sha256": "87cf13bb136ed9a365bd14822a14d4808a6ef585ce1c278b926fa173d1152e5f"
   },
   "started_at": "2026-08-07T12:00:00.005868Z"
 }

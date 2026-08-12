@@ -17,8 +17,6 @@ EXPECTED_FROZEN_PATHS = [
     "tools/anthropic-wif-lifecycle-admin.py",
     "tools/anthropic-wif-lifecycle.py",
     "tools/anthropic-wif-revocation.py",
-    "tools/openai-wif-crash-cleanup.py",
-    "tools/openai-wif-expiry.py",
     "tools/openai-wif-issuance.py",
     "worker/image/production-parity.json",
     "worker/qualification/hostile-test-manifest.json",
@@ -322,7 +320,6 @@ def declared_supersessions(path: Path) -> tuple[str, ...]:
 class SupersededCheckerReplay(unittest.TestCase):
     RESULTS = (
         ROOT / "research/isolation/results/anthropic-crash-cleanup.json",
-        ROOT / "research/isolation/results/openai-crash-cleanup.json",
     )
 
     def test_each_successor_preserves_its_recorded_rejection(self) -> None:

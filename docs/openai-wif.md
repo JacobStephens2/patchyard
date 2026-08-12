@@ -135,14 +135,18 @@ cd /opt/patchyard
 git status --short
 git rev-parse HEAD
 python3 -I tools/check-openai-wif-issuance.py --allow-missing-results
-jq -e '[.providers[].credential_qualified] | length == 13 and all(. == false)' \
-  policy/provider-egress.json
+jq -e '.providers.openai.credential_qualified == false' policy/provider-egress.json
 ```
 
+The gate is OpenAI-scoped on purpose: it protects against running an exchange
+while an OpenAI bearer path is already qualified, and other providers'
+qualification states change independently (Anthropic became qualified with the
+live review seats and stays true).
+
 Stop if the checkout is dirty, the revision is not the reviewed revision, the
-checker rejects static preflight, any credential flag is true, another OpenAI
-exchange run is active, or the root signing key is not the intended active
-identity.
+checker rejects static preflight, the OpenAI credential flag is true, another
+OpenAI exchange run is active, or the root signing key is not the intended
+active identity.
 
 Create one new root-owned directory on `/run` tmpfs and reserve one new output:
 

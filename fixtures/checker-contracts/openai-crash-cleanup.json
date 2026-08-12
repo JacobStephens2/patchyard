@@ -16,7 +16,7 @@
     {
       "accepted": false,
       "checker": "check-openai-wif-crash-cleanup.py",
-      "checker_sha256": "47c38b17c6c95b50b375fa9c73e644291bd81440d368ea8afa0b820438b259fd",
+      "checker_sha256": "5e5b2c124d3cab03ac6c20418568a0449d75c1b72ad8b747d57c37fec941e465",
       "exit_code": 1
     }
   ],
@@ -122,7 +122,7 @@
   "fixture_kind": "synthetic-openai-crash-cleanup-satisfiability",
   "fixture_lineage": {
     "issuance_shape_source": "research/isolation/results/openai-first-token-exchange.json",
-    "issuance_shape_source_sha256": "f04e9a7de56e8c32d076331633ed39211882ef52eb0b134f9febd842c8384dfc",
+    "issuance_shape_source_sha256": "0952e4f7bf693fd412292ce6ee947efdf2a26c590a3b0acc922ea10ca1124891",
     "local_outcome": "synthetic-sigkill-and-same-surface-observation",
     "provider_response_shape": "exchange_response.response_shape"
   },

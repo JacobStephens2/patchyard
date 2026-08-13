@@ -1,0 +1,315 @@
+#!/usr/bin/env bash
+# OpenAI one-shot client for the A133 provider-neutral launcher. A sibling of
+# the frozen Anthropic client with the same three-argument contract; invoked
+# only by worker/runtime/patchyard-provider-run via the openai entry in
+# policy/provider-qualification.json. Under A125 the refusal predicate is
+# unenforced: no OpenAI spend refusal has been observed, so a temporary_refusal
+# non-200 is recorded as it arrives and never matched against an expected
+# status, error type, or message shape.
+set -euo pipefail
+umask 077
+
+usage() {
+  echo "usage: $0 NETWORK-NAMESPACE /absolute/capability.json /absolute/output-directory" >&2
+  exit 2
+}
+
+[[ $# -eq 3 ]] || usage
+NETWORK_NAMESPACE=$1
+CAPABILITY=$2
+OUTPUT=$3
+[[ "$NETWORK_NAMESPACE" =~ ^efp[0-9a-f]{10}$ ]] || usage
+[[ "$CAPABILITY" == /* && "$OUTPUT" == /* ]] || usage
+[[ -f "$CAPABILITY" && ! -L "$CAPABILITY" ]]
+[[ "$(stat -c '%U:%G:%a' "$CAPABILITY")" == root:root:600 ]]
+[[ -d "$OUTPUT" && ! -L "$OUTPUT" ]]
+[[ "$(stat -c '%U:%G:%a' "$OUTPUT")" == root:factory-worker:710 ]]
+
+# Structure and value patterns mirror the openai entry in
+# policy/provider-qualification.json; the launcher validates the capability
+# against that entry before this client runs, and this check is the client's
+# own defense in depth. Per-phase cap values are deliberately not pinned here:
+# policy/provider-qualification.json owns them, and the launcher has already
+# required the capability to match the policy's value for its phase.
+jq -e '
+  (keys | sort) == ["authorization_ruling","capability_id","exchange_request_id",
+    "expires_at","expires_in","issued_at","provider","qualification_phase",
+    "qualification_requirement","rule_id","schema_version","scope","secret",
+    "service_account_id","spend_cap_cents","token_type","workspace_id"]
+  and .schema_version == 1 and .provider == "openai"
+  and .qualification_requirement == "provider-spend-enforcement"
+  and (.authorization_ruling | test("^A[0-9]{1,4}$"))
+  and (.qualification_phase == "temporary_refusal"
+    or .qualification_phase == "operational_acceptance"
+    or .qualification_phase == "restored_acceptance")
+  and (.spend_cap_cents | type == "number" and . >= 0 and . <= 5000)
+  and (.secret | type == "string" and test("^[A-Za-z0-9._-]{20,4096}$")
+    and length <= 8192)
+  and .token_type == "Bearer" and .scope == "unscoped"
+  and (.expires_in | type == "number" and . >= 60 and . <= 300)
+  and (.issued_at | fromdateiso8601 | type == "number")
+  and (.expires_at | fromdateiso8601 | type == "number")
+  and (.exchange_request_id
+    | test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
+  and (.service_account_id | test("^user-[A-Za-z0-9]{16,48}$"))
+  and (.rule_id | test("^idp_[A-Za-z0-9]{16,48}$"))
+  and (.workspace_id | test("^proj_[A-Za-z0-9]{16,48}$"))
+' "$CAPABILITY" >/dev/null
+
+RAW="$OUTPUT/raw"
+install -d -m 0700 -o factory-worker -g factory-worker "$RAW"
+AUTH_CONFIG="$RAW/openai-curl.conf"
+PROVIDER_HEADERS="$RAW/completions.headers"
+PROVIDER_RESPONSE="$RAW/completions.json"
+PROVIDER_REQUEST="$RAW/request.json"
+PROMPT_TEXT="$RAW/prompt.txt"
+readonly PROMPT_CALIBRATION_ITEMS=8000
+readonly PROVIDER_MODEL=gpt-5.6-luna
+readonly MAX_COMPLETION_TOKENS=16
+readonly EXPECTED_PROMPT_SHA256=ca80f31e363ce1dcd92733a371775556a5901e13870796f3138a553dbfb0ae13
+readonly EXPECTED_PROVIDER_REQUEST_SHA256=bc3886868b8184ea7dbdedab20999ef707c30b5da26766a319e202cac538a24c
+
+remove_private_material() {
+  local rc=$?
+  local cleanup_failed=0
+  rm -rf -- "$RAW" || cleanup_failed=1
+  rm -f -- "$CAPABILITY" || cleanup_failed=1
+  [[ ! -e "$RAW" && ! -L "$RAW" ]] || cleanup_failed=1
+  [[ ! -e "$CAPABILITY" && ! -L "$CAPABILITY" ]] || cleanup_failed=1
+  if [[ "$cleanup_failed" -ne 0 && "$rc" -eq 0 ]]; then
+    rc=1
+  fi
+  exit "$rc"
+}
+trap remove_private_material EXIT
+
+{
+  printf 'header = "Authorization: Bearer %s"\n' "$(jq -r .secret "$CAPABILITY")"
+  printf 'header = "content-type: application/json"\n'
+} >"$AUTH_CONFIG"
+/usr/bin/awk -v items="$PROMPT_CALIBRATION_ITEMS" 'BEGIN {
+  print "Synthetic Patchyard Factory provider spend-enforcement input."
+  for (i = 0; i < items; i++) printf "patchyard-spend-%06d ", i
+  print "\nReply with one character."
+}' >"$PROMPT_TEXT"
+[[ "$(sha256sum "$PROMPT_TEXT" | cut -d' ' -f1)" == "$EXPECTED_PROMPT_SHA256" ]]
+jq -cn --rawfile prompt "$PROMPT_TEXT" \
+  --arg model "$PROVIDER_MODEL" \
+  --argjson max_completion_tokens "$MAX_COMPLETION_TOKENS" '
+  {$model,$max_completion_tokens,
+    messages:[{role:"user",content:$prompt}]}' \
+  >"$PROVIDER_REQUEST"
+[[ "$(sha256sum "$PROVIDER_REQUEST" | cut -d' ' -f1)" \
+  == "$EXPECTED_PROVIDER_REQUEST_SHA256" ]]
+jq -e --rawfile prompt "$PROMPT_TEXT" \
+  --arg model "$PROVIDER_MODEL" \
+  --argjson max_completion_tokens "$MAX_COMPLETION_TOKENS" '
+  (keys | sort) == ["max_completion_tokens","messages","model"]
+  and .model == $model and .max_completion_tokens == $max_completion_tokens
+  and (.messages | length == 1) and .messages[0].role == "user"
+  and (.messages[0] | keys | sort) == ["content","role"]
+  and .messages[0].content == $prompt
+' "$PROVIDER_REQUEST" >/dev/null
+chown factory-worker:factory-worker \
+  "$AUTH_CONFIG" "$PROMPT_TEXT" "$PROVIDER_REQUEST"
+chmod 0400 "$AUTH_CONFIG" "$PROMPT_TEXT" "$PROVIDER_REQUEST"
+PROVIDER_REQUEST_SHA256=$(sha256sum "$PROVIDER_REQUEST" | cut -d' ' -f1)
+
+jq 'del(.secret, .capability_id, .authorization_ruling,
+  .qualification_requirement, .qualification_phase, .spend_cap_cents)
+  | {issued_at,expires_at,expires_in,exchange_request_id,token_type,scope,
+      service_account_id,rule_id,workspace_id}' \
+  "$CAPABILITY" >"$OUTPUT/issuance.json"
+chmod 0600 "$OUTPUT/issuance.json"
+
+PROVIDER_CURL_EXIT=0
+PROVIDER_STATUS=$(
+  /usr/sbin/ip netns exec "$NETWORK_NAMESPACE" \
+    /usr/sbin/runuser -u factory-worker -- \
+    /usr/bin/env -i HOME=/var/lib/patchyard-worker PATH=/usr/bin:/bin \
+    /usr/bin/curl -q --config "$AUTH_CONFIG" \
+      --http1.0 --header 'Connection: close' --ipv4 --proto '=https' \
+      --silent --show-error --connect-timeout 10 --max-time 60 \
+      --dump-header "$PROVIDER_HEADERS" \
+      --output "$PROVIDER_RESPONSE" --write-out '%{http_code}' \
+      --data-binary "@$PROVIDER_REQUEST" \
+      'https://api.openai.com/v1/chat/completions'
+) || PROVIDER_CURL_EXIT=$?
+
+if [[ "$PROVIDER_CURL_EXIT" -ne 0 ]]; then
+  [[ "$PROVIDER_CURL_EXIT" =~ ^[1-9][0-9]?$ ]] || PROVIDER_CURL_EXIT=unknown
+  printf 'openai-spend-provider-transport-failed-%s\n' \
+    "$PROVIDER_CURL_EXIT" >&2
+  exit 1
+fi
+[[ "$(stat -c %s "$PROVIDER_HEADERS")" -le 65536 ]]
+[[ "$(stat -c %s "$PROVIDER_RESPONSE")" -le 1048576 ]]
+[[ "$PROVIDER_STATUS" =~ ^[0-9]{3}$ ]] || PROVIDER_STATUS=unknown
+
+openai_response_is_single_json_object() {
+  [[ -s "$PROVIDER_RESPONSE" ]] \
+    && jq -e --slurp 'length == 1 and (.[0] | type == "object")' \
+      "$PROVIDER_RESPONSE" >/dev/null 2>&1
+}
+
+# Bounded descriptor of whatever body arrived. This classifies for the record;
+# under A125 no class other than the hygiene bounds themselves is a failure.
+classify_openai_body_shape() {
+  if [[ ! -s "$PROVIDER_RESPONSE" ]]; then
+    printf 'empty-body\n'
+  elif ! jq -e --slurp 'length == 1' "$PROVIDER_RESPONSE" >/dev/null 2>&1; then
+    printf 'invalid-json-body\n'
+  elif ! jq -e 'type == "object"' "$PROVIDER_RESPONSE" >/dev/null 2>&1; then
+    printf 'non-object\n'
+  elif ! jq -e '(keys | length <= 16)
+    and all(keys[]; test("^[A-Za-z0-9_-]{1,64}$"))' \
+    "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'unbounded-object\n'
+  elif ! jq -e 'has("error") and (.error | type == "object")' \
+    "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'object-without-error-object\n'
+  elif ! jq -e '(.error | keys | length <= 16)
+    and all(.error | keys[]; test("^[A-Za-z0-9_-]{1,64}$"))' \
+    "$PROVIDER_RESPONSE" >/dev/null; then
+    printf 'unbounded-error-object\n'
+  else
+    printf 'error-envelope\n'
+  fi
+}
+
+bounded_error_string() {
+  local field=$1
+  jq -r --arg field "$field" '
+    .error[$field] as $value
+    | if ($value | type == "string")
+        and ($value | test("^[A-Za-z0-9][A-Za-z0-9 ._:-]{0,63}$"))
+      then $value else "unrecorded" end' "$PROVIDER_RESPONSE"
+}
+
+read_provider_request_id() {
+  PROVIDER_REQUEST_ID=$(awk 'tolower($1) == "x-request-id:" {
+    gsub("\r", "", $2); print $2; exit
+  }' "$PROVIDER_HEADERS")
+  PROVIDER_REQUEST_ID_SUPPLIED=true
+  if [[ ! "$PROVIDER_REQUEST_ID" =~ ^req_[A-Za-z0-9]{8,64}$ ]]; then
+    PROVIDER_REQUEST_ID=null
+    PROVIDER_REQUEST_ID_SUPPLIED=false
+  fi
+}
+
+read_provider_request_id
+PROVIDER_SERVER_DATE=$(awk 'tolower($1) == "date:" {
+  sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit
+}' "$PROVIDER_HEADERS")
+if [[ -z "$PROVIDER_SERVER_DATE" ]]; then
+  printf 'openai-spend-provider-response-rejected-%s-missing-date\n' \
+    "$PROVIDER_STATUS" >&2
+  exit 1
+fi
+if ! OBSERVED_AT=$(date -u -d "$PROVIDER_SERVER_DATE" +%Y-%m-%dT%H:%M:%SZ); then
+  printf 'openai-spend-provider-response-rejected-%s-invalid-date\n' \
+    "$PROVIDER_STATUS" >&2
+  exit 1
+fi
+
+request_id_json() {
+  if [[ "$PROVIDER_REQUEST_ID" == null ]]; then
+    printf 'null'
+  else
+    jq -n --arg id "$PROVIDER_REQUEST_ID" '$id'
+  fi
+}
+
+QUALIFICATION_PHASE=$(jq -r .qualification_phase "$CAPABILITY")
+SPEND_CAP_CENTS=$(jq -r .spend_cap_cents "$CAPABILITY")
+if [[ "$PROVIDER_STATUS" == 200 ]]; then
+  if ! openai_response_is_single_json_object; then
+    printf 'openai-spend-provider-response-rejected-200-%s\n' \
+      "$(classify_openai_body_shape)" >&2
+    exit 1
+  fi
+  if ! jq -e --arg model "$PROVIDER_MODEL" '
+    .object == "chat.completion" and .model == $model
+    and (.usage.prompt_tokens | type == "number" and . >= 1)
+    and (.usage.completion_tokens | type == "number" and . >= 1)
+  ' "$PROVIDER_RESPONSE" >/dev/null; then
+    echo 'openai-spend-provider-response-rejected-200-invalid-completion-envelope' >&2
+    exit 1
+  fi
+  if [[ "$QUALIFICATION_PHASE" == temporary_refusal ]]; then
+    echo 'openai-spend-provider-response-rejected-200-provider-accepted-project-cap-qualified-negative' >&2
+    exit 1
+  fi
+  jq -n \
+    --arg observed_at "$OBSERVED_AT" \
+    --argjson request_id "$(request_id_json)" \
+    --argjson request_id_supplied "$PROVIDER_REQUEST_ID_SUPPLIED" \
+    --arg request_body_sha256 "$PROVIDER_REQUEST_SHA256" \
+    --arg model "$PROVIDER_MODEL" \
+    --argjson expected_project_cap_cents "$SPEND_CAP_CENTS" \
+    --argjson prompt_tokens "$(jq -r .usage.prompt_tokens "$PROVIDER_RESPONSE")" \
+    --argjson completion_tokens \
+      "$(jq -r .usage.completion_tokens "$PROVIDER_RESPONSE")" \
+    --argjson cached_tokens "$(jq -r \
+      'if (.usage.prompt_tokens_details.cached_tokens? | type) == "number"
+       then .usage.prompt_tokens_details.cached_tokens else 0 end' \
+      "$PROVIDER_RESPONSE")" \
+    '{outcome:"accepted",endpoint:"/v1/chat/completions",http_status:200,
+      $observed_at,$request_id,$request_id_supplied,$request_body_sha256,
+      response_type:"chat.completion",$model,$expected_project_cap_cents,
+      usage:{$prompt_tokens,$completion_tokens,$cached_tokens}}' \
+    >"$OUTPUT/provider-observation.json"
+elif [[ "$QUALIFICATION_PHASE" == temporary_refusal ]]; then
+  # A125: no OpenAI spend refusal has been observed, so nothing about this
+  # response is required beyond the hygiene bounds already applied. Record the
+  # bounded shape as it arrived; a later reviewed change may descend an
+  # enforced predicate from the first observed refusal.
+  BODY_SHAPE=$(classify_openai_body_shape)
+  if [[ "$BODY_SHAPE" == error-envelope ]]; then
+    ERROR_TYPE=$(bounded_error_string type)
+    ERROR_CODE=$(bounded_error_string code)
+    ERROR_MESSAGE_SHA256=$(jq -jr '.error.message // ""' "$PROVIDER_RESPONSE" \
+      | sha256sum | cut -d' ' -f1)
+    if jq -e '(.error.message // "")
+      | test("(spend|budget|billing|quota|limit)"; "i")' \
+      "$PROVIDER_RESPONSE" >/dev/null; then
+      MESSAGE_CLASS=spend_attributable
+    else
+      MESSAGE_CLASS=unattributed
+    fi
+    TOP_LEVEL_KEYS=$(jq -c 'keys | sort' "$PROVIDER_RESPONSE")
+    ERROR_KEYS=$(jq -c '.error | keys | sort' "$PROVIDER_RESPONSE")
+  else
+    ERROR_TYPE=unrecorded
+    ERROR_CODE=unrecorded
+    ERROR_MESSAGE_SHA256=$(sha256sum "$PROVIDER_RESPONSE" | cut -d' ' -f1)
+    MESSAGE_CLASS=unattributed
+    TOP_LEVEL_KEYS='[]'
+    ERROR_KEYS='[]'
+  fi
+  jq -n \
+    --arg observed_at "$OBSERVED_AT" \
+    --argjson request_id "$(request_id_json)" \
+    --argjson request_id_supplied "$PROVIDER_REQUEST_ID_SUPPLIED" \
+    --arg request_body_sha256 "$PROVIDER_REQUEST_SHA256" \
+    --arg body_shape "$BODY_SHAPE" \
+    --arg error_type "$ERROR_TYPE" --arg error_code "$ERROR_CODE" \
+    --arg message_class "$MESSAGE_CLASS" \
+    --arg message_sha256 "$ERROR_MESSAGE_SHA256" \
+    --argjson top_level_keys "$TOP_LEVEL_KEYS" --argjson error_keys "$ERROR_KEYS" \
+    --argjson expected_project_cap_cents "$SPEND_CAP_CENTS" \
+    --argjson http_status "$PROVIDER_STATUS" \
+    '{outcome:"refused",endpoint:"/v1/chat/completions",$http_status,
+      $observed_at,$request_id,$request_id_supplied,$request_body_sha256,
+      $expected_project_cap_cents,
+      response_predicate:{enforced:false,
+        basis:"no-observed-openai-spend-refusal"},
+      provider_error:{$error_type,$error_code,$message_class,$message_sha256,
+        $body_shape,shape:{$top_level_keys,$error_keys}}}' \
+    >"$OUTPUT/provider-observation.json"
+else
+  printf 'openai-spend-provider-response-rejected-%s-%s\n' \
+    "$PROVIDER_STATUS" "$(classify_openai_body_shape)" >&2
+  exit 1
+fi
+chmod 0600 "$OUTPUT/provider-observation.json"

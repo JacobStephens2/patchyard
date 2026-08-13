@@ -72,17 +72,17 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 30656,
-      "comments": 665,
-      "blanks": 2652,
-      "files": 171,
+      "code": 30942,
+      "comments": 685,
+      "blanks": 2669,
+      "files": 172,
       "languages": [
         {
           "language": "BASH",
-          "code": 6939,
-          "comments": 184,
-          "blanks": 459,
-          "files": 42
+          "code": 7218,
+          "comments": 204,
+          "blanks": 475,
+          "files": 43
         },
         {
           "language": "Forge Config",
@@ -163,9 +163,9 @@
         },
         {
           "language": "YAML",
-          "code": 3595,
+          "code": 3602,
           "comments": 29,
-          "blanks": 367,
+          "blanks": 368,
           "files": 23
         }
       ]
@@ -173,7 +173,7 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 26947,
+      "code": 26949,
       "comments": 430,
       "blanks": 2278,
       "files": 132,
@@ -236,7 +236,7 @@
         },
         {
           "language": "Shell",
-          "code": 715,
+          "code": 717,
           "comments": 84,
           "blanks": 117,
           "files": 20
@@ -267,9 +267,9 @@
     {
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
-      "code": 10872,
-      "comments": 22530,
-      "blanks": 6159,
+      "code": 10889,
+      "comments": 22544,
+      "blanks": 6160,
       "files": 208,
       "languages": [
         {
@@ -281,7 +281,7 @@
         },
         {
           "language": "JSON",
-          "code": 9724,
+          "code": 9741,
           "comments": 0,
           "blanks": 1,
           "files": 45
@@ -289,8 +289,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 22510,
-          "blanks": 6104,
+          "comments": 22524,
+          "blanks": 6105,
           "files": 171
         },
         {

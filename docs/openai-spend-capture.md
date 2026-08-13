@@ -35,8 +35,23 @@ needs three things the factory does not yet have for OpenAI:
    no provider name. Built 2026-08-11 as
    `worker/runtime/patchyard-provider-run`, with its provider facts in
    `policy/provider-qualification.json` and the no-provider-name condition
-   enforced by `tools/check-freeze-graph.py`. What remains for this requirement
-   is the OpenAI one-shot client and that policy file's OpenAI entry.
+   enforced by `tools/check-freeze-graph.py`.
+
+The OpenAI one-shot client and the policy file's OpenAI entry were built
+2026-08-13 as `worker/runtime/patchyard-openai-one-shot` (installed by the
+`neutral_launcher` role). The client mirrors the frozen three-argument
+contract; per A125 its refusal predicate is unenforced — a `temporary_refusal`
+non-200 is recorded as it arrives, never matched against an expected status or
+shape. Its calibrated request was verified against the live API on 2026-08-13
+with the standing operator key (not the WIF path): `gpt-5.6-luna`,
+`max_completion_tokens: 16`, 64,021 uncached prompt tokens, HTTP/1.0 with
+`Connection: close` accepted, `x-request-id` of the form `req_<hex>`, and
+`usage.prompt_tokens_details.cached_tokens` present (recorded by the client,
+not enforced). The policy entry's `phase_spend_cap_cents` values are **zero
+placeholders**: Phase 0 below discovers what the console permits and a
+reviewed change replaces them before any capture phase runs. A capability
+minted for the run must carry the same values, so the placeholders cannot
+silently authorize a differently-capped run.
 
 The execution plane cannot be reused. Six worker artifacts are protected, but
 not all in the same way, and the difference matters when planning the neutral

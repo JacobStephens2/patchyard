@@ -18,6 +18,23 @@
         "rule_id": "^fdrl_[A-Za-z0-9]+$",
         "workspace_id": "^wrkspc_[A-Za-z0-9]+$"
       }
+    },
+    "openai": {
+      "one_shot_client": "/usr/local/libexec/patchyard-openai-one-shot",
+      "authorization_ruling": "A132",
+      "phase_spend_cap_cents": {
+        "temporary_refusal": 0,
+        "operational_acceptance": 0,
+        "restored_acceptance": 0
+      },
+      "capability_field_patterns": {
+        "secret": "^[A-Za-z0-9._-]{20,4096}$",
+        "scope": "^unscoped$",
+        "exchange_request_id": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        "service_account_id": "^user-[A-Za-z0-9]{16,48}$",
+        "rule_id": "^idp_[A-Za-z0-9]{16,48}$",
+        "workspace_id": "^proj_[A-Za-z0-9]{16,48}$"
+      }
     }
   }
 }

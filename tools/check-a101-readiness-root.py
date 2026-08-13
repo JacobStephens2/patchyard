@@ -24,7 +24,7 @@ BOUND_SOURCES = {
     "infra/tool-versions.env": "63fa7fa217d98d914a73394c98b41f97571c5c776b3a9b2d4c51d95e56ab917f",
     "tools/read-infra-tool-version.py": "d94d97d605736d0201d0fc0517e0e780d6c346ab79ddc3bd84de7b472edeccd8",
     "tools/install-shellcheck.sh": "715047c90f6a877c57a5495f1bc24feecd40f365ccd8239a6dc711be22a3f535",
-    "tools/check-infra.sh": "59d15485649785363683881ea278d29e879e8692bac3bb8b593842bfbd06c8dc",
+    "tools/check-infra.sh": "8ad7c62518b658af5ad13e2dd26f88fa17bdb39d40c224d40d3ceaca7c646102",
     "tools/check-ansible.sh": "aa1dba9871d2e26c47046be06f2762144c87b193a7dd0c75dce5ffebfd15dbf2",
     "tools/run-isolated-unittest.py": "1617fac752231c2f6c7a1998ea2a6bc66be245edfa5bdf6d74c4615e5c286790",
     "tools/check-credential-qualification.py": "7080339d1c05c7cfc0af4f57d57c12151048b21ba7d174e76c106688946ab320",

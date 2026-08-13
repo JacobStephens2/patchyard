@@ -10,6 +10,14 @@
     group: root
     mode: "0750"
 
+- name: Install the OpenAI one-shot client
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../worker/runtime/patchyard-openai-one-shot"
+    dest: /usr/local/libexec/patchyard-openai-one-shot
+    owner: root
+    group: root
+    mode: "0750"
+
 - name: Install the provider qualification policy
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../../policy/provider-qualification.json"

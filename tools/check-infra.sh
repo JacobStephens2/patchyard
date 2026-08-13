@@ -48,6 +48,8 @@ run_gate python3 -I "$REPO_ROOT/tools/check-freeze-graph.py"
 # lives here instead, and CI installs the pinned ShellCheck before this runs.
 run_gate shellcheck --exclude=SC2329 --shell=bash \
   "$REPO_ROOT/worker/runtime/patchyard-provider-run"
+run_gate shellcheck --exclude=SC2329 --shell=bash \
+  "$REPO_ROOT/worker/runtime/patchyard-openai-one-shot"
 run_gate python3 -I "$REPO_ROOT/tools/check-credential-qualification.py"
 run_gate python3 -I "$REPO_ROOT/tools/check-stack.py"
 run_gate python3 -I "$REPO_ROOT/tools/check-independence.py"

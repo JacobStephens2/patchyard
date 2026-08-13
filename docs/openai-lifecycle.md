@@ -689,8 +689,12 @@ All steps occur in one bounded window:
    containing the original and replacement public JWKs, capture the immediate
    after-bound, and have the attester record the Attestation.
 5. Wait at least 90 seconds. Make a replacement-key positive exchange with the
-   same instrument and surface. If it does not supply a bearer, stop and perform
-   the captured rollback; do not retire the original key.
+   same instrument and surface. If it does not supply a bearer, repeat the
+   exchange at 90-second intervals up to four attempts in total, all above the
+   settling floor; every attempt is journaled with its receipt, and the winning
+   record's `attempt_count` discloses which attempt supplied the bearer. If the
+   fourth attempt still does not supply a bearer, stop and perform the captured
+   rollback; do not retire the original key.
 6. Use the reviewed local activation action to preserve the original private key
    only in the root tmpfs stage and place the replacement at the stable active
    path. Capture the console state again before retirement.
@@ -735,8 +739,13 @@ design depends on an overlap: upload both keys, prove an exchange on the
 replacement, and only then retire the original. If the console's uploaded-JWKS
 set is capped at one key, the collector cannot reach a conforming state and the
 run must not be attempted, because the only alternative is a hard cutover with a
-window in which neither key works. As of the last console reading, the provider
-holds `1 key`, so this has not yet been demonstrated.
+window in which neither key works. This capacity was demonstrated on 2026-08-12
+by run `openai-rotation-20260812-6f6da5d4b8`: the edit surface is a JWKS JSON
+textarea and it accepted a two-key set (reading 3 recorded `2` public keys).
+That run was not conforming - it aborted at the replacement-key positive control
+and was rolled back to the original one-key state - so the console is back at
+one key, and confirming capacity at step 0 without saving remains the first act
+of any fresh attempt.
 
 Run it inside tmux, for the same reason as Requirement 4:
 
@@ -810,6 +819,14 @@ The reading shape differs from Requirement 4. Exactly these keys:
 There are two settling floors and, after retirement, a bounded subwindow
 carrying the A129 bracket: a positive on the replacement, the denial attempt on
 the retired key, and a second positive on the replacement.
+
+The first of those floors is followed by a bounded retry, so expect the overlap
+positive control to sit silent for up to six minutes before it either succeeds
+or gives up: four attempts, 90 seconds apart. Every attempt journals its receipt
+before it is required positive, so a failure now preserves the provider's HTTP
+status, error type, and request id rather than losing them. Nothing else in the
+run retries - every other exchange is one attempt exactly, and the checker
+enforces that.
 
 **Recovery is guided, and it decides the target for you.** Any failure after
 the overlap upload sends `main()` into `capture_safe_rotation_rollback`, which

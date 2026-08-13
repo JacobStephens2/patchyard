@@ -1,0 +1,588 @@
+{
+  "a129_bracket": {
+    "bounded_subwindow": {
+      "ended_at": "2026-08-13T16:57:39.341712Z",
+      "started_at": "2026-08-13T16:57:37.813196Z"
+    },
+    "bracketing_control_after_denial": {
+      "assertion_descriptor": {
+        "algorithm": "RS256",
+        "audience": "https://api.openai.com",
+        "expires_at": "2026-08-13T17:02:33Z",
+        "factory_environment": "production",
+        "issued_at": "2026-08-13T16:57:33Z",
+        "issuer": "https://factory.example.com/workload-identity",
+        "jti_supplied": true,
+        "jwk_thumbprint_sha256": "61d40d83422c06f2ca7d29afe00e6e55cc6804a770e222648bdda1954a92d509",
+        "kid": "patchyard-de842961c20b52a8",
+        "lifetime_seconds": 300,
+        "minted_at": "2026-08-13T16:57:38Z",
+        "subject": "patchyard-control-plane"
+      },
+      "attempt_count": 1,
+      "credential_removed_at": "2026-08-13T16:57:39.340743Z",
+      "exchange_request": {
+        "content_type": "application/json",
+        "endpoint": "https://auth.openai.com/oauth/token",
+        "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+        "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+        "requested_at": "2026-08-13T16:57:38.834575Z",
+        "scope_supplied": false,
+        "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+        "subject_token_supplied": true,
+        "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
+      },
+      "key_role": "replacement_active",
+      "lifecycle_instrument_sha256": "739396b9982218e909d933a74674cfc53c4ec76f7e202e08418a1d0910867923",
+      "receipt": {
+        "access_token_supplied": true,
+        "body_bytes": 1537,
+        "body_format": "json_object",
+        "content_type": "application/json",
+        "error_type": null,
+        "expires_in": 294,
+        "http_status": 200,
+        "observed_at": "2026-08-13T16:57:39.340266Z",
+        "provider_date": "2026-08-13T16:57:39Z",
+        "request_id": "adae4e1c-c08c-4675-9d55-99a94d71b09e",
+        "request_id_supplied": true,
+        "request_started_at": "2026-08-13T16:57:38.834575Z",
+        "response_shape": {
+          "body_kind": "json_object",
+          "error_fields": [],
+          "top_level_fields": [
+            {
+              "name": "access_token",
+              "name_recorded": true,
+              "value_type": "string"
+            },
+            {
+              "name": "expires_in",
+              "name_recorded": true,
+              "value_type": "integer"
+            },
+            {
+              "name": "issued_token_type",
+              "name_recorded": true,
+              "value_type": "string"
+            },
+            {
+              "name": "token_type",
+              "name_recorded": true,
+              "value_type": "string"
+            }
+          ]
+        },
+        "source": "openai_http_response",
+        "token_type": "Bearer"
+      },
+      "started_at": "2026-08-13T16:57:38.793162Z"
+    },
+    "bracketing_control_before_denial": {
+      "assertion_descriptor": {
+        "algorithm": "RS256",
+        "audience": "https://api.openai.com",
+        "expires_at": "2026-08-13T17:02:32Z",
+        "factory_environment": "production",
+        "issued_at": "2026-08-13T16:57:32Z",
+        "issuer": "https://factory.example.com/workload-identity",
+        "jti_supplied": true,
+        "jwk_thumbprint_sha256": "61d40d83422c06f2ca7d29afe00e6e55cc6804a770e222648bdda1954a92d509",
+        "kid": "patchyard-de842961c20b52a8",
+        "lifetime_seconds": 300,
+        "minted_at": "2026-08-13T16:57:37Z",
+        "subject": "patchyard-control-plane"
+      },
+      "attempt_count": 1,
+      "credential_removed_at": "2026-08-13T16:57:38.358231Z",
+      "exchange_request": {
+        "content_type": "application/json",
+        "endpoint": "https://auth.openai.com/oauth/token",
+        "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+        "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+        "requested_at": "2026-08-13T16:57:37.880858Z",
+        "scope_supplied": false,
+        "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+        "subject_token_supplied": true,
+        "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
+      },
+      "key_role": "replacement_active",
+      "lifecycle_instrument_sha256": "739396b9982218e909d933a74674cfc53c4ec76f7e202e08418a1d0910867923",
+      "receipt": {
+        "access_token_supplied": true,
+        "body_bytes": 1537,
+        "body_format": "json_object",
+        "content_type": "application/json",
+        "error_type": null,
+        "expires_in": 294,
+        "http_status": 200,
+        "observed_at": "2026-08-13T16:57:38.357764Z",
+        "provider_date": "2026-08-13T16:57:38Z",
+        "request_id": "78ac275a-cb22-4dd6-988c-b8086ae70dab",
+        "request_id_supplied": true,
+        "request_started_at": "2026-08-13T16:57:37.880858Z",
+        "response_shape": {
+          "body_kind": "json_object",
+          "error_fields": [],
+          "top_level_fields": [
+            {
+              "name": "access_token",
+              "name_recorded": true,
+              "value_type": "string"
+            },
+            {
+              "name": "expires_in",
+              "name_recorded": true,
+              "value_type": "integer"
+            },
+            {
+              "name": "issued_token_type",
+              "name_recorded": true,
+              "value_type": "string"
+            },
+            {
+              "name": "token_type",
+              "name_recorded": true,
+              "value_type": "string"
+            }
+          ]
+        },
+        "source": "openai_http_response",
+        "token_type": "Bearer"
+      },
+      "started_at": "2026-08-13T16:57:37.838397Z"
+    },
+    "denial_observation": {
+      "assertion_descriptor": {
+        "algorithm": "RS256",
+        "audience": "https://api.openai.com",
+        "expires_at": "2026-08-13T17:02:33Z",
+        "factory_environment": "production",
+        "issued_at": "2026-08-13T16:57:33Z",
+        "issuer": "https://factory.example.com/workload-identity",
+        "jti_supplied": true,
+        "jwk_thumbprint_sha256": "cb1e2fb2d2c44056befa99cbb7bef617b3b66660d0e2331918c16ba7fa1240ba",
+        "kid": "patchyard-39acdfd2bfc0acb0",
+        "lifetime_seconds": 300,
+        "minted_at": "2026-08-13T16:57:38Z",
+        "subject": "patchyard-control-plane"
+      },
+      "attempt_count": 1,
+      "credential_removed_at": "2026-08-13T16:57:38.767126Z",
+      "exchange_request": {
+        "content_type": "application/json",
+        "endpoint": "https://auth.openai.com/oauth/token",
+        "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+        "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+        "requested_at": "2026-08-13T16:57:38.443372Z",
+        "scope_supplied": false,
+        "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+        "subject_token_supplied": true,
+        "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
+      },
+      "key_role": "original_retired",
+      "lifecycle_instrument_sha256": "739396b9982218e909d933a74674cfc53c4ec76f7e202e08418a1d0910867923",
+      "receipt": {
+        "access_token_supplied": false,
+        "body_bytes": 153,
+        "body_format": "json_object",
+        "content_type": "application/json",
+        "error_type": "invalid_request_error",
+        "expires_in": null,
+        "http_status": 401,
+        "observed_at": "2026-08-13T16:57:38.766685Z",
+        "provider_date": "2026-08-13T16:57:38Z",
+        "request_id": "d8e9d948-732d-4ae6-b6e6-e7fba2427119",
+        "request_id_supplied": true,
+        "request_started_at": "2026-08-13T16:57:38.443372Z",
+        "response_shape": {
+          "body_kind": "json_object",
+          "error_fields": [
+            {
+              "name": "code",
+              "name_recorded": true,
+              "value_type": "string"
+            },
+            {
+              "name": "message",
+              "name_recorded": true,
+              "value_type": "string"
+            },
+            {
+              "name": "param",
+              "name_recorded": true,
+              "value_type": "null"
+            },
+            {
+              "name": "type",
+              "name_recorded": true,
+              "value_type": "string"
+            }
+          ],
+          "top_level_fields": [
+            {
+              "name": "error",
+              "name_recorded": true,
+              "value_type": "object"
+            }
+          ]
+        },
+        "source": "openai_http_response",
+        "token_type": null
+      },
+      "started_at": "2026-08-13T16:57:38.393840Z"
+    }
+  },
+  "authorization_rulings": [
+    "A129",
+    "A132",
+    "A133",
+    "A136"
+  ],
+  "baseline_control": {
+    "assertion_descriptor": {
+      "algorithm": "RS256",
+      "audience": "https://api.openai.com",
+      "expires_at": "2026-08-13T16:51:22Z",
+      "factory_environment": "production",
+      "issued_at": "2026-08-13T16:46:22Z",
+      "issuer": "https://factory.example.com/workload-identity",
+      "jti_supplied": true,
+      "jwk_thumbprint_sha256": "cb1e2fb2d2c44056befa99cbb7bef617b3b66660d0e2331918c16ba7fa1240ba",
+      "kid": "patchyard-39acdfd2bfc0acb0",
+      "lifetime_seconds": 300,
+      "minted_at": "2026-08-13T16:46:27Z",
+      "subject": "patchyard-control-plane"
+    },
+    "attempt_count": 1,
+    "credential_removed_at": "2026-08-13T16:46:27.560948Z",
+    "exchange_request": {
+      "content_type": "application/json",
+      "endpoint": "https://auth.openai.com/oauth/token",
+      "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+      "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+      "requested_at": "2026-08-13T16:46:27.075131Z",
+      "scope_supplied": false,
+      "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+      "subject_token_supplied": true,
+      "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
+    },
+    "key_role": "original_active",
+    "lifecycle_instrument_sha256": "739396b9982218e909d933a74674cfc53c4ec76f7e202e08418a1d0910867923",
+    "receipt": {
+      "access_token_supplied": true,
+      "body_bytes": 1537,
+      "body_format": "json_object",
+      "content_type": "application/json",
+      "error_type": null,
+      "expires_in": 295,
+      "http_status": 200,
+      "observed_at": "2026-08-13T16:46:27.560438Z",
+      "provider_date": "2026-08-13T16:46:27Z",
+      "request_id": "b3e65dee-b104-4550-987e-0387e7ec9565",
+      "request_id_supplied": true,
+      "request_started_at": "2026-08-13T16:46:27.075131Z",
+      "response_shape": {
+        "body_kind": "json_object",
+        "error_fields": [],
+        "top_level_fields": [
+          {
+            "name": "access_token",
+            "name_recorded": true,
+            "value_type": "string"
+          },
+          {
+            "name": "expires_in",
+            "name_recorded": true,
+            "value_type": "integer"
+          },
+          {
+            "name": "issued_token_type",
+            "name_recorded": true,
+            "value_type": "string"
+          },
+          {
+            "name": "token_type",
+            "name_recorded": true,
+            "value_type": "string"
+          }
+        ]
+      },
+      "source": "openai_http_response",
+      "token_type": "Bearer"
+    },
+    "started_at": "2026-08-13T16:46:27.023452Z"
+  },
+  "bounded_window": {
+    "ended_at": "2026-08-13T16:57:39.341735Z",
+    "started_at": "2026-08-13T16:44:45.224062Z"
+  },
+  "derived_public_key_descriptors": {
+    "original": {
+      "jwk_thumbprint_sha256": "cb1e2fb2d2c44056befa99cbb7bef617b3b66660d0e2331918c16ba7fa1240ba",
+      "kid": "patchyard-39acdfd2bfc0acb0"
+    },
+    "replacement": {
+      "jwk_thumbprint_sha256": "61d40d83422c06f2ca7d29afe00e6e55cc6804a770e222648bdda1954a92d509",
+      "kid": "patchyard-de842961c20b52a8"
+    }
+  },
+  "local_activation": {
+    "active_key_path": "/etc/patchyard/anthropic-wif-signing.pem",
+    "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+    "observed_at": "2026-08-13T16:53:23.530274Z",
+    "original_key": {
+      "jwk_thumbprint_sha256": "cb1e2fb2d2c44056befa99cbb7bef617b3b66660d0e2331918c16ba7fa1240ba",
+      "kid": "patchyard-39acdfd2bfc0acb0"
+    },
+    "original_key_preserved_in_root_tmpfs": true,
+    "replacement_key": {
+      "jwk_thumbprint_sha256": "61d40d83422c06f2ca7d29afe00e6e55cc6804a770e222648bdda1954a92d509",
+      "kid": "patchyard-de842961c20b52a8"
+    },
+    "source": "local_atomic_key_activation"
+  },
+  "mutation_receipt_obtained": false,
+  "observation_kind": "signing-key-rotation",
+  "original_console_reading": {
+    "captured_after_at": "2026-08-13T16:46:26.997420Z",
+    "captured_before_at": "2026-08-13T16:44:45.247923Z",
+    "state": {
+      "console_location": "https://platform.openai.com/settings/organization/security/workload-identity-provider/idp_DlzD7RlQXgXxd1VSG2V93eEU",
+      "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+      "mapped_service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+      "public_keys": [
+        {
+          "enabled": true,
+          "jwk_thumbprint_sha256": "cb1e2fb2d2c44056befa99cbb7bef617b3b66660d0e2331918c16ba7fa1240ba",
+          "kid": "patchyard-39acdfd2bfc0acb0"
+        }
+      ],
+      "subject_mapping_enabled": true,
+      "subject_mapping_expression": "sub == 'patchyard-control-plane' && factory_environment == 'production'",
+      "uploaded_jwks_mode": true
+    }
+  },
+  "overlap_attestation": {
+    "actor": {
+      "kind": "accountable_human",
+      "name": "Jacob Stephens"
+    },
+    "attester": {
+      "kind": "accountable_human",
+      "name": "Jacob Stephens"
+    },
+    "capture_method": "operator_console_readback_bounded_by_control_plane_utc",
+    "console_readings": {
+      "after": {
+        "captured_after_at": "2026-08-13T16:50:27.865270Z",
+        "captured_before_at": "2026-08-13T16:49:09.118309Z",
+        "state": {
+          "console_location": "https://platform.openai.com/settings/organization/security/workload-identity-provider/idp_DlzD7RlQXgXxd1VSG2V93eEU",
+          "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+          "mapped_service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+          "public_keys": [
+            {
+              "enabled": true,
+              "jwk_thumbprint_sha256": "cb1e2fb2d2c44056befa99cbb7bef617b3b66660d0e2331918c16ba7fa1240ba",
+              "kid": "patchyard-39acdfd2bfc0acb0"
+            },
+            {
+              "enabled": true,
+              "jwk_thumbprint_sha256": "61d40d83422c06f2ca7d29afe00e6e55cc6804a770e222648bdda1954a92d509",
+              "kid": "patchyard-de842961c20b52a8"
+            }
+          ],
+          "subject_mapping_enabled": true,
+          "subject_mapping_expression": "sub == 'patchyard-control-plane' && factory_environment == 'production'",
+          "uploaded_jwks_mode": true
+        }
+      },
+      "before": {
+        "captured_after_at": "2026-08-13T16:46:42.930293Z",
+        "captured_before_at": "2026-08-13T16:46:27.672865Z",
+        "state": {
+          "console_location": "https://platform.openai.com/settings/organization/security/workload-identity-provider/idp_DlzD7RlQXgXxd1VSG2V93eEU",
+          "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+          "mapped_service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+          "public_keys": [
+            {
+              "enabled": true,
+              "jwk_thumbprint_sha256": "cb1e2fb2d2c44056befa99cbb7bef617b3b66660d0e2331918c16ba7fa1240ba",
+              "kid": "patchyard-39acdfd2bfc0acb0"
+            }
+          ],
+          "subject_mapping_enabled": true,
+          "subject_mapping_expression": "sub == 'patchyard-control-plane' && factory_environment == 'production'",
+          "uploaded_jwks_mode": true
+        }
+      }
+    },
+    "lifecycle_instrument_sha256": "739396b9982218e909d933a74674cfc53c4ec76f7e202e08418a1d0910867923",
+    "mutation_description": "upload a two-key public-JWK overlap containing derived identifiers patchyard-39acdfd2bfc0acb0 and patchyard-de842961c20b52a8 on identity provider idp_DlzD7RlQXgXxd1VSG2V93eEU",
+    "mutation_receipt_obtained": false,
+    "party_relationship": {
+      "corroboration": false,
+      "independence": false,
+      "same_party": true
+    },
+    "schema_version": 1
+  },
+  "overlap_positive_control": {
+    "assertion_descriptor": {
+      "algorithm": "RS256",
+      "audience": "https://api.openai.com",
+      "expires_at": "2026-08-13T16:56:52Z",
+      "factory_environment": "production",
+      "issued_at": "2026-08-13T16:51:52Z",
+      "issuer": "https://factory.example.com/workload-identity",
+      "jti_supplied": true,
+      "jwk_thumbprint_sha256": "61d40d83422c06f2ca7d29afe00e6e55cc6804a770e222648bdda1954a92d509",
+      "kid": "patchyard-de842961c20b52a8",
+      "lifetime_seconds": 300,
+      "minted_at": "2026-08-13T16:51:57Z",
+      "subject": "patchyard-control-plane"
+    },
+    "attempt_count": 1,
+    "credential_removed_at": "2026-08-13T16:51:58.604176Z",
+    "exchange_request": {
+      "content_type": "application/json",
+      "endpoint": "https://auth.openai.com/oauth/token",
+      "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+      "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+      "requested_at": "2026-08-13T16:51:58.026625Z",
+      "scope_supplied": false,
+      "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+      "subject_token_supplied": true,
+      "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
+    },
+    "key_role": "replacement_staging",
+    "lifecycle_instrument_sha256": "739396b9982218e909d933a74674cfc53c4ec76f7e202e08418a1d0910867923",
+    "receipt": {
+      "access_token_supplied": true,
+      "body_bytes": 1537,
+      "body_format": "json_object",
+      "content_type": "application/json",
+      "error_type": null,
+      "expires_in": 294,
+      "http_status": 200,
+      "observed_at": "2026-08-13T16:51:58.603722Z",
+      "provider_date": "2026-08-13T16:51:58Z",
+      "request_id": "9a33c569-b972-4fee-95b9-53fa53d68fa3",
+      "request_id_supplied": true,
+      "request_started_at": "2026-08-13T16:51:58.026625Z",
+      "response_shape": {
+        "body_kind": "json_object",
+        "error_fields": [],
+        "top_level_fields": [
+          {
+            "name": "access_token",
+            "name_recorded": true,
+            "value_type": "string"
+          },
+          {
+            "name": "expires_in",
+            "name_recorded": true,
+            "value_type": "integer"
+          },
+          {
+            "name": "issued_token_type",
+            "name_recorded": true,
+            "value_type": "string"
+          },
+          {
+            "name": "token_type",
+            "name_recorded": true,
+            "value_type": "string"
+          }
+        ]
+      },
+      "source": "openai_http_response",
+      "token_type": "Bearer"
+    },
+    "started_at": "2026-08-13T16:51:57.981953Z"
+  },
+  "provider": "openai",
+  "provider_response_observed": true,
+  "qualification_evidence": false,
+  "qualification_requirement": "signing-key-rotation",
+  "response_predicate": {
+    "basis": "no-observed-openai-retired-signing-key-response",
+    "enforced": false
+  },
+  "retirement_attestation": {
+    "actor": {
+      "kind": "accountable_human",
+      "name": "Jacob Stephens"
+    },
+    "attester": {
+      "kind": "accountable_human",
+      "name": "Jacob Stephens"
+    },
+    "capture_method": "operator_console_readback_bounded_by_control_plane_utc",
+    "console_readings": {
+      "after": {
+        "captured_after_at": "2026-08-13T16:56:07.761735Z",
+        "captured_before_at": "2026-08-13T16:55:47.621756Z",
+        "state": {
+          "console_location": "https://platform.openai.com/settings/organization/security/workload-identity-provider/idp_DlzD7RlQXgXxd1VSG2V93eEU",
+          "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+          "mapped_service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+          "public_keys": [
+            {
+              "enabled": true,
+              "jwk_thumbprint_sha256": "61d40d83422c06f2ca7d29afe00e6e55cc6804a770e222648bdda1954a92d509",
+              "kid": "patchyard-de842961c20b52a8"
+            }
+          ],
+          "subject_mapping_enabled": true,
+          "subject_mapping_expression": "sub == 'patchyard-control-plane' && factory_environment == 'production'",
+          "uploaded_jwks_mode": true
+        }
+      },
+      "before": {
+        "captured_after_at": "2026-08-13T16:53:39.188893Z",
+        "captured_before_at": "2026-08-13T16:53:23.532148Z",
+        "state": {
+          "console_location": "https://platform.openai.com/settings/organization/security/workload-identity-provider/idp_DlzD7RlQXgXxd1VSG2V93eEU",
+          "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+          "mapped_service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+          "public_keys": [
+            {
+              "enabled": true,
+              "jwk_thumbprint_sha256": "cb1e2fb2d2c44056befa99cbb7bef617b3b66660d0e2331918c16ba7fa1240ba",
+              "kid": "patchyard-39acdfd2bfc0acb0"
+            },
+            {
+              "enabled": true,
+              "jwk_thumbprint_sha256": "61d40d83422c06f2ca7d29afe00e6e55cc6804a770e222648bdda1954a92d509",
+              "kid": "patchyard-de842961c20b52a8"
+            }
+          ],
+          "subject_mapping_enabled": true,
+          "subject_mapping_expression": "sub == 'patchyard-control-plane' && factory_environment == 'production'",
+          "uploaded_jwks_mode": true
+        }
+      }
+    },
+    "lifecycle_instrument_sha256": "739396b9982218e909d933a74674cfc53c4ec76f7e202e08418a1d0910867923",
+    "mutation_description": "remove original public JWK with derived identifier patchyard-39acdfd2bfc0acb0 from identity provider idp_DlzD7RlQXgXxd1VSG2V93eEU, leaving only replacement patchyard-de842961c20b52a8",
+    "mutation_receipt_obtained": false,
+    "party_relationship": {
+      "corroboration": false,
+      "independence": false,
+      "same_party": true
+    },
+    "schema_version": 1
+  },
+  "run_id": "openai-rotation-20260813-c488000f8f",
+  "schema_version": 1,
+  "source": {
+    "attestation_definition_sha256": "0d32e80b980c334977e51eb706783896a687d29faef46d50e53f3ee56e8e4d47",
+    "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+    "checker_sha256": "52eae885fd4d84be36252bc8566aea8664b173d54bef5e26cf594676866cc4e0",
+    "collector_sha256": "530df38bcaf7cd66eec6054c419665877adcd7dbb59fed50a42911091c447347",
+    "lifecycle_instrument_sha256": "739396b9982218e909d933a74674cfc53c4ec76f7e202e08418a1d0910867923",
+    "policy_sha256": "87cf13bb136ed9a365bd14822a14d4808a6ef585ce1c278b926fa173d1152e5f"
+  }
+}

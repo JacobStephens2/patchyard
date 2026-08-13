@@ -149,6 +149,36 @@ class ChildLauncherContract(unittest.TestCase):
         ):
             self.assertIn(command, self.reaper)
 
+    def test_reaper_restores_ownership_a_killed_launcher_left_behind(self) -> None:
+        # A SIGKILLed launcher never runs its finish trap, so the root
+        # ExecStopPost reaper must restore what the trap would have: manager
+        # ownership of the staging directory (or daemon orphan recovery fails
+        # closed at startup) and the 0555 review workspace projection (or the
+        # manager's git worktree-remove fails). Both count as residue and are
+        # re-verified before exit.
+        self.assertIn('chown -R "$MANAGER_UID:$MANAGER_GID" -- "$JOB"', self.reaper)
+        self.assertIn('find "$JOB" -type d -exec chmod 0700 {} +', self.reaper)
+        self.assertIn('find "$JOB" -type f -exec chmod 0600 {} +', self.reaper)
+        ownership = self.reaper.index('chown -R "$MANAGER_UID:$MANAGER_GID"')
+        self.assertIn(
+            "mark_residue",
+            self.reaper[self.reaper.rindex("if", 0, ownership) - 400 : ownership],
+        )
+        # The workspace chmod re-validates the launcher's path contract and
+        # never follows a symlink or touches a non-manager-owned path as root.
+        workspace = self.reaper.index('chmod 0700 -- "$WORKSPACE"')
+        guard = self.reaper[self.reaper.index('REQUEST="$JOB/request.json"') : workspace]
+        self.assertIn(".contract.kind == \"review\"", guard)
+        self.assertIn("review-worktrees/review-[0-9a-f]{32}", guard)
+        self.assertIn('readlink -f -- "$WORKSPACE"', guard)
+        self.assertIn('stat -c %U -- "$WORKSPACE"', guard)
+        self.assertIn('! -L "$WORKSPACE"', guard)
+        # Final verification: no non-manager ownership survives the reap.
+        self.assertIn(
+            'find "$JOB" ! -user "$MANAGER_USER" -print -quit | grep -q .',
+            self.reaper[workspace:],
+        )
+
     def test_teardown_failure_forces_a_nonzero_exit(self) -> None:
         helper = self.launcher.split("final_exit_status() {", 1)[1].split("\n}", 1)[0]
         finish = self.launcher.split("finish() {", 1)[1].split("\n}\n\ntrap finish", 1)[

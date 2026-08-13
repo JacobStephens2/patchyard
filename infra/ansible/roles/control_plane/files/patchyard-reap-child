@@ -15,6 +15,9 @@ NETNS="efn$SHORT"
 HOST_VETH="efh$SHORT"
 NFT_TABLE="eta_child_$SHORT"
 NETWORK_MARKER="$JOB/.network-active"
+MANAGER_USER=factory-manager
+MANAGER_UID=$(id -u "$MANAGER_USER")
+MANAGER_GID=$(id -g "$MANAGER_USER")
 RESIDUE=false
 
 mark_residue() {
@@ -66,6 +69,39 @@ if [[ -e "$NETWORK_MARKER" || -L "$NETWORK_MARKER" ]]; then
   rm -f -- "$NETWORK_MARKER"
 fi
 
+# A launcher killed before its finish trap (OOM kill, timeout SIGKILL) leaves
+# staging content chowned to nobody, which the manager cannot remove and which
+# fails daemon orphan recovery closed at startup. Restore manager ownership
+# and private modes so recovery can remove the job.
+if [[ -d "$JOB" ]] \
+  && find "$JOB" ! -user "$MANAGER_USER" -print -quit | grep -q .; then
+  mark_residue
+  chown -R "$MANAGER_UID:$MANAGER_GID" -- "$JOB"
+  find "$JOB" -type d -exec chmod 0700 {} +
+  find "$JOB" -type f -exec chmod 0600 {} +
+fi
+
+# The same killed launcher leaves a review workspace projected 0555, which the
+# manager's git worktree-remove cannot delete. Restore 0700 on the workspace
+# named by the manager-authored request, re-validating the launcher's path
+# contract before a root chmod.
+REQUEST="$JOB/request.json"
+if [[ -f "$REQUEST" && ! -L "$REQUEST" ]]; then
+  WORKSPACE=$(jq -r '
+    if .schema_version == 1 and .contract.kind == "review"
+      and (.contract.workspace | type == "string"
+        and test("^/var/lib/patchyard/supervisor/(review-worktrees/review-[0-9a-f]{32}|proposer-review-worktrees/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/review-[0-9a-f]{32})$"))
+    then .contract.workspace else empty end
+  ' "$REQUEST" 2>/dev/null || true)
+  if [[ -n "$WORKSPACE" && ! -L "$WORKSPACE" && -d "$WORKSPACE" ]] \
+    && [[ "$(readlink -f -- "$WORKSPACE")" == "$WORKSPACE" ]] \
+    && [[ "$(stat -c %U -- "$WORKSPACE")" == "$MANAGER_USER" ]] \
+    && [[ "$(stat -c %a -- "$WORKSPACE")" != 700 ]]; then
+    mark_residue
+    chmod 0700 -- "$WORKSPACE"
+  fi
+fi
+
 if [[ "$RESIDUE" == true ]]; then
   printf 'patchyard_child_reaped_residue=%s\n' "$ID" >&2
 fi
@@ -85,5 +121,9 @@ if nft list table inet "$NFT_TABLE" >/dev/null 2>&1; then
 fi
 if findmnt -rn -o TARGET |
   grep -E "^($JOB|/run/netns/$NETNS|/etc/netns/$NETNS)(/|$)"; then
+  exit 1
+fi
+if [[ -d "$JOB" ]] \
+  && find "$JOB" ! -user "$MANAGER_USER" -print -quit | grep -q .; then
   exit 1
 fi

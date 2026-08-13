@@ -54,6 +54,10 @@ A machine-readable statement that a result or an attestation does not rest on a
 provider receipt.
 _Avoid_: marker, flag, tag, annotation
 
+**Qualified image inventory**:
+The worker image files, by name and digest, that a result's evidence ran under.
+_Avoid_: recipe digest, image hash, manifest, snapshot
+
 **Fixture**:
 A committed input to a test or a checker, never a record of a live run.
 _Avoid_: naming a result, a requirement, or a proof

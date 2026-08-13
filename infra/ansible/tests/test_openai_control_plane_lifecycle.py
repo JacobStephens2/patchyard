@@ -417,6 +417,196 @@ class AttestationAndCollectorContract(unittest.TestCase):
             {"same_party": True, "independence": False, "corroboration": False},
         )
 
+    def test_overlap_positive_retry_journals_every_receipt(self) -> None:
+        supplied = iter((False, True))
+        roles: list[str] = []
+
+        def exchange(policy, signing_key, run_id, key_role):
+            del policy, signing_key, run_id
+            roles.append(key_role)
+            return {
+                "receipt": {"access_token_supplied": next(supplied)},
+                "attempt_count": 1,
+            }
+
+        journal: dict[str, object] = {}
+        sleeps: list[float] = []
+        result = self.rotation.overlap_positive_with_retry(
+            self.rotation.load_policy(),
+            Path("/unused"),
+            "openai-rotation-20260807-0123456789",
+            journal,
+            exchanger=exchange,
+            sleeper=sleeps.append,
+        )
+        self.assertEqual(result["attempt_count"], 2)
+        self.assertIs(journal["overlap_positive_control"], result)
+        self.assertEqual(
+            [attempt["attempt_count"] for attempt in journal["overlap_positive_attempts"]],
+            [1, 2],
+        )
+        self.assertIs(
+            journal["overlap_positive_attempts"][0]["receipt"][
+                "access_token_supplied"
+            ],
+            False,
+        )
+        self.assertEqual(sleeps, [90.0])
+        self.assertEqual(roles, ["replacement_staging", "replacement_staging"])
+
+    def test_exhausted_overlap_positive_retry_preserves_the_failing_receipt(self) -> None:
+        def exchange(policy, signing_key, run_id, key_role):
+            del policy, signing_key, run_id, key_role
+            return {
+                "receipt": {"access_token_supplied": False, "http_status": 401},
+                "attempt_count": 1,
+            }
+
+        journal: dict[str, object] = {}
+        sleeps: list[float] = []
+        with self.assertRaises(self.rotation.RotationCollectorError) as caught:
+            self.rotation.overlap_positive_with_retry(
+                self.rotation.load_policy(),
+                Path("/unused"),
+                "openai-rotation-20260807-0123456789",
+                journal,
+                exchanger=exchange,
+                sleeper=sleeps.append,
+            )
+        self.assertIn("did not supply a bearer", str(caught.exception))
+        bound = self.rotation.OVERLAP_POSITIVE_MAX_ATTEMPTS
+        self.assertEqual(len(journal["overlap_positive_attempts"]), bound)
+        self.assertEqual(
+            journal["overlap_positive_control"]["receipt"]["http_status"], 401
+        )
+        self.assertEqual(sleeps, [90.0] * (bound - 1))
+
+    def test_failed_baseline_receipt_is_journaled_before_the_requirement(self) -> None:
+        fixture = json.loads(ROTATION_FIXTURE_PATH.read_text())
+        original_reading = fixture["original_console_reading"]
+        original = fixture["derived_public_key_descriptors"]["original"]
+        inputs = iter((json.dumps(original_reading["state"]),))
+
+        def exchange(*unused):
+            del unused
+            return {"receipt": {"access_token_supplied": False, "http_status": 401}}
+
+        journal: dict[str, object] = {}
+        with (
+            mock.patch.object(self.rotation.BASE, "load_public_jwk", return_value={}),
+            mock.patch.object(
+                self.rotation.BASE, "jwk_descriptor", return_value=original
+            ),
+        ):
+            with self.assertRaises(self.rotation.RotationCollectorError) as caught:
+                self.rotation.collect(
+                    run_id="openai-rotation-20260807-0123456789",
+                    actor_name="Fixture Operator",
+                    actor_kind="accountable_human",
+                    attester_name="Fixture Operator",
+                    policy=self.rotation.load_policy(),
+                    stage=Path("/unused"),
+                    input_fn=lambda unused: next(inputs),
+                    clock=TickingClock(
+                        datetime(2026, 8, 7, 15, 17, 23, 123_457, timezone.utc)
+                    ),
+                    sleeper=lambda unused: None,
+                    exchanger=exchange,
+                    journal=journal,
+                )
+        self.assertIn("baseline control did not supply a bearer", str(caught.exception))
+        self.assertEqual(
+            journal["baseline_control"]["receipt"]["http_status"], 401
+        )
+
+    def test_failed_bracket_receipts_are_journaled_before_the_requirement(self) -> None:
+        fixture = json.loads(ROTATION_FIXTURE_PATH.read_text())
+        original = fixture["derived_public_key_descriptors"]["original"]
+        replacement = fixture["derived_public_key_descriptors"]["replacement"]
+        original_state = fixture["original_console_reading"]["state"]
+        overlap_before = fixture["overlap_attestation"]["console_readings"][
+            "before"
+        ]["state"]
+        overlap_after = fixture["overlap_attestation"]["console_readings"][
+            "after"
+        ]["state"]
+        retirement_before = fixture["retirement_attestation"]["console_readings"][
+            "before"
+        ]["state"]
+        retirement_after = fixture["retirement_attestation"]["console_readings"][
+            "after"
+        ]["state"]
+        inputs = iter(
+            (
+                json.dumps(original_state),
+                json.dumps(overlap_before),
+                "OVERLAP COMPLETE",
+                json.dumps(overlap_after),
+                "ACTIVATE LOCALLY",
+                json.dumps(retirement_before),
+                "RETIREMENT COMPLETE",
+                json.dumps(retirement_after),
+            )
+        )
+        supplied = iter((True, True, True, False, False))
+
+        def exchange(policy, signing_key, run_id, key_role):
+            del policy, signing_key, run_id
+            return {
+                "key_role": key_role,
+                "receipt": {"access_token_supplied": next(supplied)},
+                "attempt_count": 1,
+            }
+
+        journal: dict[str, object] = {}
+        with (
+            mock.patch.object(self.rotation.BASE, "load_public_jwk", return_value={}),
+            mock.patch.object(
+                self.rotation.BASE, "jwk_descriptor", return_value=original
+            ),
+        ):
+            with self.assertRaises(self.rotation.RotationCollectorError) as caught:
+                self.rotation.collect(
+                    run_id="openai-rotation-20260807-0123456789",
+                    actor_name="Fixture Operator",
+                    actor_kind="accountable_human",
+                    attester_name="Fixture Operator",
+                    policy=self.rotation.load_policy(),
+                    stage=Path("/unused"),
+                    input_fn=lambda unused: next(inputs),
+                    clock=TickingClock(
+                        datetime(2026, 8, 7, 15, 17, 23, 123_457, timezone.utc)
+                    ),
+                    sleeper=lambda unused: None,
+                    exchanger=exchange,
+                    key_generator=lambda unused: deepcopy(replacement),
+                    activator=lambda *unused: (
+                        {"synthetic": True},
+                        Path("/unused-retired"),
+                    ),
+                    journal=journal,
+                )
+        self.assertIn(
+            "post-denial bracketing control did not supply a bearer",
+            str(caught.exception),
+        )
+        bracket = journal["a129_bracket"]
+        self.assertEqual(
+            set(bracket),
+            {
+                "bracketing_control_before_denial",
+                "denial_observation",
+                "bracketing_control_after_denial",
+            },
+        )
+        self.assertEqual(bracket["denial_observation"]["key_role"], "original_retired")
+        self.assertIs(
+            bracket["bracketing_control_after_denial"]["receipt"][
+                "access_token_supplied"
+            ],
+            False,
+        )
+
 
 class FederationRevocationCheckerContract(CheckerCase):
     checker = REVOCATION_CHECKER_PATH
@@ -594,6 +784,30 @@ class SigningKeyRotationCheckerContract(CheckerCase):
             )
             self.assertEqual(result.returncode, 1)
             self.assertIn("unexpected evidence shape", result.stderr)
+
+    def test_overlap_positive_control_accepts_only_a_bounded_retry(self) -> None:
+        retried = deepcopy(self.fixture)
+        retried["overlap_positive_control"]["attempt_count"] = 4
+        result = self.run_checker(
+            "--contract-fixture", str(self.write(retried, "retried.json"))
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        exhausted = deepcopy(self.fixture)
+        exhausted["overlap_positive_control"]["attempt_count"] = 5
+        result = self.run_checker(
+            "--contract-fixture", str(self.write(exhausted, "exhausted.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("attempt count is outside the bounded retry", result.stderr)
+
+        baseline = deepcopy(self.fixture)
+        baseline["baseline_control"]["attempt_count"] = 2
+        result = self.run_checker(
+            "--contract-fixture", str(self.write(baseline, "retried-baseline.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("baseline control was not exactly one attempt", result.stderr)
 
     def test_denial_inside_settling_floor_is_rejected(self) -> None:
         value = deepcopy(self.fixture)

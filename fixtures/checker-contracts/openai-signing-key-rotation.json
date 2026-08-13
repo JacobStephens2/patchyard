@@ -359,7 +359,7 @@
       "minted_at": "2026-08-07T15:18:54Z",
       "subject": "patchyard-control-plane"
     },
-    "attempt_count": 1,
+    "attempt_count": 2,
     "credential_removed_at": "2026-08-07T15:18:54.421809Z",
     "exchange_request": {
       "content_type": "application/json",
@@ -475,8 +475,8 @@
   "source": {
     "attestation_definition_sha256": "0d32e80b980c334977e51eb706783896a687d29faef46d50e53f3ee56e8e4d47",
     "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
-    "checker_sha256": "2f867226e4d958745447ef2b876873888e15bbefa0e7482924574ad463dd6e31",
-    "collector_sha256": "309b4e71d0b714d112387d693a22d9c57b1bd903e5427c6deee7987c2aa36b9e",
+    "checker_sha256": "52eae885fd4d84be36252bc8566aea8664b173d54bef5e26cf594676866cc4e0",
+    "collector_sha256": "530df38bcaf7cd66eec6054c419665877adcd7dbb59fed50a42911091c447347",
     "lifecycle_instrument_sha256": "739396b9982218e909d933a74674cfc53c4ec76f7e202e08418a1d0910867923",
     "policy_sha256": "87cf13bb136ed9a365bd14822a14d4808a6ef585ce1c278b926fa173d1152e5f"
   }

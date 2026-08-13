@@ -48,6 +48,8 @@ OPENAI_KEY = re.compile(r"sk-[A-Za-z0-9_-]{16,}")
 BEARER = re.compile(r"Bearer [A-Za-z0-9._~-]{16,}", re.IGNORECASE)
 PRIVATE_KEY = re.compile(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----")
 SETTLING_FLOOR_SECONDS = 90
+OVERLAP_POSITIVE_MAX_ATTEMPTS = 4
+OVERLAP_POSITIVE_RETRY_SECONDS = 90
 ROTATION_STATE_KEYS = {
     "identity_provider_id",
     "uploaded_jwks_mode",
@@ -349,6 +351,47 @@ def require_positive(control: dict[str, Any], label: str) -> None:
         raise RotationCollectorError(f"{label} did not supply a bearer")
 
 
+def overlap_positive_with_retry(
+    policy: dict[str, Any],
+    replacement_key: Path,
+    run_id: str,
+    journal: dict[str, Any],
+    *,
+    exchanger: Callable[[dict[str, Any], Path, str, str], dict[str, Any]],
+    sleeper: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    """Exchange with the replacement key, retrying above the settling floor.
+
+    Every attempt's receipt is journaled before any positivity requirement, so
+    a run that never observes a bearer still preserves what the provider said.
+    """
+    attempts: list[dict[str, Any]] = []
+    journal["overlap_positive_attempts"] = attempts
+    for attempt in range(1, OVERLAP_POSITIVE_MAX_ATTEMPTS + 1):
+        observation = exchanger(
+            policy, replacement_key, run_id, "replacement_staging"
+        )
+        observation["attempt_count"] = attempt
+        attempts.append(observation)
+        journal["overlap_positive_control"] = observation
+        if observation.get("receipt", {}).get("access_token_supplied") is True:
+            return observation
+        if attempt < OVERLAP_POSITIVE_MAX_ATTEMPTS:
+            print(
+                f"Overlap positive attempt {attempt} did not supply a bearer; "
+                f"waiting {OVERLAP_POSITIVE_RETRY_SECONDS} seconds for JWKS "
+                "propagation before retrying.",
+                file=sys.stderr,
+                flush=True,
+            )
+            sleeper(float(OVERLAP_POSITIVE_RETRY_SECONDS))
+    require_positive(
+        journal["overlap_positive_control"],
+        "replacement-key overlap positive control",
+    )
+    raise RotationCollectorError("overlap positive retry loop is inconsistent")
+
+
 def wait_settling_floor(
     anchor: datetime,
     *,
@@ -530,8 +573,8 @@ def collect(
     journal["original_console_reading"] = original
     journal["original_descriptor"] = active_descriptor
     baseline = exchanger(policy, SIGNING_KEY, run_id, "original_active")
-    require_positive(baseline, "baseline control")
     journal["baseline_control"] = baseline
+    require_positive(baseline, "baseline control")
 
     replacement_key = stage / "replacement.pem"
     replacement_descriptor = key_generator(replacement_key)
@@ -592,11 +635,14 @@ def collect(
         overlap_after["captured_after_at"].replace("Z", "+00:00")
     )
     wait_settling_floor(overlap_completed, clock=clock, sleeper=sleeper)
-    overlap_positive = exchanger(
-        policy, replacement_key, run_id, "replacement_staging"
+    overlap_positive = overlap_positive_with_retry(
+        policy,
+        replacement_key,
+        run_id,
+        journal,
+        exchanger=exchanger,
+        sleeper=sleeper,
     )
-    require_positive(overlap_positive, "replacement-key overlap positive control")
-    journal["overlap_positive_control"] = overlap_positive
 
     operator_pause(
         "The collector is ready to atomically activate the replacement locally while "
@@ -658,16 +704,16 @@ def collect(
     wait_settling_floor(retirement_completed, clock=clock, sleeper=sleeper)
 
     subwindow_started_at = BASE.iso_time(clock())
+    bracket_journal: dict[str, Any] = {}
+    journal["a129_bracket"] = bracket_journal
     bracket_before = exchanger(policy, SIGNING_KEY, run_id, "replacement_active")
+    bracket_journal["bracketing_control_before_denial"] = bracket_before
     require_positive(bracket_before, "pre-denial bracketing control")
     denial = exchanger(policy, retired_key, run_id, "original_retired")
+    bracket_journal["denial_observation"] = denial
     bracket_after = exchanger(policy, SIGNING_KEY, run_id, "replacement_active")
+    bracket_journal["bracketing_control_after_denial"] = bracket_after
     require_positive(bracket_after, "post-denial bracketing control")
-    journal["a129_bracket"] = {
-        "bracketing_control_before_denial": bracket_before,
-        "denial_observation": denial,
-        "bracketing_control_after_denial": bracket_after,
-    }
     subwindow_ended_at = BASE.iso_time(clock())
     window_ended_at = BASE.iso_time(clock())
     return {

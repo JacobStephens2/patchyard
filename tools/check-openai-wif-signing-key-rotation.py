@@ -46,6 +46,7 @@ PRIVATE_KEY = re.compile(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----")
 MAX_INPUT_BYTES = 3_000_000
 MAX_RESPONSE_BYTES = 1_000_000
 SETTLING_FLOOR_SECONDS = 90
+OVERLAP_POSITIVE_MAX_ATTEMPTS = 4
 RESPONSE_PREDICATE = {
     "enforced": False,
     "basis": "no-observed-openai-retired-signing-key-response",
@@ -440,14 +441,21 @@ def validate_exchange(
     *,
     synthetic: bool,
     positive: bool,
+    max_attempts: int = 1,
 ) -> dict[str, Any]:
     facts: dict[str, Any] = {}
     if not exact_keys(value, EXCHANGE_KEYS, label, errors):
         return facts
     if value.get("key_role") != expected_role:
         errors.append(f"{label} key role differs")
-    if not valid_int(value.get("attempt_count")) or value.get("attempt_count") != 1:
-        errors.append(f"{label} was not exactly one attempt")
+    attempt_count = value.get("attempt_count")
+    if not valid_int(attempt_count) or not 1 <= attempt_count <= max_attempts:
+        if max_attempts == 1:
+            errors.append(f"{label} was not exactly one attempt")
+        else:
+            errors.append(
+                f"{label} attempt count is outside the bounded retry"
+            )
     if value.get("lifecycle_instrument_sha256") != LIFECYCLE_INSTRUMENT_SHA256:
         errors.append(f"{label} lifecycle instrument differs")
     started = parse_time(value.get("started_at"), f"{label} started_at", errors)
@@ -763,6 +771,7 @@ def validate_common(
         errors,
         synthetic=synthetic,
         positive=True,
+        max_attempts=OVERLAP_POSITIVE_MAX_ATTEMPTS,
     )
 
     overlap = result.get("overlap_attestation")
@@ -1074,6 +1083,8 @@ def static_errors() -> tuple[list[str], dict[str, Any], types.ModuleType | None]
             '"no-observed-openai-retired-signing-key-response"',
             "rsa_keygen_bits:3072",
             "SETTLING_FLOOR_SECONDS = 90",
+            "OVERLAP_POSITIVE_MAX_ATTEMPTS = 4",
+            "def overlap_positive_with_retry(",
         ):
             if required not in source:
                 errors.append(f"signing-key-rotation collector is missing: {required}")

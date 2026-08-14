@@ -50,6 +50,23 @@ PROVIDER_CAPABLE_COMMAND = re.compile(
     r"(?<![-A-Za-z0-9_.])(curl|wget|netcat|nc)(?=\s)|"
     r"/dev/(?:tcp|udp)|openssl\s+s_client"
 )
+# A142: "the guest image cannot spend" is re-proven against whatever programs the
+# image carries, not inherited from the single runner that existed at
+# qualification. Every shebang-bearing file in `worker/image/` is swept, so the
+# provider-neutral guest dispatcher and spend runner are covered the moment they
+# land - and fail closed until this file declares their provider calls as exact
+# blocks, the same way the Anthropic runner's are declared above.
+SWEPT_ELSEWHERE = {
+    # Scanned immediately above, with the stricter exactly-one-call binding.
+    "patchyard-guest-run",
+}
+GUEST_PROGRAM_EXEMPTIONS = {
+    # Builds the image on the worker host; never executed inside the guest.
+    "build-parity-image",
+    # The egress control itself - its network calls are the proof instrument,
+    # and it runs only under the hostile-probe qualification.
+    "patchyard-hostile-probe",
+}
 
 
 def image_recipe_sha256() -> str:
@@ -249,6 +266,20 @@ for label, request_block in (
         provider_free_guest = provider_free_guest.replace(request_block, "", 1)
 if PROVIDER_CAPABLE_COMMAND.search(provider_free_guest):
     errors.append("issuance guest contains a network-capable call outside exact blocks")
+for path in sorted(path for path in IMAGE_PATH.iterdir() if path.is_file()):
+    if path.name in SWEPT_ELSEWHERE or path.name in GUEST_PROGRAM_EXEMPTIONS:
+        continue
+    try:
+        program = path.read_text()
+    except UnicodeDecodeError:
+        continue
+    if not program.startswith("#!"):
+        continue
+    if PROVIDER_CAPABLE_COMMAND.search(program):
+        errors.append(
+            "guest image program has a network-capable call outside exact blocks: "
+            f"{path.name}"
+        )
 credential_branch = guest.index('if [[ "$CREDENTIAL_DELIVERED_TO_GUEST" == true ]]')
 provider_branch = guest.index(
     'if [[ "$MODE" == provider-qualification && "$PROVIDER" == anthropic ]]; then'

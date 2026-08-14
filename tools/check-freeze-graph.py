@@ -24,7 +24,14 @@ RESULT_ROOT = PurePosixPath("research/isolation/results")
 # A133 rules the provider-neutral launcher may contain no provider name, and
 # assigns this checker the enforcement. Tokens come from the provider entries
 # of the egress policy, so a policy edit extends the ban without a code edit.
-NEUTRAL_ARTIFACTS = ("worker/runtime/patchyard-provider-run",)
+# The guest side of the same division: the dispatcher routes by the shape of
+# the input drive and the qualification runner validates receipts against a
+# projected policy, so neither may name a provider either.
+NEUTRAL_ARTIFACTS = (
+    "worker/image/patchyard-guest-dispatch",
+    "worker/image/patchyard-guest-qualify",
+    "worker/runtime/patchyard-provider-run",
+)
 EGRESS_POLICY = "policy/provider-egress.json"
 NEUTRAL_TOKEN_MINIMUM_LENGTH = 3
 SHA256 = re.compile(r"[0-9a-fA-F]{64}")

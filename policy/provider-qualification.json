@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "purpose": "Per-provider facts consumed by the A133 provider-neutral launcher (worker/runtime/patchyard-provider-run) for credential-bearing qualification runs. The launcher carries the structure; every provider-shaped value lives here. provider-egress.json remains the sole egress authority: a provider entry here is meaningful only for a provider that also exists there, and the launcher reads hostnames exclusively from the egress policy.",
+  "purpose": "Per-provider facts consumed by the A133 provider-neutral launcher (worker/runtime/patchyard-provider-run) for credential-bearing qualification runs, and - through the spend_observation block - by the neutral guest qualification runner (worker/image/patchyard-guest-qualify). The launcher and the guest runner carry the structure; every provider-shaped value lives here. On a spend run the launcher projects {schema_version, provider} + spend_observation into the input drive as qualification-policy.json with `jq -S`, and the manifest's qualification_policy_sha256 must equal that file's digest, so host and guest validate against the same reviewed policy revision. provider-egress.json remains the sole egress authority: a provider entry here is meaningful only for a provider that also exists there, and the launcher reads hostnames exclusively from the egress policy.",
   "providers": {
     "anthropic": {
       "one_shot_client": "/usr/local/libexec/patchyard-anthropic-one-shot",
@@ -17,6 +17,44 @@
         "service_account_id": "^svac_[A-Za-z0-9]+$",
         "rule_id": "^fdrl_[A-Za-z0-9]+$",
         "workspace_id": "^wrkspc_[A-Za-z0-9]+$"
+      },
+      "spend_observation": {
+        "qualification_requirement": "provider-spend-enforcement",
+        "authorization_ruling": "A115",
+        "phases": [
+          "operational_acceptance",
+          "temporary_refusal",
+          "restored_acceptance"
+        ],
+        "endpoint": "/v1/messages",
+        "cap_field": "expected_workspace_cap_cents",
+        "request_id_required": true,
+        "request_id_pattern": "^req_[A-Za-z0-9]+$",
+        "issuance_field_patterns": {
+          "scope": "^workspace:inference$",
+          "exchange_request_id": "^req_[A-Za-z0-9]+$",
+          "service_account_id": "^svac_[A-Za-z0-9]+$",
+          "rule_id": "^fdrl_[A-Za-z0-9]+$",
+          "workspace_id": "^wrkspc_[A-Za-z0-9]+$"
+        },
+        "accepted_response": {
+          "response_type": "message",
+          "model": "claude-opus-5",
+          "usage_fields": ["input_tokens", "output_tokens"]
+        },
+        "refusal_response": {
+          "enforced": true,
+          "http_status": [400, 403],
+          "response_type": "error",
+          "error_type_pattern": "^[a-z_]{1,64}$",
+          "excluded_error_types": ["rate_limit_error", "overloaded_error"],
+          "unenforced_basis": null
+        },
+        "work_artifact": {
+          "path": "anthropic-spend-qualified.txt",
+          "content": "anthropic-provider-spend-enforcement-qualified"
+        },
+        "rationale": "Validated the host-owned A117 one-shot receipt after the bearer and provider network namespace were removed; the spend guest had neither credential nor provider allowlist."
       }
     },
     "openai": {
@@ -34,6 +72,44 @@
         "service_account_id": "^user-[A-Za-z0-9]{16,48}$",
         "rule_id": "^idp_[A-Za-z0-9]{16,48}$",
         "workspace_id": "^proj_[A-Za-z0-9]{16,48}$"
+      },
+      "spend_observation": {
+        "qualification_requirement": "provider-spend-enforcement",
+        "authorization_ruling": "A132",
+        "phases": [
+          "operational_acceptance",
+          "temporary_refusal",
+          "restored_acceptance"
+        ],
+        "endpoint": "/v1/chat/completions",
+        "cap_field": "expected_project_cap_cents",
+        "request_id_required": false,
+        "request_id_pattern": "^req_[A-Za-z0-9]{8,64}$",
+        "issuance_field_patterns": {
+          "scope": "^unscoped$",
+          "exchange_request_id": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "service_account_id": "^user-[A-Za-z0-9]{16,48}$",
+          "rule_id": "^idp_[A-Za-z0-9]{16,48}$",
+          "workspace_id": "^proj_[A-Za-z0-9]{16,48}$"
+        },
+        "accepted_response": {
+          "response_type": "chat.completion",
+          "model": "gpt-5.6-luna",
+          "usage_fields": ["prompt_tokens", "completion_tokens"]
+        },
+        "refusal_response": {
+          "enforced": false,
+          "http_status": null,
+          "response_type": null,
+          "error_type_pattern": null,
+          "excluded_error_types": null,
+          "unenforced_basis": "no-observed-openai-spend-refusal"
+        },
+        "work_artifact": {
+          "path": "openai-spend-qualified.txt",
+          "content": "openai-provider-spend-enforcement-qualified"
+        },
+        "rationale": "Validated the host-owned A117 one-shot receipt after the bearer and provider network namespace were removed; the spend guest had neither credential nor provider allowlist. Per A125 the refusal predicate is unenforced: the non-200 was recorded as it arrived, never matched against an expected status or shape."
       }
     }
   }

@@ -91,11 +91,14 @@
     mode: "{{ item.mode }}"
   loop:
     - { name: build-parity-image, mode: "0755" }
+    - { name: patchyard-guest-dispatch, mode: "0755" }
     - { name: patchyard-guest-network, mode: "0755" }
+    - { name: patchyard-guest-qualify, mode: "0755" }
     - { name: patchyard-guest-run, mode: "0755" }
     - { name: patchyard-hostile-probe, mode: "0755" }
     - { name: patchyard-toy-agent, mode: "0755" }
     - { name: e2fsprogs-packages.txt, mode: "0644" }
+    - { name: patchyard-guest-dispatch.service, mode: "0644" }
     - { name: patchyard-guest-run.service, mode: "0644" }
     - { name: patchyard-parity.conf, mode: "0644" }
     - { name: httpd-packages.txt, mode: "0644" }

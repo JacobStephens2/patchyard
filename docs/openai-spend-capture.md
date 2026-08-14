@@ -152,6 +152,44 @@ An OpenAI request cannot leave that worker. This is a sequencing fact, not a
 defect: A133 already ruled the neutral launcher must be built, and this is the
 first requirement that cannot proceed without it.
 
+## What was built (2026-08-14)
+
+The spend half of the neutral guest path exists. The probe block above is still
+unbuilt and stays unbuilt: it belongs to issuance-delivery, which is not on the
+OpenAI route, and A125 forbids pinning a protocol fact nobody has observed.
+
+- `worker/image/patchyard-guest-qualify` validates the three host-staged
+  receipts - `issuance.json`, `provider-transport.json`,
+  `provider-observation.json` - from inside a guest holding no credential and
+  no provider route, then emits the patch and evidence. Every provider-shaped
+  value it checks against arrives as data.
+- `worker/image/patchyard-guest-dispatch` decides which runner owns the boot,
+  by the **shape of the input drive**: `qualification-policy.json` present
+  routes to the qualification runner, absent leaves the general runner to run
+  exactly as before. No provider name enters either program, and
+  `tools/check-freeze-graph.py` now enforces that on both.
+- The `spend_observation` block in `policy/provider-qualification.json` holds
+  the endpoint, the cap field name, the identifier patterns, the accepted and
+  refusal response vocabulary, the artifact naming and the ruling id. The
+  launcher projects it with `jq -S` into the input drive, and the manifest's
+  `qualification_policy_sha256` must equal that projection's digest.
+- The OpenAI entry sets `refusal_response.enforced: false` with the basis
+  `no-observed-openai-spend-refusal` (A125). The guest then requires nothing of
+  the refusal's status or shape - but does require the observation to *say* the
+  predicate was unenforced, so an unenforced predicate can never read as a met
+  one. The Anthropic entry mirrors that provider's observed refusal shape and
+  keeps it enforced; Anthropic runs continue to use the original runner.
+
+**Why the dispatcher is its own unit rather than an `ExecStart` edit.** The
+decision that specified this path recorded `patchyard-guest-run.service` as
+individually unpinned. A142's qualified image inventory has since pinned it
+byte-identical, and A143 released only `build-parity-image`. So the dispatcher
+ships as `patchyard-guest-dispatch.service`, ordered `Before=` the general
+runner's unit, which is left untouched and still enabled. A143 clause (4)
+already ruled dispatcher primacy compatible with A115 - the evidence never
+fixed which qualified-and-scanned program boots first - and unit ordering
+reaches that outcome without overriding a pinned descriptor at all.
+
 ## What is receipt-backed and what is attested
 
 An Administration API readback from the operator host on 2026-08-06T22:50:25Z

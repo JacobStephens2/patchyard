@@ -29,6 +29,7 @@ EXPECTED_TEST_FILES = (
     "test_live_review_disposition_seats.py",
     "test_log_secret_scan.py",
     "test_merge_refix.py",
+    "test_neutral_guest_qualification.py",
     "test_openai_control_plane_lifecycle.py",
     "test_openai_wif_issuance.py",
     "test_preview_capability_deployment.py",

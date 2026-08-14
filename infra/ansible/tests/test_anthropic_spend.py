@@ -26,7 +26,7 @@ EXPECTED_WORKER_TASKS_SOURCE_SHA256 = (
     "cef308d16aab9d414595bb043de8424cb3ded490e0fa63d3b3bc3ee67e67a722"
 )
 EXPECTED_CHECKER_SOURCE_SHA256 = (
-    "e8cc3eaec36dd12a345e92fb0c1579af3ff91e786572780424c50b0f700aba2b"
+    "258b0f8ff21eadb2d27eb423f4634930d07a8bfb12c02e0cd79c80306774552b"
 )
 EXPECTED_READINESS_HELPER_SOURCE_SHA256 = (
     "5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba"
@@ -1073,12 +1073,13 @@ fi'''
         def digest(path: pathlib.Path) -> str:
             return hashlib.sha256(path.read_bytes()).hexdigest()
 
-        image_path = ROOT / "worker/image"
-        image_records = [
-            f"{digest(path)}  {path.relative_to(image_path)}\n"
-            for path in sorted(path for path in image_path.rglob("*") if path.is_file())
-        ]
-        image_recipe = hashlib.sha256("".join(image_records).encode()).hexdigest()
+        # A142: the qualified rollup is a recorded constant, not a recomputation.
+        # Recomputing it here would make this fixture diverge from the checker at
+        # the first permitted addition to `worker/image/` - the exact change the
+        # ruling exists to allow.
+        image_recipe = (
+            "d7a0ff9ca541519f6461597e053a30359f65ab141a861e70499b53d73518bbc5"
+        )
         host_paths = (
             ROOT / "worker/qualification/patchyard-run-anthropic-issuance",
             ROOT / "worker/runtime/patchyard-firecracker-run",
@@ -1159,6 +1160,61 @@ fi'''
                 "A122 cost separation, day-close settlement, or phase ordering "
                 "is malformed",
                 mutation.stderr,
+            )
+
+    def test_a142_qualified_image_inventory_permits_only_additions(self) -> None:
+        """A142: additions pass; deletion and mutation of a qualified file fail."""
+        import shutil
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory) / "repo"
+            shutil.copytree(
+                ROOT,
+                root,
+                ignore=shutil.ignore_patterns(".git", "target", "node_modules"),
+            )
+            command = [
+                "python3",
+                "-I",
+                str(root / "tools/check-anthropic-spend.py"),
+            ]
+
+            def run() -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    command, cwd=root, check=False, capture_output=True, text=True
+                )
+
+            baseline = run()
+            self.assertEqual(baseline.returncode, 0, baseline.stderr)
+
+            # An addition is what the ruling exists to permit: the neutral guest
+            # dispatcher and spend runner land in this directory.
+            added = root / "worker/image/patchyard-guest-dispatch"
+            added.write_text("#!/usr/bin/env bash\nexit 0\n")
+            addition = run()
+            self.assertEqual(addition.returncode, 0, addition.stderr)
+            added.unlink()
+
+            # Mutation of a qualified file still fails closed.
+            pins = root / "worker/image/pins.env"
+            original = pins.read_bytes()
+            pins.write_bytes(original + b"\n# mutated\n")
+            mutation = run()
+            self.assertNotEqual(mutation.returncode, 0)
+            self.assertIn(
+                "A142 qualified image file differs from qualification: pins.env",
+                mutation.stderr,
+            )
+            pins.write_bytes(original)
+
+            # So does deletion.
+            toy = root / "worker/image/patchyard-toy-agent"
+            toy.unlink()
+            deletion = run()
+            self.assertNotEqual(deletion.returncode, 0)
+            self.assertIn(
+                "A142 qualified image file is missing: patchyard-toy-agent",
+                deletion.stderr,
             )
 
     def test_checker_rejects_required_a120_a121_a122_mutations(self) -> None:

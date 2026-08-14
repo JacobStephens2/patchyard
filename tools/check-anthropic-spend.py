@@ -47,6 +47,24 @@ ANTHROPIC_PATCH = (
     b"@@ -0,0 +1 @@\n"
     b"+anthropic-provider-spend-enforcement-qualified\n"
 )
+QUALIFIED_IMAGE_RECIPE_SHA256 = (
+    "d7a0ff9ca541519f6461597e053a30359f65ab141a861e70499b53d73518bbc5"
+)
+QUALIFIED_IMAGE_INVENTORY = {
+    "build-parity-image": "e849ca22d08d72f1eec0fe3cf22f29ecaa63b59acee9b67ea9150c5002c00dd8",
+    "e2fsprogs-packages.txt": "153be3de14d72f88ea4adff9d7314254b43d0c8bb5445996f4c17c33d9c82857",
+    "patchyard-guest-network": "59601a689de11dadb4efb146890c85515265be6901f491b97937c806cc7c59a3",
+    "patchyard-guest-run": "229346fb350297b298c1b752188c0f7762ef9d5de77572156843070fecfcc654",
+    "patchyard-guest-run.service": "30ffb52decb54933600447daac73d4602ee9856fa695afa0dd52c57a1d8467a0",
+    "patchyard-hostile-probe": "d9e3233088dab38fb63ceff40bf6644280311ed0b8d68f27fe380b781b686265",
+    "patchyard-parity.conf": "75a7120b898783d4b1be15924ed3bbfeed639e82caee5b8406ac36e23d2de2d0",
+    "patchyard-toy-agent": "d979cdead5d7715d46dd4f3adc4d1bb850d6935f20bce1a2e838f38f9ec1e3df",
+    "httpd-packages.txt": "bd9b2c555e12c06a2ef7feb4444ae301b93320eef5bd20bc1626677c053fd1a1",
+    "mysql-packages.txt": "2859f231526dbd84e861b8d5d89772b19f69378ed1e0153a9bd19f74ec979572",
+    "php-packages.txt": "f0add9e739d752c8441d34418718bb4b404ee8f179a6ae692cc6297ffbaf7f0f",
+    "php-rpms.sha256": "01c39605a0a8d5f8ae7255554d07256d425435ae739260c947bfcff6d5eff25e",
+    "pins.env": "4d03da12abe91c4b908aa7a29ca4f719d63320402ca5b1d240e0e62e0ec83041",
+}
 CALIBRATION_ITEM_COUNT = 16_000
 CALIBRATION_COPIES = 2
 HISTORICAL_UNCACHED_INPUT_TOKENS_PER_BODY = 192_037
@@ -254,11 +272,29 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def image_recipe_sha256() -> str:
-    records = []
-    for path in sorted(path for path in IMAGE_PATH.rglob("*") if path.is_file()):
-        records.append(f"{digest(path)}  {path.relative_to(IMAGE_PATH)}\n")
-    return hashlib.sha256("".join(records).encode()).hexdigest()
+def qualified_image_inventory_errors() -> list[str]:
+    """Hold the image to the inventory A115's evidence actually ran under (A142).
+
+    A115 recorded a whole-tree rollup over `worker/image/`, so any later file -
+    the provider-neutral guest artifacts among them - broke the recomputed
+    equality and took the banked Result with it. A142 replaces that equality
+    rather than dropping it: every file the proof ran under must still be
+    present and byte-identical, and only *additions* are permitted. Deletion or
+    mutation of a qualified file fails closed exactly as the rollup did.
+
+    `production-parity.json` is deliberately absent from the inventory: it is a
+    frozen file already asserted byte-identical through the Result's own
+    `production_parity_sha256` field, so covering it here would duplicate that
+    binding rather than extend it.
+    """
+    errors = []
+    for name, expected in sorted(QUALIFIED_IMAGE_INVENTORY.items()):
+        path = IMAGE_PATH / name
+        if not path.is_file():
+            errors.append(f"A142 qualified image file is missing: {name}")
+        elif digest(path) != expected:
+            errors.append(f"A142 qualified image file differs from qualification: {name}")
+    return errors
 
 
 def host_contract_sha256() -> str:
@@ -890,11 +926,12 @@ if RESULT_PATH.exists():
     phases = result.get("phases", {})
     if set(phases) != set(PHASES):
         errors.append("A115 live result does not contain exactly three phases")
+    errors.extend(qualified_image_inventory_errors())
     reproducible = {
         "request_sha256": hashlib.sha256(ANTHROPIC_REQUEST).hexdigest(),
         "patch_sha256": hashlib.sha256(ANTHROPIC_PATCH).hexdigest(),
         "production_parity_sha256": digest(PRODUCTION_PARITY_PATH),
-        "image_recipe_sha256": image_recipe_sha256(),
+        "image_recipe_sha256": QUALIFIED_IMAGE_RECIPE_SHA256,
         "host_contract_sha256": host_contract_sha256(),
     }
     provider_body_hashes: set[str] = set()

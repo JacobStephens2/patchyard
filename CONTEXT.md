@@ -58,6 +58,13 @@ _Avoid_: marker, flag, tag, annotation
 The worker image files, by name and digest, that a result's evidence ran under.
 _Avoid_: recipe digest, image hash, manifest, snapshot
 
+**Descriptor / assembler**:
+A descriptor is an inventory file that describes what the guest contains, and is
+bound by its digest; the assembler is the program that builds the guest, and is
+bound by its effects. Residency is not the test - `pins.env` and the
+`*-packages.txt` files are host-side descriptors.
+_Avoid_: host file, build script, guest file
+
 **Fixture**:
 A committed input to a test or a checker, never a record of a live run.
 _Avoid_: naming a result, a requirement, or a proof

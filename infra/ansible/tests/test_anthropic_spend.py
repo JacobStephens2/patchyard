@@ -26,7 +26,7 @@ EXPECTED_WORKER_TASKS_SOURCE_SHA256 = (
     "cef308d16aab9d414595bb043de8424cb3ded490e0fa63d3b3bc3ee67e67a722"
 )
 EXPECTED_CHECKER_SOURCE_SHA256 = (
-    "258b0f8ff21eadb2d27eb423f4634930d07a8bfb12c02e0cd79c80306774552b"
+    "08bc4816fa31e1c74932849fa5c164b00abe3128307ee7b8162ed1020aed5e74"
 )
 EXPECTED_READINESS_HELPER_SOURCE_SHA256 = (
     "5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba"
@@ -1216,6 +1216,92 @@ fi'''
                 "A142 qualified image file is missing: patchyard-toy-agent",
                 deletion.stderr,
             )
+
+    def test_a143_builder_is_bound_by_its_effects_not_its_bytes(self) -> None:
+        """A143: the assembler leaves the inventory; its seven installs are bound."""
+        import shutil
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory) / "repo"
+            shutil.copytree(
+                ROOT,
+                root,
+                ignore=shutil.ignore_patterns(".git", "target", "node_modules"),
+            )
+            command = [
+                "python3",
+                "-I",
+                str(root / "tools/check-anthropic-spend.py"),
+            ]
+
+            def run() -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    command, cwd=root, check=False, capture_output=True, text=True
+                )
+
+            builder = root / "worker/image/build-parity-image"
+            original = builder.read_text()
+
+            baseline = run()
+            self.assertEqual(baseline.returncode, 0, baseline.stderr)
+
+            # The assembler's bytes are free: a new line is not a falsification.
+            builder.write_text(original + "\n# A143: assembly mechanics may change\n")
+            freed = run()
+            self.assertEqual(freed.returncode, 0, freed.stderr)
+            builder.write_text(original)
+
+            # Its effects are not. Mode, destination and source are each bound.
+            for before, after, expected in (
+                (
+                    'install -m 0755 "$RECIPE_ROOT/patchyard-toy-agent"',
+                    'install -m 4755 "$RECIPE_ROOT/patchyard-toy-agent"',
+                    "A143 bound builder install is missing or altered: "
+                    "$MOUNT_ROOT/usr/local/bin/patchyard-toy-agent",
+                ),
+                (
+                    '"$MOUNT_ROOT/usr/local/bin/patchyard-toy-agent"',
+                    '"$MOUNT_ROOT/usr/local/sbin/patchyard-toy-agent"',
+                    "A143 bound builder install is missing or altered: "
+                    "$MOUNT_ROOT/usr/local/bin/patchyard-toy-agent",
+                ),
+                (
+                    'install -m 0644 "$RECIPE_ROOT/patchyard-parity.conf"',
+                    'install -m 0644 "$RECIPE_ROOT/patchyard-parity.conf.bak"',
+                    "A143 bound builder install is missing or altered: "
+                    "$MOUNT_ROOT/etc/httpd/conf.d/patchyard-parity.conf",
+                ),
+                (
+                    "  | sha256sum --check --status",
+                    "  | true",
+                    "A143 candidate-probe digest check is missing or altered",
+                ),
+            ):
+                self.assertIn(before, original)
+                builder.write_text(original.replace(before, after, 1))
+                mutation = run()
+                self.assertNotEqual(mutation.returncode, 0)
+                self.assertIn(expected, mutation.stderr)
+                builder.write_text(original)
+
+            # The hole a freed assembler would otherwise open: an install line
+            # carrying an unscanned worker-host file into the guest.
+            builder.write_text(
+                original
+                + '\ninstall -m 0755 /usr/local/bin/smuggled'
+                + ' "$MOUNT_ROOT/usr/local/sbin/smuggled"\n'
+            )
+            smuggled = run()
+            self.assertNotEqual(smuggled.returncode, 0)
+            self.assertIn(
+                "A143 builder install into the guest is not sourced from "
+                "$RECIPE_ROOT: /usr/local/bin/smuggled",
+                smuggled.stderr,
+            )
+            builder.write_text(original)
+
+            # candidate-probe is the single named exemption, and stays passing.
+            self.assertEqual(run().returncode, 0)
 
     def test_checker_rejects_required_a120_a121_a122_mutations(self) -> None:
         mutations = (

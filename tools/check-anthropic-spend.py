@@ -51,7 +51,6 @@ QUALIFIED_IMAGE_RECIPE_SHA256 = (
     "d7a0ff9ca541519f6461597e053a30359f65ab141a861e70499b53d73518bbc5"
 )
 QUALIFIED_IMAGE_INVENTORY = {
-    "build-parity-image": "e849ca22d08d72f1eec0fe3cf22f29ecaa63b59acee9b67ea9150c5002c00dd8",
     "e2fsprogs-packages.txt": "153be3de14d72f88ea4adff9d7314254b43d0c8bb5445996f4c17c33d9c82857",
     "patchyard-guest-network": "59601a689de11dadb4efb146890c85515265be6901f491b97937c806cc7c59a3",
     "patchyard-guest-run": "229346fb350297b298c1b752188c0f7762ef9d5de77572156843070fecfcc654",
@@ -65,6 +64,32 @@ QUALIFIED_IMAGE_INVENTORY = {
     "php-rpms.sha256": "01c39605a0a8d5f8ae7255554d07256d425435ae739260c947bfcff6d5eff25e",
     "pins.env": "4d03da12abe91c4b908aa7a29ca4f719d63320402ca5b1d240e0e62e0ec83041",
 }
+QUALIFIED_IMAGE_BUILDER_PATH = IMAGE_PATH / "build-parity-image"
+QUALIFIED_IMAGE_BUILDER_INSTALLS = (
+    'install -m 0755 "$RECIPE_ROOT/patchyard-guest-run" \\\n'
+    '  "$MOUNT_ROOT/usr/local/sbin/patchyard-guest-run"',
+    'install -m 0755 "$RECIPE_ROOT/patchyard-guest-network" \\\n'
+    '  "$MOUNT_ROOT/usr/local/sbin/patchyard-guest-network"',
+    'install -m 0755 "$RECIPE_ROOT/patchyard-toy-agent" \\\n'
+    '  "$MOUNT_ROOT/usr/local/bin/patchyard-toy-agent"',
+    'install -m 0755 "$RECIPE_ROOT/patchyard-hostile-probe" \\\n'
+    '  "$MOUNT_ROOT/usr/local/sbin/patchyard-hostile-probe"',
+    "install -m 0755 "
+    "/usr/local/share/patchyard-worker/probes/candidate-probe.sh \\\n"
+    '  "$MOUNT_ROOT/usr/local/sbin/candidate-probe"',
+    'install -m 0644 "$RECIPE_ROOT/patchyard-guest-run.service" \\\n'
+    '  "$MOUNT_ROOT/etc/systemd/system/patchyard-guest-run.service"',
+    'install -m 0644 "$RECIPE_ROOT/patchyard-parity.conf" \\\n'
+    '  "$MOUNT_ROOT/etc/httpd/conf.d/patchyard-parity.conf"',
+)
+QUALIFIED_IMAGE_BUILDER_PROBE_DIGEST_CHECK = (
+    'echo "$CANDIDATE_PROBE_SHA256  '
+    '/usr/local/share/patchyard-worker/probes/candidate-probe.sh" \\\n'
+    "  | sha256sum --check --status"
+)
+QUALIFIED_IMAGE_BUILDER_HOST_SOURCE_EXEMPTION = (
+    "/usr/local/share/patchyard-worker/probes/candidate-probe.sh"
+)
 CALIBRATION_ITEM_COUNT = 16_000
 CALIBRATION_COPIES = 2
 HISTORICAL_UNCACHED_INPUT_TOKENS_PER_BODY = 192_037
@@ -286,6 +311,10 @@ def qualified_image_inventory_errors() -> list[str]:
     frozen file already asserted byte-identical through the Result's own
     `production_parity_sha256` field, so covering it here would duplicate that
     binding rather than extend it.
+
+    A143 narrows the membership to twelve: `build-parity-image` is the
+    assembler, not a descriptor of what the guest contains, and is bound by its
+    effects instead - see `qualified_image_builder_errors`.
     """
     errors = []
     for name, expected in sorted(QUALIFIED_IMAGE_INVENTORY.items()):
@@ -294,6 +323,82 @@ def qualified_image_inventory_errors() -> list[str]:
             errors.append(f"A142 qualified image file is missing: {name}")
         elif digest(path) != expected:
             errors.append(f"A142 qualified image file differs from qualification: {name}")
+    return errors
+
+
+def builder_install_operands(statement: str) -> list[str] | None:
+    """Return an `install` statement's operands, or None if it creates directories."""
+    tokens = statement.split()
+    operands: list[str] = []
+    index = 1
+    while index < len(tokens):
+        token = tokens[index]
+        if token == "-d":
+            return None
+        if token == "-m":
+            index += 2
+            continue
+        if token.startswith("-"):
+            index += 1
+            continue
+        operands.append(token.strip('"'))
+        index += 1
+    return operands
+
+
+def qualified_image_builder_errors() -> list[str]:
+    """Bind the assembler by its effects, not its bytes (A143).
+
+    A142 held `build-parity-image` byte-identical along with the twelve files
+    that describe what the guest contains. That claimed more than A115's
+    evidence supports: A115 proved containment for the programs that run *in
+    the guest*, and the builder never runs there - which A142 itself concedes
+    by exempting it from the `PROVIDER_CAPABLE_COMMAND` sweep on exactly that
+    ground. The distinction is descriptor versus assembler, not host versus
+    guest: `pins.env`, `php-rpms.sha256` and the four `*-packages.txt` files
+    never enter the guest either, and stay pinned because they describe its
+    contents.
+
+    What replaces the byte-identity is the builder's effects: the seven
+    artifact installs as exact text - mode and destination path included,
+    because mode and destination are precisely what A115's containment rested
+    on - and the `candidate-probe` digest check that guards the one artifact
+    sourced from outside the recipe directory.
+
+    The last assertion is what keeps "additions are permitted" safe. A142's
+    re-proof that the guest cannot spend scans shebang-bearing programs in
+    `worker/image/`; a freed builder could otherwise gain an install line
+    carrying an arbitrary worker-host file into the guest, never scanned,
+    because it never lived there. So every `install` into `$MOUNT_ROOT` must
+    source from `$RECIPE_ROOT`, with `candidate-probe` the single named
+    exemption - already bound by a digest check, which is stronger than
+    residency.
+    """
+    errors = []
+    source = QUALIFIED_IMAGE_BUILDER_PATH.read_text()
+    for block in QUALIFIED_IMAGE_BUILDER_INSTALLS:
+        if block not in source:
+            destination = block.rsplit("\n", 1)[-1].strip().strip('"')
+            errors.append(f"A143 bound builder install is missing or altered: {destination}")
+    if QUALIFIED_IMAGE_BUILDER_PROBE_DIGEST_CHECK not in source:
+        errors.append("A143 candidate-probe digest check is missing or altered")
+    joined = re.sub(r"\\\n\s*", " ", source)
+    for statement in re.findall(r"^[ \t]*install[ \t]+.*$", joined, re.MULTILINE):
+        operands = builder_install_operands(statement.strip())
+        if not operands or len(operands) < 2:
+            continue
+        destination = operands[-1]
+        if "$MOUNT_ROOT" not in destination:
+            continue
+        for origin in operands[:-1]:
+            if origin.startswith("$RECIPE_ROOT/"):
+                continue
+            if origin == QUALIFIED_IMAGE_BUILDER_HOST_SOURCE_EXEMPTION:
+                continue
+            errors.append(
+                "A143 builder install into the guest is not sourced from "
+                f"$RECIPE_ROOT: {origin}"
+            )
     return errors
 
 
@@ -927,6 +1032,7 @@ if RESULT_PATH.exists():
     if set(phases) != set(PHASES):
         errors.append("A115 live result does not contain exactly three phases")
     errors.extend(qualified_image_inventory_errors())
+    errors.extend(qualified_image_builder_errors())
     reproducible = {
         "request_sha256": hashlib.sha256(ANTHROPIC_REQUEST).hexdigest(),
         "patch_sha256": hashlib.sha256(ANTHROPIC_PATCH).hexdigest(),

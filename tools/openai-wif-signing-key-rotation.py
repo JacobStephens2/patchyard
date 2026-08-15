@@ -33,12 +33,12 @@ BASE_HARNESS_SHA256 = (
 )
 LIFECYCLE_INSTRUMENT_PATH = ROOT / "tools/openai-wif-issuance.py"
 LIFECYCLE_INSTRUMENT_SHA256 = (
-    "739396b9982218e909d933a74674cfc53c4ec76f7e202e08418a1d0910867923"
+    "63676168101366f50670adf4e06fa5c6841589bfcead4e8813d244f47944469d"
 )
 ATTESTATION_DEFINITION_PATH = ROOT / "tools/control-plane-attestation-v1.py"
 ATTESTATION_DEFINITION_SHA256 = "0d32e80b980c334977e51eb706783896a687d29faef46d50e53f3ee56e8e4d47"
 CHECKER_PATH = ROOT / "tools/check-openai-wif-signing-key-rotation.py"
-SIGNING_KEY = Path("/etc/patchyard/anthropic-wif-signing.pem")
+SIGNING_KEY = Path("/etc/patchyard/openai-wif-signing.pem")
 STAGING_ROOT = Path("/run/patchyard-openai")
 RUN_ID_PATTERN = re.compile(r"openai-rotation-[0-9]{8}-[0-9a-f]{10}")
 HEX64 = re.compile(r"[0-9a-f]{64}")
@@ -93,6 +93,9 @@ ATTESTATION = load_exact_source(
 )
 BASE = INSTRUMENT.BASE
 BASE.STAGING_ROOT = STAGING_ROOT
+# A144: the OpenAI tools own their signing-key path, so no surface of the
+# loaded base harness may still act on the Anthropic path.
+BASE.ACTIVE_SIGNING_KEY = SIGNING_KEY
 
 
 def reject_json_constant(value: str) -> None:

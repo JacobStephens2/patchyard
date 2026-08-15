@@ -48,7 +48,7 @@ loads `tools/anthropic-wif-lifecycle.py` only after verifying its exact SHA-256
 digest. Neither imports it, edits it, or imports another repository module.
 
 Both adapters use the root-only signing key at
-`/etc/patchyard/anthropic-wif-signing.pem`. They derive the assertion `kid`
+`/etc/patchyard/openai-wif-signing.pem`. They derive the assertion `kid`
 from the active public DER as:
 
 ```text
@@ -135,7 +135,7 @@ python3 -I tools/check-freeze-graph.py
 python3 -I tools/check-openai-wif-expiry.py --allow-missing-results
 jq -e '.providers.openai.credential_qualified == false' policy/provider-egress.json
 sudo test "$(stat -c '%U:%G:%a' \
-  /etc/patchyard/anthropic-wif-signing.pem)" = root:root:400
+  /etc/patchyard/openai-wif-signing.pem)" = root:root:400
 ```
 
 Stop if the checkout is dirty, the revision is not the reviewed revision for
@@ -528,7 +528,7 @@ fm git rev-parse HEAD
 fm python3 -I tools/check-freeze-graph.py
 fm python3 -I tools/check-openai-wif-federation-revocation.py --allow-missing-results
 sudo test "$(stat -c '%U:%G:%a' \
-  /etc/patchyard/anthropic-wif-signing.pem)" = root:root:400
+  /etc/patchyard/openai-wif-signing.pem)" = root:root:400
 ```
 
 The collector itself still runs as root, per its own check; only the git-backed
@@ -763,7 +763,7 @@ fm git rev-parse HEAD
 fm python3 -I tools/check-freeze-graph.py
 fm python3 -I tools/check-openai-wif-signing-key-rotation.py --allow-missing-results
 sudo test "$(stat -c '%U:%G:%a' \
-  /etc/patchyard/anthropic-wif-signing.pem)" = root:root:400
+  /etc/patchyard/openai-wif-signing.pem)" = root:root:400
 ```
 
 Record the kid you are rotating away from by deriving it, never by quoting a
@@ -774,7 +774,7 @@ sudo -n python3 -I -c "
 import importlib.util, pathlib
 s = importlib.util.spec_from_file_location('base', '/opt/patchyard/tools/anthropic-wif-lifecycle.py')
 m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
-print(m.jwk_descriptor(m.load_public_jwk(pathlib.Path('/etc/patchyard/anthropic-wif-signing.pem')))['kid'])
+print(m.jwk_descriptor(m.load_public_jwk(pathlib.Path('/etc/patchyard/openai-wif-signing.pem')))['kid'])
 "
 ```
 

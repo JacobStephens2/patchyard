@@ -30,6 +30,17 @@ BASE_HARNESS_SHA256 = (
 OBSERVED_ISSUANCE_SHA256 = (
     "0952e4f7bf693fd412292ce6ee947efdf2a26c590a3b0acc922ea10ca1124891"
 )
+# A144: the signing-identity split re-pointed the adapter's key path without
+# re-producing the banked Result, so the pre-split digests stay acceptable.
+SUPERSEDES_CHECKER_SHA256 = (
+    "5e5b2c124d3cab03ac6c20418568a044"
+    "9d75c1b72ad8b747d57c37fec941e465",
+)
+SUPERSEDES_SOURCE_SHA256 = {
+    "tools/openai-wif-crash-cleanup.py": (
+        "6878691254bffdbc40e2b803538b3e775ae892e2fa7602b2e4d2168a4b2d0866",
+    ),
+}
 CHECKER_PATHS = (
     REPO / "tools/check-openai-wif-issuance.py",
     REPO / "tools/check-openai-wif-expiry.py",
@@ -333,12 +344,13 @@ def policy_fields(policy: Any, errors: list[str]) -> dict[str, Any]:
 def validate_source(value: Any, label: str, errors: list[str]) -> None:
     if not exact_keys(value, SOURCE_KEYS, f"{label} source binding", errors):
         return
-    expected = {
-        "policy_sha256": digest(POLICY_PATH),
-        "base_harness_sha256": digest(BASE_HARNESS_PATH),
-        "crash_adapter_sha256": digest(CRASH_ADAPTER_PATH),
-    }
-    if value != expected:
+    accepted_adapter = {digest(CRASH_ADAPTER_PATH)}
+    accepted_adapter.update(SUPERSEDES_SOURCE_SHA256["tools/openai-wif-crash-cleanup.py"])
+    if (
+        value.get("policy_sha256") != digest(POLICY_PATH)
+        or value.get("base_harness_sha256") != digest(BASE_HARNESS_PATH)
+        or value.get("crash_adapter_sha256") not in accepted_adapter
+    ):
         errors.append(f"{label} source binding differs from current sources")
 
 

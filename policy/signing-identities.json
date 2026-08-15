@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "ruling": "A144",
+  "comment": "One signing identity per provider. Each entry names the control-plane path holding that provider's private key and the kid its issuer or IdP currently trusts. No two providers may name the same key path. The Anthropic entry reflects the 2026-08-15 issuer re-point (A144 clause 4, issue #213): issuer fdis_01A8wjwFPKfutAGtFN3oqF8J trusts only the kid derived from the fresh material at the path, receipts req_011Ce59MtBfBi3EAzoysGQF6 (stage) and req_011Ce59Y1bRzDGjGcMxCachy (retire).",
+  "providers": {
+    "anthropic": {
+      "signing_key_path": "/etc/patchyard/anthropic-wif-signing.pem",
+      "trusted_kid": "patchyard-90c367acc3f0f1a4"
+    },
+    "openai": {
+      "signing_key_path": "/etc/patchyard/openai-wif-signing.pem",
+      "trusted_kid": "patchyard-de842961c20b52a8"
+    }
+  }
+}

@@ -58,9 +58,12 @@ five seconds for clock skew and sets `exp` 295 seconds after minting, so
 `tools/openai-wif-issuance.py` loads
 `tools/anthropic-wif-lifecycle.py` only after verifying SHA-256
 `10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d`.
-It does not import or edit that frozen harness. It reuses the root-only active
-signing key at `/etc/patchyard/anthropic-wif-signing.pem`, whose current
-public `kid` is the uploaded OpenAI JWKS key. It changes only the policy data,
+It does not import or edit that frozen harness. It uses the root-only OpenAI
+signing key at `/etc/patchyard/openai-wif-signing.pem`, whose current
+public `kid` is the uploaded OpenAI JWKS key. A144 splits the signing
+identity per provider: this path is OpenAI's alone, and
+`policy/signing-identities.json` records each provider's path and trusted
+`kid`. It changes only the policy data,
 assertion audience, token endpoint, token-exchange body, and sanitized result
 shape.
 

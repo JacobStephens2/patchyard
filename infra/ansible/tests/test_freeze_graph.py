@@ -10,23 +10,17 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
 CHECKER = ROOT / "tools/check-freeze-graph.py"
+# A144 superseded the OpenAI collectors and checkers by declared digest, so
+# they leave the byte-frozen set: the banked Results bind their pre-split
+# bytes through the supersession trail rather than through byte identity.
 EXPECTED_FROZEN_PATHS = [
     "policy/anthropic-wif.json",
     "policy/openai-wif.json",
-    "research/isolation/results/openai-first-token-exchange.json",
     "tools/anthropic-wif-crash-cleanup.py",
     "tools/anthropic-wif-lifecycle-admin.py",
     "tools/anthropic-wif-lifecycle.py",
     "tools/anthropic-wif-revocation.py",
-    "tools/check-openai-wif-crash-cleanup.py",
-    "tools/check-openai-wif-expiry.py",
-    "tools/check-openai-wif-issuance.py",
-    "tools/check-openai-wif-signing-key-rotation.py",
     "tools/control-plane-attestation-v1.py",
-    "tools/openai-wif-crash-cleanup.py",
-    "tools/openai-wif-expiry.py",
-    "tools/openai-wif-issuance.py",
-    "tools/openai-wif-signing-key-rotation.py",
     "worker/image/production-parity.json",
     "worker/qualification/hostile-test-manifest.json",
     "worker/runtime/patchyard-anthropic-one-shot",
@@ -231,6 +225,84 @@ class FreezeGraphContract(unittest.TestCase):
                 [row["path"] for row in parsed["frozen"]],
             )
 
+    def build_source_supersession_repo(self, repo: Path) -> tuple[Path, str]:
+        (repo / "tools").mkdir()
+        (repo / "research/isolation/results").mkdir(parents=True)
+        collector = repo / "tools/example-collector.py"
+        collector.write_text("ORIGINAL = True\n")
+        old_digest = digest(collector)
+        result = {"source": {"collector_sha256": old_digest}}
+        (repo / "research/isolation/results/example.json").write_text(
+            json.dumps(result, indent=2) + "\n"
+        )
+        shutil.copy2(CHECKER, repo / "tools/check-freeze-graph.py")
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "-c",
+                "user.name=Freeze Graph Test",
+                "-c",
+                "user.email=freeze-graph@example.invalid",
+                "commit",
+                "-q",
+                "-m",
+                "pinned collector",
+            ],
+            check=True,
+        )
+        return collector, old_digest
+
+    def test_valid_source_supersession_releases_the_replaced_collector(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            collector, old_digest = self.build_source_supersession_repo(repo)
+            collector.write_text("ORIGINAL = False\n")
+            (repo / "tools/check-example.py").write_text(
+                "SUPERSEDES_SOURCE_SHA256 = {\n"
+                f'    "tools/example-collector.py": ("{old_digest}",),\n'
+                "}\n"
+                "raise SystemExit(1)\n"
+            )
+            report = self.run_checker(repo, repo / "tools/check-freeze-graph.py")
+            self.assertEqual(report.returncode, 0, report.stderr)
+            parsed = json.loads(report.stdout)
+            self.assertEqual(parsed["drift"], [])
+            self.assertNotIn(
+                "tools/example-collector.py",
+                [row["path"] for row in parsed["frozen"]],
+            )
+
+    def test_source_supersession_outside_a_checker_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            collector, old_digest = self.build_source_supersession_repo(repo)
+            collector.write_text(
+                "SUPERSEDES_SOURCE_SHA256 = {\n"
+                f'    "tools/example-collector.py": ("{old_digest}",),\n'
+                "}\n"
+            )
+            report = self.run_checker(repo, repo / "tools/check-freeze-graph.py")
+            self.assertNotEqual(report.returncode, 0)
+            self.assertIn("permitted only in checker files", report.stderr)
+
+    def test_source_supersession_of_the_current_digest_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            _, old_digest = self.build_source_supersession_repo(repo)
+            (repo / "tools/check-example.py").write_text(
+                "SUPERSEDES_SOURCE_SHA256 = {\n"
+                f'    "tools/example-collector.py": ("{old_digest}",),\n'
+                "}\n"
+                "raise SystemExit(1)\n"
+            )
+            report = self.run_checker(repo, repo / "tools/check-freeze-graph.py")
+            self.assertNotEqual(report.returncode, 0)
+            self.assertIn("does not supersede a historical digest", report.stderr)
+
 
 class NeutralityContract(unittest.TestCase):
     """A133: the neutral launcher may contain no provider name."""
@@ -333,6 +405,7 @@ def declared_supersessions(path: Path) -> tuple[str, ...]:
 class SupersededCheckerReplay(unittest.TestCase):
     RESULTS = (
         ROOT / "research/isolation/results/anthropic-crash-cleanup.json",
+        ROOT / "research/isolation/results/openai-crash-cleanup.json",
     )
 
     def test_each_successor_preserves_its_recorded_rejection(self) -> None:

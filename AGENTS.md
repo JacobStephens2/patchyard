@@ -94,7 +94,7 @@ Write ledger rows with timestamps, never self-reported durations. The cost metri
 
 ### Issue tracker
 
-Wayfinding (`/wayfinder`) is tracked on Trello: board **Patchyard Factory** (https://trello.com/b/Tdiikiov), current map card [MAP: form -> daemon-claimed -> model-authored draft PR](https://trello.com/c/NfgyqpJf). Conventions, credentials, and API operations: `docs/agents/issue-tracker.md`. Everything else about this repo (specs, rulings, PRs) stays on GitHub as before.
+Wayfinding (`/wayfinder`) is tracked in GitHub Issues on this repository, driven by `gh`: the current map is [MAP: form -> daemon-claimed -> model-authored draft PR](https://github.com/JacobStephens2/patchyard/issues/176) and tickets are its sub-issues. Conventions and operations: `docs/agents/issue-tracker.md`. Wayfinding lived on Trello from 2026-08-11 to 2026-08-15; that board is closed and read-only, and every issue footers the card it came from.
 
 ## Updating this project
 

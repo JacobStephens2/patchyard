@@ -73,6 +73,7 @@ TEST_FILES=(
   infra/ansible/tests/test_live_review_disposition_seats.py
   infra/ansible/tests/test_log_secret_scan.py
   infra/ansible/tests/test_merge_refix.py
+  infra/ansible/tests/test_neutral_guest_qualification.py
   infra/ansible/tests/test_openai_control_plane_lifecycle.py
   infra/ansible/tests/test_openai_wif_issuance.py
   infra/ansible/tests/test_preview_capability_deployment.py

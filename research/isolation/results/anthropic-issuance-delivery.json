@@ -1,23 +1,23 @@
 {
   "schema_version": 1,
-  "run_id": "anthropic-i1-20260802-1d75717e2f",
+  "run_id": "anthropic-i1-20260815-96394f3d65",
   "base_sha": "4ac93f188bb04b65fa1a6478368b79adc315aa60",
   "request_sha256": "481ae28de5fb7b5774c14cc05175788dd4c4b476e8ee678f2fbe14bf5a390a5a",
   "provider": "anthropic",
   "qualification_requirement": "issuance-delivery",
   "qualification_phase": "none",
   "patch_sha256": "9ad97cf0310918118c2094d26c5843e2bbeb1c2a4fbe9a8b3cc8c82a684c5cbc",
-  "observed_rootfs_sha256": "62c0d813faf31be70fedecd8e9ed7c5a7e106179e7d6ab7f6936a582964ab938",
-  "image_recipe_sha256": "d7a0ff9ca541519f6461597e053a30359f65ab141a861e70499b53d73518bbc5",
+  "observed_rootfs_sha256": "c6b7dd2f14eeeba3e9b2c8dada5ca54c0df0cebba26707a1fc603b5c3bf82259",
+  "image_recipe_sha256": "0b97df3c1af400f487c43f6673b5c4592c65c4b21c013c51bbce04c1bcb87ea3",
   "production_parity_sha256": "108becf1fced5dbe28f7675a73fcbf2c1b1ac301baed8811eb23fc492cc01809",
   "git_remote_count": 0,
   "host_contract_sha256": "9b9890a3b2c722d428708098dd45ce296b89393ff35c48678d5c9df73d1911f2",
   "credential_removed_before_output": true,
   "issuance": {
-    "issued_at": "2026-08-02T13:57:45Z",
-    "expires_at": "2026-08-02T14:02:45Z",
+    "issued_at": "2026-08-15T20:47:46Z",
+    "expires_at": "2026-08-15T20:52:46Z",
     "expires_in": 300,
-    "exchange_request_id": "req_011Cde3ETMBYt7cXFtiqayLj",
+    "exchange_request_id": "req_011Ce5C1pSE7vh86TWEpdKtE",
     "token_type": "Bearer",
     "scope": "workspace:inference",
     "service_account_id": "svac_01BqCdjSqFsWTvfDyCucThZy",
@@ -35,7 +35,7 @@
   "provider_call": {
     "endpoint": "/v1/models?limit=1",
     "http_status": 200,
-    "request_id": "req_011Cde3FSfHsNySwYk7JbEKL",
+    "request_id": "req_011Ce5C2rP5rBtK5vq7X33bS",
     "model_id": "claude-opus-5"
   },
   "host_teardown": {

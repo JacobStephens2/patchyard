@@ -72,17 +72,17 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 31391,
-      "comments": 726,
-      "blanks": 2707,
-      "files": 172,
+      "code": 32184,
+      "comments": 780,
+      "blanks": 2782,
+      "files": 175,
       "languages": [
         {
           "language": "BASH",
-          "code": 7248,
-          "comments": 212,
-          "blanks": 477,
-          "files": 43
+          "code": 7623,
+          "comments": 260,
+          "blanks": 502,
+          "files": 45
         },
         {
           "language": "Forge Config",
@@ -135,10 +135,10 @@
         },
         {
           "language": "Python",
-          "code": 16553,
-          "comments": 133,
-          "blanks": 1455,
-          "files": 39
+          "code": 16968,
+          "comments": 139,
+          "blanks": 1505,
+          "files": 40
         },
         {
           "language": "Shell",
@@ -163,7 +163,7 @@
         },
         {
           "language": "YAML",
-          "code": 3619,
+          "code": 3622,
           "comments": 37,
           "blanks": 369,
           "files": 23
@@ -173,8 +173,8 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 27329,
-      "comments": 471,
+      "code": 27340,
+      "comments": 476,
       "blanks": 2286,
       "files": 132,
       "languages": [
@@ -229,15 +229,15 @@
         },
         {
           "language": "Python",
-          "code": 22171,
-          "comments": 177,
+          "code": 22177,
+          "comments": 180,
           "blanks": 2093,
           "files": 50
         },
         {
           "language": "Shell",
-          "code": 717,
-          "comments": 84,
+          "code": 722,
+          "comments": 86,
           "blanks": 117,
           "files": 20
         },
@@ -267,9 +267,9 @@
     {
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
-      "code": 11505,
-      "comments": 22575,
-      "blanks": 6165,
+      "code": 11581,
+      "comments": 22609,
+      "blanks": 6169,
       "files": 210,
       "languages": [
         {
@@ -281,7 +281,7 @@
         },
         {
           "language": "JSON",
-          "code": 10344,
+          "code": 10420,
           "comments": 0,
           "blanks": 1,
           "files": 47
@@ -289,8 +289,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 22555,
-          "blanks": 6110,
+          "comments": 22589,
+          "blanks": 6114,
           "files": 171
         },
         {

@@ -102,7 +102,8 @@ if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
     .schema_version == 1
     and (.providers[$provider] | type == "object")
     and (.providers[$provider] | (keys | sort) == ["authorization_ruling",
-      "capability_field_patterns","one_shot_client","phase_spend_cap_cents"])
+      "capability_field_patterns","one_shot_client","phase_spend_cap_cents",
+      "spend_observation"])
     and (.providers[$provider].authorization_ruling | test("^A[0-9]{1,4}$"))
     and (.providers[$provider].one_shot_client
       | test("^/usr/local/libexec/[a-z0-9][a-z0-9-]{0,79}$"))
@@ -126,6 +127,60 @@ if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
   FIELD_PATTERNS_JSON=$(jq -c --arg provider "$PROVIDER" \
     '.providers[$provider].capability_field_patterns' "$QUALIFICATION_POLICY")
   [[ "$ONE_SHOT" == "$ONE_SHOT_ROOT"/* ]]
+  # The observation block is the guest's half of the same division: it is
+  # projected into the input drive so the qualification runner can validate the
+  # host's receipts without carrying a provider fact in its own source. The
+  # launcher checks its shape here so a malformed entry fails on the host,
+  # where the failure is legible, rather than inside a booted guest.
+  if $SPEND_MODE; then
+    jq -e --arg provider "$PROVIDER" --arg ruling "$QUALIFICATION_RULING" '
+      .providers[$provider].spend_observation
+      | (keys | sort) == ["accepted_response","authorization_ruling","cap_field",
+        "endpoint","issuance_field_patterns","phases","qualification_requirement",
+        "rationale","refusal_response","request_id_pattern","request_id_required",
+        "work_artifact"]
+      and .qualification_requirement == "provider-spend-enforcement"
+      and .authorization_ruling == $ruling
+      and (.phases | type == "array" and length >= 1
+        and all(type == "string" and test("^[a-z_]{1,64}$")))
+      and (.endpoint | test("^/[A-Za-z0-9/._-]{1,128}$"))
+      and (.cap_field | test("^[a-z_]{1,64}$"))
+      and (.request_id_required | type == "boolean")
+      and (.request_id_pattern | type == "string" and length <= 128)
+      and (.issuance_field_patterns
+        | (keys | sort) == ["exchange_request_id","rule_id","scope",
+          "service_account_id","workspace_id"]
+        and all(.[]; type == "string" and length >= 1 and length <= 128))
+      and (.accepted_response
+        | (keys | sort) == ["model","response_type","usage_fields"]
+        and (.usage_fields | type == "array" and length == 2
+          and all(type == "string" and test("^[a-z_]{1,64}$"))))
+      and (.refusal_response
+        | (keys | sort) == ["enforced","error_type_pattern","excluded_error_types",
+          "http_status","response_type","unenforced_basis"]
+        and (.enforced | type == "boolean")
+        and (if .enforced then
+          (.http_status | type == "array" and length >= 1
+            and all(type == "number" and . >= 400 and . <= 599))
+          and .unenforced_basis == null
+        else
+          .http_status == null and .response_type == null
+          and .error_type_pattern == null and .excluded_error_types == null
+          and (.unenforced_basis | test("^[a-z0-9-]{1,96}$"))
+        end))
+      and (.work_artifact
+        | (keys | sort) == ["content","path"]
+        and (.path | test("^[a-z0-9][a-z0-9._-]{0,63}$"))
+        and (.content | test("^[a-z0-9][a-z0-9 ._-]{0,127}$")))
+      and (.rationale | type == "string" and length >= 32 and length <= 1024)
+    ' "$QUALIFICATION_POLICY" >/dev/null
+    jq -e --arg phase "$(jq -r .qualification_phase "$MANIFEST")" \
+      --arg provider "$PROVIDER" '
+      .providers[$provider].spend_observation.phases | index($phase) != null
+    ' "$QUALIFICATION_POLICY" >/dev/null
+    jq -e '.qualification_policy_sha256 | test("^[0-9a-f]{64}$")' \
+      "$MANIFEST" >/dev/null
+  fi
   jq -e --arg ruling "$QUALIFICATION_RULING" --argjson caps "$PHASE_CAPS_JSON" '
     (.host_contract_sha256 | test("^[0-9a-f]{64}$"))
     and ((.qualification_requirement == "issuance-delivery"
@@ -646,6 +701,18 @@ if $SPEND_MODE; then
 
   remove_provider_transport
   assert_provider_transport_removed
+  # Canonical projection: sorted keys, default indentation. The manifest's
+  # declared digest is computed the same way from the same deployed policy, so
+  # a mismatch means the run was authorized against a different policy revision
+  # than the one on this worker - and the guest re-checks the digest itself.
+  jq -S --arg provider "$PROVIDER" \
+    '{schema_version: 1, provider: $provider}
+      + .providers[$provider].spend_observation' \
+    "$QUALIFICATION_POLICY" >"$PROVIDER_STAGE/qualification-policy.json"
+  [[ "$(sha256sum "$PROVIDER_STAGE/qualification-policy.json" | cut -d' ' -f1)" \
+    == "$(jq -r .qualification_policy_sha256 "$MANIFEST")" ]]
+  install -m 0400 "$PROVIDER_STAGE/qualification-policy.json" \
+    "$INPUT_STAGE/qualification-policy.json"
   install -m 0400 "$PROVIDER_STAGE/issuance.json" "$INPUT_STAGE/issuance.json"
   install -m 0400 "$PROVIDER_STAGE/provider-observation.json" \
     "$INPUT_STAGE/provider-observation.json"

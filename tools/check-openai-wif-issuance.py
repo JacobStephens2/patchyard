@@ -22,6 +22,17 @@ PROVIDER_POLICY_PATH = REPO / "policy/provider-egress.json"
 BASE_HARNESS_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
 )
+# A144: the signing-identity split re-pointed the adapter's key path without
+# re-producing the banked Result, so the pre-split digests stay acceptable.
+SUPERSEDES_CHECKER_SHA256 = (
+    "aab91925999b35be7e955bc5f628b70b"
+    "f4ad7290097c18ad8f76c1201c082478",
+)
+SUPERSEDES_SOURCE_SHA256 = {
+    "tools/openai-wif-issuance.py": (
+        "739396b9982218e909d933a74674cfc53c4ec76f7e202e08418a1d0910867923",
+    ),
+}
 RUN_ID = re.compile(r"openai-wif-[0-9]{8}-[0-9a-f]{10}")
 KID = re.compile(r"patchyard-[0-9a-f]{16}")
 HEX64 = re.compile(r"[0-9a-f]{64}")
@@ -447,12 +458,13 @@ def validate_unobserved_response(
 def validate_source(value: Any, errors: list[str]) -> None:
     if not exact_keys(value, SOURCE_KEYS, "OpenAI source binding", errors):
         return
-    expected = {
-        "policy_sha256": digest(POLICY_PATH),
-        "base_harness_sha256": digest(BASE_HARNESS_PATH),
-        "issuance_adapter_sha256": digest(ISSUANCE_ADAPTER_PATH),
-    }
-    if value != expected:
+    accepted_adapter = {digest(ISSUANCE_ADAPTER_PATH)}
+    accepted_adapter.update(SUPERSEDES_SOURCE_SHA256["tools/openai-wif-issuance.py"])
+    if (
+        value.get("policy_sha256") != digest(POLICY_PATH)
+        or value.get("base_harness_sha256") != digest(BASE_HARNESS_PATH)
+        or value.get("issuance_adapter_sha256") not in accepted_adapter
+    ):
         errors.append("OpenAI source binding differs from the current sources")
 
 

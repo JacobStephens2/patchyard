@@ -30,6 +30,12 @@ NEUTRAL_TOKEN_MINIMUM_LENGTH = 3
 SHA256 = re.compile(r"[0-9a-fA-F]{64}")
 SHA256_TOKEN = re.compile(r"(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])")
 SUPERSEDES_NAME = "SUPERSEDES_CHECKER_SHA256"
+# A144: a Result may bind a collector or checker by a bare digest with no
+# path key, so superseding such a file needs its own declaration shape: a
+# checker names the replaced file and the exact digests it replaces. Each
+# declared digest must be a historical revision of the named file, must not
+# be its current digest, and must actually be pinned by a committed Result.
+SUPERSEDES_SOURCE_NAME = "SUPERSEDES_SOURCE_SHA256"
 STDLIB_MODULES = (
     argparse,
     ast,
@@ -234,7 +240,9 @@ def json_pins(
     return pins
 
 
-def python_pins(source: bytes, owner: str) -> tuple[set[Pin], set[str]]:
+def python_pins(
+    source: bytes, owner: str
+) -> tuple[set[Pin], set[str], dict[str, set[str]]]:
     try:
         tree = ast.parse(source, filename=owner)
     except (SyntaxError, ValueError) as error:
@@ -243,34 +251,73 @@ def python_pins(source: bytes, owner: str) -> tuple[set[Pin], set[str]]:
         ) from error
 
     superseded: set[str] = set()
+    superseded_sources: dict[str, set[str]] = {}
     excluded_nodes: set[int] = set()
     declarations = 0
+    source_declarations = 0
     for statement in tree.body:
-        if not isinstance(statement, ast.Assign) or not any(
+        if not isinstance(statement, ast.Assign):
+            continue
+        if any(
             isinstance(target, ast.Name) and target.id == SUPERSEDES_NAME
             for target in statement.targets
         ):
-            continue
-        declarations += 1
-        try:
-            values = ast.literal_eval(statement.value)
-        except (ValueError, TypeError, SyntaxError) as error:
-            raise FreezeGraphError(
-                f"invalid {SUPERSEDES_NAME} declaration in {owner}"
-            ) from error
-        if (
-            not isinstance(values, tuple)
-            or not values
-            or any(normalized_digest(value) is None for value in values)
-            or len(set(values)) != len(values)
+            declarations += 1
+            try:
+                values = ast.literal_eval(statement.value)
+            except (ValueError, TypeError, SyntaxError) as error:
+                raise FreezeGraphError(
+                    f"invalid {SUPERSEDES_NAME} declaration in {owner}"
+                ) from error
+            if (
+                not isinstance(values, tuple)
+                or not values
+                or any(normalized_digest(value) is None for value in values)
+                or len(set(values)) != len(values)
+            ):
+                raise FreezeGraphError(
+                    f"invalid {SUPERSEDES_NAME} declaration in {owner}"
+                )
+            superseded.update(value.lower() for value in values)
+            excluded_nodes.update(id(node) for node in ast.walk(statement.value))
+        if any(
+            isinstance(target, ast.Name) and target.id == SUPERSEDES_SOURCE_NAME
+            for target in statement.targets
         ):
-            raise FreezeGraphError(
-                f"invalid {SUPERSEDES_NAME} declaration in {owner}"
-            )
-        superseded.update(value.lower() for value in values)
-        excluded_nodes.update(id(node) for node in ast.walk(statement.value))
+            source_declarations += 1
+            try:
+                mapping = ast.literal_eval(statement.value)
+            except (ValueError, TypeError, SyntaxError) as error:
+                raise FreezeGraphError(
+                    f"invalid {SUPERSEDES_SOURCE_NAME} declaration in {owner}"
+                ) from error
+            if (
+                not isinstance(mapping, dict)
+                or not mapping
+                or any(
+                    not isinstance(target, str)
+                    or repository_target(target) is None
+                    or not isinstance(values, tuple)
+                    or not values
+                    or any(normalized_digest(value) is None for value in values)
+                    or len(set(values)) != len(values)
+                    for target, values in mapping.items()
+                )
+            ):
+                raise FreezeGraphError(
+                    f"invalid {SUPERSEDES_SOURCE_NAME} declaration in {owner}"
+                )
+            for target, values in mapping.items():
+                superseded_sources.setdefault(target, set()).update(
+                    value.lower() for value in values
+                )
+            excluded_nodes.update(id(node) for node in ast.walk(statement.value))
     if declarations > 1:
         raise FreezeGraphError(f"duplicate {SUPERSEDES_NAME} declaration in {owner}")
+    if source_declarations > 1:
+        raise FreezeGraphError(
+            f"duplicate {SUPERSEDES_SOURCE_NAME} declaration in {owner}"
+        )
 
     pins: set[Pin] = set()
     for node in ast.walk(tree):
@@ -289,7 +336,7 @@ def python_pins(source: bytes, owner: str) -> tuple[set[Pin], set[str]]:
             digest = normalized_digest(value.value)
             if target is not None and digest is not None:
                 pins.add(Pin(digest, owner, f"{owner}:{value.lineno}", target))
-    return pins, superseded
+    return pins, superseded, superseded_sources
 
 
 def text_pins(source: bytes, owner: str) -> set[Pin]:
@@ -308,18 +355,25 @@ def text_pins(source: bytes, owner: str) -> set[Pin]:
 
 def source_pins(
     repo: Path, files: list[str]
-) -> tuple[dict[str, set[Pin]], dict[str, set[str]]]:
+) -> tuple[
+    dict[str, set[Pin]],
+    dict[str, set[str]],
+    dict[str, dict[str, set[str]]],
+]:
     collected: dict[str, set[Pin]] = {}
     supersessions: dict[str, set[str]] = {}
+    source_supersessions: dict[str, dict[str, set[str]]] = {}
     for relative in files:
         parts = PurePosixPath(relative).parts
         if not parts or parts[0] not in SOURCE_ROOTS:
             continue
         source = read_regular(repo, relative)
         if relative.endswith(".py"):
-            pins, superseded = python_pins(source, relative)
+            pins, superseded, superseded_sources = python_pins(source, relative)
             if superseded:
                 supersessions[relative] = superseded
+            if superseded_sources:
+                source_supersessions[relative] = superseded_sources
         elif relative.endswith(".json"):
             pins = json_pins(
                 load_json(source, relative),
@@ -330,7 +384,7 @@ def source_pins(
             pins = text_pins(source, relative)
         if pins:
             collected[relative] = pins
-    return collected, supersessions
+    return collected, supersessions, source_supersessions
 
 
 def checker_result_pins(
@@ -515,6 +569,44 @@ def validated_supersessions(
     return validated
 
 
+def validated_source_supersessions(
+    repo: Path,
+    declarations: dict[str, dict[str, set[str]]],
+    results: set[Pin],
+    by_path: dict[str, str],
+) -> set[str]:
+    result_digests = {
+        pin.digest
+        for pin in results
+        if pin.owner.startswith(f"{RESULT_ROOT.as_posix()}/")
+    }
+    validated: set[str] = set()
+    for path, targets in declarations.items():
+        candidate = PurePosixPath(path)
+        if (
+            candidate.parent != PurePosixPath("tools")
+            or not candidate.name.startswith("check-")
+            or candidate.suffix != ".py"
+        ):
+            raise FreezeGraphError(
+                f"{SUPERSEDES_SOURCE_NAME} is permitted only in checker files: {path}"
+            )
+        for target, digests in targets.items():
+            historical = historical_path_digests(repo, target)
+            for digest in digests:
+                if by_path.get(target) == digest or digest not in historical:
+                    raise FreezeGraphError(
+                        f"{path} does not supersede a historical digest of "
+                        f"{target}: {digest}"
+                    )
+                if digest not in result_digests:
+                    raise FreezeGraphError(
+                        f"{path} declares an unpinned source digest: {digest}"
+                    )
+                validated.add(digest)
+    return validated
+
+
 def freeze_closure(
     results: set[Pin],
     sources: dict[str, set[Pin]],
@@ -555,12 +647,18 @@ def drift_rows(
     by_digest: dict[str, set[str]],
     historical: set[str],
     superseded: set[tuple[str, str]],
+    source_superseded: set[str],
 ) -> list[dict[str, Any]]:
     drift: dict[str, dict[str, set[str]]] = {}
     for pin in sorted(pins, key=pin_sort_key):
         if (
             pin.target is not None
             and (pin.digest, pin.target) in superseded
+            and pin.owner.startswith(f"{RESULT_ROOT.as_posix()}/")
+        ):
+            continue
+        if (
+            pin.digest in source_superseded
             and pin.owner.startswith(f"{RESULT_ROOT.as_posix()}/")
         ):
             continue
@@ -655,7 +753,7 @@ def neutrality_rows(
 
 def build_report(repo: Path) -> dict[str, Any]:
     files = repository_files(repo)
-    sources, declarations = source_pins(repo, files)
+    sources, declarations, source_declarations = source_pins(repo, files)
     results = result_pins(repo, files)
     all_pins = set(results)
     for pins in sources.values():
@@ -665,9 +763,14 @@ def build_report(repo: Path) -> dict[str, Any]:
     superseded = validated_supersessions(
         repo, declarations, results, by_path
     )
+    source_superseded = validated_source_supersessions(
+        repo, source_declarations, results, by_path
+    )
     historical = historical_digest_matches(repo, candidates)
     frozen, pinned_by = freeze_closure(results, sources, by_digest)
-    drift = drift_rows(all_pins, by_path, by_digest, historical, superseded)
+    drift = drift_rows(
+        all_pins, by_path, by_digest, historical, superseded, source_superseded
+    )
     frozen_rows = [
         {
             "path": path,

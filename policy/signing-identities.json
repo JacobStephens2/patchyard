@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "ruling": "A144",
+  "comment": "One signing identity per provider. Each entry names the control-plane path holding that provider's private key and the kid its issuer or IdP currently trusts. No two providers may name the same key path. The Anthropic entry records the issuer's live trust as found on 2026-08-15: the trusted kid's private material was destroyed by the 2026-08-13 OpenAI rotation, so the kid derived from the key at the path will not match until the issuer re-point restores requirement 1.",
+  "providers": {
+    "anthropic": {
+      "signing_key_path": "/etc/patchyard/anthropic-wif-signing.pem",
+      "trusted_kid": "patchyard-39acdfd2bfc0acb0"
+    },
+    "openai": {
+      "signing_key_path": "/etc/patchyard/openai-wif-signing.pem",
+      "trusted_kid": "patchyard-de842961c20b52a8"
+    }
+  }
+}

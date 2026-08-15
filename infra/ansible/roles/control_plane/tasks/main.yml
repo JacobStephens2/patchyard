@@ -627,6 +627,19 @@
     mode: "0400"
   when: not (factory_restore_drill | default(false) | bool)
 
+# A144: the OpenAI signing key is installed once by the operator (a host copy
+# of the material its IdP already trusts) and is never re-injected here - the
+# management path preserves and verifies it, matching the contract ruled for
+# bootstrap-injected inputs. state: file fails loud when the key is absent.
+- name: Enforce the OpenAI assertion signing-key boundary
+  ansible.builtin.file:
+    path: /etc/patchyard/openai-wif-signing.pem
+    state: file
+    owner: root
+    group: root
+    mode: "0400"
+  when: not (factory_restore_drill | default(false) | bool)
+
 - name: Install the triage seat and its source-pinned root mint adapter
   ansible.builtin.copy:
     src: "{{ item.source }}"
@@ -738,6 +751,7 @@
   loop:
     - /etc/patchyard/anthropic-wif.json
     - /etc/patchyard/anthropic-wif-signing.pem
+    - /etc/patchyard/openai-wif-signing.pem
     - /etc/patchyard/anthropic-worker-ip
     - /etc/tmpfiles.d/patchyard-anthropic.conf
     - /etc/tmpfiles.d/patchyard-seat.conf

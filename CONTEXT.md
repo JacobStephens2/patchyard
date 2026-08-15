@@ -65,6 +65,12 @@ bound by its effects. Residency is not the test - `pins.env` and the
 `*-packages.txt` files are host-side descriptors.
 _Avoid_: host file, build script, guest file
 
+**Signing identity**:
+The key pair one provider's issuer trusts to sign assertions, together with the
+control-plane path holding its private half. One per provider - two providers on
+one signing identity means a rotation for either silently unqualifies the other.
+_Avoid_: signing key, key file, kid, credential
+
 **Fixture**:
 A committed input to a test or a checker, never a record of a live run.
 _Avoid_: naming a result, a requirement, or a proof

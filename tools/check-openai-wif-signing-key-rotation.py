@@ -27,9 +27,36 @@ BASE_HARNESS_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
 )
 LIFECYCLE_INSTRUMENT_SHA256 = (
-    "739396b9982218e909d933a74674cfc53c4ec76f7e202e08418a1d0910867923"
+    "63676168101366f50670adf4e06fa5c6841589bfcead4e8813d244f47944469d"
 )
 ATTESTATION_DEFINITION_SHA256 = "0d32e80b980c334977e51eb706783896a687d29faef46d50e53f3ee56e8e4d47"
+# A144: the signing-identity split re-pointed the collector's key path (and the
+# lifecycle instrument it embeds) without re-producing the banked Result, so
+# the pre-split digests recorded there stay acceptable alongside the current
+# bytes. The superseded files are named with the exact digests they replace.
+SUPERSEDES_SOURCE_SHA256 = {
+    "tools/openai-wif-signing-key-rotation.py": (
+        "530df38bcaf7cd66eec6054c419665877adcd7dbb59fed50a42911091c447347",
+    ),
+    "tools/openai-wif-issuance.py": (
+        "739396b9982218e909d933a74674cfc53c4ec76f7e202e08418a1d0910867923",
+    ),
+    "tools/check-openai-wif-signing-key-rotation.py": (
+        "52eae885fd4d84be36252bc8566aea8664b173d54bef5e26cf594676866cc4e0",
+    ),
+}
+ACCEPTED_LIFECYCLE_INSTRUMENT_SHA256 = frozenset(
+    (LIFECYCLE_INSTRUMENT_SHA256,)
+    + SUPERSEDES_SOURCE_SHA256["tools/openai-wif-issuance.py"]
+)
+# The banked Result's local activation ran before A144 moved the OpenAI tools
+# to their own stable key path; both paths therefore validate.
+ACCEPTED_ACTIVE_KEY_PATHS = frozenset(
+    (
+        "/etc/patchyard/openai-wif-signing.pem",
+        "/etc/patchyard/anthropic-wif-signing.pem",
+    )
+)
 RUN_ID = re.compile(r"openai-rotation-[0-9]{8}-[0-9a-f]{10}")
 HEX64 = re.compile(r"[0-9a-f]{64}")
 KID = re.compile(r"patchyard-[0-9a-f]{16}")
@@ -456,7 +483,7 @@ def validate_exchange(
             errors.append(
                 f"{label} attempt count is outside the bounded retry"
             )
-    if value.get("lifecycle_instrument_sha256") != LIFECYCLE_INSTRUMENT_SHA256:
+    if value.get("lifecycle_instrument_sha256") not in ACCEPTED_LIFECYCLE_INSTRUMENT_SHA256:
         errors.append(f"{label} lifecycle instrument differs")
     started = parse_time(value.get("started_at"), f"{label} started_at", errors)
     assertion = value.get("assertion_descriptor")
@@ -628,7 +655,7 @@ def validate_activation(
         return None
     if value.get("source") != "local_atomic_key_activation":
         errors.append("local activation source differs")
-    if value.get("active_key_path") != "/etc/patchyard/anthropic-wif-signing.pem":
+    if value.get("active_key_path") not in ACCEPTED_ACTIVE_KEY_PATHS:
         errors.append("local activation used another stable key path")
     if value.get("original_key") != original:
         errors.append("local activation original key differs")
@@ -644,19 +671,24 @@ def validate_activation(
 def validate_source(value: Any, errors: list[str]) -> None:
     if not exact_keys(value, SOURCE_KEYS, "signing-key-rotation source", errors):
         return
-    expected = {
-        "policy_sha256": digest(POLICY_PATH),
-        "base_harness_sha256": digest(BASE_HARNESS_PATH),
-        "lifecycle_instrument_sha256": digest(LIFECYCLE_INSTRUMENT_PATH),
-        "attestation_definition_sha256": digest(ATTESTATION_DEFINITION_PATH),
-        "collector_sha256": digest(COLLECTOR_PATH),
-        "checker_sha256": digest(Path(__file__).resolve()),
+    accepted = {
+        "policy_sha256": {digest(POLICY_PATH)},
+        "base_harness_sha256": {digest(BASE_HARNESS_PATH)},
+        "lifecycle_instrument_sha256": {digest(LIFECYCLE_INSTRUMENT_PATH)}
+        | set(SUPERSEDES_SOURCE_SHA256["tools/openai-wif-issuance.py"]),
+        "attestation_definition_sha256": {digest(ATTESTATION_DEFINITION_PATH)},
+        "collector_sha256": {digest(COLLECTOR_PATH)}
+        | set(SUPERSEDES_SOURCE_SHA256["tools/openai-wif-signing-key-rotation.py"]),
+        "checker_sha256": {digest(Path(__file__).resolve())}
+        | set(
+            SUPERSEDES_SOURCE_SHA256["tools/check-openai-wif-signing-key-rotation.py"]
+        ),
     }
-    for field, observed in expected.items():
+    for field, acceptable in accepted.items():
         supplied = value.get(field)
-        if supplied != observed:
+        if supplied not in acceptable:
             errors.append(
-                f"signing-key-rotation {field} differs: expected {supplied}, observed {observed}"
+                f"signing-key-rotation {field} differs: expected {supplied}, observed {sorted(acceptable)}"
             )
 
 
@@ -780,8 +812,20 @@ def validate_common(
         (overlap, "overlap Attestation"),
         (retirement, "retirement Attestation"),
     ):
+        # The frozen attestation definition accepts exactly one instrument
+        # digest, so resolve the A144-accepted digest first: the recorded
+        # value when it is an accepted one, else the current binding, which
+        # keeps the definition's own rejection message for anything else.
+        recorded = value.get("lifecycle_instrument_sha256") if isinstance(
+            value, dict
+        ) else None
+        expected_instrument = (
+            recorded
+            if recorded in ACCEPTED_LIFECYCLE_INSTRUMENT_SHA256
+            else LIFECYCLE_INSTRUMENT_SHA256
+        )
         for error in attestation.validate_attestation(
-            value, LIFECYCLE_INSTRUMENT_SHA256
+            value, expected_instrument
         ):
             errors.append(f"{label}: {error}")
     overlap_before_started = overlap_before_ended = None

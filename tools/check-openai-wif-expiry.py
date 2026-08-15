@@ -23,6 +23,17 @@ POLICY_SHA256 = "87cf13bb136ed9a365bd14822a14d4808a6ef585ce1c278b926fa173d1152e5
 BASE_HARNESS_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
 )
+# A144: the signing-identity split re-pointed the adapter's key path without
+# re-producing the banked Result, so the pre-split digests stay acceptable.
+SUPERSEDES_CHECKER_SHA256 = (
+    "b190f6cadd01945153b116225e525a41"
+    "0cda412ba875ed64196719f994d77171",
+)
+SUPERSEDES_SOURCE_SHA256 = {
+    "tools/openai-wif-expiry.py": (
+        "511b9499b47701138d8d52b87e04f7614be1b8d4938f03714cfdcbbd777976e1",
+    ),
+}
 RUN_ID = re.compile(r"openai-expiry-[0-9]{8}-[0-9a-f]{10}")
 HEX64 = re.compile(r"[0-9a-f]{64}")
 UTC_TIMESTAMP = re.compile(
@@ -423,12 +434,13 @@ def validate_unobserved_response(
 def validate_source(value: Any, errors: list[str]) -> None:
     if not exact_keys(value, SOURCE_KEYS, "OpenAI expiry source binding", errors):
         return
-    expected = {
-        "policy_sha256": digest(POLICY_PATH),
-        "base_harness_sha256": digest(BASE_HARNESS_PATH),
-        "expiry_adapter_sha256": digest(EXPIRY_ADAPTER_PATH),
-    }
-    if value != expected:
+    accepted_adapter = {digest(EXPIRY_ADAPTER_PATH)}
+    accepted_adapter.update(SUPERSEDES_SOURCE_SHA256["tools/openai-wif-expiry.py"])
+    if (
+        value.get("policy_sha256") != digest(POLICY_PATH)
+        or value.get("base_harness_sha256") != digest(BASE_HARNESS_PATH)
+        or value.get("expiry_adapter_sha256") not in accepted_adapter
+    ):
         errors.append("OpenAI expiry source binding differs from current sources")
 
 

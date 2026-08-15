@@ -42,7 +42,7 @@ BASE_HARNESS_PATH = ROOT / "tools/anthropic-wif-lifecycle.py"
 BASE_HARNESS_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
 )
-SIGNING_KEY = Path("/etc/patchyard/anthropic-wif-signing.pem")
+SIGNING_KEY = Path("/etc/patchyard/openai-wif-signing.pem")
 STAGING_ROOT = Path("/run/patchyard-openai")
 TOKEN_ENDPOINT = "https://auth.openai.com/oauth/token"
 CHECKER_PATHS = (
@@ -128,6 +128,9 @@ def load_base_harness() -> types.ModuleType:
 
 BASE = load_base_harness()
 BASE.STAGING_ROOT = STAGING_ROOT
+# A144: the OpenAI tools own their signing-key path, so no surface of the
+# loaded base harness may still act on the Anthropic path.
+BASE.ACTIVE_SIGNING_KEY = SIGNING_KEY
 
 
 def credential_free_env() -> dict[str, str]:

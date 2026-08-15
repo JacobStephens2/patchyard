@@ -149,7 +149,7 @@ fm git rev-parse HEAD
 fm python3 -I tools/check-freeze-graph.py
 fm python3 -I tools/check-openai-wif-federation-revocation.py --allow-missing-results
 sudo test "$(stat -c '%U:%G:%a' \
-  /etc/patchyard/anthropic-wif-signing.pem)" = root:root:400
+  /etc/patchyard/openai-wif-signing.pem)" = root:root:400
 ```
 
 **Stop** if the checkout is dirty, the revision is not the reviewed revision for

@@ -1,43 +1,69 @@
-# Issue tracker: Trello (wayfinder)
+# Issue tracker: GitHub Issues (wayfinder)
 
-Wayfinding for this repo is tracked on Trello, not GitHub Issues. Board:
-**Patchyard Factory** — https://trello.com/b/Tdiikiov (id `6a7b2192db06f2d821023c62`).
+Wayfinding for this repo is tracked in GitHub Issues on
+**`JacobStephens2/patchyard`**, driven by the `gh` CLI. No extra
+credential is needed - `gh` is already authenticated in this environment.
 
-Credentials are already in the environment when launched via `va`:
-`TRELLO_API_KEY` for the key, and `TRELLO_FACTORY_API_TOKEN` for the
-read-write token (vault item `trello-api` field `factory-token`, added to the
-`va` manifest 2026-08-11). The older `TRELLO_API_TOKEN` still resolves the
-original field, which reads fine but returns 401 on writes — prefer
-`TRELLO_FACTORY_API_TOKEN`, falling back to `TRELLO_API_TOKEN` only for
-read-only calls or in a session launched before the manifest gained the new
-variable:
+Moved here from Trello on 2026-08-15. The Trello board (**Patchyard Factory**,
+https://trello.com/b/Tdiikiov) is closed and read-only; every issue footers the
+card it came from. Nothing live is left there - all 48 cards, 60 comments and
+124 cross-links were migrated and repointed. Trello was adopted 2026-08-11 and
+abandoned because its 16,384-character description limit stopped the map from
+accepting another decision, and because it has no native blocking.
 
-```bash
-TOKEN=${TRELLO_FACTORY_API_TOKEN:-$TRELLO_API_TOKEN}
-curl -s "https://api.trello.com/1/cards/<card>?key=$TRELLO_API_KEY&token=$TOKEN"
-```
-
-If a write (POST/PUT) returns 401 while reads work, you are holding the
-read-only token — say so and stop; do not prompt for the token.
+The `TRELLO_API_KEY` / `TRELLO_FACTORY_API_TOKEN` variables stay in the `va`
+manifest for reading the archive; nothing writes to Trello any more.
 
 ## Wayfinding operations
 
-Used by `/wayfinder`. The **map** is a single card; tickets are sibling cards
-on the same board.
+Used by `/wayfinder`. The **map** is one issue; tickets are **sub-issues** of
+it.
 
-- **Current map**: [MAP: form -> daemon-claimed -> model-authored draft PR](https://trello.com/c/NfgyqpJf) — card `NfgyqpJf`, in the **Map** list, labelled `wayfinder:map`.
-- **Lists** (state machine): `Map` (the map card only) · `Frontier` (open + unblocked + unclaimed) · `Blocked` · `Doing` (claimed) · `Done` (closed).
-- **Ticket labels**: `wayfinder:research` / `wayfinder:prototype` / `wayfinder:grilling` / `wayfinder:task` (label ids on the board; attach via `POST /1/cards/<id>/idLabels`).
-- **Blocking**: Trello has no native dependency edges here — a `Blocked by: <card link>` line in the child's description, and the card sits in the **Blocked** list. Unblocked when every named blocker is in Done; move it to Frontier then.
-- **Frontier query**: `GET /1/lists/6a7b27f762e367c91053bf62/cards` (the Frontier list); first in list order wins.
-- **Claim**: add yourself as a member (`POST /1/cards/<id>/idMembers`) and move the card to **Doing** — the session's first write.
-- **Resolve**: post the answer as a comment (`POST /1/cards/<id>/actions/comments`), move the card to **Done**, then append a one-line gist + link to the map card's *Decisions so far*.
-- **New tickets**: `POST /1/cards` into Frontier or Blocked with the right `wayfinder:` label; wire `Blocked by:` lines in a second pass once card URLs exist.
+- **Current map**: [MAP: form -> daemon-claimed -> model-authored draft PR](https://github.com/JacobStephens2/patchyard/issues/176) - issue `#176`, labelled `wayfinder:map`.
+- **Ticket labels**: `wayfinder:research` / `wayfinder:prototype` / `wayfinder:grilling` / `wayfinder:task`, plus `wayfinder:map` on the map itself.
+- **State is computed, not filed.** There are no lists to keep in sync - an issue is closed or open, and open issues are blocked or not according to their dependency edges. This is the whole reason for the move: two tickets were sitting in Trello's `Blocked` list on 2026-08-15 whose blockers had already closed, because the list move is manual and was missed.
+- **Blocking** uses GitHub's native issue dependencies, which render in the
+  issue UI. A `Blocked by:` line in a body is commentary; the edge is the state.
+
+  ```bash
+  BLOCKER_ID=$(gh api repos/JacobStephens2/patchyard/issues/<blocker-number> --jq .id)
+  gh api --method POST \
+    repos/JacobStephens2/patchyard/issues/<blocked-number>/dependencies/blocked_by \
+    -F issue_id=$BLOCKER_ID
+  ```
+
+- **Frontier query** - open, unassigned, zero open blockers:
+
+  ```bash
+  gh api graphql -f query='{repository(owner:"example-org",name:"factory"){
+    issues(first:100,states:OPEN){nodes{number title assignees(first:5){totalCount}
+      labels(first:10){nodes{name}}
+      issueDependenciesSummary{blockedBy}}}}}' \
+    --jq '.data.repository.issues.nodes[]
+          | select((.labels.nodes|map(.name)|index("wayfinder:map"))|not)
+          | select(.issueDependenciesSummary.blockedBy==0 and .assignees.totalCount==0)
+          | "#\(.number) \(.title)"'
+  ```
+
+- **Claim**: `gh issue edit <n> --add-assignee @me` - the session's first write,
+  before any work.
+- **Resolve**: `gh issue comment <n> --body-file <resolution.md>`, then
+  `gh issue close <n> --reason completed`, then append a one-line gist + link to
+  the map's *Decisions so far*.
+- **New tickets**: `gh issue create --title ... --body-file ... --label wayfinder:<type>`,
+  then attach to the map and wire blockers in a second pass once numbers exist:
+
+  ```bash
+  SUB_ID=$(gh api repos/JacobStephens2/patchyard/issues/<n> --jq .id)
+  gh api --method POST \
+    repos/JacobStephens2/patchyard/issues/176/sub_issues -F sub_issue_id=$SUB_ID
+  ```
 
 ## When a skill says "publish to the issue tracker"
 
-Create a Trello card on the Patchyard Factory board (Frontier or Blocked, as wired).
+Create a GitHub issue on `JacobStephens2/patchyard`, labelled and
+attached to the map as above.
 
 ## When a skill says "fetch the relevant ticket"
 
-`GET /1/cards/<card>` plus `GET /1/cards/<card>/actions?filter=commentCard`.
+`gh issue view <n> --json title,body,comments,assignees,labels`

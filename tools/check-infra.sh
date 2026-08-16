@@ -57,6 +57,8 @@ run_gate shellcheck --exclude=SC2329 --shell=bash \
 run_gate shellcheck --exclude=SC2329 --shell=bash \
   "$REPO_ROOT/worker/image/patchyard-guest-qualify"
 run_gate python3 -I "$REPO_ROOT/tools/check-credential-qualification.py"
+# A144 path-collision gate: no two providers may name one signing-key path.
+run_gate python3 -I "$REPO_ROOT/tools/check-signing-identities.py"
 run_gate python3 -I "$REPO_ROOT/tools/check-stack.py"
 run_gate python3 -I "$REPO_ROOT/tools/check-independence.py"
 run_gate python3 -I "$REPO_ROOT/tools/check-worker-runtime.py"

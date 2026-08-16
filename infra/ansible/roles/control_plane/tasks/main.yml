@@ -640,6 +640,49 @@
     mode: "0400"
   when: not (factory_restore_drill | default(false) | bool)
 
+- name: Install the A144 signing-identity record
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../policy/signing-identities.json"
+    dest: /etc/patchyard/signing-identities.json
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install the signing-identity kid assertion
+  ansible.builtin.copy:
+    src: patchyard-signing-identity-metric
+    dest: /usr/local/sbin/patchyard-signing-identity-metric
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install signing-identity kid assertion units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - patchyard-signing-identity-metric.service
+    - patchyard-signing-identity-metric.timer
+
+- name: Enable the daily signing-identity kid assertion timer
+  ansible.builtin.systemd:
+    name: patchyard-signing-identity-metric.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# Fails the converge when a provider's live kid has drifted from its recorded
+# trusted kid - the A144 assertion is meant to be loud, not advisory.
+- name: Assert the provider signing identities now
+  ansible.builtin.systemd:
+    name: patchyard-signing-identity-metric.service
+    state: started
+  changed_when: false
+  when: not (factory_restore_drill | default(false) | bool)
+
 - name: Install the triage seat and its source-pinned root mint adapter
   ansible.builtin.copy:
     src: "{{ item.source }}"

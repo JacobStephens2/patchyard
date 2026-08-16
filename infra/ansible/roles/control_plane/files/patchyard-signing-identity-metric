@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 022
+
+# A144 daily kid assertion: derive each provider's live signing kid from its
+# own key file and compare against the recorded trusted kid. Credential-free -
+# only the local public-key DER is derived; no provider is called.
+POLICY=/etc/patchyard/signing-identities.json
+METRIC_ROOT=/var/lib/node_exporter/textfile_collector
+OUTPUT=$METRIC_ROOT/patchyard_signing_identity.prom
+TEMP=$(mktemp "$METRIC_ROOT/.patchyard_signing_identity.XXXXXX")
+trap 'rm -f -- "$TEMP"' EXIT
+
+# A missing or empty policy must fail the unit, not publish a quiet no-op.
+jq -e '.providers | type == "object" and length > 0' "$POLICY" >/dev/null
+
+cat >"$TEMP" <<'EOF'
+# HELP patchyard_signing_identity_match Whether the provider's live signing kid matches its recorded trusted kid.
+# TYPE patchyard_signing_identity_match gauge
+EOF
+
+drift=0
+while IFS= read -r provider; do
+  key_path=$(jq -r --arg p "$provider" '.providers[$p].signing_key_path' "$POLICY")
+  trusted_kid=$(jq -r --arg p "$provider" '.providers[$p].trusted_kid' "$POLICY")
+  match=0
+  if live_der=$(openssl pkey -in "$key_path" -pubout -outform DER 2>/dev/null \
+      | sha256sum | cut -c1-16); then
+    live_kid="patchyard-$live_der"
+    if [[ "$live_kid" == "$trusted_kid" ]]; then
+      match=1
+    else
+      echo "signing-identity drift: $provider live kid $live_kid" \
+        "does not match trusted kid $trusted_kid" >&2
+    fi
+  else
+    echo "signing-identity drift: $provider key at $key_path is unreadable" >&2
+  fi
+  [[ "$match" == 1 ]] || drift=1
+  printf 'patchyard_signing_identity_match{provider="%s"} %s\n' \
+    "$provider" "$match" >>"$TEMP"
+done < <(jq -r '.providers | keys[]' "$POLICY")
+
+chmod 0644 "$TEMP"
+mv "$TEMP" "$OUTPUT"
+trap - EXIT
+exit "$drift"

@@ -62,7 +62,7 @@ jq -e '
   and (.provider | test("^(none|[a-z0-9][a-z0-9-]{0,31})$"))
   and (.mode == "fixture" or .mode == "provider-qualification" or .mode == "adversarial-qualification")
   and (.credential_required | type == "boolean")
-  and (.spend_cap_cents | type == "number" and . >= 0 and . <= 5000)
+  and (.spend_cap_cents | type == "number" and . >= 0 and . <= 50000)
   and (if .credential_required then .mode == "provider-qualification" else true end)
   and (if .mode == "adversarial-qualification" then
     (.qualification_manifest_sha256 | test("^[0-9a-f]{64}$"))
@@ -111,7 +111,7 @@ if [[ "$CREDENTIAL_REQUIRED" == true ]]; then
       | type == "object"
       and (keys | length >= 1)
       and all(keys[]; test("^[a-z_]{1,64}$"))
-      and all(.[]; type == "number" and . >= 0 and . <= 5000))
+      and all(.[]; type == "number" and . >= 0 and . <= 50000))
     and (.providers[$provider].capability_field_patterns
       | type == "object"
       and (keys | sort) == ["exchange_request_id","rule_id","scope","secret",

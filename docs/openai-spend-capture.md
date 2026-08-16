@@ -232,6 +232,39 @@ first-exchange run was not billable, so a refusal may require either a cap of
 zero or a small deliberate spend first. Decide this from the reading, not from
 this document.
 
+**Phase 0 findings (read 2026-08-16, capture start 2026-08-16T11:30:10Z,
+operator Jacob Stephens, read-only - candidate values typed, Cancel clicked,
+nothing saved).**
+
+- **The mutation surface is organization-level, not project-level.** The
+  spend limit lives at the console's organization Limits page, not on the
+  project. This deviates from the premise above, which governed "the project
+  budget"; the Administration API 404 stands either way, so A132 still
+  attaches. The policy field name `expected_project_cap_cents` is retained
+  unchanged - renaming a field the guest path already consumes is not worth
+  the churn - and this paragraph is the record that the cap it carries is the
+  organization's monthly spend limit. Consequence: during phase 2's window
+  the cap binds **every consumer in the organization**, not just the factory
+  project. Keep the window short and expect collateral refusals org-wide.
+- **Before-state:** monthly spend limit $100.00 with the "Enforce a hard
+  limit" toggle **OFF** (configured but unenforced); spend alerts at 50%
+  ($50) and 100% ($100); an auto-reload rule "when balance is $5, restore to
+  $50"; usage-tier maximum monthly limit $500; month-to-date spend **$2.52**
+  of $100.00, resetting in 16 days.
+- **Field behavior:** dollars with two-decimal granularity; $0 is rejected
+  (save disabled); **$0.01 is the minimum the interface accepts**; $1
+  accepted.
+- **Decision from the reading:** no deliberate spend is needed. Month-to-date
+  spend ($2.52) already exceeds the minimum settable cap ($0.01), so phase 2
+  is "set the limit to $0.01 and turn the enforce toggle ON", and phase 3
+  restores "$100.00, toggle OFF". Whether a cap below current spend in fact
+  refuses is not assumed - per A125 the refusal predicate stays unenforced
+  and phase 2 records what arrives.
+- The phase caps in `policy/provider-qualification.json` follow this reading:
+  `operational_acceptance` and `restored_acceptance` 10000 (the standing
+  $100.00 limit under which those calls run), `temporary_refusal` 1 (the
+  $0.01 floor the console permits).
+
 **Phase 1 - operational acceptance.** With the cap as it stands, make one
 billable call through the neutral launcher and record that it succeeds. This is
 A132's required baseline control: it establishes the path worked before the

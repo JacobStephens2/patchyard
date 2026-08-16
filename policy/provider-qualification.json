@@ -61,9 +61,9 @@
       "one_shot_client": "/usr/local/libexec/patchyard-openai-one-shot",
       "authorization_ruling": "A132",
       "phase_spend_cap_cents": {
-        "temporary_refusal": 0,
-        "operational_acceptance": 0,
-        "restored_acceptance": 0
+        "temporary_refusal": 1,
+        "operational_acceptance": 10000,
+        "restored_acceptance": 10000
       },
       "capability_field_patterns": {
         "secret": "^[A-Za-z0-9._-]{20,4096}$",

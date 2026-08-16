@@ -1,0 +1,13 @@
+[Unit]
+Description=Assert Patchyard Factory provider signing identities against their trusted kids
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/patchyard-signing-identity-metric
+User=root
+Group=root
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/node_exporter/textfile_collector

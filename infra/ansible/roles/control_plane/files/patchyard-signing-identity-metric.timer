@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Patchyard Factory signing-identity kid assertion
+
+[Timer]
+OnBootSec=5min
+OnCalendar=*-*-* 06:10:00 UTC
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

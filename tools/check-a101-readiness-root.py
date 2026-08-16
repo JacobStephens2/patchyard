@@ -24,7 +24,7 @@ BOUND_SOURCES = {
     "infra/tool-versions.env": "63fa7fa217d98d914a73394c98b41f97571c5c776b3a9b2d4c51d95e56ab917f",
     "tools/read-infra-tool-version.py": "d94d97d605736d0201d0fc0517e0e780d6c346ab79ddc3bd84de7b472edeccd8",
     "tools/install-shellcheck.sh": "715047c90f6a877c57a5495f1bc24feecd40f365ccd8239a6dc711be22a3f535",
-    "tools/check-infra.sh": "dcabba5de9151e6b018130042b24fef87f61e75ee2265d5c1ea0d519be4e555f",
+    "tools/check-infra.sh": "397088c072823d9f3a67a0e09fbd84fd4e4c9d6f68c1b58c4edef75cb3c7d3ec",
     "tools/check-ansible.sh": "2d004011ded7f6250ff9e00790e1f0ae54cd194706b3096977cb8a8a546169ef",
     "tools/run-isolated-unittest.py": "f201a6a57353b485d15a47b803bf274cdf9033ef1e78ed3e07e6f188a728ecc7",
     "tools/check-credential-qualification.py": "7080339d1c05c7cfc0af4f57d57c12151048b21ba7d174e76c106688946ab320",
@@ -52,6 +52,7 @@ BOUND_SOURCES = {
     "tools/check-openai-wif-crash-cleanup.py": "bfe181b75eadae10471a43a2d877276cc3190767922c930650328b10ee05364e",
     "tools/check-independence.py": "baaa2e5058862a253c5042e7ccaea4bfea8af05a93825f5ce5cf99bbd1f93782",
     "tools/check-preview-runtime.py": "2f9a6e994c3d50e7e1f729546b3180330c4ccf0d471ee5b75f016cbbc95292be",
+    "tools/check-signing-identities.py": "368f4edca351829d21b98621d8dc5dad49262cd48d03268cc0735005b140e165",
     "tools/check-stack.py": "ddce869a4bd4983c35c1b246ba01b5e8b1ea25219c761ebbdb2d5b4a8194deff",
     "tools/check-worker-qualification.py": "e9d5662bed3f7002fb6b0d23b777f12a401e8f9a0be4d340a5cf7580fdb3f15d",
     "tools/check-worker-runtime.py": "2ba1b99160441214acd53e4d8ed3aeb69aedbb540c0960cd47c02b0ecfe1d3c3",
@@ -139,6 +140,7 @@ EXPECTED_TOOL_PYTHON_FILES = (
     "tools/check-openai-wif-signing-key-rotation.py",
     "tools/check-preview-runtime.py",
     "tools/check-seats.py",
+    "tools/check-signing-identities.py",
     "tools/check-stack.py",
     "tools/check-worker-qualification.py",
     "tools/check-worker-runtime.py",
@@ -172,6 +174,7 @@ INFRA_CHECKERS = (
     "check-openai-wif-federation-revocation.py",
     "check-openai-wif-signing-key-rotation.py",
     "check-preview-runtime.py",
+    "check-signing-identities.py",
 )
 PROTECTED_MODULE_FILES = {
     "_hashlib.py",

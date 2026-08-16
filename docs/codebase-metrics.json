@@ -72,17 +72,17 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 32184,
-      "comments": 780,
-      "blanks": 2782,
-      "files": 175,
+      "code": 32256,
+      "comments": 789,
+      "blanks": 2792,
+      "files": 176,
       "languages": [
         {
           "language": "BASH",
-          "code": 7623,
-          "comments": 260,
-          "blanks": 502,
-          "files": 45
+          "code": 7658,
+          "comments": 267,
+          "blanks": 507,
+          "files": 46
         },
         {
           "language": "Forge Config",
@@ -100,7 +100,7 @@
         },
         {
           "language": "Jinja2",
-          "code": 1011,
+          "code": 1012,
           "comments": 0,
           "blanks": 60,
           "files": 18
@@ -163,9 +163,9 @@
         },
         {
           "language": "YAML",
-          "code": 3622,
-          "comments": 37,
-          "blanks": 369,
+          "code": 3658,
+          "comments": 39,
+          "blanks": 374,
           "files": 23
         }
       ]
@@ -173,10 +173,10 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 27340,
-      "comments": 476,
-      "blanks": 2286,
-      "files": 132,
+      "code": 27488,
+      "comments": 478,
+      "blanks": 2308,
+      "files": 133,
       "languages": [
         {
           "language": "BASH",
@@ -229,15 +229,15 @@
         },
         {
           "language": "Python",
-          "code": 22177,
-          "comments": 180,
-          "blanks": 2093,
-          "files": 50
+          "code": 22324,
+          "comments": 181,
+          "blanks": 2115,
+          "files": 51
         },
         {
           "language": "Shell",
-          "code": 722,
-          "comments": 86,
+          "code": 723,
+          "comments": 87,
           "blanks": 117,
           "files": 20
         },

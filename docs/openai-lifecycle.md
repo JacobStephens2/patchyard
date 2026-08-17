@@ -376,7 +376,7 @@ attempt requires a new run ID and new output paths.
 
 ## Requirement 4: federation-rule revocation capture
 
-### The mutation is `disable`; `remove` is forbidden (A140)
+### The mutation is subject-expression revocation (A141); `remove` is forbidden (A140)
 
 On OpenAI, deleting the federation subject mapping cascades provider-side into
 destroying the mapped service account. Observed 2026-08-12: after a `remove`
@@ -389,10 +389,31 @@ recreating the mapping minted a same-named service account with a **new** id.
 `remove` therefore violates step 3's own "do not change the service account"
 constraint by provider cascade, and makes step 6's "restore the exact original
 mapping" unsatisfiable at the id level - every future attempt would re-break
-the policy pin. **The requirement-4 mutation is `--mapping-mutation disable`.**
-Under `disable`, restoration is re-enabling the same mapping, and step 5's
-"identical to step 1" is literally satisfiable. A140 records the 2026-08-12
-discontinuity once; no lineage annotation attaches anywhere else.
+the policy pin. A140 records the 2026-08-12 discontinuity once; no lineage
+annotation attaches anywhere else.
+
+A140 prescribed `disable` as the replacement, and the console cannot perform
+it: the attended run `openai-revocation-20260812-e2f0bcef3c` aborted safely at
+the mutation pause because the mapping card offers only Edit / delete /
+Details and the provider Edit dialog has no enable/disable control. A disabled
+state exists server-side - OpenAI's token-exchange error taxonomy lists
+"matching mapping is disabled" - but no public surface flips it (research
+2026-08-13, primary sources including the openai-openapi spec: the WIF
+management plane is dashboard-only, with no provider or mapping CRUD in the
+Admin API).
+
+**The requirement-4 mutation is `--mapping-mutation subject-expression`
+(A141): a console Edit of the subject mapping's claim assertion to the
+run-scoped sentinel `sub=patchyard-control-plane-REVOKED-<run id>`.** The
+mapping stays present and enabled throughout; what is revoked is the rule the
+worker's assertion matches. Restoration is editing the original expression
+back - same mapping, same service-account id - so step 5's "identical to
+step 1" is literally satisfiable. The sentinel makes crashed-window residue
+self-describing at the console: a mapping left mid-run carries a rule that
+names the run that broke, not a disabled state and not plausible
+configuration. Edit reversibility is inferred, not promised; each run's step 6
+restoration reading is what proves it, and the runbook carries the edit-back
+failure path.
 
 ### Non-recoverable precondition
 
@@ -461,18 +482,19 @@ All steps below occur in one bounded window:
    endpoint with the fixed instrument. It must supply a bearer. Record the
    provider response as a Receipt where OpenAI supplies a request ID.
 3. With capture already active, record the mutation's immediate before-bound,
-   have the named actor **disable** only the subject mapping (never remove it -
-   A140), then record the immediate after-bound and console after-state. The
-   attester records the Attestation. Do not change the service account or
-   uploaded JWK in this Requirement.
+   have the named actor **Edit** only the subject mapping's claim assertion to
+   the run-scoped sentinel (never remove the mapping - A140), then record the
+   immediate after-bound and console after-state. The attester records the
+   Attestation. Do not change the service account or uploaded JWK in this
+   Requirement.
 4. Wait at least the standing 90-second settling floor. An exchange before the
    floor measures propagation and cannot become Evidence of revocation.
 5. Attempt exactly one fresh exchange with the same surface and instrument.
    Record whatever bounded response OpenAI returns. Do not require a status,
    error type, error code, message, or request-ID shape.
-6. While capture remains active, capture the disabled state, re-enable the
-   exact original mapping, and capture the restored state. Record the
-   restoration as a second console-only control-plane mutation in the
+6. While capture remains active, capture the sentinel-expression state, edit
+   the exact original expression back, and capture the restored state. Record
+   the restoration as a second console-only control-plane mutation in the
    Attestation.
 7. Wait the same settling floor. Make the bracketing control: one fresh exchange
    with the same surface and instrument, which must supply a bearer.
@@ -502,7 +524,7 @@ original mapping is back.
 **Run it inside tmux.** The collector prompts on a terminal and blocks. A
 dropped SSH connection destroys the pseudo-TTY, the kernel SIGHUPs the
 collector, and the run dies holding an open mutation window with the mapping
-still disabled. That has already happened once. tmux owns the pseudo-TTY
+still carrying the sentinel. That has already happened once. tmux owns the pseudo-TTY
 itself, so a disconnect costs nothing and `tmux attach -t rev` resumes at the
 same prompt.
 
@@ -539,9 +561,12 @@ the attended run, the freeze graph reports drift, a checker rejects static
 preflight, or another OpenAI lifecycle run is active.
 
 Have the console open on the provider page before starting, and confirm the
-subject mapping is present and enabled. The run cannot begin from a disabled
-or missing mapping: the first reading is checked against
-`require_active_mapping`.
+subject mapping is present, enabled, and carrying the original claim
+assertion. The run cannot begin from a missing or disabled mapping, or from
+one still carrying a `-REVOKED-` sentinel left by a crashed window: the first
+reading is checked against `require_active_mapping`, which also rejects
+sentinel residue. Residue is repaired by editing the original expression back
+at the console before starting, never by starting a run over it.
 
 Create one fresh root-owned tmpfs stage and one new output. The run ID must
 match `openai-revocation-[0-9]{8}-[0-9a-f]{10}`, and the output must sit
@@ -555,7 +580,7 @@ sudo install -d -m 0700 -o root -g root "$CONTROL_STAGE"
 sudo python3 -I tools/openai-wif-federation-revocation.py \
   --run-id "$RUN_ID" --actor "<named actor>" \
   --actor-kind accountable_human --attester "<named attester>" \
-  --mapping-mutation disable --output "$RESULT"
+  --mapping-mutation subject-expression --output "$RESULT"
 ```
 
 Under A136 one accountable human may occupy both roles, but the record then
@@ -566,12 +591,12 @@ order. Answer each prompt only when it appears; do not queue answers ahead.
 
 | Step | Prompt | Mapping state to report |
 |------|--------|-------------------------|
-| 1 | enabled mapping before the baseline control | present and enabled |
+| 1 | enabled mapping before the baseline control | present and enabled, original expression |
 | 2 | immediate state before the mutation | unchanged from step 1 |
-| — | `MUTATION COMPLETE` | disable the subject mapping first |
-| 3 | immediate state after the mutation | disabled |
-| 4 | current mapping before safe restoration | **still disabled** |
-| — | `RESTORATION COMPLETE` | re-enable the original mapping first |
+| — | `MUTATION COMPLETE` | Edit the claim assertion to the sentinel first |
+| 3 | immediate state after the mutation | present and enabled, expression is the sentinel |
+| 4 | current mapping before safe restoration | **still the sentinel** |
+| — | `RESTORATION COMPLETE` | edit the original expression back first |
 | 5 | the safely restored mapping | present and enabled, identical to step 1 |
 
 **Read the console at each step. Do not prepare the JSON in advance.** The
@@ -581,7 +606,7 @@ inside the bounded window. Pasting values written before the window began
 produces a file that passes every checker while attesting to nothing.
 
 Step 4 is the step that gets missed. It is captured *before* restoring, so
-the mapping must still be disabled when you answer it. Restoring early fails
+the mapping must still carry the sentinel when you answer it. Restoring early fails
 the run with `mapping returned to its original state before captured
 restoration`, and the collector treats that as a failure even though the
 console is safe.
@@ -728,8 +753,8 @@ Do not run this procedure during build, review, CI, or an unattended session.
 It requires separate authorization for five live OpenAI exchanges, two console
 mutations, and one local key activation.
 
-**This one is not reversible.** Requirement 4 disables a mapping and puts it
-back; a conforming rotation ends with the control plane signing under a new key
+**This one is not reversible.** Requirement 4 edits a mapping's claim
+assertion and puts it back; a conforming rotation ends with the control plane signing under a new key
 and the console trusting only that key. The original private key survives only
 in the run's root tmpfs stage, which does not outlive a reboot. Treat a
 completed rotation as the new steady state, not as something to undo.

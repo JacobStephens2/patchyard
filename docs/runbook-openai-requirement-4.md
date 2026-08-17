@@ -13,17 +13,24 @@ mapped service-account ID, and the console URL are read from
 ## Before you start
 
 **This run needs separate authorization.** It makes three live OpenAI token
-exchanges and two console mutations, and it disables a live federation subject
-mapping. Do not run it during build, review, CI, or an unattended session.
+exchanges and two console mutations, and it revokes a live federation subject
+mapping by editing its claim assertion to a run-scoped sentinel. Do not run it
+during build, review, CI, or an unattended session.
 
-> **The mutation is `disable`. Never `remove` the mapping (A140).** On OpenAI,
-> deleting the subject mapping cascades into destroying the mapped service
-> account: the 2026-08-12 runs proved it (see the inert-leftovers table below),
-> and recreating the mapping minted a same-named account with a new id,
-> breaking the frozen policy pin and every result pinned to the old id.
-> Restoration under `disable` is re-enabling the same mapping. Normative text:
-> `docs/openai-lifecycle.md` § "The mutation is `disable`; `remove` is
-> forbidden (A140)".
+> **The mutation is subject-expression revocation (A141). Never `remove` the
+> mapping (A140).** On OpenAI, deleting the subject mapping cascades into
+> destroying the mapped service account: the 2026-08-12 runs proved it (see
+> the inert-leftovers table below), and recreating the mapping minted a
+> same-named account with a new id, breaking the frozen policy pin and every
+> result pinned to the old id. A140's replacement, `disable`, turned out to be
+> a state the console cannot reach - the mapping card offers only Edit /
+> delete / Details (run `openai-revocation-20260812-e2f0bcef3c` aborted safely
+> at the mutation pause on exactly this). So the named actor **Edits the
+> mapping's claim assertion** to
+> `sub=patchyard-control-plane-REVOKED-<run id>`; restoration is editing the
+> original expression back. The mapping stays present and enabled the whole
+> run. Normative text: `docs/openai-lifecycle.md` § "The mutation is
+> subject-expression revocation (A141); `remove` is forbidden (A140)".
 
 **It is not finished until the original mapping is back.** Budget an
 uninterrupted block. The run pauses twice for a 90-second settling floor and
@@ -34,9 +41,13 @@ change) and a named `attester` (who records the attestation). Under A136 one
 accountable human may hold both, but the record then carries no independence
 and must never later be described as corroboration.
 
-Have the provider page open and confirm the subject mapping is **present and
-enabled**. The run cannot start from a disabled or missing mapping — the first
-reading is checked against `require_active_mapping`.
+Have the provider page open and confirm the subject mapping is **present,
+enabled, and carrying the original claim assertion**. The run cannot start
+from a missing or disabled mapping, or from one still carrying a `-REVOKED-`
+sentinel left by a crashed window — the first reading is checked against
+`require_active_mapping`, which also rejects sentinel residue. Residue is
+self-describing: the expression names the run that broke. Repair it by editing
+the original expression back at the console before starting a new run.
 
 ## Which way to drive it
 
@@ -115,18 +126,11 @@ record that passes every checker while attesting to nothing.
 **Start the run inside tmux whichever way you answer.** The console *cannot
 start a run* — that is deliberate, and it is why the factory host is
 `tmux_readonly` in the inventory: an attachable panel would be a
-browser-reachable path to root on the box holding the WIF signing key. tmux owns
-the pseudo-TTY, so a dropped SSH connection costs nothing; without it the kernel
+browser-reachable path to root on the box holding the WIF signing key. The
+browser only supplies readings to a run it did not start. tmux owns the
+pseudo-TTY, so a dropped SSH connection costs nothing; without it the kernel
 SIGHUPs the collector and the run dies holding an open mutation window with the
-mapping still disabled. That has happened once.
-
-**Start the run inside tmux either way.** The console *cannot start a run* —
-that is deliberate, and it is why the factory host is `tmux_readonly` in the
-inventory: an attachable panel would be a browser-reachable path to root on the
-box holding the WIF signing key. The browser only supplies readings to a run it
-did not start. tmux owns the pseudo-TTY, so a dropped SSH connection costs
-nothing; without it the kernel SIGHUPs the collector and the run dies holding an
-open mutation window with the mapping still disabled. That has happened once.
+mapping still carrying the sentinel. That has happened once.
 
 ## 1. Connect and preflight
 
@@ -163,7 +167,7 @@ another OpenAI lifecycle run is genuinely active.
 
 ### Inert leftovers from earlier attempts
 
-Four directories under `/run/patchyard-openai` are dead runs, and all **appear
+Five directories under `/run/patchyard-openai` are dead runs, and all **appear
 on `/collectors`**, because that page lists every directory there:
 
 | Directory | State | Cause |
@@ -172,14 +176,17 @@ on `/collectors`**, because that page lists every directory there:
 | `openai-revocation-20260810-b25e9cc3b3` | `failed` | Stage/session collision, before any OpenAI call or mutation |
 | `openai-revocation-20260812-4924ca4ef5` | `failed` 12:44:36Z | `RevocationCollectorError: bracketing control did not supply a bearer` — the `remove` mutation had cascaded into deleting the mapped service account (A140); its baseline exchange at 12:27:05Z against the old id had returned HTTP 200 |
 | `openai-revocation-20260812-64a8668459` | `failed` 12:54Z | `RevocationCollectorError: baseline control did not supply a bearer` — the old service-account id no longer exchanged at all (A140) |
+| `openai-revocation-20260812-e2f0bcef3c` | `failed`, aborted at the mutation pause | The console offered no disable affordance for A140's prescribed mutation; the operator aborted with nothing mutated (A141) |
 
 The 2026-08-10 run never reached an exchange or a mutation. Whatever the
 2026-08-09 run left behind, the mapping was confirmed present and enabled at the
 console immediately before the 2026-08-10 attempt — confirm it again yourself
 before opening a window rather than relying on that.
 
-The two 2026-08-12 runs are why the mutation is now `disable` (A140). Their
-stage JSONs are preserved durably at
+The two runs that mutated are why `remove` is forbidden (A140), and the safely
+aborted run is why the mutation is now subject-expression revocation (A141) —
+the console had no disable affordance to offer it. The 2026-08-12 stage JSONs
+are preserved durably at
 `/var/lib/patchyard-evidence-hold/openai-r4-failed-20260812/` (root-only) on
 the factory host, so a reboot clearing the tmpfs directories loses nothing.
 
@@ -210,7 +217,7 @@ sudo python3 -I tools/attended-collector-runner.py \
   --actor "<named actor>" \
   --actor-kind accountable_human \
   --attester "<named attester>" \
-  --mapping-mutation disable \
+  --mapping-mutation subject-expression \
   --output "$STAGE/openai-federation-revocation.json"
 ```
 
@@ -264,12 +271,12 @@ when it appears; do not queue answers ahead.
 
 | Step | What it asks | Mapping state to report |
 | :-- | :-- | :-- |
-| 1 | enabled mapping before the baseline control | present and enabled |
+| 1 | enabled mapping before the baseline control | present and enabled, original expression |
 | 2 | immediate state before the mutation | unchanged from step 1 |
-| — | **MUTATION COMPLETE** | disable the subject mapping *first* |
-| 3 | immediate state after the mutation | disabled |
-| 4 | current mapping before safe restoration | **still disabled** |
-| — | **RESTORATION COMPLETE** | re-enable the original mapping *first* |
+| — | **MUTATION COMPLETE** | Edit the claim assertion to the sentinel *first* |
+| 3 | immediate state after the mutation | present and enabled, expression is the sentinel |
+| 4 | current mapping before safe restoration | **still the sentinel** |
+| — | **RESTORATION COMPLETE** | edit the original expression back *first* |
 | 5 | the safely restored mapping | present and enabled, identical to step 1 |
 
 **Read the console at each step. Do not prepare readings in advance.** The
@@ -278,10 +285,16 @@ the entire evidentiary value is that a named human read the live console inside
 the bounded window. Values written before the window began produce a file that
 passes every checker while attesting to nothing.
 
+**The sentinel is exact.** The mutation-pause prompt prints the run's sentinel,
+`sub=patchyard-control-plane-REVOKED-<run id>`; Edit the claim assertion to
+exactly that string. The collector rejects a step 3 reading whose expression is
+anything else — a freehand "revoked" note is not the named mutation.
+
 **Step 4 is the one that gets missed.** It is captured *before* you restore, so
-the mapping must still be disabled when you answer it. Restoring early fails the
-run with `mapping returned to its original state before captured restoration` —
-and the collector treats that as a failure even though the console is now safe.
+the mapping must still carry the sentinel when you answer it. Restoring early
+fails the run with `mapping returned to its original state before captured
+restoration` — and the collector treats that as a failure even though the
+console is now safe.
 
 Each reading carries exactly these keys: `console_location`, `enabled`,
 `identity_provider_id`, `mapped_service_account_id`, `mapping_present`,
@@ -305,9 +318,29 @@ repair the attestation. The run is then not conforming — it is re-run from a
 clean window, never patched.
 
 If the pane is gone but the run is alive, `tmux attach -t rev` resumes at the
-same prompt. If the process is dead, the mapping may still be disabled on the
-control plane: check the provider page first and re-enable it by hand, then
-treat the run as failed.
+same prompt. If the process is dead, the mapping may still carry the sentinel
+on the control plane: check the provider page first and edit the original
+expression back by hand, then treat the run as failed. The residue is
+self-describing — the expression names the run that left it — and it is a
+*wrong* rule, not a disabled one: the mapping stays present and enabled, and
+the worker's real assertion simply no longer matches it.
+
+**If the edit back fails.** Edit reversibility is inferred, not promised —
+each run's step 6 restoration reading is what proves it, run by run. If the
+console Edit refuses to restore the original expression:
+
+1. Do not remove or recreate the mapping (A140 — the delete cascade destroys
+   the mapped service account and re-breaks every pinned result).
+2. Retry the Edit from a fresh console session; a transient dashboard failure
+   is the likely cause.
+3. If the expression still cannot be restored, stop. The mapping is left
+   carrying the sentinel: exchanges are denied, nothing is destroyed, and the
+   state names this run. Record the failure on the run's ticket and escalate
+   to Jacob — the repair decision (support ticket, or a newly discovered
+   console surface) is made there, not improvised at the console.
+
+The run is not conforming in that state, but it is safe; requirement 4 stays
+unproven rather than broken.
 
 ## 5. Verify and copy out
 

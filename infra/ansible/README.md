@@ -122,11 +122,18 @@ point, sends the committed repository as a credential-free bundle, selects
 only tasks tagged `session13`, and runs the fixed Session 13 qualification
 after service restarts. It does not bypass or synthesize dashboard identities.
 
-After bootstrap, the control plane can re-apply the current host-local desired
-state without orchestration or cloud credentials:
+After bootstrap, the control plane can run a maintenance converge of the
+committed desired state without orchestration or cloud credentials:
 
 ```bash
 sudo -u factory-manager /usr/local/sbin/patchyard-converge-hosts
 ```
 
-That entry point cannot mutate DigitalOcean, AWS, GitHub, or OpenTofu state.
+That entry point cannot mutate DigitalOcean, AWS, GitHub, or OpenTofu state,
+and it has no authority over bootstrap-injected inputs: it preserves and
+verifies them, never establishes or redefines them. Where an input cannot be
+derived without reading back an artifact the orchestration converge itself
+wrote - the GitHub App pem, the dashboard account passwords - the management
+path asserts presence, ownership, and consistency with Git instead of
+re-injecting, a claim that can fail rather than a `changed=0` that means
+nothing.

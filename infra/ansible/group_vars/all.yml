@@ -58,6 +58,13 @@ artifact_retention_days: 90
 # qualification. The publisher verifies this object after fetching origin.
 factory_fieldbook_base_sha: 4ef35181f7a700b02e63808e483d7c23f33b91d8
 
+# GitHub App identifiers, not secrets: identities live in Git, secrets stay
+# out. Promoted from bootstrap-injected -e plumbing by the on-host converge
+# contract so both the orchestration and management paths render the
+# supervisor and deployed-version templates from one source.
+factory_github_app_id: "0000000"
+factory_github_app_installation_id: "147974103"
+
 # A69 desired-state roster ruled with the Session 14 adversarial review.
 # Passwords remain controller-local secret input and are never committed.
 factory_dashboard_account_identities:

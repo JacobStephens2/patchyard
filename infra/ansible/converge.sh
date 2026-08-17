@@ -7,8 +7,6 @@ ANSIBLE_ROOT="$REPO_ROOT/infra/ansible"
 FACTORY_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
 CARGO_BIN=${CARGO_BIN:-/var/lib/conductor/.cargo/bin/cargo}
 
-: "${GH_PATCHYARD_APP_ID:?GH_PATCHYARD_APP_ID is required}"
-: "${GH_PATCHYARD_APP_INSTALLATION_ID:?GH_PATCHYARD_APP_INSTALLATION_ID is required}"
 : "${GH_PATCHYARD_APP_PRIVATE_KEY_FILE:?GH_PATCHYARD_APP_PRIVATE_KEY_FILE is required}"
 : "${FACTORY_DASHBOARD_ACCOUNTS_FILE:?FACTORY_DASHBOARD_ACCOUNTS_FILE is required}"
 if [[ ! -f "$GH_PATCHYARD_APP_PRIVATE_KEY_FILE" ]]; then
@@ -142,8 +140,6 @@ cd "$ANSIBLE_ROOT"
   -e "factory_web_binary=$FACTORY_WEB_BINARY" \
   -e "factory_web_sha256=$FACTORY_WEB_SHA256" \
   -e "factory_dashboard_accounts_file=$FACTORY_DASHBOARD_ACCOUNTS_FILE" \
-  -e "factory_github_app_id=$GH_PATCHYARD_APP_ID" \
-  -e "factory_github_app_installation_id=$GH_PATCHYARD_APP_INSTALLATION_ID" \
   -e "factory_github_app_private_key_file=$GH_PATCHYARD_APP_PRIVATE_KEY_FILE" \
   -e "@$BACKUP_VARS_FILE" \
   "$@"

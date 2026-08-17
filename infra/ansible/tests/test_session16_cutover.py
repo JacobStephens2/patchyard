@@ -933,9 +933,9 @@ fi
             )
             private_key.chmod(0o600)
             accounts.chmod(0o600)
+            # The App id and installation id are Git-declared group_vars now,
+            # not converge inputs, so the input check needs no id environment.
             env = os.environ | {
-                "GH_PATCHYARD_APP_ID": "123",
-                "GH_PATCHYARD_APP_INSTALLATION_ID": "456",
                 "GH_PATCHYARD_APP_PRIVATE_KEY_FILE": str(private_key),
                 "FACTORY_DASHBOARD_ACCOUNTS_FILE": str(accounts),
             }

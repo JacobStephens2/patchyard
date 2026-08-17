@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -324,6 +326,100 @@ class AttestationAndCollectorContract(unittest.TestCase):
             ),
             rotation_state,
         )
+
+    def test_rotation_readings_canonicalise_public_key_order(self) -> None:
+        overlap = json.loads(ROTATION_FIXTURE_PATH.read_text())[
+            "overlap_attestation"
+        ]["console_readings"]["after"]["state"]
+        self.assertEqual(len(overlap["public_keys"]), 2)
+        reversed_reading = deepcopy(overlap)
+        reversed_reading["public_keys"] = list(
+            reversed(reversed_reading["public_keys"])
+        )
+        parsed = self.rotation.parse_console_state(
+            json.dumps(reversed_reading), self.rotation.load_policy()
+        )
+        self.assertEqual(parsed, overlap)
+
+        duplicated = deepcopy(overlap)
+        duplicated["public_keys"] = [
+            overlap["public_keys"][0],
+            deepcopy(overlap["public_keys"][0]),
+        ]
+        with self.assertRaises(self.rotation.RotationCollectorError) as caught:
+            self.rotation.parse_console_state(
+                json.dumps(duplicated), self.rotation.load_policy()
+            )
+        self.assertIn("not unique", str(caught.exception))
+
+    def test_rollback_reading_is_reprompted_on_malformed_input(self) -> None:
+        fixture = json.loads(ROTATION_FIXTURE_PATH.read_text())
+        original_reading = fixture["original_console_reading"]
+        original = fixture["derived_public_key_descriptors"]["original"]
+        replacement = fixture["derived_public_key_descriptors"]["replacement"]
+        overlap = fixture["overlap_attestation"]["console_readings"]["after"]["state"]
+        original_state = original_reading["state"]
+        inputs = iter(
+            (
+                "not even JSON",
+                json.dumps(overlap),
+                "SAFE ROLLBACK COMPLETE",
+                '{"wrong_shape": true}',
+                json.dumps(original_state),
+            )
+        )
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(self.rotation.BASE, "load_public_jwk", return_value={}),
+            mock.patch.object(
+                self.rotation.BASE, "jwk_descriptor", return_value=original
+            ),
+            contextlib.redirect_stderr(stderr),
+        ):
+            rollback = self.rotation.capture_safe_rotation_rollback(
+                actor_name="Fixture Operator",
+                actor_kind="accountable_human",
+                attester_name="Fixture Operator",
+                policy=self.rotation.load_policy(),
+                original_reading=original_reading,
+                original_descriptor=original,
+                replacement_descriptor=replacement,
+                retirement_confirmed=False,
+                input_fn=lambda unused: next(inputs),
+                clock=TickingClock(
+                    datetime(2026, 8, 7, 15, 20, 26, 123_457, timezone.utc)
+                ),
+            )
+        self.assertEqual(rollback["status"], "safe_state_restored")
+        self.assertEqual(
+            stderr.getvalue().count("Reading not accepted during recovery"), 2
+        )
+
+    def test_upload_material_is_printed_and_public_only(self) -> None:
+        fixture = json.loads(ROTATION_FIXTURE_PATH.read_text())
+        descriptors = fixture["derived_public_key_descriptors"]
+        active_jwk = {"kid": descriptors["original"]["kid"], "kty": "RSA"}
+        replacement_jwk = {"kid": descriptors["replacement"]["kid"], "kty": "RSA"}
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(
+                self.rotation.BASE,
+                "load_public_jwk",
+                return_value=replacement_jwk,
+            ),
+            contextlib.redirect_stderr(stderr),
+        ):
+            self.rotation.print_upload_material(
+                active_jwk, Path("/unused"), descriptors
+            )
+        printed = stderr.getvalue()
+        self.assertIn(descriptors["original"]["kid"], printed)
+        self.assertIn(descriptors["replacement"]["kid"], printed)
+        self.assertIn(
+            descriptors["replacement"]["jwk_thumbprint_sha256"], printed
+        )
+        self.assertIn("Two-key overlap JWKS", printed)
+        self.assertNotIn("PRIVATE KEY", printed)
 
     def test_revocation_failure_after_mutation_still_drives_safe_restoration(self) -> None:
         fixture = json.loads(REVOCATION_FIXTURE_PATH.read_text())

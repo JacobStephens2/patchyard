@@ -217,8 +217,13 @@ def parse_console_state(raw: str, policy: dict[str, Any]) -> dict[str, Any]:
     for key in keys:
         validate_public_descriptor(key)
     identities = [(key["kid"], key["jwk_thumbprint_sha256"]) for key in keys]
-    if identities != sorted(identities) or len(identities) != len(set(identities)):
-        raise RotationCollectorError("public-key membership is not unique and sorted")
+    if len(identities) != len(set(identities)):
+        raise RotationCollectorError("public-key membership is not unique")
+    # Ordering is canonicalisation, not evidence: the operator reports the
+    # membership, and the collector sorts it into the recorded form.
+    state["public_keys"] = sorted(
+        keys, key=lambda item: (item["kid"], item["jwk_thumbprint_sha256"])
+    )
     if credential_shaped(state):
         raise RotationCollectorError("console reading contains credential-shaped material")
     return state
@@ -245,6 +250,33 @@ def capture_console_reading(
         "captured_after_at": captured_after_at,
         "state": parse_console_state(raw, policy),
     }
+
+
+def capture_recovery_reading(
+    label: str,
+    policy: dict[str, Any],
+    *,
+    input_fn: Callable[[str], str] = input,
+    clock: Callable[[], datetime] = BASE.utc_now,
+) -> dict[str, Any]:
+    """Capture a rollback reading, re-prompting on a malformed one.
+
+    A recovery reading is operator typing, not a provider observation, so a
+    typo must not kill the rollback that is trying to restore the safe state.
+    The escape is the operator's interrupt, which is not a reading.
+    """
+    while True:
+        try:
+            return capture_console_reading(
+                label, policy, input_fn=input_fn, clock=clock
+            )
+        except RotationCollectorError as error:
+            print(
+                "Reading not accepted during recovery "
+                f"({safe_failure_reason(error)}); prompting for it again.",
+                file=sys.stderr,
+                flush=True,
+            )
 
 
 def state_without_location(state: dict[str, Any]) -> dict[str, Any]:
@@ -318,6 +350,43 @@ def generate_replacement_key(path: Path) -> dict[str, str]:
     os.chown(path, 0, 0)
     BASE.validate_root_private_key(path)
     return BASE.jwk_descriptor(BASE.load_public_jwk(path))
+
+
+def print_upload_material(
+    active_jwk: dict[str, Any],
+    replacement_key: Path,
+    descriptors: dict[str, dict[str, str]],
+) -> None:
+    """Print the public material the operator uploads, and nothing else.
+
+    The operator never sees the replacement private key; the console upload is
+    hand-assembled from public JWKs derived in this run, so those JWKs must be
+    shown, not merely written to the journal.
+    """
+    replacement_jwk = BASE.load_public_jwk(replacement_key)
+    overlap_jwks = {
+        "keys": sorted(
+            [active_jwk, replacement_jwk],
+            key=lambda jwk: str(jwk.get("kid", "")),
+        )
+    }
+    if credential_shaped(overlap_jwks) or credential_shaped(descriptors):
+        raise RotationCollectorError("upload material is credential-shaped")
+    print(
+        "Two-key overlap JWKS for the console upload (public keys only):",
+        file=sys.stderr,
+        flush=True,
+    )
+    print(json.dumps(overlap_jwks, indent=2, sort_keys=True), file=sys.stderr)
+    print("Derived public-key descriptors for the readings:", file=sys.stderr)
+    for role in sorted(descriptors):
+        descriptor = descriptors[role]
+        print(
+            f"  {role}: kid={descriptor['kid']} "
+            f"jwk_thumbprint_sha256={descriptor['jwk_thumbprint_sha256']}",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def exchange_once(
@@ -453,7 +522,7 @@ def capture_safe_rotation_rollback(
     input_fn: Callable[[str], str] = input,
     clock: Callable[[], datetime] = BASE.utc_now,
 ) -> dict[str, Any]:
-    before = capture_console_reading(
+    before = capture_recovery_reading(
         "the current public-key state before safe rotation rollback",
         policy,
         input_fn=input_fn,
@@ -501,7 +570,7 @@ def capture_safe_rotation_rollback(
         "SAFE ROLLBACK COMPLETE",
         input_fn=input_fn,
     )
-    after = capture_console_reading(
+    after = capture_recovery_reading(
         f"the {target_name} after safe rotation rollback",
         policy,
         input_fn=input_fn,
@@ -588,6 +657,7 @@ def collect(
         "original": active_descriptor,
         "replacement": replacement_descriptor,
     }
+    print_upload_material(active_jwk, replacement_key, descriptors)
 
     overlap_before = capture_console_reading(
         "the immediate one-key state before the overlap upload",

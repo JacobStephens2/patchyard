@@ -72,9 +72,9 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 32765,
+      "code": 32857,
       "comments": 823,
-      "blanks": 2820,
+      "blanks": 2824,
       "files": 177,
       "languages": [
         {
@@ -135,9 +135,9 @@
         },
         {
           "language": "Python",
-          "code": 16969,
+          "code": 17061,
           "comments": 139,
-          "blanks": 1505,
+          "blanks": 1509,
           "files": 40
         },
         {
@@ -173,9 +173,9 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 29050,
-      "comments": 495,
-      "blanks": 2394,
+      "code": 29114,
+      "comments": 497,
+      "blanks": 2398,
       "files": 135,
       "languages": [
         {
@@ -229,9 +229,9 @@
         },
         {
           "language": "Python",
-          "code": 23883,
-          "comments": 196,
-          "blanks": 2201,
+          "code": 23947,
+          "comments": 198,
+          "blanks": 2205,
           "files": 53
         },
         {
@@ -268,8 +268,8 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 11581,
-      "comments": 22732,
-      "blanks": 6179,
+      "comments": 22745,
+      "blanks": 6180,
       "files": 210,
       "languages": [
         {
@@ -289,8 +289,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 22712,
-          "blanks": 6124,
+          "comments": 22725,
+          "blanks": 6125,
           "files": 171
         },
         {

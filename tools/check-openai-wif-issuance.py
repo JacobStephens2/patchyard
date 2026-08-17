@@ -19,11 +19,16 @@ BASE_HARNESS_PATH = REPO / "tools/anthropic-wif-lifecycle.py"
 ISSUANCE_ADAPTER_PATH = REPO / "tools/openai-wif-issuance.py"
 RESULT_PATH = REPO / "research/isolation/results/openai-first-token-exchange.json"
 PROVIDER_POLICY_PATH = REPO / "policy/provider-egress.json"
+REGISTRY_PATH = REPO / "policy/signing-identities.json"
+OPENAI_SIGNING_KEY_PATH = "/etc/patchyard/openai-wif-signing.pem"
 BASE_HARNESS_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
 )
 # A144: the signing-identity split re-pointed the adapter's key path without
 # re-producing the banked Result, so the pre-split digests stay acceptable.
+# A145: results minted under these superseded adapters carry the frozen
+# policy's issuer.jwks_kid; results minted under the current adapter carry
+# the signing-identity registry's trusted kid.
 SUPERSEDES_CHECKER_SHA256 = (
     "aab91925999b35be7e955bc5f628b70b"
     "f4ad7290097c18ad8f76c1201c082478",
@@ -263,14 +268,17 @@ def safe_optional_string(value: Any) -> bool:
 
 
 def validate_assertion(
-    value: Any, policy: dict[str, Any], errors: list[str]
+    value: Any,
+    policy: dict[str, Any],
+    expected_kid: str | None,
+    errors: list[str],
 ) -> tuple[datetime | None, datetime | None, datetime | None]:
     if not exact_keys(value, ASSERTION_KEYS, "assertion descriptor", errors):
         return None, None, None
     if value.get("algorithm") != "RS256":
         errors.append("assertion algorithm differs")
-    if value.get("kid") != policy["issuer"]["jwks_kid"]:
-        errors.append("assertion key ID differs from the uploaded JWKS")
+    if value.get("kid") != expected_kid:
+        errors.append("assertion key ID differs from the trusted signing identity")
     if KID.fullmatch(str(value.get("kid", ""))) is None:
         errors.append("assertion key ID is malformed")
     for field, expected in (
@@ -468,6 +476,46 @@ def validate_source(value: Any, errors: list[str]) -> None:
         errors.append("OpenAI source binding differs from the current sources")
 
 
+def registry_trusted_kid(errors: list[str]) -> str | None:
+    try:
+        entry = load_json_file(REGISTRY_PATH)["providers"]["openai"]
+        key_path = entry["signing_key_path"]
+        kid = entry["trusted_kid"]
+    except (
+        OSError,
+        KeyError,
+        TypeError,
+        json.JSONDecodeError,
+        EvidenceJsonError,
+    ) as error:
+        errors.append(f"cannot read the signing-identity registry: {error}")
+        return None
+    if key_path != OPENAI_SIGNING_KEY_PATH:
+        errors.append("signing-identity registry names another OpenAI key path")
+    if not isinstance(kid, str) or KID.fullmatch(kid) is None:
+        errors.append("signing-identity registry kid is malformed")
+        return None
+    return kid
+
+
+def expected_assertion_kid(
+    result: Any, policy: dict[str, Any], registry_kid: str | None
+) -> str | None:
+    """A145 era split: banked issuance-era Results really were minted under
+    the frozen policy's issuer.jwks_kid; anything minted by the current
+    adapter must carry the registry's trusted kid. A digest's era travels
+    with the digest: when a registry-era adapter digest is superseded in a
+    future edit, it must not join this tuple's frozen-policy branch."""
+    source = result.get("source") if isinstance(result, dict) else None
+    recorded = (
+        source.get("issuance_adapter_sha256") if isinstance(source, dict) else None
+    )
+    if recorded in SUPERSEDES_SOURCE_SHA256["tools/openai-wif-issuance.py"]:
+        issuer = policy.get("issuer") if isinstance(policy, dict) else None
+        return issuer.get("jwks_kid") if isinstance(issuer, dict) else None
+    return registry_kid
+
+
 def secret_named_key(value: Any) -> str | None:
     if isinstance(value, dict):
         for key, child in value.items():
@@ -512,6 +560,7 @@ def credential_errors(value: Any) -> list[str]:
 def validate_common(
     result: Any,
     policy: dict[str, Any],
+    registry_kid: str | None,
     *,
     synthetic: bool,
 ) -> list[str]:
@@ -527,7 +576,10 @@ def validate_common(
         errors.append("OpenAI exchange result run ID is malformed")
     started = parse_time(result.get("started_at"), "exchange started_at", errors)
     issued, minted, expires = validate_assertion(
-        result.get("assertion_descriptor"), policy, errors
+        result.get("assertion_descriptor"),
+        policy,
+        expected_assertion_kid(result, policy, registry_kid),
+        errors,
     )
     request_time = validate_request(result.get("exchange_request"), policy, errors)
     if synthetic:
@@ -564,13 +616,15 @@ def validate_common(
     return errors
 
 
-def validate_observation(result: Any, policy: dict[str, Any]) -> list[str]:
+def validate_observation(
+    result: Any, policy: dict[str, Any], registry_kid: str | None
+) -> list[str]:
     errors: list[str] = []
     if isinstance(result, dict) and result.get("status") == "in_progress":
         return ["in-progress OpenAI exchange record is inert"]
     if isinstance(result, dict) and result.get("status") == "failed":
         return ["failed OpenAI exchange record is not a provider observation"]
-    errors.extend(validate_common(result, policy, synthetic=False))
+    errors.extend(validate_common(result, policy, registry_kid, synthetic=False))
     if isinstance(result, dict):
         if result.get("provider_response_observed") is not True:
             errors.append("OpenAI observation does not record a provider response")
@@ -579,8 +633,10 @@ def validate_observation(result: Any, policy: dict[str, Any]) -> list[str]:
     return errors
 
 
-def validate_contract_fixture(result: Any, policy: dict[str, Any]) -> list[str]:
-    errors = validate_common(result, policy, synthetic=True)
+def validate_contract_fixture(
+    result: Any, policy: dict[str, Any], registry_kid: str | None
+) -> list[str]:
+    errors = validate_common(result, policy, registry_kid, synthetic=True)
     if not isinstance(result, dict):
         return errors
     if result.get("fixture_kind") != "synthetic-openai-first-exchange-satisfiability":
@@ -597,17 +653,19 @@ def validate_contract_fixture(result: Any, policy: dict[str, Any]) -> list[str]:
     return errors
 
 
-def validate_qualification_evidence(result: Any, policy: dict[str, Any]) -> list[str]:
+def validate_qualification_evidence(
+    result: Any, policy: dict[str, Any], registry_kid: str | None
+) -> list[str]:
     if isinstance(result, dict) and result.get("fixture_kind") is not None:
         return ["synthetic OpenAI fixture cannot be qualification evidence"]
-    errors = validate_observation(result, policy)
+    errors = validate_observation(result, policy, registry_kid)
     if isinstance(result, dict) and result.get("qualification_evidence") is not True:
         errors.append("OpenAI first-exchange observation is not qualification evidence")
     errors.append("OpenAI qualification predicate is unenforced pending an observed response")
     return errors
 
 
-def static_errors() -> tuple[list[str], dict[str, Any]]:
+def static_errors() -> tuple[list[str], dict[str, Any], str | None]:
     errors = isolation_errors()
     try:
         policy = load_json_file(POLICY_PATH)
@@ -629,6 +687,8 @@ def static_errors() -> tuple[list[str], dict[str, Any]]:
         for required in (
             "BASE_HARNESS_SHA256",
             "BASE.mint_assertion",
+            'SIGNING_IDENTITIES_PATH = ROOT / "policy/signing-identities.json"',
+            "def registry_trusted_kid(",
             'TOKEN_ENDPOINT = "https://auth.openai.com/oauth/token"',
             '"grant_type": "urn:ietf:params:oauth:grant-type:token-exchange"',
             '"subject_token_type": "urn:ietf:params:oauth:token-type:jwt"',
@@ -651,7 +711,7 @@ def static_errors() -> tuple[list[str], dict[str, Any]]:
     else:
         if len(providers) != 13:
             errors.append("provider egress policy does not contain 13 providers")
-    return errors, policy
+    return errors, policy, registry_trusted_kid(errors)
 
 
 def read_bounded_input(path: Path, label: str, errors: list[str]) -> Any:
@@ -667,7 +727,7 @@ def read_bounded_input(path: Path, label: str, errors: list[str]) -> Any:
 
 
 def main() -> int:
-    errors, policy = static_errors()
+    errors, policy, registry_kid = static_errors()
     allow_missing = False
     mode = "default"
     path = RESULT_PATH
@@ -692,11 +752,15 @@ def main() -> int:
         result = read_bounded_input(path, "OpenAI exchange input", errors)
         if result is not None:
             if mode == "contract-fixture":
-                errors.extend(validate_contract_fixture(result, policy))
+                errors.extend(
+                    validate_contract_fixture(result, policy, registry_kid)
+                )
             elif mode == "evidence":
-                errors.extend(validate_qualification_evidence(result, policy))
+                errors.extend(
+                    validate_qualification_evidence(result, policy, registry_kid)
+                )
             else:
-                errors.extend(validate_observation(result, policy))
+                errors.extend(validate_observation(result, policy, registry_kid))
     if errors:
         print("OpenAI WIF issuance check: failed", file=sys.stderr)
         for error in errors:

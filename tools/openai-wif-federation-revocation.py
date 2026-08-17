@@ -10,7 +10,6 @@ by its exact digest.
 from __future__ import annotations
 
 import argparse
-from copy import deepcopy
 from datetime import datetime
 import hashlib
 import json
@@ -33,7 +32,7 @@ BASE_HARNESS_SHA256 = (
 )
 LIFECYCLE_INSTRUMENT_PATH = ROOT / "tools/openai-wif-issuance.py"
 LIFECYCLE_INSTRUMENT_SHA256 = (
-    "63676168101366f50670adf4e06fa5c6841589bfcead4e8813d244f47944469d"
+    "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e"
 )
 ATTESTATION_DEFINITION_PATH = ROOT / "tools/control-plane-attestation-v1.py"
 ATTESTATION_DEFINITION_SHA256 = "0d32e80b980c334977e51eb706783896a687d29faef46d50e53f3ee56e8e4d47"
@@ -295,11 +294,12 @@ def exchange_once(
     policy: dict[str, Any], signing_key: Path, run_id: str, key_role: str
 ) -> dict[str, Any]:
     derived = BASE.jwk_descriptor(BASE.load_public_jwk(signing_key))
-    runtime_policy = deepcopy(policy)
-    runtime_policy["issuer"]["jwks_kid"] = derived["kid"]
     started_at = BASE.iso_time(BASE.utc_now())
+    # A145: the collector owns the transitional kid mid-run, so it supplies
+    # the expected kid explicitly instead of the instrument's steady-state
+    # signing-identity registry authority.
     observation = INSTRUMENT.exchange_observation(
-        runtime_policy, signing_key, run_id, started_at
+        policy, signing_key, run_id, started_at, expected_kid=derived["kid"]
     )
     descriptor = observation["assertion_descriptor"]
     if (

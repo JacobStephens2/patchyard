@@ -45,6 +45,7 @@ run_gate shellcheck --exclude=SC2329 --shell=bash \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-restore" \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-restore-evidence-probe" \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-deployed-version" \
+  "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-converge-hosts" \
   "$ANSIBLE_ROOT/converge-session14.sh" \
   "$ANSIBLE_ROOT/converge.sh" \
   "$REPO_ROOT/infra/plan.sh" \

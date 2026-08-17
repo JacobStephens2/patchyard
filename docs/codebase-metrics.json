@@ -173,7 +173,7 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 29114,
+      "code": 29115,
       "comments": 497,
       "blanks": 2398,
       "files": 135,
@@ -236,7 +236,7 @@
         },
         {
           "language": "Shell",
-          "code": 726,
+          "code": 727,
           "comments": 89,
           "blanks": 117,
           "files": 20

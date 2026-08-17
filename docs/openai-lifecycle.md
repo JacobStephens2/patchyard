@@ -829,17 +829,24 @@ The collector asks for five console readings and three acknowledgements:
 | — | `RETIREMENT COMPLETE` | remove only the original public JWK |
 | 5 | replacement-only state | only the replacement kid |
 
-**The collector generates the replacement key itself** and prints the derived
-public descriptors. Upload only those. No private key ever crosses to the
-console, and there is nothing to paste from the console into the collector
-except the state readings.
+**The collector generates the replacement key itself** and, immediately after
+generating it, prints the two-key overlap JWKS ready to paste into the
+console's uploaded-JWKS textarea, followed by both derived public-key
+descriptors (kid and thumbprint) for the readings. Upload only that printed
+material. No private key ever crosses to the console, and there is nothing to
+paste from the console into the collector except the state readings. The
+printed material goes to the launching terminal's stderr, so under the
+attended runner keep the tmux pane that started the run visible.
 
 The reading shape differs from Requirement 4. Exactly these keys:
 `console_location`, `identity_provider_id`, `uploaded_jwks_mode`,
 `public_keys`, `subject_mapping_expression`, `mapped_service_account_id`,
 `subject_mapping_enabled`. Note `subject_mapping_enabled`, not `enabled`.
 `public_keys` is a list, each entry exactly `kid`, `jwk_thumbprint_sha256`,
-`enabled`. Booleans are strictly boolean.
+`enabled`. Booleans are strictly boolean. Report the entries in any order:
+duplicates are refused, but ordering is canonicalisation, not evidence, so the
+collector sorts the membership by `(kid, jwk_thumbprint_sha256)` before
+recording it.
 
 There are two settling floors and, after retirement, a bounded subwindow
 carrying the A129 bracket: a positive on the replacement, the denial attempt on
@@ -873,6 +880,13 @@ retirement has succeeded, the safe state is the replacement alone: the retired
 key is never re-trusted to recover a failed run, and the console is left as it
 already is. If the console is already in the target state the collector records
 `safe_state_already_present` and asks nothing.
+
+Rollback readings are forgiving where the run itself is not: a malformed
+reading during recovery is re-prompted instead of aborting, because the
+reading is operator typing, not a provider observation, and the 2026-08-13 run
+`openai-rotation-20260813-0ad23033ed` lost its rollback to exactly that. A
+substantive mismatch - a console genuinely not in the target state - still
+fails the rollback.
 
 If the rollback itself fails, that is recorded as `rollback_failed` in the
 terminal record rather than being lost, and the console is then in a state you

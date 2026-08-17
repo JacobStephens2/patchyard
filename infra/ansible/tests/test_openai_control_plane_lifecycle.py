@@ -192,7 +192,7 @@ class AttestationAndCollectorContract(unittest.TestCase):
                 self.revocation,
                 {
                     "run_id": "openai-revocation-20260807-0123456789",
-                    "mutation_kind": "disable",
+                    "mutation_kind": "subject-expression",
                     "policy": self.revocation.load_policy(),
                 },
             ),
@@ -328,16 +328,17 @@ class AttestationAndCollectorContract(unittest.TestCase):
     def test_revocation_failure_after_mutation_still_drives_safe_restoration(self) -> None:
         fixture = json.loads(REVOCATION_FIXTURE_PATH.read_text())
         active = fixture["initial_console_reading"]["state"]
-        disabled = fixture["mapping_mutation_attestation"]["console_readings"][
-            "after"
-        ]["state"]
+        revoked = deepcopy(active)
+        revoked["subject_mapping_expression"] = self.revocation.revocation_sentinel(
+            "openai-revocation-20260807-0123456789"
+        )
         inputs = iter(
             (
                 json.dumps(active),
                 json.dumps(active),
                 "MUTATION COMPLETE",
-                json.dumps(disabled),
-                json.dumps(disabled),
+                json.dumps(revoked),
+                json.dumps(revoked),
                 "RESTORATION COMPLETE",
                 json.dumps(active),
             )
@@ -359,7 +360,7 @@ class AttestationAndCollectorContract(unittest.TestCase):
                 actor_name="Fixture Operator",
                 actor_kind="accountable_human",
                 attester_name="Fixture Operator",
-                mutation_kind="disable",
+                mutation_kind="subject-expression",
                 policy=self.revocation.load_policy(),
                 input_fn=lambda unused: next(inputs),
                 clock=TickingClock(

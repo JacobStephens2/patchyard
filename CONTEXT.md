@@ -39,6 +39,12 @@ _Avoid_: receipt, witness, sign-off, manual record
 A change to provider-side configuration governing credential trust or spend.
 _Avoid_: config change, admin action, setting
 
+**Subject-expression revocation**:
+Revoking a federation subject mapping by a console Edit of its claim assertion
+to a run-scoped sentinel value; restoration is editing the original expression
+back. The mapping stays present and enabled throughout.
+_Avoid_: disable, remove, rule deletion, mapping edit used generically
+
 **Baseline control**:
 A positive control made before a control-plane mutation, which shows that the
 path worked before the change.

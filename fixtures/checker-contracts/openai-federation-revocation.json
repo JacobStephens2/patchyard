@@ -298,7 +298,7 @@
     "attestation_definition_sha256": "0d32e80b980c334977e51eb706783896a687d29faef46d50e53f3ee56e8e4d47",
     "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
     "checker_sha256": "861ffd93fa4f07956e7cf3d2bf3f2956d6019c2388e1a1a7b81de9cad9d1df28",
-    "collector_sha256": "742185e6f15f45b05206d6accaccefa2ba8cd64201f91729051a2549a6b3ed6d",
+    "collector_sha256": "0c3c1c55de148c318570ff9637bb21ddde7a8d04cf48d1c4d2bdda5d088b6a0e",
     "lifecycle_instrument_sha256": "63676168101366f50670adf4e06fa5c6841589bfcead4e8813d244f47944469d",
     "policy_sha256": "87cf13bb136ed9a365bd14822a14d4808a6ef585ce1c278b926fa173d1152e5f"
   }

@@ -59,6 +59,14 @@ RESPONSE_PREDICATE = {
     "enforced": False,
     "basis": "no-observed-openai-federation-revocation-response",
 }
+# A141: the console has no disable affordance, so revocation is a console Edit
+# of the subject mapping's claim assertion to this run-scoped sentinel. The
+# marker makes crashed-window residue self-describing at the console.
+REVOCATION_SENTINEL_MARKER = "-REVOKED-"
+
+
+def revocation_sentinel(run_id: str) -> str:
+    return f"sub=patchyard-control-plane{REVOCATION_SENTINEL_MARKER}{run_id}"
 
 
 class RevocationCollectorError(RuntimeError):
@@ -243,10 +251,14 @@ def require_active_mapping(state: dict[str, Any], policy: dict[str, Any]) -> Non
         or not state.get("subject_mapping_expression")
     ):
         raise RevocationCollectorError("console reading is not the enabled mapping")
+    if REVOCATION_SENTINEL_MARKER in state["subject_mapping_expression"]:
+        raise RevocationCollectorError(
+            "mapping expression carries revocation-sentinel residue"
+        )
 
 
 def require_mutated_mapping(
-    before: dict[str, Any], after: dict[str, Any], mutation_kind: str
+    before: dict[str, Any], after: dict[str, Any], mutation_kind: str, run_id: str
 ) -> None:
     if before["identity_provider_id"] != after["identity_provider_id"]:
         raise RevocationCollectorError("mapping mutation changed provider identity")
@@ -254,24 +266,16 @@ def require_mutated_mapping(
         raise RevocationCollectorError("mapping mutation changed uploaded-JWKS mode")
     if mutation_kind == "remove":
         valid = after["mapping_present"] is False
-    elif mutation_kind == "disable":
+    elif mutation_kind == "subject-expression":
         valid = (
             after["mapping_present"] is True
-            and after["enabled"] is False
-            and after["subject_mapping_expression"]
-            == before["subject_mapping_expression"]
+            and after["enabled"] is True
+            and after["subject_mapping_expression"] == revocation_sentinel(run_id)
             and after["mapped_service_account_id"]
             == before["mapped_service_account_id"]
         )
     else:
-        valid = (
-            after["mapping_present"] is True
-            and after["enabled"] is True
-            and after["subject_mapping_expression"]
-            != before["subject_mapping_expression"]
-            and after["mapped_service_account_id"]
-            == before["mapped_service_account_id"]
-        )
+        raise RevocationCollectorError(f"unknown mapping mutation: {mutation_kind}")
     if not valid:
         raise RevocationCollectorError("console reading does not show the named mutation")
 
@@ -339,13 +343,19 @@ def wait_settling_floor(
 
 
 def mutation_description(kind: str, before: dict[str, Any], after: dict[str, Any]) -> str:
-    return (
+    description = (
         f"{kind} only the subject mapping on identity provider "
         f"{before['identity_provider_id']}; mapping_present changed from "
         f"{str(before['mapping_present']).lower()} to "
         f"{str(after['mapping_present']).lower()} and enabled changed from "
         f"{str(before['enabled']).lower()} to {str(after['enabled']).lower()}"
     )
+    if before["subject_mapping_expression"] != after["subject_mapping_expression"]:
+        description += (
+            "; subject expression changed to "
+            f"{after['subject_mapping_expression']}"
+        )
+    return description
 
 
 def collect(
@@ -396,9 +406,20 @@ def collect(
     mutation_may_be_active = True
     journal["control_plane_mutation_started"] = True
     try:
+        if mutation_kind == "subject-expression":
+            mutation_instruction = (
+                f"Named actor {actor_name!r} must now Edit only the subject "
+                "mapping's claim assertion to "
+                f"{revocation_sentinel(run_id)!r}. "
+                "Do not change the service account or uploaded JWK."
+            )
+        else:
+            mutation_instruction = (
+                f"Named actor {actor_name!r} must now {mutation_kind} only the "
+                "subject mapping. Do not change the service account or uploaded JWK."
+            )
         operator_pause(
-            f"Named actor {actor_name!r} must now {mutation_kind} only the subject mapping. "
-            "Do not change the service account or uploaded JWK.",
+            mutation_instruction,
             "MUTATION COMPLETE",
             input_fn=input_fn,
         )
@@ -409,7 +430,7 @@ def collect(
             clock=clock,
         )
         require_mutated_mapping(
-            mutation_before["state"], mutation_after["state"], mutation_kind
+            mutation_before["state"], mutation_after["state"], mutation_kind, run_id
         )
         mutation_attestation = ATTESTATION.make_attestation(
             actor_name=actor_name,
@@ -541,7 +562,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--attester", required=True)
     parser.add_argument(
-        "--mapping-mutation", required=True, choices=["remove", "disable", "alter"]
+        "--mapping-mutation", required=True, choices=["remove", "subject-expression"]
     )
     parser.add_argument("--output", required=True, type=Path)
     return parser

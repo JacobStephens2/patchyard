@@ -7,9 +7,6 @@ ANSIBLE_ROOT="$REPO_ROOT/infra/ansible"
 FACTORY_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
 CARGO_BIN=${CARGO_BIN:-/var/lib/conductor/.cargo/bin/cargo}
 
-: "${GH_PATCHYARD_APP_ID:?GH_PATCHYARD_APP_ID is required}"
-: "${GH_PATCHYARD_APP_INSTALLATION_ID:?GH_PATCHYARD_APP_INSTALLATION_ID is required}"
-
 if [[ -n "$(git -C "$REPO_ROOT" status --porcelain)" ]]; then
   echo "Session 14 convergence requires a committed, clean desired-state revision" >&2
   exit 1
@@ -54,6 +51,4 @@ exec "$ANSIBLE_PLAYBOOK" \
   -e "factory_evidence_qualify_sha256=$FACTORY_EVIDENCE_QUALIFY_SHA256" \
   -e "factory_web_binary=$FACTORY_WEB_BINARY" \
   -e "factory_web_sha256=$FACTORY_WEB_SHA256" \
-  -e "factory_github_app_id=$GH_PATCHYARD_APP_ID" \
-  -e "factory_github_app_installation_id=$GH_PATCHYARD_APP_INSTALLATION_ID" \
   "$@"

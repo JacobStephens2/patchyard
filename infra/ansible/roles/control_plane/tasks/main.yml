@@ -1233,12 +1233,19 @@
   changed_when: false
   tags: [session13]
 
+# The on-host management converge preserves and verifies bootstrap-injected
+# inputs; it never establishes or redefines them. Account passwords are never
+# at rest on the control plane, so the seeding tasks run only on the
+# orchestration path; the management and restore-drill paths verify the live
+# roster against Git instead.
 - name: Load bootstrap dashboard accounts from the controller secret file
   ansible.builtin.set_fact:
     factory_dashboard_accounts: >-
       {{ lookup('ansible.builtin.file', factory_dashboard_accounts_file) | from_json }}
   no_log: true
-  when: not (factory_restore_drill | default(false) | bool)
+  when:
+    - not (factory_restore_drill | default(false) | bool)
+    - not (factory_management_converge | default(false) | bool)
 
 - name: Require the ruled Git-controlled dashboard identity roster
   ansible.builtin.assert:
@@ -1290,7 +1297,9 @@
         | length == 1
   loop: "{{ factory_dashboard_accounts }}"
   no_log: true
-  when: not (factory_restore_drill | default(false) | bool)
+  when:
+    - not (factory_restore_drill | default(false) | bool)
+    - not (factory_management_converge | default(false) | bool)
 
 - name: Provision factory-native dashboard accounts
   ansible.builtin.command:
@@ -1311,7 +1320,38 @@
   loop: "{{ factory_dashboard_accounts }}"
   no_log: true
   changed_when: false
-  when: not (factory_restore_drill | default(false) | bool)
+  when:
+    - not (factory_restore_drill | default(false) | bool)
+    - not (factory_management_converge | default(false) | bool)
+
+# Exact set equality against the Git roster, on every path: the escalation
+# this check exists to catch is an extra or elevated identity, and a superset
+# check is blind to precisely that. Disabled accounts are ignored so
+# `factoryctl account disable` stays a legitimate offboarding path without a
+# Git change. check_mode: false so the claim is exercised under --check.
+- name: Assert enabled dashboard accounts are exactly the Git roster
+  ansible.builtin.command:
+    argv:
+      - psql
+      - "--host={{ postgresql_socket_directory }}"
+      - --dbname=patchyard
+      - --tuples-only
+      - --no-align
+      - >-
+        --command=SELECT username || '|' || display_name || '|' || role
+        FROM factory.users WHERE enabled ORDER BY username
+  become: true
+  become_user: postgres
+  check_mode: false
+  register: factory_dashboard_roster_live
+  changed_when: false
+  failed_when: >-
+    factory_dashboard_roster_live.rc != 0
+    or (factory_dashboard_roster_live.stdout_lines | sort)
+       != ((factory_dashboard_account_identities | map(attribute='username') | list)
+           | zip(factory_dashboard_account_identities | map(attribute='display_name') | list,
+                 factory_dashboard_account_identities | map(attribute='role') | list)
+           | map('join', '|') | sort | list)
 
 - name: Install PostgreSQL TLS expiry metric generator
   ansible.builtin.template:
@@ -1379,6 +1419,36 @@
     group: "{{ factory_manager_user }}"
     mode: "0440"
   no_log: true
+  when:
+    - not (factory_restore_drill | default(false) | bool)
+    - not (factory_management_converge | default(false) | bool)
+
+# Preserve and verify, never re-inject: the management path asserts the pem
+# the orchestration converge installed; on the orchestration path this is a
+# free post-condition. It catches a pem that is present and correctly moded
+# but empty or truncated - the failure mode neither a copy nor a self-copy
+# would. No key-material parsing; that is qualification's job. Excluded on a
+# restore drill, where the pem is absent by design (restore-drill.sh passes
+# /dev/null and the copy is guarded).
+- name: Inspect the installed GitHub App private key
+  ansible.builtin.stat:
+    path: /etc/patchyard/github-app.pem
+  register: factory_github_app_pem
+  when: not (factory_restore_drill | default(false) | bool)
+
+- name: Assert the GitHub App private key is preserved intact
+  ansible.builtin.assert:
+    that:
+      - factory_github_app_pem.stat.exists
+      - factory_github_app_pem.stat.isreg
+      - factory_github_app_pem.stat.pw_name == 'root'
+      - factory_github_app_pem.stat.gr_name == factory_manager_user
+      - factory_github_app_pem.stat.mode == '0440'
+      - factory_github_app_pem.stat.size > 0
+    fail_msg: >-
+      /etc/patchyard/github-app.pem must be a non-empty regular file,
+      root:{{ factory_manager_user }} mode 0440. The management converge may
+      not re-inject it; re-run the orchestration converge to establish it.
   when: not (factory_restore_drill | default(false) | bool)
 
 - name: Create Caddy service group

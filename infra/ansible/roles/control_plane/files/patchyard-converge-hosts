@@ -74,5 +74,6 @@ cd "$ANSIBLE_ROOT"
   -e "factory_evidence_qualify_sha256=$FACTORY_EVIDENCE_QUALIFY_SHA256" \
   -e "factory_web_binary=$FACTORY_WEB_BINARY" \
   -e "factory_web_sha256=$FACTORY_WEB_SHA256" \
+  -e "factory_management_converge=true" \
   -e "@$BACKUP_VARS_FILE" \
   "$@"

@@ -152,7 +152,13 @@ class ChannelTests(unittest.TestCase):
 
         worker = threading.Thread(target=drive, daemon=True)
         worker.start()
-        while not (self.session / "prompt.json").exists():
+        # ask() publishes prompt.json and then status.json as two separate
+        # atomic writes, so waiting on the prompt alone can observe the gap
+        # between them. Wait for the pair to agree, as a front end must.
+        while not (
+            (self.session / "prompt.json").exists()
+            and (self.session / "status.json").exists()
+        ):
             published.wait(0.05)
         prompt = json.loads((self.session / "prompt.json").read_text())
         self.assertEqual(prompt["seq"], 1)

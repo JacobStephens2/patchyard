@@ -1,0 +1,570 @@
+#!/usr/bin/env bash
+# OpenAI requirement-2 spend-run driver: the control-plane half of the A133
+# division, mirroring worker/qualification/patchyard-run-anthropic-issuance.
+# Per phase it performs the WIF token exchange under the split signing identity
+# (A144: /etc/patchyard/openai-wif-signing.pem), assembles the 17-key
+# capability envelope, stages the run inputs, invokes the provider-neutral
+# launcher on the worker with the capability over stdin, and validates the
+# guest-emitted evidence. Per A125 the refusal predicate is unenforced and the
+# evidence must record that it was unenforced.
+#
+# The single-quoted jq predicates below intentionally expand inside jq, not Bash.
+# shellcheck disable=SC2016
+set -eEuo pipefail
+umask 077
+
+report_runner_error() {
+  local status=$1 line=$2 command=$3
+  printf 'openai_spend_runner_failed status=%s line=%s command=%q\n' \
+    "$status" "$line" "$command" >&2
+  return "$status"
+}
+trap 'report_runner_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
+
+CHECKOUT_ROOT=/opt/patchyard
+CONFIG="$CHECKOUT_ROOT/policy/openai-wif.json"
+QUALIFICATION_POLICY="$CHECKOUT_ROOT/policy/provider-qualification.json"
+SIGNING_IDENTITIES="$CHECKOUT_ROOT/policy/signing-identities.json"
+SIGNING_KEY=/etc/patchyard/openai-wif-signing.pem
+# The worker fleet has a single address; the host-resident file predates the
+# second provider and keeps its original name.
+WORKER_IP_FILE=/etc/patchyard/anthropic-worker-ip
+STAGING_ROOT=/run/patchyard-openai
+TOKEN_ENDPOINT=https://auth.openai.com/oauth/token
+ACTION=${1:-}
+
+b64url() {
+  openssl base64 -A | tr '+/' '-_' | tr -d '='
+}
+
+derived_kid() {
+  printf 'patchyard-%s' "$(openssl pkey -in "$SIGNING_KEY" -pubout \
+    -outform DER 2>/dev/null | sha256sum | cut -c1-16)"
+}
+
+[[ -f "$CONFIG" && ! -L "$CONFIG" && -f "$SIGNING_KEY" && ! -L "$SIGNING_KEY" ]]
+[[ -f "$QUALIFICATION_POLICY" && ! -L "$QUALIFICATION_POLICY" ]]
+[[ -f "$SIGNING_IDENTITIES" && ! -L "$SIGNING_IDENTITIES" ]]
+[[ "$(stat -c '%U:%G:%a' "$SIGNING_KEY")" == root:root:400 ]]
+# Identity binding. issuer.jwks_kid is deliberately not compared here: the
+# console trusts the requirement-5 replacement key while the frozen policy
+# still records the pre-rotation kid, and reconciling them is its own decision.
+# The kid this driver signs with derives from the key and must match the A144
+# per-provider signing-identity record instead.
+jq -e '
+  .schema_version == 1 and .provider == "openai"
+  and .organization.id == "org-000000000000000000000000"
+  and .project.id == "proj_4zpZhhPPNYCvPRE5vGuRBALH"
+  and .service_account.id == "user-6tzs2hdFVN7GoYQbWfC0eu7k"
+  and .spend_enforcement.authorization_ruling == "A132"
+  and .issuer.id == "idp_DlzD7RlQXgXxd1VSG2V93eEU"
+  and .issuer.issuer_url == "https://factory.example.com/workload-identity"
+  and .issuer.max_jwt_lifetime_seconds == 300
+  and .rule.subject == "patchyard-control-plane"
+  and .rule.audience == "https://api.openai.com"
+  and .rule.claims == {factory_environment:"production"}
+  and .rule.token_lifetime_seconds == 300
+' "$CONFIG" >/dev/null
+jq -e --arg path "$SIGNING_KEY" --arg kid "$(derived_kid)" '
+  .providers.openai.signing_key_path == $path
+  and .providers.openai.trusted_kid == $kid
+' "$SIGNING_IDENTITIES" >/dev/null
+jq -e '
+  .schema_version == 1
+  and .providers.openai.authorization_ruling == "A132"
+  and .providers.openai.one_shot_client
+    == "/usr/local/libexec/patchyard-openai-one-shot"
+  and (.providers.openai.phase_spend_cap_cents | keys | sort)
+    == ["operational_acceptance","restored_acceptance","temporary_refusal"]
+  and (.providers.openai.phase_spend_cap_cents
+    | all(.[]; type == "number" and . >= 0 and . <= 50000))
+  and .providers.openai.spend_observation.refusal_response.enforced == false
+  and .providers.openai.spend_observation.refusal_response.unenforced_basis
+    == "no-observed-openai-spend-refusal"
+' "$QUALIFICATION_POLICY" >/dev/null
+AUTHORIZATION_RULING=$(jq -r \
+  .providers.openai.authorization_ruling "$QUALIFICATION_POLICY")
+
+case "$ACTION" in
+  run-spend-operational)
+    [[ $# -eq 3 ]]
+    QUALIFICATION_PHASE=operational_acceptance
+    RUN_PREFIX=openai-s2-operational
+    ;;
+  run-spend-refusal)
+    [[ $# -eq 3 ]]
+    QUALIFICATION_PHASE=temporary_refusal
+    RUN_PREFIX=openai-s2-refusal
+    ;;
+  run-spend-restored)
+    [[ $# -eq 3 ]]
+    QUALIFICATION_PHASE=restored_acceptance
+    RUN_PREFIX=openai-s2-restored
+    ;;
+  *)
+    echo "usage: $0 run-spend-{operational,refusal,restored} SNAPSHOT_DIR OUTPUT_DIR" >&2
+    exit 2
+    ;;
+esac
+QUALIFICATION_REQUIREMENT=provider-spend-enforcement
+SPEND_CAP_CENTS=$(jq -r --arg phase "$QUALIFICATION_PHASE" \
+  '.providers.openai.phase_spend_cap_cents[$phase]' "$QUALIFICATION_POLICY")
+[[ "$SPEND_CAP_CENTS" =~ ^[0-9]+$ ]]
+SNAPSHOT_DIR=$(readlink -f -- "$2")
+OUTPUT_DIR=$3
+[[ "$SNAPSHOT_DIR" == /* && "$OUTPUT_DIR" == /* ]]
+[[ -f "$SNAPSHOT_DIR/snapshot.sql.gz" && -f "$SNAPSHOT_DIR/snapshot.json" ]]
+if [[ -e "$OUTPUT_DIR" ]]; then
+  printf 'openai_spend_output_directory_exists path=%q\n' "$OUTPUT_DIR" >&2
+  exit 1
+fi
+
+[[ -f "$WORKER_IP_FILE" && ! -L "$WORKER_IP_FILE" ]]
+[[ "$(stat -c '%U:%G:%a' "$WORKER_IP_FILE")" == root:root:400 ]]
+mapfile -t WORKER_IP_LINES <"$WORKER_IP_FILE"
+[[ "${#WORKER_IP_LINES[@]}" -eq 1 ]]
+WORKER_IP=${WORKER_IP_LINES[0]}
+python3 - "$WORKER_IP" <<'PY'
+from ipaddress import IPv4Address, IPv4Network
+import sys
+
+address = IPv4Address(sys.argv[1])
+if str(address) != sys.argv[1]:
+    raise SystemExit("worker address is not canonical IPv4")
+private_networks = (
+    IPv4Network("10.0.0.0/8"),
+    IPv4Network("172.16.0.0/12"),
+    IPv4Network("192.168.0.0/16"),
+)
+if not any(address in network for network in private_networks):
+    raise SystemExit("worker address is not RFC1918")
+PY
+unset WORKER_IP_LINES
+SSH_ARGS=(
+  -i /var/lib/patchyard-manager/.ssh/id_ed25519
+  -o BatchMode=yes
+  -o IdentitiesOnly=yes
+  -o StrictHostKeyChecking=yes
+  -o UserKnownHostsFile=/var/lib/patchyard-manager/.ssh/known_hosts
+  -o ConnectTimeout=10
+)
+RUN_ID="$RUN_PREFIX-$(date -u +%Y%m%d)-$(openssl rand -hex 5)"
+REMOTE_ROOT="/var/tmp/patchyard-incoming/$RUN_ID"
+install -d -m 0700 -o root -g root "$STAGING_ROOT"
+RUN_TEMP=$(mktemp -d "$STAGING_ROOT/spend.XXXXXX")
+FIXTURE_REPO="$RUN_TEMP/repo"
+REMOTE_CREATED=false
+ASSERTION=
+
+remote_ssh() {
+  # Every caller passes only locally generated, path-safe arguments.
+  # shellcheck disable=SC2029
+  ssh "${SSH_ARGS[@]}" factory-manager@"$WORKER_IP" "$@"
+}
+
+cleanup() {
+  local rc=$?
+  if $REMOTE_CREATED; then
+    remote_ssh rm -r -- "$REMOTE_ROOT" >/dev/null 2>&1 || true
+  fi
+  unset ASSERTION
+  rm -r -- "$RUN_TEMP"
+  exit "$rc"
+}
+trap cleanup EXIT
+
+# Before minting a bearer, require this driver and both installed worker
+# programs to be the exact bytes in the deployed credential-free checkout. The
+# resulting host contract binds the evidence to reviewed source.
+RUNNER_EXECUTABLE=$(readlink -f -- "$0")
+[[ -f "$RUNNER_EXECUTABLE" && ! -L "$RUNNER_EXECUTABLE" ]]
+EXPECTED_RUNNER_SOURCE="$CHECKOUT_ROOT/worker/qualification/patchyard-run-openai-spend"
+EXPECTED_LAUNCHER_SOURCE="$CHECKOUT_ROOT/worker/runtime/patchyard-provider-run"
+EXPECTED_TRANSPORT_SOURCE="$CHECKOUT_ROOT/worker/runtime/patchyard-openai-one-shot"
+[[ -f "$EXPECTED_RUNNER_SOURCE" && ! -L "$EXPECTED_RUNNER_SOURCE" ]]
+[[ -f "$EXPECTED_LAUNCHER_SOURCE" && ! -L "$EXPECTED_LAUNCHER_SOURCE" ]]
+[[ -f "$EXPECTED_TRANSPORT_SOURCE" && ! -L "$EXPECTED_TRANSPORT_SOURCE" ]]
+cmp --silent -- "$RUNNER_EXECUTABLE" "$EXPECTED_RUNNER_SOURCE"
+RUNNER_SOURCE_SHA256=$(sha256sum "$RUNNER_EXECUTABLE" | cut -d' ' -f1)
+EXPECTED_LAUNCHER_SHA256=$(sha256sum "$EXPECTED_LAUNCHER_SOURCE" | cut -d' ' -f1)
+EXPECTED_TRANSPORT_SHA256=$(sha256sum "$EXPECTED_TRANSPORT_SOURCE" | cut -d' ' -f1)
+LAUNCHER_HASH_RECORD=$(remote_ssh sudo sha256sum -- \
+  /usr/local/sbin/patchyard-provider-run)
+[[ "$LAUNCHER_HASH_RECORD" =~ ^([0-9a-f]{64})[[:space:]]{2}/usr/local/sbin/patchyard-provider-run$ ]]
+LAUNCHER_SOURCE_SHA256=${BASH_REMATCH[1]}
+[[ "$LAUNCHER_SOURCE_SHA256" == "$EXPECTED_LAUNCHER_SHA256" ]]
+TRANSPORT_HASH_RECORD=$(remote_ssh sudo sha256sum -- \
+  /usr/local/libexec/patchyard-openai-one-shot)
+[[ "$TRANSPORT_HASH_RECORD" =~ ^([0-9a-f]{64})[[:space:]]{2}/usr/local/libexec/patchyard-openai-one-shot$ ]]
+TRANSPORT_SOURCE_SHA256=${BASH_REMATCH[1]}
+[[ "$TRANSPORT_SOURCE_SHA256" == "$EXPECTED_TRANSPORT_SHA256" ]]
+HOST_CONTRACT_SHA256=$(
+  printf '%s  %s\n%s  %s\n%s  %s\n' \
+    "$RUNNER_SOURCE_SHA256" worker/qualification/patchyard-run-openai-spend \
+    "$LAUNCHER_SOURCE_SHA256" worker/runtime/patchyard-provider-run \
+    "$TRANSPORT_SOURCE_SHA256" worker/runtime/patchyard-openai-one-shot \
+    | sha256sum | cut -d' ' -f1
+)
+unset EXPECTED_RUNNER_SOURCE EXPECTED_LAUNCHER_SOURCE EXPECTED_TRANSPORT_SOURCE \
+  EXPECTED_LAUNCHER_SHA256 EXPECTED_TRANSPORT_SHA256 \
+  LAUNCHER_HASH_RECORD TRANSPORT_HASH_RECORD
+
+# The manifest authorizes the run against one reviewed policy revision: the
+# launcher recomputes this projection from the worker's deployed copy and the
+# guest re-checks the digest from the input drive.
+QUALIFICATION_POLICY_SHA256=$(jq -S '
+  {schema_version: 1, provider: "openai"}
+    + .providers.openai.spend_observation' "$QUALIFICATION_POLICY" \
+  | sha256sum | cut -d' ' -f1)
+
+KID=$(derived_kid)
+NOW=$(date -u +%s)
+ASSERTION_IAT=$((NOW - 5))
+ASSERTION_EXP=$((NOW + 295))
+JTI="factory-$RUN_ID-$(openssl rand -hex 8)"
+HEADER=$(jq -nc --arg kid "$KID" '{alg:"RS256",typ:"JWT",$kid}' | b64url)
+PAYLOAD=$(jq -nc \
+  --arg iss "$(jq -r .issuer.issuer_url "$CONFIG")" \
+  --arg sub "$(jq -r .rule.subject "$CONFIG")" \
+  --arg aud "$(jq -r .rule.audience "$CONFIG")" \
+  --arg environment "$(jq -r .rule.claims.factory_environment "$CONFIG")" \
+  --arg jti "$JTI" --argjson iat "$ASSERTION_IAT" --argjson exp "$ASSERTION_EXP" \
+  '{iss:$iss,sub:$sub,aud:$aud,iat:$iat,exp:$exp,jti:$jti,
+    factory_environment:$environment}' | b64url)
+SIGNING_INPUT="$HEADER.$PAYLOAD"
+SIGNATURE=$(printf '%s' "$SIGNING_INPUT" \
+  | openssl dgst -sha256 -sign "$SIGNING_KEY" | b64url)
+ASSERTION="$SIGNING_INPUT.$SIGNATURE"
+printf '%s' "$ASSERTION" >"$RUN_TEMP/assertion.jwt"
+[[ "$(stat -c '%U:%G:%a' "$RUN_TEMP/assertion.jwt")" == root:root:600 ]]
+
+jq -n \
+  --rawfile assertion "$RUN_TEMP/assertion.jwt" \
+  --arg identity_provider_id "$(jq -r .issuer.id "$CONFIG")" \
+  --arg service_account_id "$(jq -r .service_account.id "$CONFIG")" \
+  '{grant_type:"urn:ietf:params:oauth:grant-type:token-exchange",
+    subject_token_type:"urn:ietf:params:oauth:token-type:jwt",
+    subject_token:$assertion,$identity_provider_id,$service_account_id}' \
+  >"$RUN_TEMP/exchange-request.json"
+
+EXCHANGE_STATUS=$(curl --silent --show-error \
+  --connect-timeout 10 --max-time 30 \
+  --request POST --header 'content-type: application/json' \
+  --dump-header "$RUN_TEMP/exchange-headers" \
+  --output "$RUN_TEMP/exchange-response.json" --write-out '%{http_code}' \
+  --data-binary "@$RUN_TEMP/exchange-request.json" \
+  "$TOKEN_ENDPOINT")
+EXCHANGE_REQUEST_ID=$(awk 'tolower($1) == "x-request-id:" {gsub("\r", "", $2); print $2; exit}' \
+  "$RUN_TEMP/exchange-headers")
+if [[ "$EXCHANGE_STATUS" != 200 ]]; then
+  EXCHANGE_ERROR_TYPE=$(jq -r '.error.type // .error // "unknown"' \
+    "$RUN_TEMP/exchange-response.json" 2>/dev/null || printf unknown)
+  [[ "$EXCHANGE_ERROR_TYPE" =~ ^[a-z_]+$ ]] || EXCHANGE_ERROR_TYPE=unknown
+  EXCHANGE_DIAGNOSTIC_REQUEST_ID=absent
+  if [[ "$EXCHANGE_REQUEST_ID" =~ ^[0-9a-f-]{36}$ ]]; then
+    EXCHANGE_DIAGNOSTIC_REQUEST_ID=$EXCHANGE_REQUEST_ID
+  fi
+  printf 'openai_exchange_denied status=%s error_type=%s request_id=%s\n' \
+    "$EXCHANGE_STATUS" "$EXCHANGE_ERROR_TYPE" "$EXCHANGE_DIAGNOSTIC_REQUEST_ID" >&2
+  exit 1
+fi
+if [[ ! "$EXCHANGE_REQUEST_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+  echo 'openai_exchange_invalid request_id=absent_or_malformed' >&2
+  exit 1
+fi
+if ! jq -e '
+  (.access_token | type == "string" and test("^[A-Za-z0-9._-]{20,4096}$")
+    and length <= 8192)
+  and .token_type == "Bearer"
+  and (.expires_in | type == "number" and . >= 60 and . <= 300)
+' "$RUN_TEMP/exchange-response.json" >/dev/null; then
+  echo 'openai_exchange_invalid response_contract=rejected' >&2
+  exit 1
+fi
+ACCESS_TOKEN_NEEDLE="$RUN_TEMP/access-token.needle"
+jq -jr .access_token "$RUN_TEMP/exchange-response.json" >"$ACCESS_TOKEN_NEEDLE"
+[[ "$(stat -c '%U:%G:%a' "$ACCESS_TOKEN_NEEDLE")" == root:root:600 ]]
+EXPIRES_IN=$(jq -r .expires_in "$RUN_TEMP/exchange-response.json")
+SERVER_DATE=$(awk 'tolower($1) == "date:" {sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' \
+  "$RUN_TEMP/exchange-headers")
+ISSUED_EPOCH=$(date -u -d "$SERVER_DATE" +%s)
+EXPIRES_EPOCH=$((ISSUED_EPOCH + EXPIRES_IN))
+ISSUED_AT=$(date -u -d "@$ISSUED_EPOCH" +%Y-%m-%dT%H:%M:%SZ)
+EXPIRES_AT=$(date -u -d "@$EXPIRES_EPOCH" +%Y-%m-%dT%H:%M:%SZ)
+
+# The exchange grants no scope; "unscoped" is the recorded sentinel the policy
+# patterns and the one-shot client both require. rule_id carries the identity
+# provider and workspace_id the project, the two ids the OpenAI surface maps
+# onto the capability's provider-neutral field names.
+jq -n \
+  --slurpfile exchange "$RUN_TEMP/exchange-response.json" \
+  --arg issued_at "$ISSUED_AT" --arg expires_at "$EXPIRES_AT" \
+  --arg exchange_request_id "$EXCHANGE_REQUEST_ID" \
+  --arg capability_id "$JTI" \
+  --arg service_account_id "$(jq -r .service_account.id "$CONFIG")" \
+  --arg rule_id "$(jq -r .issuer.id "$CONFIG")" \
+  --arg workspace_id "$(jq -r .project.id "$CONFIG")" \
+  --arg qualification_requirement "$QUALIFICATION_REQUIREMENT" \
+  --arg qualification_phase "$QUALIFICATION_PHASE" \
+  --arg authorization_ruling "$AUTHORIZATION_RULING" \
+  --argjson spend_cap_cents "$SPEND_CAP_CENTS" \
+  '{schema_version:1,provider:"openai",$qualification_requirement,
+    $qualification_phase,$authorization_ruling,$capability_id,
+    secret:$exchange[0].access_token,$spend_cap_cents,$issued_at,$expires_at,
+    token_type:$exchange[0].token_type,scope:"unscoped",
+    expires_in:$exchange[0].expires_in,$exchange_request_id,
+    $service_account_id,$rule_id,$workspace_id}' >"$RUN_TEMP/capability.json"
+
+install -d -m 0700 "$FIXTURE_REPO"
+printf 'openai-provider-spend-enforcement-base\n' >"$FIXTURE_REPO/base.txt"
+printf 'OpenAI provider-side spend enforcement qualification.\n' \
+  >"$RUN_TEMP/request.md"
+git -C "$FIXTURE_REPO" init --quiet
+git -C "$FIXTURE_REPO" config user.name 'Patchyard Factory OpenAI fixture'
+git -C "$FIXTURE_REPO" config user.email 'factory@example.invalid'
+git -C "$FIXTURE_REPO" add base.txt
+GIT_AUTHOR_DATE=2000-01-01T00:00:00Z GIT_COMMITTER_DATE=2000-01-01T00:00:00Z \
+  git -C "$FIXTURE_REPO" commit --quiet -m 'OpenAI spend fixture'
+BASE_SHA=$(git -C "$FIXTURE_REPO" rev-parse HEAD)
+git -C "$FIXTURE_REPO" archive --format=tar "$BASE_SHA" \
+  | gzip -n -9 >"$RUN_TEMP/source.tar.gz"
+
+SOURCE_SHA256=$(sha256sum "$RUN_TEMP/source.tar.gz" | cut -d' ' -f1)
+REQUEST_SHA256=$(sha256sum "$RUN_TEMP/request.md" | cut -d' ' -f1)
+SNAPSHOT_SQL_SHA256=$(sha256sum "$SNAPSHOT_DIR/snapshot.sql.gz" | cut -d' ' -f1)
+SNAPSHOT_MANIFEST_SHA256=$(sha256sum "$SNAPSHOT_DIR/snapshot.json" | cut -d' ' -f1)
+CAPABILITY_SHA256=$(sha256sum "$RUN_TEMP/capability.json" | cut -d' ' -f1)
+
+jq -n \
+  --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
+  --arg source_archive_sha256 "$SOURCE_SHA256" --arg request_sha256 "$REQUEST_SHA256" \
+  --arg snapshot_sql_sha256 "$SNAPSHOT_SQL_SHA256" \
+  --arg snapshot_manifest_sha256 "$SNAPSHOT_MANIFEST_SHA256" \
+  --arg capability_sha256 "$CAPABILITY_SHA256" \
+  --arg host_contract_sha256 "$HOST_CONTRACT_SHA256" \
+  --arg qualification_policy_sha256 "$QUALIFICATION_POLICY_SHA256" \
+  --arg qualification_requirement "$QUALIFICATION_REQUIREMENT" \
+  --arg qualification_phase "$QUALIFICATION_PHASE" \
+  --arg authorization_ruling "$AUTHORIZATION_RULING" \
+  --argjson spend_cap_cents "$SPEND_CAP_CENTS" \
+  '{schema_version:1,$run_id,$base_sha,$source_archive_sha256,$request_sha256,
+    $snapshot_sql_sha256,$snapshot_manifest_sha256,provider:"openai",
+    mode:"provider-qualification",$qualification_requirement,$qualification_phase,
+    $authorization_ruling,credential_required:true,$capability_sha256,
+    $host_contract_sha256,$qualification_policy_sha256,$spend_cap_cents}' \
+  >"$RUN_TEMP/run.json"
+
+remote_ssh install -d -m 0700 "$REMOTE_ROOT/snapshot"
+REMOTE_CREATED=true
+scp "${SSH_ARGS[@]}" \
+  "$RUN_TEMP/run.json" "$RUN_TEMP/source.tar.gz" "$RUN_TEMP/request.md" \
+  factory-manager@"$WORKER_IP:$REMOTE_ROOT/"
+scp "${SSH_ARGS[@]}" \
+  "$SNAPSHOT_DIR/snapshot.sql.gz" "$SNAPSHOT_DIR/snapshot.json" \
+  factory-manager@"$WORKER_IP:$REMOTE_ROOT/snapshot/"
+
+if ! remote_ssh sudo /usr/local/sbin/patchyard-provider-run \
+  "$REMOTE_ROOT/run.json" "$REMOTE_ROOT/source.tar.gz" \
+  "$REMOTE_ROOT/request.md" "$REMOTE_ROOT/snapshot" "$REMOTE_ROOT/output" \
+  <"$RUN_TEMP/capability.json" \
+  >"$RUN_TEMP/launcher.stdout" 2>"$RUN_TEMP/launcher.stderr"; then
+  SANITIZED_WORKER_DIAGNOSTIC=$(LC_ALL=C grep -E \
+    '^(openai-spend-(provider-(transport-failed-[a-z0-9-]+|response-rejected-[a-z0-9-]+))|provider-spend-transport-(preflight-rejected-ipv6|cardinality-rejected-([0-9]{1,20}-){4}[0-9]{1,20})|provider credential entered the sanitized host result|result filesystem integrity check failed|incomplete guest result: file_count=[0-9]{1,3} expected_mask=(none|[cers]{1,4})|guest returned incomplete status=[a-z0-9,-]{1,128}|result entry type rejected|guest returned failure status=[a-z0-9,-]{1,128}|worker is boundary-tainted and must be replaced and re-qualified|worker already has an active microVM|factory worker run failed: stage=[a-z0-9-]{1,64} line=([0-9]{1,6}|unknown) status=[0-9]{1,3})$' \
+    "$RUN_TEMP/launcher.stderr" | head -20 || true)
+  if [[ -n "$SANITIZED_WORKER_DIAGNOSTIC" ]]; then
+    printf '%s\n' "$SANITIZED_WORKER_DIAGNOSTIC" >&2
+  else
+    echo 'factory worker run failed without an allowlisted diagnostic' >&2
+  fi
+  exit 1
+fi
+
+install -d -m 0700 "$RUN_TEMP/result"
+for name in change.patch rationale.txt evidence.json; do
+  scp "${SSH_ARGS[@]}" \
+    factory-manager@"$WORKER_IP:$REMOTE_ROOT/output/$name" "$RUN_TEMP/result/$name"
+done
+[[ "$(find "$RUN_TEMP/result" -mindepth 1 -maxdepth 1 -type f | wc -l)" -eq 3 ]]
+
+if grep -R -F -q -f "$ACCESS_TOKEN_NEEDLE" -- \
+  "$RUN_TEMP/launcher.stdout" "$RUN_TEMP/launcher.stderr" "$RUN_TEMP/result"; then
+  echo "OpenAI bearer crossed the accepted evidence boundary" >&2
+  exit 1
+fi
+if grep -R -F -q -f "$RUN_TEMP/assertion.jwt" -- \
+  "$RUN_TEMP/launcher.stdout" "$RUN_TEMP/launcher.stderr" "$RUN_TEMP/result"; then
+  echo "OIDC assertion crossed the control-plane boundary" >&2
+  exit 1
+fi
+rm -f -- "$ACCESS_TOKEN_NEEDLE" "$RUN_TEMP/assertion.jwt"
+unset ACCESS_TOKEN_NEEDLE ASSERTION
+
+FAILED_EVIDENCE_ROOT="$STAGING_ROOT/failed"
+preserve_failed_evidence() {
+  local failed_run_dir="$FAILED_EVIDENCE_ROOT/$RUN_ID"
+  install -d -m 0700 -o root -g root -- \
+    "$FAILED_EVIDENCE_ROOT" "$failed_run_dir"
+  install -m 0600 -o root -g root -- \
+    "$RUN_TEMP/result/evidence.json" "$failed_run_dir/evidence.json"
+  printf 'openai_evidence_preserved path=%s\n' \
+    "$failed_run_dir/evidence.json" >&2
+}
+
+EVIDENCE_VALIDATION_ARGS=(
+  --arg run_id "$RUN_ID"
+  --arg base_sha "$BASE_SHA"
+  --arg request_sha256 "$REQUEST_SHA256"
+  --arg issued_at "$ISSUED_AT"
+  --arg expires_at "$EXPIRES_AT"
+  --arg exchange_request_id "$EXCHANGE_REQUEST_ID"
+  --arg host_contract_sha256 "$HOST_CONTRACT_SHA256"
+  --arg qualification_policy_sha256 "$QUALIFICATION_POLICY_SHA256"
+  --arg transport_sha256 "$TRANSPORT_SOURCE_SHA256"
+  --arg qualification_phase "$QUALIFICATION_PHASE"
+  --arg authorization_ruling "$AUTHORIZATION_RULING"
+  --argjson spend_cap_cents "$SPEND_CAP_CENTS"
+)
+validate_evidence_clause() {
+  local clause=$1 predicate=$2 jq_status
+  if jq -e "${EVIDENCE_VALIDATION_ARGS[@]}" "$predicate" \
+    "$RUN_TEMP/result/evidence.json" >/dev/null; then
+    return 0
+  else
+    jq_status=$?
+  fi
+  printf 'openai_evidence_validation_failed clause=%s jq_status=%s\n' \
+    "$clause" "$jq_status" >&2
+  preserve_failed_evidence
+  return "$jq_status"
+}
+
+validate_evidence_clause schema_version '.schema_version == 1'
+validate_evidence_clause run_id '.run_id == $run_id'
+validate_evidence_clause base_sha '.base_sha == $base_sha'
+validate_evidence_clause request_sha256 '.request_sha256 == $request_sha256'
+validate_evidence_clause provider '.provider == "openai"'
+validate_evidence_clause qualification_requirement \
+  '.qualification_requirement == "provider-spend-enforcement"'
+validate_evidence_clause qualification_phase \
+  '.qualification_phase == $qualification_phase'
+validate_evidence_clause authorization_ruling \
+  '.authorization_ruling == $authorization_ruling'
+validate_evidence_clause patch_sha256.format \
+  '(.patch_sha256 | test("^[0-9a-f]{64}$"))'
+validate_evidence_clause observed_rootfs_sha256.format \
+  '(.observed_rootfs_sha256 | test("^[0-9a-f]{64}$"))'
+validate_evidence_clause rootfs_sha256.absent '(has("rootfs_sha256") | not)'
+validate_evidence_clause git_remote_count '.git_remote_count == 0'
+validate_evidence_clause host_contract_sha256 \
+  '.host_contract_sha256 == $host_contract_sha256'
+validate_evidence_clause qualification_policy_sha256 \
+  '.qualification_policy_sha256 == $qualification_policy_sha256'
+validate_evidence_clause credential_removed_before_output \
+  '.credential_removed_before_output == true'
+validate_evidence_clause issuance '
+  .issuance == {issued_at:$issued_at,expires_at:$expires_at,
+    expires_in:(.issuance.expires_in),exchange_request_id:$exchange_request_id,
+    token_type:"Bearer",scope:"unscoped",
+    service_account_id:(.issuance.service_account_id),
+    rule_id:(.issuance.rule_id),workspace_id:(.issuance.workspace_id)}
+  and (.issuance.expires_in | type == "number" and . >= 60 and . <= 300)
+  and (.issuance.service_account_id | test("^user-[A-Za-z0-9]{16,48}$"))
+  and (.issuance.rule_id | test("^idp_[A-Za-z0-9]{16,48}$"))
+  and (.issuance.workspace_id | test("^proj_[A-Za-z0-9]{16,48}$"))'
+validate_evidence_clause delivery '
+  .delivery == {worker_host_tmpfs:true,credential_delivered_to_guest:false,
+    credential_removed_before_guest_boot:true,assertion_delivered:false,
+    signing_key_delivered:false,admin_credential_delivered:false}'
+validate_evidence_clause provider_transport '
+  .provider_transport == {schema_version:1,authorization_ruling:"A117",
+    mechanism:"host-one-shot-network-namespace-v1",http_version:"1.0",
+    connection_close:true,client_sha256:$transport_sha256,
+    admitted_conntrack_ids:1,admitted_new_connections:1,
+    rejected_new_connections:0,rejected_connection_packets:0,
+    guest_provider_allowlist_entries:0,namespace_ipv6_disabled:true,
+    credential_removed_before_guest_boot:true}'
+validate_evidence_clause provider_observation.endpoint \
+  '.provider_observation.endpoint == "/v1/chat/completions"'
+validate_evidence_clause provider_observation.request_attempts \
+  '.provider_observation.request_attempts == 1'
+validate_evidence_clause provider_observation.expected_project_cap_cents \
+  '.provider_observation.expected_project_cap_cents == $spend_cap_cents'
+validate_evidence_clause provider_observation.request_body_sha256.format \
+  '(.provider_observation.request_body_sha256 | test("^[0-9a-f]{64}$"))'
+validate_evidence_clause provider_observation.outcome '
+  if $qualification_phase == "temporary_refusal" then
+    .provider_observation.outcome == "refused"
+  else .provider_observation.outcome == "accepted" end'
+# A125: the refusal response is recorded as it arrived and never matched
+# against an expected status or shape; the observation must itself say the
+# predicate was unenforced so it can never read as a met one.
+validate_evidence_clause provider_observation.response_predicate '
+  if $qualification_phase == "temporary_refusal" then
+    .provider_observation.response_predicate ==
+      {enforced:false,basis:"no-observed-openai-spend-refusal"}
+    and (.provider_observation.http_status | type == "number")
+  else
+    .provider_observation.http_status == 200
+    and .provider_observation.response_type == "chat.completion"
+    and .provider_observation.model == "gpt-5.6-luna"
+    and (.provider_observation.usage.prompt_tokens
+      | type == "number" and . >= 1)
+    and (.provider_observation.usage.completion_tokens
+      | type == "number" and . >= 1)
+  end'
+validate_evidence_clause observation_predicate '
+  .observation_predicate ==
+    {endpoint:"/v1/chat/completions",refusal_predicate_enforced:false}'
+validate_evidence_clause host_teardown '
+  .host_teardown == {processes:0,taps:0,nftables_tables:0,run_directories:0,
+    credential_files:0,guest_provider_egress_packets:0}'
+validate_evidence_clause secret.absent '(has("secret") | not)'
+validate_evidence_clause access_token.absent '(has("access_token") | not)'
+
+remote_ssh rm -r -- "$REMOTE_ROOT"
+REMOTE_CREATED=false
+for runtime_root in \
+  /run/patchyard-worker \
+  /var/tmp/patchyard-worker \
+  /var/tmp/patchyard-incoming; do
+  remote_ssh sudo test -d "$runtime_root"
+  runtime_residue=$(remote_ssh sudo find "$runtime_root" -mindepth 1 -print -quit)
+  [[ -z "$runtime_residue" ]]
+done
+unset runtime_root runtime_residue
+remote_ssh sudo test ! -e /var/lib/patchyard-worker/BOUNDARY_TAINTED
+if remote_ssh sudo pgrep -u factory-worker -f -- firecracker >/dev/null; then
+  echo "Firecracker process residue remains" >&2
+  exit 1
+else
+  process_status=$?
+  [[ "$process_status" -eq 1 ]]
+fi
+worker_links=$(remote_ssh sudo ip -o link show)
+if grep -Eq '(^|[[:space:]])ef[0-9a-f]{8}:' <<<"$worker_links"; then
+  echo "Firecracker TAP residue remains" >&2
+  exit 1
+fi
+worker_nft_tables=$(remote_ssh sudo nft list tables)
+if grep -Eq '(^|[[:space:]])table inet eta_f[cp]_[0-9a-f]{10}($|[[:space:]])' \
+  <<<"$worker_nft_tables"; then
+  echo "worker nftables residue remains" >&2
+  exit 1
+fi
+worker_namespaces=$(remote_ssh sudo ip netns list)
+if grep -Eq '(^|[[:space:]])efp[0-9a-f]{10}($|[[:space:]])' \
+  <<<"$worker_namespaces"; then
+  echo "provider network namespace residue remains" >&2
+  exit 1
+fi
+if grep -Eq '(^|[[:space:]])efh[0-9a-f]{8}[@:]' <<<"$worker_links"; then
+  echo "provider veth residue remains" >&2
+  exit 1
+fi
+unset process_status worker_links worker_nft_tables worker_namespaces
+
+chown -R factory-web:factory "$RUN_TEMP/result"
+find "$RUN_TEMP/result" -type d -exec chmod 0750 {} +
+find "$RUN_TEMP/result" -type f -exec chmod 0640 {} +
+mv -- "$RUN_TEMP/result" "$OUTPUT_DIR"
+echo "openai_spend_result=$OUTPUT_DIR run_id=$RUN_ID phase=$QUALIFICATION_PHASE"

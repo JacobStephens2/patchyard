@@ -56,6 +56,10 @@ run_gate shellcheck --exclude=SC2329 --shell=bash \
   "$REPO_ROOT/worker/image/patchyard-guest-dispatch"
 run_gate shellcheck --exclude=SC2329 --shell=bash \
   "$REPO_ROOT/worker/image/patchyard-guest-qualify"
+# The OpenAI requirement-2 driver rides the same gate as its launcher: the
+# check-ansible.sh ShellCheck list is digest-bound by check-anthropic-spend.py.
+run_gate shellcheck --exclude=SC2329 --shell=bash \
+  "$REPO_ROOT/worker/qualification/patchyard-run-openai-spend"
 run_gate python3 -I "$REPO_ROOT/tools/check-credential-qualification.py"
 # A144 path-collision gate: no two providers may name one signing-key path.
 run_gate python3 -I "$REPO_ROOT/tools/check-signing-identities.py"
@@ -73,5 +77,6 @@ run_gate python3 -I "$REPO_ROOT/tools/check-openai-wif-expiry.py" --allow-missin
 run_gate python3 -I "$REPO_ROOT/tools/check-openai-wif-crash-cleanup.py" --allow-missing-results
 run_gate python3 -I "$REPO_ROOT/tools/check-openai-wif-federation-revocation.py" --allow-missing-results
 run_gate python3 -I "$REPO_ROOT/tools/check-openai-wif-signing-key-rotation.py" --allow-missing-results
+run_gate python3 -I "$REPO_ROOT/tools/check-openai-spend.py" --allow-missing-results
 run_gate python3 -I "$REPO_ROOT/tools/check-preview-runtime.py"
 exit "$gate_status"

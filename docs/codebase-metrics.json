@@ -72,17 +72,17 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 32257,
-      "comments": 789,
-      "blanks": 2792,
-      "files": 176,
+      "code": 32765,
+      "comments": 823,
+      "blanks": 2820,
+      "files": 177,
       "languages": [
         {
           "language": "BASH",
-          "code": 7658,
-          "comments": 267,
-          "blanks": 507,
-          "files": 46
+          "code": 8166,
+          "comments": 301,
+          "blanks": 535,
+          "files": 47
         },
         {
           "language": "Forge Config",
@@ -173,10 +173,10 @@
     {
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
-      "code": 27504,
-      "comments": 481,
-      "blanks": 2310,
-      "files": 133,
+      "code": 29050,
+      "comments": 495,
+      "blanks": 2394,
+      "files": 135,
       "languages": [
         {
           "language": "BASH",
@@ -229,15 +229,15 @@
         },
         {
           "language": "Python",
-          "code": 22340,
-          "comments": 184,
-          "blanks": 2117,
-          "files": 51
+          "code": 23883,
+          "comments": 196,
+          "blanks": 2201,
+          "files": 53
         },
         {
           "language": "Shell",
-          "code": 723,
-          "comments": 87,
+          "code": 726,
+          "comments": 89,
           "blanks": 117,
           "files": 20
         },
@@ -268,8 +268,8 @@
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
       "code": 11581,
-      "comments": 22694,
-      "blanks": 6176,
+      "comments": 22732,
+      "blanks": 6179,
       "files": 210,
       "languages": [
         {
@@ -289,8 +289,8 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 22674,
-          "blanks": 6121,
+          "comments": 22712,
+          "blanks": 6124,
           "files": 171
         },
         {

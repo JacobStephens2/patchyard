@@ -1,15 +1,20 @@
 resource "github_repository" "factory" {
-  name                   = "factory"
-  description            = "Patchyard's software factory: small staff requests in, evidenced pull requests out - one human gate, the PR. Rust control plane, skill playbooks, queue, ledger, and dashboard."
-  homepage_url           = "https://factory.example.com"
-  visibility             = "private"
-  has_discussions        = false
-  has_issues             = true
-  has_projects           = true
-  has_wiki               = true
-  allow_merge_commit     = true
-  allow_rebase_merge     = true
-  allow_squash_merge     = true
+  name               = "factory"
+  description        = "Patchyard's software factory: small staff requests in, evidenced pull requests out - one human gate, the PR. Rust control plane, skill playbooks, queue, ledger, and dashboard."
+  homepage_url       = "https://factory.example.com"
+  visibility         = "private"
+  has_discussions    = false
+  has_issues         = true
+  has_projects       = true
+  has_wiki           = true
+  allow_merge_commit = true
+  allow_rebase_merge = true
+  allow_squash_merge = true
+  # Construction-phase setting (ruled 2026-08-17): auto-merge lets CI green
+  # complete a merge armed by an authorized human identity, cutting the dead
+  # time between green and merge. Scheduled to flip back off once the map's
+  # demonstration run lands - factory#242 tracks the turn-off.
+  allow_auto_merge       = true
   delete_branch_on_merge = false
   archive_on_destroy     = false
 

@@ -190,6 +190,47 @@ already ruled dispatcher primacy compatible with A115 - the evidence never
 fixed which qualified-and-scanned program boots first - and unit ordering
 reaches that outcome without overriding a pinned descriptor at all.
 
+## What was built (2026-08-17): the run driver and the evidence path
+
+The control-plane half exists. Nothing here mutates a console or makes a
+billable call at build time; the capture phases below remain attended work.
+
+- `worker/qualification/patchyard-run-openai-spend` mirrors the Anthropic
+  issuance runner: per phase (`run-spend-operational`, `run-spend-refusal`,
+  `run-spend-restored`) it verifies itself and both installed worker programs
+  against the deployed checkout, performs the token exchange at
+  `auth.openai.com` under the A144 split signing identity (kid derived from
+  `/etc/patchyard/openai-wif-signing.pem` and asserted against
+  `policy/signing-identities.json`, deliberately not against the frozen
+  policy's pre-rotation `jwks_kid`), assembles the 17-key capability envelope
+  with the deployed phase caps and the A132 ruling id, stages the manifest
+  with the `jq -S` qualification-policy projection digest, invokes
+  `/usr/local/sbin/patchyard-provider-run` with the capability over stdin,
+  and validates the guest evidence clause by clause (failed evidence preserved
+  under `/run/patchyard-openai/failed/`). Run it from the deployed checkout
+  as root, with a snapshot directory and a fresh output directory, exactly as
+  the Anthropic spend runs were driven.
+- `tools/openai-spend-evidence.py` is the requirement-2 assembler:
+  `snapshot` reads the OpenAI Costs API (receipt-backed, independent of the
+  console) with the standing Administration key; `finalize` validates the
+  three phase evidence files, the before/after cost snapshots, the
+  organization-cap console readbacks, and the A132 attestation - actor and
+  attester recorded, `mutation_receipt_obtained: false`, no independence when
+  one person holds both roles (A136) - enforces the 90-second settling floor
+  between each console change and the call that follows it, and writes the
+  committable Result.
+- `tools/check-openai-spend.py` guards the contract in CI
+  (`tools/check-infra.sh`, `--allow-missing-results` until the Result lands at
+  `research/isolation/results/openai-spend-enforcement.json`). Static
+  preflight pins the reviewed `provider-qualification.json` OpenAI entry and
+  the driver's and finalizer's required clauses; with the Result present it
+  recomputes the request, patch, parity, host-contract, and
+  qualification-policy digests against current sources. It deliberately pins
+  no pre-run source digest: the Result's own `host_contract_sha256` binds the
+  sources the run actually used, and the PR that commits the Result should
+  also pin the observed image recipe digest, which this checker leaves
+  format-checked until then.
+
 ## What is receipt-backed and what is attested
 
 An Administration API readback from the operator host on 2026-08-06T22:50:25Z

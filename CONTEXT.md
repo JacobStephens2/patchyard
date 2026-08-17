@@ -77,6 +77,18 @@ control-plane path holding its private half. One per provider - two providers on
 one signing identity means a rotation for either silently unqualifies the other.
 _Avoid_: signing key, key file, kid, credential
 
+**Steady-state kid authority**:
+The per-provider signing-identity registry: the one place that records which kid
+a provider's issuer trusts outside a lifecycle run. Minting asserts against it;
+a frozen policy's recorded kid is historical, not authoritative.
+_Avoid_: policy kid, live kid, current key
+
+**Transitional kid**:
+The kid a lifecycle collector mints with mid-run, before the registry catches up
+by PR. The collector owns this truth for the instrument it invokes; the registry
+is never mutated out-of-band to match it.
+_Avoid_: temporary key, override, patch
+
 **Fixture**:
 A committed input to a test or a checker, never a record of a live run.
 _Avoid_: naming a result, a requirement, or a proof

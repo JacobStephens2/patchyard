@@ -117,7 +117,7 @@ class AttestationAndCollectorContract(unittest.TestCase):
         self.assertEqual(self.rotation.ATTESTATION_DEFINITION_SHA256, expected)
         self.assertEqual(
             self.revocation.LIFECYCLE_INSTRUMENT_SHA256,
-            "63676168101366f50670adf4e06fa5c6841589bfcead4e8813d244f47944469d",
+            "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e",
         )
         self.assertEqual(
             self.rotation.LIFECYCLE_INSTRUMENT_SHA256,
@@ -217,17 +217,22 @@ class AttestationAndCollectorContract(unittest.TestCase):
                         **arguments,
                     )
 
-    def test_rotation_exchange_uses_a_runtime_derived_identifier(self) -> None:
+    def test_rotation_exchange_supplies_the_transitional_kid(self) -> None:
+        """A145: the collector passes the derived kid explicitly and the
+        frozen policy flows through unpatched."""
         policy = json.loads(POLICY_PATH.read_text())
         derived = {
             "kid": "patchyard-bbbbbbbbbbbbbbbb",
             "jwk_thumbprint_sha256": "cd" * 32,
         }
-        observed_policy: dict[str, object] = {}
+        observed: dict[str, object] = {}
 
-        def exchange(runtime_policy, signing_key, run_id, started_at):
+        def exchange(
+            runtime_policy, signing_key, run_id, started_at, expected_kid=None
+        ):
             del signing_key, run_id
-            observed_policy.update(runtime_policy)
+            observed["policy"] = runtime_policy
+            observed["expected_kid"] = expected_kid
             return {
                 "started_at": started_at,
                 "assertion_descriptor": {
@@ -254,7 +259,8 @@ class AttestationAndCollectorContract(unittest.TestCase):
                 "openai-rotation-20260807-0123456789",
                 "replacement_staging",
             )
-        self.assertEqual(observed_policy["issuer"]["jwks_kid"], derived["kid"])
+        self.assertEqual(observed["expected_kid"], derived["kid"])
+        self.assertEqual(observed["policy"], policy)
         self.assertEqual(result["assertion_descriptor"]["kid"], derived["kid"])
         active_kid = json.loads(POLICY_PATH.read_text())["issuer"]["jwks_kid"]
         self.assertNotIn(active_kid, ROTATION_COLLECTOR_PATH.read_text())

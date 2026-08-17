@@ -22,7 +22,10 @@ provider has this configuration:
 
 - issuer `https://factory.example.com/workload-identity`;
 - audience `https://api.openai.com`;
-- uploaded JWKS enabled with `kid patchyard-39acdfd2bfc0acb0`;
+- uploaded JWKS enabled, at that time with `kid patchyard-39acdfd2bfc0acb0`
+  (retired by the requirement-5 rotation on 2026-08-13; the console now trusts
+  `patchyard-de842961c20b52a8`, recorded as `providers.openai.trusted_kid`
+  in `policy/signing-identities.json`);
 - OIDC discovery disabled; and
 - subject `patchyard-control-plane` mapped to the service account above.
 
@@ -66,6 +69,17 @@ identity per provider: this path is OpenAI's alone, and
 `kid`. It changes only the policy data,
 assertion audience, token endpoint, token-exchange body, and sanitized result
 shape.
+
+A145 re-points the minting kid authority. The adapter derives the kid from
+the pem's public JWK and asserts it equals the registry's
+`providers.openai.trusted_kid`: the registry is the steady-state kid
+authority. The frozen policy's `issuer.jwks_kid` is no longer read for
+minting; it means only "the kid the banked issuance-era evidence was minted
+under," and the checker validates evidence era-split on the recorded adapter
+digest. Mid-rotation the invoking collector owns the transitional kid and
+passes it as an explicit `expected_kid`, overriding the registry for exactly
+that run; the registry itself is never mutated out-of-band and updates by PR
+after the run banks.
 
 The adapter sends exactly one JSON request to
 `https://auth.openai.com/oauth/token` with:

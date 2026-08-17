@@ -30,7 +30,7 @@ CRASH_FIXTURE_PATH = (
     ROOT / "fixtures/checker-contracts/openai-crash-cleanup.json"
 )
 EXPECTED_ADAPTER_SHA256 = (
-    "63676168101366f50670adf4e06fa5c6841589bfcead4e8813d244f47944469d"
+    "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e"
 )
 EXPECTED_FIXTURE_SHA256 = (
     "a70a8553fe1c74fa37976be4bedb069cd200147891e5c6d56a6beec72f761d55"
@@ -49,6 +49,10 @@ EXPECTED_CRASH_FIXTURE_SHA256 = (
 )
 RUN_ID = "openai-wif-20260806-0123456789"
 EXPIRY_RUN_ID = "openai-expiry-20260807-0123456789"
+SIGNING_IDENTITIES_PATH = ROOT / "policy/signing-identities.json"
+REGISTRY_KID = json.loads(SIGNING_IDENTITIES_PATH.read_text())["providers"][
+    "openai"
+]["trusted_kid"]
 
 
 def digest(path: Path) -> str:
@@ -86,29 +90,28 @@ def b64json(value: dict[str, object]) -> str:
     return base64.urlsafe_b64encode(encoded).decode().rstrip("=")
 
 
-def fake_mint(
-    policy: dict[str, object], signing_key: Path, run_id: str, now_epoch: int
-) -> tuple[str, dict[str, str]]:
-    del signing_key
-    header = {
-        "alg": "RS256",
-        "kid": "patchyard-39acdfd2bfc0acb0",
-        "typ": "JWT",
-    }
-    claims = {
-        "iss": policy["issuer"]["issuer_url"],
-        "sub": policy["rule"]["subject"],
-        "aud": policy["rule"]["audience"],
-        "iat": now_epoch - 5,
-        "exp": now_epoch + 295,
-        "jti": f"factory-{run_id}-0123456789abcdef",
-        "factory_environment": policy["rule"]["claims"]["factory_environment"],
-    }
-    assertion = f"{b64json(header)}.{b64json(claims)}.c2lnbmF0dXJl"
-    return assertion, {
-        "kid": "patchyard-39acdfd2bfc0acb0",
-        "jwk_thumbprint_sha256": "ab" * 32,
-    }
+def fake_mint_with(kid: str):
+    def fake_mint(
+        policy: dict[str, object], signing_key: Path, run_id: str, now_epoch: int
+    ) -> tuple[str, dict[str, str]]:
+        del signing_key
+        header = {"alg": "RS256", "kid": kid, "typ": "JWT"}
+        claims = {
+            "iss": policy["issuer"]["issuer_url"],
+            "sub": policy["rule"]["subject"],
+            "aud": policy["rule"]["audience"],
+            "iat": now_epoch - 5,
+            "exp": now_epoch + 295,
+            "jti": f"factory-{run_id}-0123456789abcdef",
+            "factory_environment": policy["rule"]["claims"]["factory_environment"],
+        }
+        assertion = f"{b64json(header)}.{b64json(claims)}.c2lnbmF0dXJl"
+        return assertion, {"kid": kid, "jwk_thumbprint_sha256": "ab" * 32}
+
+    return fake_mint
+
+
+fake_mint = fake_mint_with(REGISTRY_KID)
 
 
 def headers() -> Message:
@@ -159,6 +162,51 @@ class OpenAIWifIssuanceAdapterContract(unittest.TestCase):
         self.assertEqual(descriptor["subject"], "patchyard-control-plane")
         self.assertEqual(descriptor["lifetime_seconds"], 300)
         self.assertIs(descriptor["jti_supplied"], True)
+
+    def test_minting_kid_authority_is_the_signing_identity_registry(self) -> None:
+        """A145: the registry, not the frozen policy, names the expected kid."""
+        self.assertNotEqual(REGISTRY_KID, self.policy["issuer"]["jwks_kid"])
+        with mock.patch.object(ADAPTER.BASE, "mint_assertion", side_effect=fake_mint):
+            _, descriptor = ADAPTER.mint_openai_assertion(
+                self.policy, Path("/unused"), RUN_ID, 1786017605
+            )
+        self.assertEqual(descriptor["kid"], REGISTRY_KID)
+
+    def test_frozen_policy_kid_no_longer_mints(self) -> None:
+        stale = fake_mint_with(self.policy["issuer"]["jwks_kid"])
+        with mock.patch.object(ADAPTER.BASE, "mint_assertion", side_effect=stale):
+            with self.assertRaisesRegex(
+                ADAPTER.OpenAIWifError, "signing-identity registry"
+            ):
+                ADAPTER.mint_openai_assertion(
+                    self.policy, Path("/unused"), RUN_ID, 1786017605
+                )
+
+    def test_collector_supplied_transitional_kid_overrides_the_registry(self) -> None:
+        transitional = "patchyard-" + "ab" * 8
+        minted = fake_mint_with(transitional)
+        with mock.patch.object(ADAPTER.BASE, "mint_assertion", side_effect=minted):
+            _, descriptor = ADAPTER.mint_openai_assertion(
+                self.policy,
+                Path("/unused"),
+                RUN_ID,
+                1786017605,
+                expected_kid=transitional,
+            )
+        self.assertEqual(descriptor["kid"], transitional)
+
+    def test_registry_entry_must_name_the_openai_key_path(self) -> None:
+        registry = json.loads(SIGNING_IDENTITIES_PATH.read_text())
+        registry["providers"]["openai"]["signing_key_path"] = (
+            "/etc/patchyard/anthropic-wif-signing.pem"
+        )
+        with mock.patch.object(
+            ADAPTER.BASE, "load_json_file", return_value=registry
+        ):
+            with self.assertRaisesRegex(
+                ADAPTER.OpenAIWifError, "key path"
+            ):
+                ADAPTER.registry_trusted_kid()
 
     def test_exchange_request_is_exact_and_never_adds_scope(self) -> None:
         request = ADAPTER.exchange_request(self.policy, "synthetic-subject-token")
@@ -367,6 +415,35 @@ class OpenAIWifIssuanceCheckerContract(unittest.TestCase):
         result = self.run_checker("--observation", str(self.write(self.observed())))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("non-qualifying provider observation", result.stdout)
+
+    def test_banked_era_observation_keeps_the_frozen_policy_kid(self) -> None:
+        """The banked Result names a superseded adapter digest, so its kid
+        stays the frozen policy's issuance-era value (A145)."""
+        observed = self.observed()
+        self.assertEqual(
+            observed["assertion_descriptor"]["kid"], "patchyard-39acdfd2bfc0acb0"
+        )
+        result = self.run_checker(
+            "--observation", str(self.write(observed, "banked-era.json"))
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_current_adapter_observation_must_carry_the_registry_kid(self) -> None:
+        stale = self.observed()
+        stale["source"]["issuance_adapter_sha256"] = digest(ADAPTER_PATH)
+        result = self.run_checker(
+            "--observation", str(self.write(stale, "era-stale.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("trusted signing identity", result.stderr)
+
+        current = self.observed()
+        current["source"]["issuance_adapter_sha256"] = digest(ADAPTER_PATH)
+        current["assertion_descriptor"]["kid"] = REGISTRY_KID
+        result = self.run_checker(
+            "--observation", str(self.write(current, "era-current.json"))
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_checker_rejects_extra_keys_and_out_of_order_utc(self) -> None:
         extra = self.observed()

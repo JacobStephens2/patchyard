@@ -29,6 +29,7 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
 POLICY_PATH = ROOT / "policy/openai-wif.json"
+SIGNING_IDENTITIES_PATH = ROOT / "policy/signing-identities.json"
 BASE_HARNESS_PATH = ROOT / "tools/anthropic-wif-lifecycle.py"
 BASE_HARNESS_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
@@ -38,6 +39,7 @@ STAGING_ROOT = Path("/run/patchyard-openai")
 TOKEN_ENDPOINT = "https://auth.openai.com/oauth/token"
 MAX_RESPONSE_BYTES = 1_000_000
 RUN_ID_PATTERN = re.compile(r"openai-wif-[0-9]{8}-[0-9a-f]{10}")
+KID_PATTERN = re.compile(r"patchyard-[0-9a-f]{16}")
 SAFE_RESPONSE_STRING = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._:/+;-]{0,127}")
 SAFE_FIELD_NAME = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
 JWT_PATTERN = re.compile(
@@ -168,6 +170,28 @@ def load_policy() -> dict[str, Any]:
     return policy
 
 
+def registry_trusted_kid() -> str:
+    """A145: the per-provider signing-identity registry is the steady-state
+    kid authority. The frozen policy's issuer.jwks_kid is the historical
+    issuance-era kid and is no longer read for minting."""
+    registry = BASE.load_json_file(SIGNING_IDENTITIES_PATH)
+    try:
+        entry = registry["providers"]["openai"]
+        key_path = entry["signing_key_path"]
+        kid = entry["trusted_kid"]
+    except (KeyError, TypeError) as error:
+        raise OpenAIWifError(
+            "signing-identity registry lacks the OpenAI entry"
+        ) from error
+    if key_path != str(SIGNING_KEY):
+        raise OpenAIWifError(
+            "signing-identity registry names another OpenAI key path"
+        )
+    if not isinstance(kid, str) or KID_PATTERN.fullmatch(kid) is None:
+        raise OpenAIWifError("signing-identity registry kid is malformed")
+    return kid
+
+
 def source_binding() -> dict[str, str]:
     return {
         "policy_sha256": BASE.digest_file(POLICY_PATH),
@@ -194,8 +218,14 @@ def iso_epoch(value: int) -> str:
 
 
 def mint_openai_assertion(
-    policy: dict[str, Any], signing_key: Path, run_id: str, now_epoch: int
+    policy: dict[str, Any],
+    signing_key: Path,
+    run_id: str,
+    now_epoch: int,
+    expected_kid: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
+    if expected_kid is None:
+        expected_kid = registry_trusted_kid()
     base_policy = {
         "issuer": {"issuer_url": policy["issuer"]["issuer_url"]},
         "rule": {
@@ -214,11 +244,13 @@ def mint_openai_assertion(
     claims = decode_jwt_part(parts[1])
     expected_header = {
         "alg": "RS256",
-        "kid": policy["issuer"]["jwks_kid"],
+        "kid": expected_kid,
         "typ": "JWT",
     }
     if header != expected_header:
-        raise OpenAIWifError("minted assertion header differs from OpenAI policy")
+        raise OpenAIWifError(
+            "minted assertion header differs from the signing-identity registry"
+        )
     if not isinstance(claims, dict) or set(claims) != {
         "iss",
         "sub",
@@ -251,7 +283,7 @@ def mint_openai_assertion(
     if re.fullmatch(expected_jti, str(claims.get("jti", ""))) is None:
         raise OpenAIWifError("minted assertion JTI is malformed")
     expected_key = {
-        "kid": policy["issuer"]["jwks_kid"],
+        "kid": expected_kid,
         "jwk_thumbprint_sha256": signing_key_descriptor.get(
             "jwk_thumbprint_sha256"
         ),
@@ -472,10 +504,11 @@ def exchange_observation(
     run_id: str,
     started_at: str,
     request: Callable[[dict[str, Any]], dict[str, Any]] = request_token,
+    expected_kid: str | None = None,
 ) -> dict[str, Any]:
     now_epoch = int(time.time())
     assertion, assertion_descriptor = mint_openai_assertion(
-        policy, signing_key, run_id, now_epoch
+        policy, signing_key, run_id, now_epoch, expected_kid
     )
     body = exchange_request(policy, assertion)
     try:

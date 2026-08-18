@@ -36,10 +36,12 @@ during build, review, CI, or an unattended session.
 uninterrupted block. The run pauses twice for a 90-second settling floor and
 otherwise moves at the speed you read the console.
 
-**Decide the two roles first.** You need a named `actor` (who makes the console
-change) and a named `attester` (who records the attestation). Under A136 one
-accountable human may hold both, but the record then carries no independence
-and must never later be described as corroboration.
+**This run uses the A146 model-operated record.** A human-authored GitHub
+comment on [Requirement 4: subject-expression revocation attended run](https://github.com/JacobStephens2/patchyard/issues/211)
+authorizes one exact attempt. The named Codex task performs both Saves, makes
+the five live readings, and writes the Result. The output is not an
+Attestation and must never be described as human attestation, independent
+evidence, or corroboration. A136 is unchanged for every other requirement.
 
 Have the provider page open and confirm the subject mapping is **present,
 enabled, and carrying the original claim assertion**. The run cannot start
@@ -198,8 +200,14 @@ optional; this is tmpfs and a reboot removes them.
 
 **The stage and the session are two different directories.** Collapsing them
 fails the run before anything happens — see the box below. Generate the run ID,
-create the stage, then start the collector under the runner. The ID must match
-`openai-revocation-[0-9]{8}-[0-9a-f]{10}`.
+create the stage, write the embedded authorization file from the human-authored
+GitHub comment on the requirement-4 attended-run ticket, then start the
+collector under the runner. The ID must match
+`openai-revocation-[0-9]{8}-[0-9a-f]{10}`. The comment body contains one `json`
+fence naming that run ID, the canonical pairing, the Codex task id, the policy
+and collector digests, the permitted mutation and restoration, and a deadline
+exactly 45 minutes after the comment `created_at`. The same task must perform
+the mutations, make the five readings, and write the Result.
 
 ```bash
 RUN_ID="openai-revocation-$(date -u +%Y%m%d)-$(openssl rand -hex 5)"
@@ -214,9 +222,9 @@ sudo python3 -I tools/attended-collector-runner.py \
   --reply-group factory \
   -- \
   --run-id "$RUN_ID" \
-  --actor "<named actor>" \
-  --actor-kind accountable_human \
-  --attester "<named attester>" \
+  --authorization-file "$STAGE/authorization.json" \
+  --model-pairing "<provider>/<harness>/<model>/<reasoning>" \
+  --codex-task-id "<codex task id>" \
   --mapping-mutation subject-expression \
   --output "$STAGE/openai-federation-revocation.json"
 ```
@@ -264,26 +272,27 @@ stage, which renders with a null status because `conductor` cannot read inside
 `0700`. That one is expected and is not the bug described above — the *session*
 rendering as unknown is.
 
-## 3. Answer the seven prompts
+## 3. Answer the prompts
 
-Five console readings and two acknowledgements, in this order. Answer each only
-when it appears; do not queue answers ahead.
+Five reloaded console readings, two Save acknowledgements, and two Save
+confirmations, in this order. Answer each only when it appears; do not queue
+answers ahead. Reload the live console page before every reading.
 
 | Step | What it asks | Mapping state to report |
 | :-- | :-- | :-- |
-| 1 | enabled mapping before the baseline control | present and enabled, original expression |
-| 2 | immediate state before the mutation | unchanged from step 1 |
-| — | **MUTATION COMPLETE** | Edit the claim assertion to the sentinel *first* |
-| 3 | immediate state after the mutation | present and enabled, expression is the sentinel |
-| 4 | current mapping before safe restoration | **still the sentinel** |
-| — | **RESTORATION COMPLETE** | edit the original expression back *first* |
-| 5 | the safely restored mapping | present and enabled, identical to step 1 |
+| 1 | `RELOADED`, then enabled mapping before the baseline control | present and enabled, original expression |
+| 2 | `RELOADED`, then immediate state before the mutation | unchanged from step 1 |
+| — | **MUTATION COMPLETE**, then save-confirmation JSON | Edit the claim assertion to the sentinel *first* |
+| 3 | `RELOADED`, then immediate state after the mutation | present and enabled, expression is the sentinel |
+| 4 | `RELOADED`, then current mapping before safe restoration | **still the sentinel** |
+| — | **RESTORATION COMPLETE**, then save-confirmation JSON | edit the original expression back *first* |
+| 5 | `RELOADED`, then the safely restored mapping | present and enabled, identical to step 1 |
 
-**Read the console at each step. Do not prepare readings in advance.** The
-capture method is `operator_console_readback_bounded_by_control_plane_utc`, and
-the entire evidentiary value is that a named human read the live console inside
-the bounded window. Values written before the window began produce a file that
-passes every checker while attesting to nothing.
+**Reload the console, then read it at each step. Do not prepare readings in
+advance.** The capture method is
+`model_console_readback_bounded_by_control_plane_utc`. Values written before
+the window began produce a file that passes every checker while recording
+nothing that was seen live.
 
 **The sentinel is exact.** The mutation-pause prompt prints the run's sentinel,
 `sub=patchyard-control-plane-REVOKED-<run id>`; Edit the claim assertion to
@@ -314,7 +323,7 @@ prompts for restoration on the failure path, and `safe_mapping_restored` records
 whether the mapping came back.
 
 A recovery outside the bounded window is operationally necessary and cannot
-repair the attestation. The run is then not conforming — it is re-run from a
+repair the record. The run is then not conforming — it is re-run from a
 clean window, never patched.
 
 If the pane is gone but the run is alive, `tmux attach -t rev` resumes at the

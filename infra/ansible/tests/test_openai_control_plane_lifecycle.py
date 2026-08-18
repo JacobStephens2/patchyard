@@ -111,10 +111,10 @@ class AttestationAndCollectorContract(unittest.TestCase):
         cls.revocation = load_source("revocation_collector_contract", REVOCATION_COLLECTOR_PATH)
         cls.rotation = load_source("rotation_collector_contract", ROTATION_COLLECTOR_PATH)
 
-    def test_both_collectors_load_one_attestation_definition_by_digest(self) -> None:
+    def test_rotation_loads_attestation_and_revocation_does_not(self) -> None:
         expected = digest(ATTESTATION_PATH)
-        self.assertEqual(self.revocation.ATTESTATION_DEFINITION_SHA256, expected)
         self.assertEqual(self.rotation.ATTESTATION_DEFINITION_SHA256, expected)
+        self.assertFalse(hasattr(self.revocation, "ATTESTATION_DEFINITION_SHA256"))
         self.assertEqual(
             self.revocation.LIFECYCLE_INSTRUMENT_SHA256,
             "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e",
@@ -188,34 +188,51 @@ class AttestationAndCollectorContract(unittest.TestCase):
         self.assertNotIn("urllib", revocation_source)
         self.assertNotIn("urllib", rotation_source)
 
-    def test_party_names_fail_before_either_bounded_window_opens(self) -> None:
-        for collector, arguments in (
-            (
-                self.revocation,
-                {
-                    "run_id": "openai-revocation-20260807-0123456789",
-                    "mutation_kind": "subject-expression",
-                    "policy": self.revocation.load_policy(),
+    def test_party_names_fail_before_the_rotation_window_opens(self) -> None:
+        with self.assertRaises(self.rotation.ATTESTATION.AttestationShapeError):
+            self.rotation.collect(
+                run_id="openai-rotation-20260807-0123456789",
+                actor_name="invalid\nactor",
+                actor_kind="accountable_human",
+                attester_name="Fixture Operator",
+                policy=self.rotation.load_policy(),
+                stage=Path("/unused"),
+                input_fn=lambda unused: self.fail("capture opened"),
+            )
+
+    def authorization_for(self, run_id: str) -> dict[str, object]:
+        fixture = json.loads(REVOCATION_FIXTURE_PATH.read_text())
+        authorization = deepcopy(fixture["human_authorization"])
+        extracted = dict(authorization["extracted"])
+        extracted["run_id"] = run_id
+        extracted["collector_sha256"] = digest(REVOCATION_COLLECTOR_PATH)
+        extracted["policy_sha256"] = digest(POLICY_PATH)
+        fence = json.dumps(extracted, indent=2, sort_keys=True)
+        authorization["extracted"] = extracted
+        authorization["body"] = (
+            "Authorize one OpenAI requirement-4 attended run.\n\n"
+            f"```json\n{fence}\n```\n"
+        )
+        return authorization
+
+    def test_revocation_authorization_fails_before_the_window_opens(self) -> None:
+        authorization = self.authorization_for(
+            "openai-revocation-20260807-0123456789"
+        )
+        authorization["author_login"] = "not-jacob"
+        with self.assertRaises(self.revocation.RevocationCollectorError) as caught:
+            self.revocation.collect(
+                run_id="openai-revocation-20260807-0123456789",
+                authorization=authorization,
+                model_identity={
+                    "pairing": authorization["extracted"]["pairing"],
+                    "codex_task_id": authorization["extracted"]["codex_task_id"],
                 },
-            ),
-            (
-                self.rotation,
-                {
-                    "run_id": "openai-rotation-20260807-0123456789",
-                    "policy": self.rotation.load_policy(),
-                    "stage": Path("/unused"),
-                },
-            ),
-        ):
-            with self.subTest(collector=collector.__name__):
-                with self.assertRaises(collector.ATTESTATION.AttestationShapeError):
-                    collector.collect(
-                        actor_name="invalid\nactor",
-                        actor_kind="accountable_human",
-                        attester_name="Fixture Operator",
-                        input_fn=lambda unused: self.fail("capture opened"),
-                        **arguments,
-                    )
+                mutation_kind="subject-expression",
+                policy=self.revocation.load_policy(),
+                input_fn=lambda unused: self.fail("capture opened"),
+            )
+        self.assertIn("author is not the accountable human", str(caught.exception))
 
     def test_rotation_exchange_supplies_the_transitional_kid(self) -> None:
         """A145: the collector passes the derived kid explicitly and the
@@ -302,8 +319,8 @@ class AttestationAndCollectorContract(unittest.TestCase):
 
     def test_console_readings_accept_printable_operator_navigation(self) -> None:
         revocation_state = json.loads(REVOCATION_FIXTURE_PATH.read_text())[
-            "initial_console_reading"
-        ]["state"]
+            "model_console_observations"
+        ][0]["state"]
         revocation_state["subject_mapping_expression"] = (
             'assertion.sub == "patchyard-control-plane"'
         )
@@ -429,19 +446,43 @@ class AttestationAndCollectorContract(unittest.TestCase):
 
     def test_revocation_failure_after_mutation_still_drives_safe_restoration(self) -> None:
         fixture = json.loads(REVOCATION_FIXTURE_PATH.read_text())
-        active = fixture["initial_console_reading"]["state"]
+        run_id = "openai-revocation-20260807-0123456789"
+        active = fixture["model_console_observations"][0]["state"]
         revoked = deepcopy(active)
         revoked["subject_mapping_expression"] = self.revocation.revocation_sentinel(
-            "openai-revocation-20260807-0123456789"
+            run_id
+        )
+        confirmation = json.dumps(
+            {
+                "product_approval_presented": False,
+                "product_approval_completed": False,
+                "capture_sha256": None,
+                "observed_expression": revoked["subject_mapping_expression"],
+            }
+        )
+        restore_confirmation = json.dumps(
+            {
+                "product_approval_presented": False,
+                "product_approval_completed": False,
+                "capture_sha256": None,
+                "observed_expression": active["subject_mapping_expression"],
+            }
         )
         inputs = iter(
             (
+                "RELOADED",
                 json.dumps(active),
+                "RELOADED",
                 json.dumps(active),
                 "MUTATION COMPLETE",
+                confirmation,
+                "RELOADED",
                 json.dumps(revoked),
+                "RELOADED",
                 json.dumps(revoked),
                 "RESTORATION COMPLETE",
+                restore_confirmation,
+                "RELOADED",
                 json.dumps(active),
             )
         )
@@ -456,12 +497,15 @@ class AttestationAndCollectorContract(unittest.TestCase):
             raise self.revocation.RevocationCollectorError("synthetic exchange failure")
 
         journal: dict[str, object] = {}
+        authorization = self.authorization_for(run_id)
         with self.assertRaises(self.revocation.RevocationCollectorError):
             self.revocation.collect(
-                run_id="openai-revocation-20260807-0123456789",
-                actor_name="Fixture Operator",
-                actor_kind="accountable_human",
-                attester_name="Fixture Operator",
+                run_id=run_id,
+                authorization=authorization,
+                model_identity={
+                    "pairing": authorization["extracted"]["pairing"],
+                    "codex_task_id": authorization["extracted"]["codex_task_id"],
+                },
                 mutation_kind="subject-expression",
                 policy=self.revocation.load_policy(),
                 input_fn=lambda unused: next(inputs),
@@ -473,10 +517,10 @@ class AttestationAndCollectorContract(unittest.TestCase):
                 journal=journal,
             )
         self.assertIs(journal["safe_mapping_restored"], True)
-        relationship = journal["restoration_attestation"]["party_relationship"]
+        self.assertEqual(len(journal["model_actions"]), 2)
         self.assertEqual(
-            relationship,
-            {"same_party": True, "independence": False, "corroboration": False},
+            journal["model_actions"][1]["kind"],
+            "subject_expression_restore_save",
         )
 
     def test_rotation_failure_rollback_uses_the_current_derived_key(self) -> None:
@@ -769,23 +813,41 @@ class FederationRevocationCheckerContract(CheckerCase):
 
     def test_every_console_capture_bound_participates_in_utc_ordering(self) -> None:
         value = deepcopy(self.fixture)
-        value["mapping_mutation_attestation"]["console_readings"]["before"][
-            "captured_before_at"
-        ] = "2026-08-07T14:03:11.200113Z"
+        value["model_console_observations"][1]["captured_before_at"] = (
+            "2026-08-07T14:03:11.200113Z"
+        )
         result = self.run_checker(
             "--contract-fixture", str(self.write(value, "misordered-capture.json"))
         )
         self.assertEqual(result.returncode, 1)
         self.assertIn("UTC observations are out of order", result.stderr)
 
-    def test_undisclosed_single_party_and_premature_enforcement_are_rejected(self) -> None:
+    def test_attestation_keys_operator_capture_and_enforcement_are_rejected(self) -> None:
         value = deepcopy(self.fixture)
-        value["mapping_mutation_attestation"]["party_relationship"]["same_party"] = False
+        value["attester"] = {"kind": "accountable_human", "name": "nobody"}
         result = self.run_checker(
-            "--contract-fixture", str(self.write(value, "party.json"))
+            "--contract-fixture", str(self.write(value, "attester.json"))
         )
         self.assertEqual(result.returncode, 1)
-        self.assertIn("does not disclose role occupancy", result.stderr)
+        self.assertIn("unexpected evidence shape", result.stderr)
+
+        capture = deepcopy(self.fixture)
+        capture["model_console_observations"][0]["capture_method"] = (
+            "operator_console_readback_bounded_by_control_plane_utc"
+        )
+        result = self.run_checker(
+            "--contract-fixture", str(self.write(capture, "operator-capture.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("operator capture method", result.stderr)
+
+        authored = deepcopy(self.fixture)
+        authored["human_authorization"]["human_attestation_obtained"] = True
+        result = self.run_checker(
+            "--contract-fixture", str(self.write(authored, "attested.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("claims a human attestation", result.stderr)
 
         enforced = deepcopy(self.fixture)
         enforced["response_predicate"]["enforced"] = True
@@ -794,6 +856,14 @@ class FederationRevocationCheckerContract(CheckerCase):
         )
         self.assertEqual(result.returncode, 1)
         self.assertIn("predicate was enforced before observation", result.stderr)
+
+        unloaded = deepcopy(self.fixture)
+        unloaded["model_console_observations"][0]["navigation"]["reloaded"] = False
+        result = self.run_checker(
+            "--contract-fixture", str(self.write(unloaded, "no-reload.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("was not reloaded", result.stderr)
 
     def test_exact_keys_credentials_and_isolation_fail_closed(self) -> None:
         extra = deepcopy(self.fixture)

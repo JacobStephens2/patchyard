@@ -430,37 +430,46 @@ key and sanitize any response without enforcing a denial shape. That exact
 instrument digest, token endpoint, identity-provider ID, service-account ID,
 request body shape, and assertion lifetime remain fixed for all three controls.
 
-### Bounded window and Attestation
+### Bounded window and the A146 model-operated record
 
-Before opening the window, name the actor and the attester. Record both roles
-on every Attestation. Under A136, one accountable human may occupy both roles,
-but that carries no independence and the record must not later be described as
-corroboration. A model may act, but may not be the only party.
+A146 is a requirement-4-only exception. After a named accountable human
+authorizes one exact run, a named model may perform both subject-expression
+Saves, make the five live console readings, and write the Result. This is a
+new record shape, not a flag on Attestation. Attestation remains a
+human-observed fact and is unchanged for every other requirement.
+
+The authorization is a human-authored GitHub comment on the requirement-4
+attended-run ticket. The Result embeds it. The checker does not fetch GitHub.
+The output must never be described as human attestation, independent evidence,
+or corroboration.
 
 Use the named capture method:
 
 ```text
-operator_console_readback_bounded_by_control_plane_utc
+model_console_readback_bounded_by_control_plane_utc
 ```
 
-Every console reading records `captured_before_at` immediately before the
-reading and `captured_after_at` immediately after it, using control-plane UTC.
-The capture includes the provider identity, subject-mapping expression,
-mapped service account, enabled state, uploaded-JWKS mode, and the console URL
-or navigation path used. It never includes a private key, assertion, or bearer.
+Do not use `operator_console_readback_bounded_by_control_plane_utc`. Every
+console reading is preceded by a reload. Each reading records
+`captured_before_at` immediately before the reading and `captured_after_at`
+immediately after it, using control-plane UTC, plus navigation (`url`,
+`reloaded: true`, reload timestamps) and a unique `capture_action_id`. The
+capture includes the provider identity, subject-mapping expression, mapped
+service account, enabled state, uploaded-JWKS mode, and the console URL. It
+never includes a private key, assertion, or bearer.
 
-Each Attestation and the Result permanently carry the provenance mark:
+The Result permanently carries:
 
 ```json
 {
-  "mutation_receipt_obtained": false
+  "mutation_receipt_obtained": false,
+  "human_attestation_obtained": false,
+  "human_authorship_mechanically_proven": false
 }
 ```
 
-The Attestation also records `actor`, `attester`, the capture method, bounded
-before and after UTC, the exact mutation description, and the fixed lifecycle
-instrument SHA. The mark is permanent even if OpenAI later exposes a management
-API.
+`independence` and `corroboration` are absent, not set false. The marks are
+permanent even if OpenAI later exposes a management API.
 
 The proposed Result carries this exact response predicate until an observed
 OpenAI federation-revocation response can support a later reviewed predicate:
@@ -482,25 +491,26 @@ All steps below occur in one bounded window:
    endpoint with the fixed instrument. It must supply a bearer. Record the
    provider response as a Receipt where OpenAI supplies a request ID.
 3. With capture already active, record the mutation's immediate before-bound,
-   have the named actor **Edit** only the subject mapping's claim assertion to
-   the run-scoped sentinel (never remove the mapping - A140), then record the
-   immediate after-bound and console after-state. The attester records the
-   Attestation. Do not change the service account or uploaded JWK in this
-   Requirement.
+   record the model's pre-Save intent, have the named model **Edit** only the
+   subject mapping's claim assertion to the run-scoped sentinel (never remove
+   the mapping - A140), record the immediate post-Save confirmation, then
+   reload and record the immediate after-state. Do not change the service
+   account or uploaded JWK in this Requirement.
 4. Wait at least the standing 90-second settling floor. An exchange before the
    floor measures propagation and cannot become Evidence of revocation.
 5. Attempt exactly one fresh exchange with the same surface and instrument.
    Record whatever bounded response OpenAI returns. Do not require a status,
    error type, error code, message, or request-ID shape.
-6. While capture remains active, capture the sentinel-expression state, edit
-   the exact original expression back, and capture the restored state. Record
-   the restoration as a second console-only control-plane mutation in the
-   Attestation.
+6. While capture remains active, reload and capture the sentinel-expression
+   state, record the restore-Save intent, edit the exact original expression
+   back, record the restore confirmation, then reload and capture the restored
+   state.
 7. Wait the same settling floor. Make the bracketing control: one fresh exchange
    with the same surface and instrument, which must supply a bearer.
 8. Record the window end and bind the baseline control, denial observation,
-   bracketing control, both bounded state captures, both named roles, and the
-   instrument digest into one proposed Result.
+   bracketing control, both Saves, the five reloaded readings, the embedded
+   authorization, the same-task model identity, and the instrument digest into
+   one proposed Result.
 
 Steps 2, 5, and 7 are A129's positive, denial, positive sequence. They remain
 inside one bounded window on the same token-exchange surface with the same
@@ -511,7 +521,7 @@ without either positive is Evidence only that one exchange failed.
 If the mapping mutation, capture, settling interval, denial attempt, restore,
 or either positive fails, restore the safe mapping state but do not describe the
 run as conforming. A recovery outside the bounded window is operationally
-necessary and cannot repair the Attestation.
+necessary and cannot repair the record.
 
 ### Attended procedure
 
@@ -578,16 +588,20 @@ CONTROL_STAGE="/run/patchyard-openai/$RUN_ID"
 RESULT="$CONTROL_STAGE/openai-federation-revocation.json"
 sudo install -d -m 0700 -o root -g root "$CONTROL_STAGE"
 sudo python3 -I tools/openai-wif-federation-revocation.py \
-  --run-id "$RUN_ID" --actor "<named actor>" \
-  --actor-kind accountable_human --attester "<named attester>" \
+  --run-id "$RUN_ID" \
+  --authorization-file "$CONTROL_STAGE/authorization.json" \
+  --model-pairing "<provider>/<harness>/<model>/<reasoning>" \
+  --codex-task-id "<codex task id>" \
   --mapping-mutation subject-expression --output "$RESULT"
 ```
 
-Under A136 one accountable human may occupy both roles, but the record then
-carries no independence and must not later be described as corroboration.
+The authorization file is the embedded GitHub-comment record for this exact
+run. The pairing and Codex task id must match it. The same task must perform
+the mutations, make the five readings, and write the Result.
 
-The collector asks for five console readings and two acknowledgements, in this
-order. Answer each prompt only when it appears; do not queue answers ahead.
+The collector asks for five reloaded console readings, two Save
+acknowledgements, and two Save confirmations, in this order. Answer each
+prompt only when it appears; do not queue answers ahead.
 
 | Step | Prompt | Mapping state to report |
 |------|--------|-------------------------|
@@ -599,11 +613,11 @@ order. Answer each prompt only when it appears; do not queue answers ahead.
 | — | `RESTORATION COMPLETE` | edit the original expression back first |
 | 5 | the safely restored mapping | present and enabled, identical to step 1 |
 
-**Read the console at each step. Do not prepare the JSON in advance.** The
-capture method is `operator_console_readback_bounded_by_control_plane_utc`,
-and the entire evidentiary value is that a named human read the live console
-inside the bounded window. Pasting values written before the window began
-produces a file that passes every checker while attesting to nothing.
+**Reload the console, then read it at each step. Do not prepare the JSON in
+advance.** The capture method is
+`model_console_readback_bounded_by_control_plane_utc`. Values written before
+the window began produce a file that passes every checker while recording
+nothing that was seen live.
 
 Step 4 is the step that gets missed. It is captured *before* restoring, so
 the mapping must still carry the sentinel when you answer it. Restoring early fails
@@ -627,7 +641,7 @@ If any step fails, restore the original mapping anyway. The collector's
 `finally` block still prompts for restoration on the failure path, and
 `safe_mapping_restored` records whether the mapping came back. A recovery
 outside the bounded window is operationally necessary and cannot repair the
-Attestation: the run is then not conforming, and it is re-run from a clean
+record: the run is then not conforming, and it is re-run from a clean
 window rather than patched.
 
 Check the terminal record without editing it:
@@ -676,8 +690,8 @@ fixed `kid` in this procedure.
 
 ### Bounded window and parties
 
-Name the actor and attester before opening the window, applying A136's role rule
-and independence limitation exactly as in requirement 4. Use
+Name the actor and attester before opening the window, applying A136's role
+rule and independence limitation. A146 does not apply here. Use
 `operator_console_readback_bounded_by_control_plane_utc` for every console
 reading. Each JWK-set control-plane mutation gets bounded before and after UTC,
 the complete public-key membership and enabled state, the named roles, and the

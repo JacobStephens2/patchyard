@@ -59,6 +59,33 @@ ORGANIZATION_ID = "org-000000000000000000000000"
 PROJECT_ID = "proj_4zpZhhPPNYCvPRE5vGuRBALH"
 SERVICE_ACCOUNT_ID = "user-6tzs2hdFVN7GoYQbWfC0eu7k"
 ISSUER_ID = "idp_DlzD7RlQXgXxd1VSG2V93eEU"
+ROUTE_AUTHORIZATION_SOURCE = "route authorization"
+ROUTE_AUTHORIZATION_RULING = "A148"
+ROUTE_AUTHORIZATION_MAP_URL = (
+    "https://github.com/JacobStephens2/patchyard/issues/176"
+)
+ROUTE_AUTHORIZATION_GRANT_URL = (
+    "https://github.com/JacobStephens2/patchyard/issues/253"
+)
+AUTHORIZATION_AUTHOR = "JacobStephens2"
+ROUTE_AUTHORIZATION_KEYS = {
+    "source",
+    "ruling",
+    "map_url",
+    "grant_url",
+    "author_login",
+    "human_attestation_obtained",
+    "human_authorship_mechanically_proven",
+}
+ROUTE_ATTESTATION_KEYS = {
+    "schema_version",
+    "provider",
+    "authorization_ruling",
+    "human_authorization",
+    "mutation_surface",
+    "mutation_receipt_obtained",
+    "mutations",
+}
 EXPECTED_QUALIFICATION_ENTRY = {
     "one_shot_client": "/usr/local/libexec/patchyard-openai-one-shot",
     "authorization_ruling": "A132",
@@ -152,6 +179,8 @@ REQUIRED_EVIDENCE_CLAUSES = (
     'raise ValueError("A132 phases did not use distinct WIF exchanges")',
     'raise ValueError("A132 provider request bodies are not byte-identical")',
     'raise ValueError("A132 attestation claims independence it cannot have")',
+    'ROUTE_AUTHORIZATION_SOURCE = "route authorization"',
+    'raise ValueError("authorization source is not a route authorization")',
     'raise ValueError("OpenAI Costs API returned no factory project row")',
     'raise ValueError("OpenAI costs pagination is malformed")',
 )
@@ -677,7 +706,40 @@ def validate_result(
             errors.append(f"A132 {phase} cap readback is malformed")
 
     attestation = result.get("attestation", {})
-    if not isinstance(attestation, dict) or set(attestation) != {
+    if isinstance(attestation, dict) and set(attestation) == ROUTE_ATTESTATION_KEYS:
+        if (
+            attestation.get("schema_version") != 1
+            or attestation.get("provider") != "openai"
+            or attestation.get("authorization_ruling") != ROUTE_AUTHORIZATION_RULING
+            or attestation.get("mutation_surface") != "organization-limits-console"
+            or attestation.get("mutation_receipt_obtained") is not False
+        ):
+            errors.append("A148 route-authorization record identity is malformed")
+        authorization = attestation.get("human_authorization", {})
+        if not isinstance(authorization, dict) or set(authorization) != (
+            ROUTE_AUTHORIZATION_KEYS
+        ):
+            errors.append("route authorization has an unexpected shape")
+        elif (
+            authorization.get("source") != ROUTE_AUTHORIZATION_SOURCE
+            or authorization.get("ruling") != ROUTE_AUTHORIZATION_RULING
+            or authorization.get("map_url") != ROUTE_AUTHORIZATION_MAP_URL
+            or authorization.get("grant_url") != ROUTE_AUTHORIZATION_GRANT_URL
+            or authorization.get("author_login") != AUTHORIZATION_AUTHOR
+            or authorization.get("human_attestation_obtained") is not False
+            or authorization.get("human_authorship_mechanically_proven") is not False
+        ):
+            if authorization.get("source") != ROUTE_AUTHORIZATION_SOURCE:
+                errors.append("authorization source is not a route authorization")
+            else:
+                errors.append("route authorization identity is malformed")
+        mutations = attestation.get("mutations")
+        if not isinstance(mutations, list) or [
+            item.get("phase") if isinstance(item, dict) else None
+            for item in mutations
+        ] != ["temporary_refusal", "restored_acceptance"]:
+            errors.append("A148 route-authorization record does not record exactly two mutations")
+    elif not isinstance(attestation, dict) or set(attestation) != {
         "schema_version",
         "provider",
         "authorization_ruling",

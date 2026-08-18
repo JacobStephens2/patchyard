@@ -2,9 +2,10 @@
 """Collect one attended OpenAI federation-rule revocation observation.
 
 The collector makes no console request. Under A146 it records a
-human-authorized model-operated run: two Saves, five reloaded console
-readings, and the A129 bracket. Token exchanges use the one frozen
-lifecycle instrument loaded by its exact digest.
+model-operated run: two Saves, five reloaded console readings, and the
+A129 bracket. Remaining runs on this map cite A148's route authorization
+as the source and do not require a per-run GitHub comment. Token exchanges
+use the one frozen lifecycle instrument loaded by its exact digest.
 """
 
 from __future__ import annotations
@@ -57,6 +58,16 @@ AUTHORIZATION_ISSUE_URL = (
     "https://github.com/JacobStephens2/patchyard/issues/211"
 )
 AUTHORIZATION_AUTHOR = "JacobStephens2"
+ROUTE_AUTHORIZATION_SOURCE = "route authorization"
+ROUTE_AUTHORIZATION_RULING = "A148"
+ROUTE_AUTHORIZATION_MAP_URL = (
+    "https://github.com/JacobStephens2/patchyard/issues/176"
+)
+ROUTE_AUTHORIZATION_GRANT_URL = (
+    "https://github.com/JacobStephens2/patchyard/issues/253"
+)
+COMMENT_AUTHORIZATION_RULINGS = ["A129", "A132", "A133", "A136", "A146"]
+ROUTE_AUTHORIZATION_RULINGS = ["A129", "A132", "A133", "A136", "A146", "A148"]
 CAPTURE_METHOD = "model_console_readback_bounded_by_control_plane_utc"
 PERMITTED_MUTATION = "subject-expression Edit to the run-scoped sentinel"
 PERMITTED_RESTORATION = "Edit the original expression back"
@@ -79,6 +90,15 @@ HUMAN_AUTHORIZATION_KEYS = {
     "body",
     "extracted",
     "attempt",
+    "human_attestation_obtained",
+    "human_authorship_mechanically_proven",
+}
+ROUTE_AUTHORIZATION_KEYS = {
+    "source",
+    "ruling",
+    "map_url",
+    "grant_url",
+    "author_login",
     "human_attestation_obtained",
     "human_authorship_mechanically_proven",
 }
@@ -282,7 +302,46 @@ def load_authorization(path: Path) -> dict[str, Any]:
     return value
 
 
-def validate_authorization(
+def is_route_authorization(authorization: dict[str, Any]) -> bool:
+    return authorization.get("source") == ROUTE_AUTHORIZATION_SOURCE
+
+
+def validate_model_identity_shape(model_identity: dict[str, Any]) -> tuple[str, str]:
+    if set(model_identity) != MODEL_IDENTITY_KEYS:
+        raise RevocationCollectorError("model_identity has an unexpected shape")
+    pairing = model_identity.get("pairing")
+    task_id = model_identity.get("codex_task_id")
+    if not isinstance(pairing, str) or PAIRING_PATTERN.fullmatch(pairing) is None:
+        raise RevocationCollectorError("model pairing is not canonical")
+    if not bounded_identity_text(task_id):
+        raise RevocationCollectorError("model Codex task id is not bounded")
+    return pairing, task_id
+
+
+def validate_route_authorization(
+    authorization: dict[str, Any],
+    model_identity: dict[str, Any],
+) -> None:
+    if set(authorization) != ROUTE_AUTHORIZATION_KEYS:
+        raise RevocationCollectorError("human_authorization has an unexpected shape")
+    if authorization.get("ruling") != ROUTE_AUTHORIZATION_RULING:
+        raise RevocationCollectorError("route authorization does not name A148")
+    if authorization.get("map_url") != ROUTE_AUTHORIZATION_MAP_URL:
+        raise RevocationCollectorError("route authorization does not name the map")
+    if authorization.get("grant_url") != ROUTE_AUTHORIZATION_GRANT_URL:
+        raise RevocationCollectorError("route authorization does not name the grant")
+    if authorization.get("author_login") != AUTHORIZATION_AUTHOR:
+        raise RevocationCollectorError("authorization author is not the accountable human")
+    if authorization.get("human_attestation_obtained") is not False:
+        raise RevocationCollectorError("authorization claims a human attestation")
+    if authorization.get("human_authorship_mechanically_proven") is not False:
+        raise RevocationCollectorError("authorization claims mechanically proven authorship")
+    validate_model_identity_shape(model_identity)
+    if credential_shaped(authorization):
+        raise RevocationCollectorError("authorization contains credential-shaped material")
+
+
+def validate_comment_authorization(
     authorization: dict[str, Any],
     run_id: str,
     model_identity: dict[str, Any],
@@ -321,11 +380,10 @@ def validate_authorization(
         raise RevocationCollectorError("authorization pairing is not canonical")
     if not bounded_identity_text(task_id):
         raise RevocationCollectorError("authorization Codex task id is not bounded")
-    if set(model_identity) != MODEL_IDENTITY_KEYS:
-        raise RevocationCollectorError("model_identity has an unexpected shape")
-    if model_identity.get("pairing") != pairing:
+    observed_pairing, observed_task = validate_model_identity_shape(model_identity)
+    if observed_pairing != pairing:
         raise RevocationCollectorError("model pairing does not match the authorization")
-    if model_identity.get("codex_task_id") != task_id:
+    if observed_task != task_id:
         raise RevocationCollectorError("model task id does not match the authorization")
     if extracted.get("policy_sha256") != source["policy_sha256"]:
         raise RevocationCollectorError("authorization policy digest differs")
@@ -349,6 +407,18 @@ def validate_authorization(
         raise RevocationCollectorError("authorization claims mechanically proven authorship")
     if credential_shaped(authorization):
         raise RevocationCollectorError("authorization contains credential-shaped material")
+
+
+def validate_authorization(
+    authorization: dict[str, Any],
+    run_id: str,
+    model_identity: dict[str, Any],
+    source: dict[str, str],
+) -> None:
+    if is_route_authorization(authorization):
+        validate_route_authorization(authorization, model_identity)
+        return
+    validate_comment_authorization(authorization, run_id, model_identity, source)
 
 
 def parse_console_state(raw: str, policy: dict[str, Any]) -> dict[str, Any]:
@@ -645,12 +715,13 @@ def collect(
     if mutation_kind != "subject-expression":
         raise RevocationCollectorError(f"unknown mapping mutation: {mutation_kind}")
     window_started_at = BASE.iso_time(clock())
-    created = parse_utc(authorization["created_at"], "authorization created_at")
-    window_start = parse_utc(window_started_at, "bounded window start")
-    if created >= window_start:
-        raise RevocationCollectorError(
-            "authorization comment is not before the bounded window"
-        )
+    if not is_route_authorization(authorization):
+        created = parse_utc(authorization["created_at"], "authorization created_at")
+        window_start = parse_utc(window_started_at, "bounded window start")
+        if created >= window_start:
+            raise RevocationCollectorError(
+                "authorization comment is not before the bounded window"
+            )
     observations: dict[str, Any] = {}
     actions: list[dict[str, Any]] = []
 
@@ -699,14 +770,15 @@ def collect(
             input_fn=input_fn,
             clock=clock,
         )
-        deadline = parse_utc(
-            authorization["extracted"]["deadline_at"], "authorization deadline"
-        )
-        intent_at = parse_utc(edit["intent"]["recorded_at"], "mutation Save intent")
-        if intent_at > deadline:
-            raise RevocationCollectorError(
-                "mutation Save intent is after the authorization deadline"
+        if not is_route_authorization(authorization):
+            deadline = parse_utc(
+                authorization["extracted"]["deadline_at"], "authorization deadline"
             )
+            intent_at = parse_utc(edit["intent"]["recorded_at"], "mutation Save intent")
+            if intent_at > deadline:
+                raise RevocationCollectorError(
+                    "mutation Save intent is after the authorization deadline"
+                )
         actions.append(edit)
         journal["model_actions"] = actions
         mutation_after = capture_model_observation(
@@ -815,7 +887,11 @@ def collect(
         "schema_version": 1,
         "provider": "openai",
         "qualification_requirement": "federation-rule-revocation",
-        "authorization_rulings": ["A129", "A132", "A133", "A136", "A146"],
+        "authorization_rulings": (
+            ROUTE_AUTHORIZATION_RULINGS
+            if is_route_authorization(authorization)
+            else COMMENT_AUTHORIZATION_RULINGS
+        ),
         "observation_kind": "federation-rule-revocation",
         "run_id": run_id,
         "bounded_window": {

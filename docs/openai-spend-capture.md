@@ -214,9 +214,12 @@ billable call at build time; the capture phases below remain attended work.
   `snapshot` reads the OpenAI Costs API (receipt-backed, independent of the
   console) with the standing Administration key; `finalize` validates the
   three phase evidence files, the before/after cost snapshots, the
-  organization-cap console readbacks, and the A132 attestation - actor and
-  attester recorded, `mutation_receipt_obtained: false`, no independence when
-  one person holds both roles (A136) - enforces the 90-second settling floor
+  organization-cap console readbacks, and the mutation authorization -
+  remaining runs on this map cite A148's `route authorization` as the source
+  and do not require a per-run GitHub comment; a human-attested A132
+  attestation (actor and attester recorded, no independence when one person
+  holds both roles) remains valid after the destination - `mutation_receipt_obtained:
+  false` either way - enforces the 90-second settling floor
   between each console change and the call that follows it, and writes the
   committable Result.
 - `tools/check-openai-spend.py` guards the contract in CI
@@ -338,11 +341,14 @@ descended predicate in a later reviewed change.
 
 ## Two parties
 
-A132 requires the attestation to record the actor that performed the change and
-the named person who attests to it. The actor here is a person working in a
-console rather than a model, which is the case the rule's wording does not
-settle. Resolve who the second party is before the run, not after; an
-attestation is by construction the one record nothing can check.
+A132 requires a record of who performed the console mutation. Remaining runs
+on this map are model-operated under A148's **route authorization**:
+`human_authorization.source` is `route authorization`, there is no per-run
+GitHub comment, and the record keeps the A146 disclosure shape
+(`human_attestation_obtained: false`, `mutation_receipt_obtained: false`).
+It is not an Attestation. After the destination, a human-attested A132
+record (actor and attester; no independence when one person holds both
+roles) remains the default. Resolve which path before the run, not after.
 
 ## Provenance
 

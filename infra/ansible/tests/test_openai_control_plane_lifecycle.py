@@ -234,6 +234,60 @@ class AttestationAndCollectorContract(unittest.TestCase):
             )
         self.assertIn("author is not the accountable human", str(caught.exception))
 
+    def route_authorization(self) -> dict[str, object]:
+        return {
+            "source": "route authorization",
+            "ruling": "A148",
+            "map_url": (
+                "https://github.com/JacobStephens2/patchyard/issues/176"
+            ),
+            "grant_url": (
+                "https://github.com/JacobStephens2/patchyard/issues/253"
+            ),
+            "author_login": "JacobStephens2",
+            "human_attestation_obtained": False,
+            "human_authorship_mechanically_proven": False,
+        }
+
+    def test_route_authorization_is_accepted_before_the_window_opens(self) -> None:
+        opened: list[str] = []
+
+        def input_fn(prompt: str) -> str:
+            opened.append(prompt)
+            raise self.revocation.RevocationCollectorError("capture opened")
+
+        with self.assertRaises(self.revocation.RevocationCollectorError) as caught:
+            self.revocation.collect(
+                run_id="openai-revocation-20260807-0123456789",
+                authorization=self.route_authorization(),
+                model_identity={
+                    "pairing": "openai/codex/gpt-5.6-sol/xhigh",
+                    "codex_task_id": "task_synthetic_req4_0001",
+                },
+                mutation_kind="subject-expression",
+                policy=self.revocation.load_policy(),
+                input_fn=input_fn,
+            )
+        self.assertEqual(str(caught.exception), "capture opened")
+        self.assertTrue(opened)
+
+    def test_route_authorization_rejects_a_human_attestation_claim(self) -> None:
+        authorization = self.route_authorization()
+        authorization["human_attestation_obtained"] = True
+        with self.assertRaises(self.revocation.RevocationCollectorError) as caught:
+            self.revocation.collect(
+                run_id="openai-revocation-20260807-0123456789",
+                authorization=authorization,
+                model_identity={
+                    "pairing": "openai/codex/gpt-5.6-sol/xhigh",
+                    "codex_task_id": "task_synthetic_req4_0001",
+                },
+                mutation_kind="subject-expression",
+                policy=self.revocation.load_policy(),
+                input_fn=lambda unused: self.fail("capture opened"),
+            )
+        self.assertIn("claims a human attestation", str(caught.exception))
+
     def test_rotation_exchange_supplies_the_transitional_kid(self) -> None:
         """A145: the collector passes the derived kid explicitly and the
         frozen policy flows through unpatched."""
@@ -895,6 +949,48 @@ class FederationRevocationCheckerContract(CheckerCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("requires python3 -I", result.stderr)
 
+    def route_authorized(self, value: dict[str, object]) -> dict[str, object]:
+        authorized = deepcopy(value)
+        authorized["human_authorization"] = {
+            "source": "route authorization",
+            "ruling": "A148",
+            "map_url": (
+                "https://github.com/JacobStephens2/patchyard/issues/176"
+            ),
+            "grant_url": (
+                "https://github.com/JacobStephens2/patchyard/issues/253"
+            ),
+            "author_login": "JacobStephens2",
+            "human_attestation_obtained": False,
+            "human_authorship_mechanically_proven": False,
+        }
+        authorized["authorization_rulings"] = [
+            "A129",
+            "A132",
+            "A133",
+            "A136",
+            "A146",
+            "A148",
+        ]
+        return authorized
+
+    def test_route_authorization_fixture_passes(self) -> None:
+        result = self.run_checker(
+            "--contract-fixture",
+            str(self.write(self.route_authorized(self.fixture), "route-auth.json")),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_route_authorization_that_claims_attestation_is_rejected(self) -> None:
+        value = self.route_authorized(self.fixture)
+        value["human_authorization"]["human_attestation_obtained"] = True
+        result = self.run_checker(
+            "--contract-fixture",
+            str(self.write(value, "route-attested.json")),
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("claims a human attestation", result.stderr)
+
 
 class SigningKeyRotationCheckerContract(CheckerCase):
     checker = ROTATION_CHECKER_PATH
@@ -1051,6 +1147,75 @@ class SigningKeyRotationCheckerContract(CheckerCase):
         result = self.run_checker("--allow-missing-results", isolated=False)
         self.assertEqual(result.returncode, 1)
         self.assertIn("requires python3 -I", result.stderr)
+
+
+class SpendRouteAuthorizationContract(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.evidence = load_source(
+            "openai_spend_evidence_contract",
+            ROOT / "tools/openai-spend-evidence.py",
+        )
+
+    def route_attestation(self) -> dict[str, object]:
+        return {
+            "schema_version": 1,
+            "provider": "openai",
+            "authorization_ruling": "A148",
+            "human_authorization": {
+                "source": "route authorization",
+                "ruling": "A148",
+                "map_url": (
+                    "https://github.com/JacobStephens2/patchyard/issues/176"
+                ),
+                "grant_url": (
+                    "https://github.com/JacobStephens2/patchyard/issues/253"
+                ),
+                "author_login": "JacobStephens2",
+                "human_attestation_obtained": False,
+                "human_authorship_mechanically_proven": False,
+            },
+            "mutation_surface": "organization-limits-console",
+            "mutation_receipt_obtained": False,
+            "mutations": [
+                {"phase": "temporary_refusal", "change": "Set monthly limit to $0.01 and enforce ON"},
+                {"phase": "restored_acceptance", "change": "Restore monthly limit to $100.00 and enforce OFF"},
+            ],
+        }
+
+    def test_route_authorization_is_accepted(self) -> None:
+        accepted = self.evidence.validate_attestation(self.route_attestation())
+        self.assertEqual(accepted["authorization_ruling"], "A148")
+        self.assertEqual(
+            accepted["human_authorization"]["source"], "route authorization"
+        )
+
+    def test_route_authorization_rejects_a_human_attestation_claim(self) -> None:
+        value = self.route_attestation()
+        value["human_authorization"]["human_attestation_obtained"] = True
+        with self.assertRaises(ValueError) as caught:
+            self.evidence.validate_attestation(value)
+        self.assertIn("claims a human attestation", str(caught.exception))
+
+    def test_a132_attestation_still_requires_no_false_independence(self) -> None:
+        with self.assertRaises(ValueError) as caught:
+            self.evidence.validate_attestation(
+                {
+                    "schema_version": 1,
+                    "provider": "openai",
+                    "authorization_ruling": "A132",
+                    "actor": "Jacob Stephens",
+                    "attester": "Jacob Stephens",
+                    "independent_attestation": True,
+                    "mutation_surface": "organization-limits-console",
+                    "mutation_receipt_obtained": False,
+                    "mutations": [
+                        {"phase": "temporary_refusal", "change": "Set monthly limit to $0.01"},
+                        {"phase": "restored_acceptance", "change": "Restore monthly limit to $100.00"},
+                    ],
+                }
+            )
+        self.assertIn("claims independence it cannot have", str(caught.exception))
 
 
 if __name__ == "__main__":

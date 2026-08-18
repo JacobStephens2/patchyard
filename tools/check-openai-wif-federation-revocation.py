@@ -53,6 +53,16 @@ AUTHORIZATION_ISSUE_URL = (
     "https://github.com/JacobStephens2/patchyard/issues/211"
 )
 AUTHORIZATION_AUTHOR = "JacobStephens2"
+ROUTE_AUTHORIZATION_SOURCE = "route authorization"
+ROUTE_AUTHORIZATION_RULING = "A148"
+ROUTE_AUTHORIZATION_MAP_URL = (
+    "https://github.com/JacobStephens2/patchyard/issues/176"
+)
+ROUTE_AUTHORIZATION_GRANT_URL = (
+    "https://github.com/JacobStephens2/patchyard/issues/253"
+)
+COMMENT_AUTHORIZATION_RULINGS = ["A129", "A132", "A133", "A136", "A146"]
+ROUTE_AUTHORIZATION_RULINGS = ["A129", "A132", "A133", "A136", "A146", "A148"]
 CAPTURE_METHOD = "model_console_readback_bounded_by_control_plane_utc"
 OPERATOR_CAPTURE_METHOD = "operator_console_readback_bounded_by_control_plane_utc"
 PERMITTED_MUTATION = "subject-expression Edit to the run-scoped sentinel"
@@ -95,6 +105,15 @@ HUMAN_AUTHORIZATION_KEYS = {
     "body",
     "extracted",
     "attempt",
+    "human_attestation_obtained",
+    "human_authorship_mechanically_proven",
+}
+ROUTE_AUTHORIZATION_KEYS = {
+    "source",
+    "ruling",
+    "map_url",
+    "grant_url",
+    "author_login",
     "human_attestation_obtained",
     "human_authorship_mechanically_proven",
 }
@@ -684,6 +703,26 @@ def extract_single_json_fence(body: str, errors: list[str]) -> Any:
     return parsed
 
 
+def validate_route_authorization(
+    value: Any, errors: list[str]
+) -> tuple[datetime | None, str | None, str | None]:
+    if not exact_keys(value, ROUTE_AUTHORIZATION_KEYS, "human_authorization", errors):
+        return None, None, None
+    if value.get("ruling") != ROUTE_AUTHORIZATION_RULING:
+        errors.append("route authorization does not name A148")
+    if value.get("map_url") != ROUTE_AUTHORIZATION_MAP_URL:
+        errors.append("route authorization does not name the map")
+    if value.get("grant_url") != ROUTE_AUTHORIZATION_GRANT_URL:
+        errors.append("route authorization does not name the grant")
+    if value.get("author_login") != AUTHORIZATION_AUTHOR:
+        errors.append("authorization author is not the accountable human")
+    if value.get("human_attestation_obtained") is not False:
+        errors.append("authorization claims a human attestation")
+    if value.get("human_authorship_mechanically_proven") is not False:
+        errors.append("authorization claims mechanically proven authorship")
+    return None, None, None
+
+
 def validate_authorization(
     value: Any,
     run_id: str,
@@ -691,6 +730,8 @@ def validate_authorization(
     window_start: datetime | None,
     errors: list[str],
 ) -> tuple[datetime | None, str | None, str | None]:
+    if isinstance(value, dict) and value.get("source") == ROUTE_AUTHORIZATION_SOURCE:
+        return validate_route_authorization(value, errors)
     if not exact_keys(value, HUMAN_AUTHORIZATION_KEYS, "human_authorization", errors):
         return None, None, None
     if value.get("source") != "github_issue_comment":
@@ -759,9 +800,15 @@ def validate_model_identity(
 ) -> None:
     if not exact_keys(value, MODEL_IDENTITY_KEYS, "model_identity", errors):
         return
-    if value.get("pairing") != pairing:
+    observed_pairing = value.get("pairing")
+    observed_task = value.get("codex_task_id")
+    if not isinstance(observed_pairing, str) or PAIRING.fullmatch(observed_pairing) is None:
+        errors.append("model pairing is not canonical")
+    if not bounded_identity_text(observed_task):
+        errors.append("model Codex task id is not bounded")
+    if pairing is not None and observed_pairing != pairing:
         errors.append("model pairing does not match the authorization")
-    if value.get("codex_task_id") != task_id:
+    if task_id is not None and observed_task != task_id:
         errors.append("model task id does not match the authorization")
 
 
@@ -943,7 +990,14 @@ def validate_common(
         errors.append("OpenAI federation-revocation Result identity differs")
     if result.get("qualification_requirement") != "federation-rule-revocation":
         errors.append("OpenAI federation-revocation Result names another Requirement")
-    if result.get("authorization_rulings") != ["A129", "A132", "A133", "A136", "A146"]:
+    authorization = result.get("human_authorization")
+    expected_rulings = (
+        ROUTE_AUTHORIZATION_RULINGS
+        if isinstance(authorization, dict)
+        and authorization.get("source") == ROUTE_AUTHORIZATION_SOURCE
+        else COMMENT_AUTHORIZATION_RULINGS
+    )
+    if result.get("authorization_rulings") != expected_rulings:
         errors.append("OpenAI federation-revocation authorization rulings differ")
     if result.get("observation_kind") != "federation-rule-revocation":
         errors.append("OpenAI federation-revocation observation kind differs")
@@ -1227,6 +1281,7 @@ def static_errors() -> tuple[list[str], dict[str, Any]]:
             '"RESTORATION COMPLETE"',
             '"RELOADED"',
             "human_authorization",
+            "route authorization",
             "model_console_readback_bounded_by_control_plane_utc",
             '"no-observed-openai-federation-revocation-response"',
             "SETTLING_FLOOR_SECONDS = 90",

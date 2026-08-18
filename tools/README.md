@@ -26,7 +26,7 @@ their own.
 | `openai-wif-expiry.py` | Source-bound attended adapter for one expired-assertion OpenAI exchange with an unenforced response predicate |
 | `openai-wif-crash-cleanup.py` | Source-bound A130 supervisor, SIGKILL boundary, process-image/tmpfs scanner, and sanitized OpenAI Result collector |
 | `control-plane-attestation-v1.py` | Digest-loaded A132 Attestation envelope with bounded console readings and explicit A136 party disclosure |
-| `openai-wif-federation-revocation.py` | Attended requirement 4 collector; records the A146 model-operated shape (authorization, two Saves, five reloaded readings) and the A129 bracket |
+| `openai-wif-federation-revocation.py` | Attended requirement 4 collector; records the A146 model-operated shape (A148 route authorization or A146 comment, two Saves, five reloaded readings) and the A129 bracket |
 | `openai-wif-signing-key-rotation.py` | Attended requirement 5 collector; derives both key identifiers, pauses for JWK control-plane mutations, and records the A129 bracket |
 | `check-anthropic-expiry.py` | Validate the source-only expiry contract or its future credential-free live fixture |
 | `check-anthropic-revocation.py` | Validate federation-revocation/key-rotation evidence; an unpinned denial is accepted as observation-only with exit 2 and a JSON qualification blocker |
@@ -34,7 +34,7 @@ their own.
 | `check-openai-wif-issuance.py` | Validate the OpenAI policy, unenforced first-response predicate, non-qualifying observation, or synthetic contract fixture |
 | `check-openai-wif-expiry.py` | Validate the OpenAI expired-assertion contract, unenforced response predicate, non-qualifying observation, or synthetic Fixture |
 | `check-openai-wif-crash-cleanup.py` | Validate the OpenAI A130 process-image positive control, SIGKILL, inert abrupt-death record, and local exposure boundary |
-| `check-openai-wif-federation-revocation.py` | Validate the requirement-4 A146 record shape, settling floors, same-surface baseline/denial/bracketing controls, and the unenforced response predicate |
+| `check-openai-wif-federation-revocation.py` | Validate the requirement-4 A146 record shape, A148 route authorization or A146 comment, settling floors, same-surface baseline/denial/bracketing controls, and the unenforced response predicate |
 | `check-openai-wif-signing-key-rotation.py` | Validate requirement 5 derived keys, Attestations, overlap control, settling floors, A129 bracket, and the unenforced response predicate |
 | `aa-sweep.py` | Artificial Analysis catalog snapshot + move report |
 | `check-bench.py` | Validate `docs/bench.json` (schema + invariants) and sync the generated Pairs table in `docs/bench.md` (`--write` to regenerate; no flag = drift check) |

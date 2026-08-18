@@ -9,8 +9,9 @@ qualification. Two commands:
   bounded cost snapshot for the factory project.
 - ``finalize`` validates the three phase evidence files emitted by
   worker/qualification/patchyard-run-openai-spend, the before/after cost
-  snapshots, the organization-cap console readbacks, and the A132 attestation,
-  then assembles the committable Result.
+  snapshots, the organization-cap console readbacks, and the mutation
+  authorization (A148 route authorization for remaining runs on this map, or
+  an A132 human-attested record), then assembles the committable Result.
 
 Requirement 2's causal chain runs through a console-only mutation (the
 organization spend limit has no Administration API surface), so the Result
@@ -76,6 +77,33 @@ CONTROL_PLANE_PROVENANCE = {
     "management_surface": "console-only",
     "mutation_receipt_obtained": False,
     "attestation_required": True,
+}
+ROUTE_AUTHORIZATION_SOURCE = "route authorization"
+ROUTE_AUTHORIZATION_RULING = "A148"
+ROUTE_AUTHORIZATION_MAP_URL = (
+    "https://github.com/JacobStephens2/patchyard/issues/176"
+)
+ROUTE_AUTHORIZATION_GRANT_URL = (
+    "https://github.com/JacobStephens2/patchyard/issues/253"
+)
+AUTHORIZATION_AUTHOR = "JacobStephens2"
+ROUTE_AUTHORIZATION_KEYS = {
+    "source",
+    "ruling",
+    "map_url",
+    "grant_url",
+    "author_login",
+    "human_attestation_obtained",
+    "human_authorship_mechanically_proven",
+}
+ROUTE_ATTESTATION_KEYS = {
+    "schema_version",
+    "provider",
+    "authorization_ruling",
+    "human_authorization",
+    "mutation_surface",
+    "mutation_receipt_obtained",
+    "mutations",
 }
 
 
@@ -317,7 +345,55 @@ def validate_cap_readbacks(
     return intervals
 
 
+def validate_mutations(mutations: Any, label: str) -> None:
+    if (
+        not isinstance(mutations, list)
+        or [item.get("phase") for item in mutations if isinstance(item, dict)]
+        != ["temporary_refusal", "restored_acceptance"]
+    ):
+        raise ValueError(f"{label} does not record exactly two mutations")
+    for item in mutations:
+        if set(item) != {"phase", "change"}:
+            raise ValueError(f"{label} mutation has an unexpected shape")
+        change = item["change"]
+        if not isinstance(change, str) or BOUNDED_CHANGE.fullmatch(change) is None:
+            raise ValueError(f"{label} change is not a bounded description")
+
+
+def validate_route_authorization(authorization: Any) -> None:
+    if not isinstance(authorization, dict) or set(authorization) != (
+        ROUTE_AUTHORIZATION_KEYS
+    ):
+        raise ValueError("route authorization has an unexpected shape")
+    if authorization.get("source") != ROUTE_AUTHORIZATION_SOURCE:
+        raise ValueError("authorization source is not a route authorization")
+    if authorization.get("ruling") != ROUTE_AUTHORIZATION_RULING:
+        raise ValueError("route authorization does not name A148")
+    if authorization.get("map_url") != ROUTE_AUTHORIZATION_MAP_URL:
+        raise ValueError("route authorization does not name the map")
+    if authorization.get("grant_url") != ROUTE_AUTHORIZATION_GRANT_URL:
+        raise ValueError("route authorization does not name the grant")
+    if authorization.get("author_login") != AUTHORIZATION_AUTHOR:
+        raise ValueError("authorization author is not the accountable human")
+    if authorization.get("human_attestation_obtained") is not False:
+        raise ValueError("authorization claims a human attestation")
+    if authorization.get("human_authorship_mechanically_proven") is not False:
+        raise ValueError("authorization claims mechanically proven authorship")
+
+
 def validate_attestation(attestation: dict[str, Any]) -> dict[str, Any]:
+    if set(attestation) == ROUTE_ATTESTATION_KEYS:
+        if (
+            attestation["schema_version"] != 1
+            or attestation["provider"] != "openai"
+            or attestation["authorization_ruling"] != ROUTE_AUTHORIZATION_RULING
+            or attestation["mutation_surface"] != MUTATION_SURFACE
+            or attestation["mutation_receipt_obtained"] is not False
+        ):
+            raise ValueError("A148 route-authorization record identity is malformed")
+        validate_route_authorization(attestation["human_authorization"])
+        validate_mutations(attestation["mutations"], "A148 route-authorization record")
+        return attestation
     if set(attestation) != {
         "schema_version",
         "provider",
@@ -349,19 +425,7 @@ def validate_attestation(attestation: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("A132 attestation claims independence it cannot have")
     if not isinstance(attestation["independent_attestation"], bool):
         raise ValueError("A132 attestation independence is not boolean")
-    mutations = attestation["mutations"]
-    if (
-        not isinstance(mutations, list)
-        or [item.get("phase") for item in mutations]
-        != ["temporary_refusal", "restored_acceptance"]
-    ):
-        raise ValueError("A132 attestation does not record exactly two mutations")
-    for item in mutations:
-        if set(item) != {"phase", "change"}:
-            raise ValueError("A132 attestation mutation has an unexpected shape")
-        change = item["change"]
-        if not isinstance(change, str) or BOUNDED_CHANGE.fullmatch(change) is None:
-            raise ValueError("A132 attestation change is not a bounded description")
+    validate_mutations(attestation["mutations"], "A132 attestation")
     return attestation
 
 

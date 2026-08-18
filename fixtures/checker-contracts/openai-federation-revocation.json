@@ -177,13 +177,13 @@
   "human_authorization": {
     "attempt": 1,
     "author_login": "JacobStephens2",
-    "body": "Authorize one OpenAI requirement-4 attended run.\n\n```json\n{\n  \"codex_task_id\": \"task_synthetic_req4_0001\",\n  \"collector_sha256\": \"bf1560cc32d666c71d4e2b641c2b0fea2d4ab76ed592057b3b91ceef2d491692\",\n  \"deadline_at\": \"2026-08-07T14:15:00Z\",\n  \"pairing\": \"openai/codex/gpt-5.6-sol/xhigh\",\n  \"permitted_mutation\": \"subject-expression Edit to the run-scoped sentinel\",\n  \"permitted_restoration\": \"Edit the original expression back\",\n  \"policy_sha256\": \"87cf13bb136ed9a365bd14822a14d4808a6ef585ce1c278b926fa173d1152e5f\",\n  \"run_id\": \"openai-revocation-20260807-0123456789\"\n}\n```\n",
+    "body": "Authorize one OpenAI requirement-4 attended run.\n\n```json\n{\n  \"codex_task_id\": \"task_synthetic_req4_0001\",\n  \"collector_sha256\": \"7ba44eb3151e1eb61e9ae42a48b2d0d34248e7c70ae108752168eeb4b9f0b079\",\n  \"deadline_at\": \"2026-08-07T14:15:00Z\",\n  \"pairing\": \"openai/codex/gpt-5.6-sol/xhigh\",\n  \"permitted_mutation\": \"subject-expression Edit to the run-scoped sentinel\",\n  \"permitted_restoration\": \"Edit the original expression back\",\n  \"policy_sha256\": \"87cf13bb136ed9a365bd14822a14d4808a6ef585ce1c278b926fa173d1152e5f\",\n  \"run_id\": \"openai-revocation-20260807-0123456789\"\n}\n```\n",
     "comment_id": 5328162490,
     "comment_url": "https://github.com/JacobStephens2/patchyard/issues/211#issuecomment-5328162490",
     "created_at": "2026-08-07T13:30:00Z",
     "extracted": {
       "codex_task_id": "task_synthetic_req4_0001",
-      "collector_sha256": "bf1560cc32d666c71d4e2b641c2b0fea2d4ab76ed592057b3b91ceef2d491692",
+      "collector_sha256": "7ba44eb3151e1eb61e9ae42a48b2d0d34248e7c70ae108752168eeb4b9f0b079",
       "deadline_at": "2026-08-07T14:15:00Z",
       "pairing": "openai/codex/gpt-5.6-sol/xhigh",
       "permitted_mutation": "subject-expression Edit to the run-scoped sentinel",
@@ -364,8 +364,8 @@
   "schema_version": 1,
   "source": {
     "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
-    "checker_sha256": "caf322273e7606becf693873994bf1895144b842550ff759601b303654f6140b",
-    "collector_sha256": "bf1560cc32d666c71d4e2b641c2b0fea2d4ab76ed592057b3b91ceef2d491692",
+    "checker_sha256": "9e1fdc60ee3c4240e1c30385f4a092c29b8d58b4ab2dfd8a55c19a42ed8439d8",
+    "collector_sha256": "7ba44eb3151e1eb61e9ae42a48b2d0d34248e7c70ae108752168eeb4b9f0b079",
     "lifecycle_instrument_sha256": "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e",
     "policy_sha256": "87cf13bb136ed9a365bd14822a14d4808a6ef585ce1c278b926fa173d1152e5f"
   }

@@ -36,12 +36,18 @@ during build, review, CI, or an unattended session.
 uninterrupted block. The run pauses twice for a 90-second settling floor and
 otherwise moves at the speed you read the console.
 
-**This run uses the A146 model-operated record.** A human-authored GitHub
-comment on [Requirement 4: subject-expression revocation attended run](https://github.com/JacobStephens2/patchyard/issues/211)
-authorizes one exact attempt. The named Codex task performs both Saves, makes
-the five live readings, and writes the Result. The output is not an
-Attestation and must never be described as human attestation, independent
-evidence, or corroboration. A136 is unchanged for every other requirement.
+**This run uses the A146 model-operated record, authorized by the A148
+route authorization.** Remaining runs on [MAP: form -> daemon-claimed ->
+model-authored draft PR](https://github.com/JacobStephens2/patchyard/issues/176)
+cite `source: "route authorization"` and do not require a per-run GitHub
+comment or a 45-minute deadline. The grant is [Decide the route
+authorization for remaining tickets to the
+destination](https://github.com/JacobStephens2/patchyard/issues/253).
+The named model performs both Saves, makes the five live readings, and
+writes the Result. The output is not an Attestation and must never be
+described as human attestation, independent evidence, or corroboration.
+A136 is unchanged outside this map. A146's comment path remains for a run
+after the destination.
 
 Have the provider page open and confirm the subject mapping is **present,
 enabled, and carrying the original claim assertion**. The run cannot start
@@ -200,14 +206,15 @@ optional; this is tmpfs and a reboot removes them.
 
 **The stage and the session are two different directories.** Collapsing them
 fails the run before anything happens — see the box below. Generate the run ID,
-create the stage, write the embedded authorization file from the human-authored
-GitHub comment on the requirement-4 attended-run ticket, then start the
-collector under the runner. The ID must match
-`openai-revocation-[0-9]{8}-[0-9a-f]{10}`. The comment body contains one `json`
-fence naming that run ID, the canonical pairing, the Codex task id, the policy
-and collector digests, the permitted mutation and restoration, and a deadline
-exactly 45 minutes after the comment `created_at`. The same task must perform
-the mutations, make the five readings, and write the Result.
+create the stage, write the embedded authorization file from the A148 route
+authorization (not a per-run GitHub comment), then start the collector under
+the runner. The ID must match `openai-revocation-[0-9]{8}-[0-9a-f]{10}`. The
+authorization object's `source` is `route authorization`; it names ruling
+A148, the map, the grant ticket, and Jacob as author, and it marks
+`human_attestation_obtained` and `human_authorship_mechanically_proven`
+false. Record the acting pairing and Codex task id in `model_identity`. That
+same task must perform the mutations, make the five readings, and write the
+Result.
 
 ```bash
 RUN_ID="openai-revocation-$(date -u +%Y%m%d)-$(openssl rand -hex 5)"

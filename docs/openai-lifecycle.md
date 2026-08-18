@@ -438,10 +438,12 @@ Saves, make the five live console readings, and write the Result. This is a
 new record shape, not a flag on Attestation. Attestation remains a
 human-observed fact and is unchanged for every other requirement.
 
-The authorization is a human-authored GitHub comment on the requirement-4
-attended-run ticket. The Result embeds it. The checker does not fetch GitHub.
-The output must never be described as human attestation, independent evidence,
-or corroboration.
+Remaining runs on this map are authorized by A148's **route authorization**,
+not by a per-run 45-minute GitHub comment. The Result embeds
+`human_authorization` with `source: "route authorization"` pointing at that
+grant. The checker does not fetch GitHub. A146's comment path remains for a
+run after the destination. The output must never be described as human
+attestation, independent evidence, or corroboration.
 
 Use the named capture method:
 

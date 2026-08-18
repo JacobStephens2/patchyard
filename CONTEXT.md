@@ -37,17 +37,23 @@ _Avoid_: receipt, witness, sign-off, manual record
 
 **human_authorization**:
 A named accountable human's permission for one exact attended run. It is not an
-Attestation.
-_Avoid_: attestation, approval, sign-off
+Attestation. It may name a route authorization as its source.
+_Avoid_: attestation, approval, sign-off, route authorization
+
+**route authorization**:
+A named human's standing permission for model action and decision on the
+remaining tickets of one named map, until that map's destination. It is not an
+Attestation and is not human_authorization.
+_Avoid_: attestation, human_authorization, standing exception used generically
 
 **model_actions**:
-The two console Saves a named model performed during a requirement-4
-model-operated run.
+The console Saves a named model performed during a model-operated qualification
+run.
 _Avoid_: attestation, actor log, mutation record
 
 **model_console_observations**:
-The five live console readings a named model made during a requirement-4
-model-operated run.
+The live console readings a named model made during a model-operated
+qualification run.
 _Avoid_: attestation, operator reading, witness
 
 **Control-plane mutation**:

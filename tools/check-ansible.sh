@@ -57,9 +57,10 @@ run_gate shellcheck --exclude=SC2329 --shell=bash \
 
 run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-spend.py"
 
-# Security-sensitive files run first and every file gets a fresh isolated
-# Python process. The pinned runner loads each file under a synthetic,
-# non-package module name, so repository package initializers cannot execute.
+# Every file gets a fresh isolated Python process. The pinned runner loads
+# each file under a synthetic, non-package module name, so repository package
+# initializers cannot execute. The files are isolated by design, so they run
+# concurrently; output is buffered per file and replayed in census order.
 TEST_FILES=(
   infra/ansible/tests/test_a101_readiness_root.py
   infra/ansible/tests/test_attended_collector_runner.py
@@ -85,16 +86,26 @@ TEST_FILES=(
   infra/ansible/tests/test_triage_seat_deployment.py
   infra/ansible/tests/test_worker_firewall_readiness.py
 )
+test_log_dir=$(mktemp -d)
+trap 'rm -rf "$test_log_dir"' EXIT
+test_pids=()
 for test_file in "${TEST_FILES[@]}"; do
-  run_gate python3 -I "$REPO_ROOT/tools/run-isolated-unittest.py" \
-    "$REPO_ROOT/$test_file"
+  python3 -I "$REPO_ROOT/tools/run-isolated-unittest.py" \
+    "$REPO_ROOT/$test_file" \
+    >"$test_log_dir/${test_file##*/}.log" 2>&1 &
+  test_pids+=("$!")
+done
+for index in "${!TEST_FILES[@]}"; do
+  test_file=${TEST_FILES[$index]}
+  if ! wait "${test_pids[$index]}"; then
+    failed_gates+=("python3 -I tools/run-isolated-unittest.py $test_file")
+    gate_status=1
+  fi
+  cat "$test_log_dir/${test_file##*/}.log"
 done
 
 cd "$ANSIBLE_ROOT"
-run_gate ansible-lint site.yml
-run_gate ansible-lint preview.yml
-run_gate ansible-lint restore.yml
-run_gate ansible-lint rollback-boundary.yml
+run_gate ansible-lint site.yml preview.yml restore.yml rollback-boundary.yml
 run_gate ansible-playbook --syntax-check -i inventory/ci.yml site.yml
 run_gate ansible-playbook --syntax-check -i inventory/ci.yml -i inventory/preview.yml preview.yml
 run_gate ansible-playbook --syntax-check -i inventory/ci.yml restore.yml

@@ -25,7 +25,7 @@ BOUND_SOURCES = {
     "tools/read-infra-tool-version.py": "d94d97d605736d0201d0fc0517e0e780d6c346ab79ddc3bd84de7b472edeccd8",
     "tools/install-shellcheck.sh": "715047c90f6a877c57a5495f1bc24feecd40f365ccd8239a6dc711be22a3f535",
     "tools/check-infra.sh": "f225c5ddfce132dfd67a4bf57aa7cd51b0f92c5a67a9be76bc281d021768b42d",
-    "tools/check-ansible.sh": "197184f2c925acb1f4270319625830a36bc2f2cf2f25d660c4f88090e1ea57b3",
+    "tools/check-ansible.sh": "36c00f46f8e70c1302a425741b588d989ce1b8c85d85735fb7d59e0db0f6a52c",
     "tools/run-isolated-unittest.py": "f201a6a57353b485d15a47b803bf274cdf9033ef1e78ed3e07e6f188a728ecc7",
     "tools/check-credential-qualification.py": "7080339d1c05c7cfc0af4f57d57c12151048b21ba7d174e76c106688946ab320",
     "tools/anthropic-spend-evidence.py": "494cba4a628e592004dc975ead283aa32fe1fbfe6236c6d6a4a7c7d7ee733099",
@@ -46,7 +46,7 @@ BOUND_SOURCES = {
     "tools/openai-wif-signing-key-rotation.py": "6e56481cf2fe37599d359846c4440f15cf05fe7df10ee69ad565d63cdd213b84",
     "tools/check-openai-wif-signing-key-rotation.py": "9d04501354aa8051cdf7e24f538b4294915649f1a63c9b824b1a578c42c9de50",
     "tools/check-anthropic-expiry.py": "8d9de38c16bbcc4ad63a73a0f570703581f8264371503385ef513057ff0f8ca8",
-    "tools/check-anthropic-spend.py": "e3e2efc38a39b3610611807b7fbc680567aa6b46814408da25e22039c6f8c796",
+    "tools/check-anthropic-spend.py": "f87e2bec8b015222193dc3eaf7853622844e8aa0f0683c3a8fb8723d7dd03a4d",
     "tools/check-anthropic-issuance.py": "c3896ebf62fbf605ec4055bc020aa695026d72a821cbfeaf0d5a3fda0a62fe46",
     "tools/check-anthropic-revocation.py": "748cea22f9ece87dee2b6915f3609c8041cae1b5d6fdfd27b1f165901d9d7297",
     "tools/check-anthropic-crash-cleanup.py": "35dd6d624e4302dd230560b1380736eb43df3aa6b345015a4fce3f429d354e66",
@@ -61,9 +61,9 @@ BOUND_SOURCES = {
     "tools/check-worker-runtime.py": "2ba1b99160441214acd53e4d8ed3aeb69aedbb540c0960cd47c02b0ecfe1d3c3",
     "infra/ansible/tests/test_a101_readiness_root.py": "6be1b217ec44db6f7858143e5e4696914c97d6978a6fdb9ed4643b065f21dbd8",
     "infra/ansible/tests/test_freeze_graph.py": "75e4350aaa4f96cac19100e34d80d4fedc2088249ca86567260dd071039dfffc",
-    "infra/ansible/tests/test_worker_firewall_readiness.py": "96aad06159ea85d591c6fad711f71a5442c208278d83945fdd1ac843d8f012c0",
-    "infra/ansible/tests/test_anthropic_spend.py": "5edcd638185066a16f6b6cf5d0b54b8654583f5fb217d170a187d05ad6b54aaf",
-    "infra/ansible/tests/test_anthropic_issuance.py": "1cd6f3b71df6987c94a3bb02447aebfbb7106a8cfb412f0d751c2ddc76a7f882",
+    "infra/ansible/tests/test_worker_firewall_readiness.py": "aee76db6075ca6450fdcc38537f5688cb519664ef6270ef163b93672151b1918",
+    "infra/ansible/tests/test_anthropic_spend.py": "6182ffe6006e5fd09245300d4035530c6207f4f2ffd9cfc800950263ec8d0b42",
+    "infra/ansible/tests/test_anthropic_issuance.py": "bde14af86dcc84cf1a618af2ed91c099b82e718523b2b16245fb7e52c8a4824a",
     "infra/ansible/tests/test_anthropic_lifecycle.py": "55c0296ef879e263172e5c7418b085ca317378b5030b65619017d1bd072ec057",
     "infra/ansible/tests/test_anthropic_wif_admin.py": "1d53f8ffe4ef6ad55b8d7187705344836aed831337c26f310bd11538888a9670",
     "infra/ansible/tests/test_openai_wif_issuance.py": "07de824a4d3f7433dd4b1d75a4a37631705e9fbdaf1ce707d78cae669d28988b",
@@ -387,7 +387,7 @@ def validate() -> list[str]:
         ) != 2:
             errors.append("Ansible wrapper lacks two isolated trust-root checks")
         if wrapper.count(
-            'run_gate python3 -I "$REPO_ROOT/tools/run-isolated-unittest.py"'
+            'python3 -I "$REPO_ROOT/tools/run-isolated-unittest.py"'
         ) != 1:
             errors.append("Ansible wrapper lacks its isolated file runner")
         if "unittest discover" in wrapper or "-m unittest" in wrapper:

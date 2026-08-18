@@ -6,6 +6,7 @@ import io
 import json
 import pathlib
 import re
+import shutil
 import subprocess
 import tempfile
 import types
@@ -13,6 +14,11 @@ import unittest
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
+# Gitignored build state (OpenTofu providers alone are ~900MB after init)
+# must stay out of repository copies or every copy pays for it.
+REPO_COPY_IGNORE = shutil.ignore_patterns(
+    ".git", ".terraform", ".venv", "target", "node_modules", "__pycache__"
+)
 EXPECTED_LAUNCHER_SOURCE_SHA256 = (
     "60b71fb24ce3c47b9b62bdece7166dd0c622a1830fb21d673db8830acf133e3f"
 )
@@ -26,7 +32,7 @@ EXPECTED_WORKER_TASKS_SOURCE_SHA256 = (
     "c25939a292c40ba750b4fbcc57dda4e3c04d4d2b810dfd467ad3b33469dec915"
 )
 EXPECTED_CHECKER_SOURCE_SHA256 = (
-    "e3e2efc38a39b3610611807b7fbc680567aa6b46814408da25e22039c6f8c796"
+    "f87e2bec8b015222193dc3eaf7853622844e8aa0f0683c3a8fb8723d7dd03a4d"
 )
 EXPECTED_READINESS_HELPER_SOURCE_SHA256 = (
     "5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba"
@@ -35,10 +41,10 @@ EXPECTED_REPLACEMENT_OPERATOR_SOURCE_SHA256 = (
     "27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e"
 )
 EXPECTED_ANSIBLE_WRAPPER_SOURCE_SHA256 = (
-    "197184f2c925acb1f4270319625830a36bc2f2cf2f25d660c4f88090e1ea57b3"
+    "36c00f46f8e70c1302a425741b588d989ce1b8c85d85735fb7d59e0db0f6a52c"
 )
 EXPECTED_READINESS_TEST_SOURCE_SHA256 = (
-    "96aad06159ea85d591c6fad711f71a5442c208278d83945fdd1ac843d8f012c0"
+    "aee76db6075ca6450fdcc38537f5688cb519664ef6270ef163b93672151b1918"
 )
 MODULE_PATH = ROOT / "tools/anthropic-spend-evidence.py"
 EXPECTED_EVIDENCE_SOURCE_SHA256 = (
@@ -1036,22 +1042,31 @@ fi'''
         )
         self.assertIn("TRANSPORT_PATH", self.checker)
 
+    # One lean repository copy serves every mutation subtest: each mutation
+    # rewrites exactly one file and restores its bytes before returning, so
+    # the copy is pristine between runs. Copying the tree per mutation cost
+    # ~7 seconds x 56 mutations against a 0.13-second checker run.
+    _mutation_repo = None
+
+    @classmethod
+    def mutation_repo(cls) -> pathlib.Path:
+        if cls._mutation_repo is None:
+            directory = tempfile.TemporaryDirectory()
+            cls.addClassCleanup(directory.cleanup)
+            root = pathlib.Path(directory.name) / "repo"
+            shutil.copytree(ROOT, root, ignore=REPO_COPY_IGNORE)
+            cls._mutation_repo = root
+        return cls._mutation_repo
+
     def run_checker_mutation(
         self, relative: str, before: str, after: str
     ) -> subprocess.CompletedProcess[str]:
-        import shutil
-
-        with tempfile.TemporaryDirectory() as directory:
-            root = pathlib.Path(directory) / "repo"
-            shutil.copytree(
-                ROOT,
-                root,
-                ignore=shutil.ignore_patterns(".git", "target", "node_modules"),
-            )
-            path = root / relative
-            source = path.read_text()
-            self.assertIn(before, source)
-            path.write_text(source.replace(before, after, 1))
+        root = self.mutation_repo()
+        path = root / relative
+        source = path.read_text()
+        self.assertIn(before, source)
+        path.write_text(source.replace(before, after, 1))
+        try:
             return subprocess.run(
                 ["python3", "-I", str(root / "tools/check-anthropic-spend.py")],
                 cwd=root,
@@ -1059,6 +1074,8 @@ fi'''
                 capture_output=True,
                 text=True,
             )
+        finally:
+            path.write_text(source)
 
     def checker_ready_result(self) -> dict[str, object]:
         fixture = AnthropicSpendEvidenceContract()
@@ -1123,14 +1140,12 @@ fi'''
         return result
 
     def test_checker_validates_durable_a122_result_without_snapshots(self) -> None:
-        import shutil
-
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory) / "repo"
             shutil.copytree(
                 ROOT,
                 root,
-                ignore=shutil.ignore_patterns(".git", "target", "node_modules"),
+                ignore=REPO_COPY_IGNORE,
             )
             result_path = (
                 root
@@ -1164,14 +1179,12 @@ fi'''
 
     def test_a142_qualified_image_inventory_permits_only_additions(self) -> None:
         """A142: additions pass; deletion and mutation of a qualified file fail."""
-        import shutil
-
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory) / "repo"
             shutil.copytree(
                 ROOT,
                 root,
-                ignore=shutil.ignore_patterns(".git", "target", "node_modules"),
+                ignore=REPO_COPY_IGNORE,
             )
             command = [
                 "python3",
@@ -1219,14 +1232,12 @@ fi'''
 
     def test_a143_builder_is_bound_by_its_effects_not_its_bytes(self) -> None:
         """A143: the assembler leaves the inventory; its seven installs are bound."""
-        import shutil
-
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory) / "repo"
             shutil.copytree(
                 ROOT,
                 root,
-                ignore=shutil.ignore_patterns(".git", "target", "node_modules"),
+                ignore=REPO_COPY_IGNORE,
             )
             command = [
                 "python3",

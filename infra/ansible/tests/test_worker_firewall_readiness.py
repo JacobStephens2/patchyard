@@ -24,7 +24,7 @@ EXPECTED_OPERATOR_SHA256 = (
     "27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e"
 )
 EXPECTED_ANSIBLE_WRAPPER_SHA256 = (
-    "197184f2c925acb1f4270319625830a36bc2f2cf2f25d660c4f88090e1ea57b3"
+    "36c00f46f8e70c1302a425741b588d989ce1b8c85d85735fb7d59e0db0f6a52c"
 )
 
 
@@ -46,8 +46,8 @@ def validate_ansible_wrapper_contract(ansible_wrapper: str) -> None:
         '  "$REPO_ROOT/infra/replace-worker.sh" \\\n',
         '  "$REPO_ROOT/infra/wait-do-worker-firewall.sh" \\\n',
         "  infra/ansible/tests/test_worker_firewall_readiness.py\n",
-        'run_gate python3 -I "$REPO_ROOT/tools/run-isolated-unittest.py" \\\n',
-        '    "$REPO_ROOT/$test_file"\n',
+        '  python3 -I "$REPO_ROOT/tools/run-isolated-unittest.py" \\\n',
+        '    "$REPO_ROOT/$test_file" \\\n',
     ):
         if ansible_wrapper.count(fragment) != 1:
             raise ValueError(f"Ansible gate membership differs: {fragment}")

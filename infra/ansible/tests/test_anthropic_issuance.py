@@ -140,7 +140,16 @@ class AnthropicIssuanceContract(unittest.TestCase):
             shutil.copytree(
                 ROOT,
                 root,
-                ignore=shutil.ignore_patterns(".git", "target", "node_modules"),
+                # Gitignored build state (OpenTofu providers alone are ~900MB
+                # after init) must stay out of the copy or the copy pays for it.
+                ignore=shutil.ignore_patterns(
+                    ".git",
+                    ".terraform",
+                    ".venv",
+                    "target",
+                    "node_modules",
+                    "__pycache__",
+                ),
             )
             result_path = (
                 root

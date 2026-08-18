@@ -8,8 +8,8 @@ The runner replaces a controlling terminal. Two properties carry the weight:
   the evidence the checkers were written against.
 - Sequential integrity. A reading is answered only for the prompt currently
   open. Reading 4 of the revocation collector means "the console state while
-  the mapping is still removed"; answers staged before their prompt opened
-  would produce a record that passes every checker while attesting to nothing.
+  the mapping still carries the sentinel"; answers staged before their prompt opened
+  would produce a record that passes every checker while recording nothing live.
 """
 
 import builtins
@@ -59,30 +59,53 @@ def active_reading() -> str:
     )
 
 
-def removed_reading() -> str:
+def sentinel_reading() -> str:
     return json.dumps(
         {
             "console_location": CONSOLE,
-            "enabled": False,
+            "enabled": True,
             "identity_provider_id": PROVIDER,
-            "mapped_service_account_id": None,
-            "mapping_present": False,
-            "subject_mapping_expression": None,
+            "mapped_service_account_id": SERVICE_ACCOUNT,
+            "mapping_present": True,
+            "subject_mapping_expression": (
+                "sub=patchyard-control-plane-REVOKED-"
+                "openai-revocation-20260809-0123456789"
+            ),
             "uploaded_jwks_mode": True,
         }
     )
 
 
-# The five readings and two acknowledgements of a conforming revocation run,
-# in the order collect() asks for them. Reading 4 is still the removed state:
-# it is captured before restoration, not after.
+def save_confirmation(expression: str) -> str:
+    return json.dumps(
+        {
+            "product_approval_presented": False,
+            "product_approval_completed": False,
+            "capture_sha256": None,
+            "observed_expression": expression,
+        }
+    )
+
+
+# Reload, reading, reload, reading, Save, confirmation, and so on.
+# Reading 4 is still the sentinel: it is captured before restoration.
 ANSWERS = [
+    "RELOADED",
     active_reading(),
+    "RELOADED",
     active_reading(),
     "MUTATION COMPLETE",
-    removed_reading(),
-    removed_reading(),
+    save_confirmation(
+        "sub=patchyard-control-plane-REVOKED-"
+        "openai-revocation-20260809-0123456789"
+    ),
+    "RELOADED",
+    sentinel_reading(),
+    "RELOADED",
+    sentinel_reading(),
     "RESTORATION COMPLETE",
+    save_confirmation(SUBJECT),
+    "RELOADED",
     active_reading(),
 ]
 
@@ -383,12 +406,45 @@ class EquivalenceTests(unittest.TestCase):
                 seconds=state["t"]
             )
 
+        run_id = "openai-revocation-20260809-0123456789"
+        pairing = "openai/codex/gpt-5.6-sol/xhigh"
+        task_id = "task_synthetic_runner_0001"
+        policy_sha256 = module.source_binding()["policy_sha256"]
+        collector_sha256 = module.source_binding()["collector_sha256"]
+        extracted = {
+            "run_id": run_id,
+            "pairing": pairing,
+            "codex_task_id": task_id,
+            "policy_sha256": policy_sha256,
+            "collector_sha256": collector_sha256,
+            "permitted_mutation": module.PERMITTED_MUTATION,
+            "permitted_restoration": module.PERMITTED_RESTORATION,
+            "deadline_at": "2026-08-09T12:45:00Z",
+        }
+        fence = json.dumps(extracted, indent=2, sort_keys=True)
+        authorization = {
+            "source": "github_issue_comment",
+            "issue_url": module.AUTHORIZATION_ISSUE_URL,
+            "comment_url": (
+                f"{module.AUTHORIZATION_ISSUE_URL}#issuecomment-5328162490"
+            ),
+            "comment_id": 5328162490,
+            "created_at": "2026-08-09T12:00:00Z",
+            "author_login": module.AUTHORIZATION_AUTHOR,
+            "body": (
+                "Authorize one OpenAI requirement-4 attended run.\n\n"
+                f"```json\n{fence}\n```\n"
+            ),
+            "extracted": extracted,
+            "attempt": 1,
+            "human_attestation_obtained": False,
+            "human_authorship_mechanically_proven": False,
+        }
         return module.collect(
-            run_id="openai-revocation-20260809-0123456789",
-            actor_name="Test Actor",
-            actor_kind="accountable_human",
-            attester_name="Test Attester",
-            mutation_kind="remove",
+            run_id=run_id,
+            authorization=authorization,
+            model_identity={"pairing": pairing, "codex_task_id": task_id},
+            mutation_kind="subject-expression",
             policy=self.policy(),
             input_fn=input_fn,
             clock=clock,

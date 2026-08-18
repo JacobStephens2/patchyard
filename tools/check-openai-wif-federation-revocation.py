@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import hashlib
 import json
 from pathlib import Path
@@ -18,7 +18,6 @@ REPO = Path(__file__).resolve().parent.parent
 POLICY_PATH = REPO / "policy/openai-wif.json"
 BASE_HARNESS_PATH = REPO / "tools/anthropic-wif-lifecycle.py"
 LIFECYCLE_INSTRUMENT_PATH = REPO / "tools/openai-wif-issuance.py"
-ATTESTATION_DEFINITION_PATH = REPO / "tools/control-plane-attestation-v1.py"
 COLLECTOR_PATH = REPO / "tools/openai-wif-federation-revocation.py"
 RESULT_PATH = REPO / "research/isolation/results/openai-federation-revocation.json"
 PROVIDER_POLICY_PATH = REPO / "policy/provider-egress.json"
@@ -29,8 +28,11 @@ BASE_HARNESS_SHA256 = (
 LIFECYCLE_INSTRUMENT_SHA256 = (
     "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e"
 )
-ATTESTATION_DEFINITION_SHA256 = "0d32e80b980c334977e51eb706783896a687d29faef46d50e53f3ee56e8e4d47"
 RUN_ID = re.compile(r"openai-revocation-[0-9]{8}-[0-9a-f]{10}")
+PAIRING = re.compile(
+    r"[a-z0-9][a-z0-9.+_-]*/[a-z0-9][a-z0-9.+_-]*/"
+    r"[A-Za-z0-9][A-Za-z0-9.+_-]*/[a-z0-9][a-z0-9_+-]*"
+)
 HEX64 = re.compile(r"[0-9a-f]{64}")
 KID = re.compile(r"patchyard-[0-9a-f]{16}")
 UTC_TIMESTAMP = re.compile(
@@ -46,6 +48,16 @@ PRIVATE_KEY = re.compile(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----")
 MAX_INPUT_BYTES = 2_000_000
 MAX_RESPONSE_BYTES = 1_000_000
 SETTLING_FLOOR_SECONDS = 90
+AUTHORIZATION_DEADLINE_MINUTES = 45
+AUTHORIZATION_ISSUE_URL = (
+    "https://github.com/JacobStephens2/patchyard/issues/211"
+)
+AUTHORIZATION_AUTHOR = "JacobStephens2"
+CAPTURE_METHOD = "model_console_readback_bounded_by_control_plane_utc"
+OPERATOR_CAPTURE_METHOD = "operator_console_readback_bounded_by_control_plane_utc"
+PERMITTED_MUTATION = "subject-expression Edit to the run-scoped sentinel"
+PERMITTED_RESTORATION = "Edit the original expression back"
+REVOCATION_SENTINEL_MARKER = "-REVOKED-"
 RESPONSE_PREDICATE = {
     "enforced": False,
     "basis": "no-observed-openai-federation-revocation-response",
@@ -58,11 +70,12 @@ RESULT_KEYS = {
     "observation_kind",
     "run_id",
     "bounded_window",
-    "initial_console_reading",
+    "human_authorization",
+    "model_identity",
+    "model_actions",
+    "model_console_observations",
     "baseline_control",
-    "mapping_mutation_attestation",
     "denial_observation",
-    "restoration_attestation",
     "bracketing_control",
     "response_predicate",
     "mutation_receipt_obtained",
@@ -72,7 +85,82 @@ RESULT_KEYS = {
 }
 FIXTURE_KEYS = {"fixture_kind", "fixture_lineage"}
 WINDOW_KEYS = {"started_at", "ended_at"}
-READING_KEYS = {"captured_before_at", "captured_after_at", "state"}
+HUMAN_AUTHORIZATION_KEYS = {
+    "source",
+    "issue_url",
+    "comment_url",
+    "comment_id",
+    "created_at",
+    "author_login",
+    "body",
+    "extracted",
+    "attempt",
+    "human_attestation_obtained",
+    "human_authorship_mechanically_proven",
+}
+EXTRACTED_KEYS = {
+    "run_id",
+    "pairing",
+    "codex_task_id",
+    "policy_sha256",
+    "collector_sha256",
+    "permitted_mutation",
+    "permitted_restoration",
+    "deadline_at",
+}
+MODEL_IDENTITY_KEYS = {"pairing", "codex_task_id"}
+ACTION_KINDS = (
+    "subject_expression_edit_save",
+    "subject_expression_restore_save",
+)
+ACTION_KEYS = {"kind", "action_id", "intent", "confirmation"}
+INTENT_KEYS = {
+    "recorded_at",
+    "console_location",
+    "intended_expression",
+    "permitted_mutation",
+}
+CONFIRMATION_KEYS = {
+    "recorded_at",
+    "save_completed",
+    "product_approval_presented",
+    "product_approval_completed",
+    "capture_sha256",
+    "observed_expression",
+}
+OBSERVATION_STEPS = (
+    "enabled_mapping_before_baseline",
+    "immediate_before_mutation",
+    "immediate_after_mutation",
+    "before_restoration",
+    "after_restoration",
+)
+OBSERVATION_KEYS = {
+    "step",
+    "capture_method",
+    "capture_action_id",
+    "captured_before_at",
+    "captured_after_at",
+    "state",
+    "navigation",
+}
+NAVIGATION_KEYS = {
+    "url",
+    "reloaded",
+    "reload_started_at",
+    "reload_completed_at",
+}
+FORBIDDEN_KEYS = {
+    "attester",
+    "actor",
+    "party_relationship",
+    "mapping_mutation_attestation",
+    "restoration_attestation",
+    "initial_console_reading",
+    "independence",
+    "corroboration",
+    "attestation_definition_sha256",
+}
 MAPPING_STATE_KEYS = {
     "identity_provider_id",
     "mapping_present",
@@ -141,7 +229,6 @@ SOURCE_KEYS = {
     "policy_sha256",
     "base_harness_sha256",
     "lifecycle_instrument_sha256",
-    "attestation_definition_sha256",
     "collector_sha256",
     "checker_sha256",
 }
@@ -206,29 +293,6 @@ def isolation_errors() -> list[str]:
                 f"OpenAI federation-revocation checker has repository import path: {entry}"
             )
     return errors
-
-
-def load_attestation_definition(errors: list[str]) -> types.ModuleType | None:
-    try:
-        source = ATTESTATION_DEFINITION_PATH.read_bytes()
-    except OSError as error:
-        errors.append(f"cannot read Attestation definition: {error}")
-        return None
-    observed = hashlib.sha256(source).hexdigest()
-    if ATTESTATION_DEFINITION_PATH.is_symlink() or observed != ATTESTATION_DEFINITION_SHA256:
-        errors.append(
-            "Attestation definition digest differs: expected "
-            f"{ATTESTATION_DEFINITION_SHA256}, observed {observed}"
-        )
-        return None
-    module = types.ModuleType("control_plane_attestation_v1_revocation_checker")
-    module.__file__ = str(ATTESTATION_DEFINITION_PATH)
-    module.__package__ = None
-    exec(
-        compile(source, str(ATTESTATION_DEFINITION_PATH), "exec", dont_inherit=True),
-        module.__dict__,
-    )
-    return module
 
 
 def exact_keys(value: Any, expected: set[str], label: str, errors: list[str]) -> bool:
@@ -542,20 +606,6 @@ def validate_mapping_state(value: Any, policy: dict[str, Any], label: str, error
     return True
 
 
-def validate_reading(
-    value: Any, policy: dict[str, Any], label: str, errors: list[str]
-) -> tuple[datetime | None, datetime | None, dict[str, Any]]:
-    if not exact_keys(value, READING_KEYS, label, errors):
-        return None, None, {}
-    before = parse_time(value.get("captured_before_at"), f"{label} captured_before_at", errors)
-    after = parse_time(value.get("captured_after_at"), f"{label} captured_after_at", errors)
-    if before is not None and after is not None and before > after:
-        errors.append(f"{label} UTC bounds are out of order")
-    state = value.get("state")
-    validate_mapping_state(state, policy, f"{label} state", errors)
-    return before, after, state if isinstance(state, dict) else {}
-
-
 def state_core(value: dict[str, Any]) -> dict[str, Any]:
     return {key: item for key, item in value.items() if key != "console_location"}
 
@@ -567,7 +617,6 @@ def validate_source(value: Any, errors: list[str]) -> None:
         "policy_sha256": digest(POLICY_PATH),
         "base_harness_sha256": digest(BASE_HARNESS_PATH),
         "lifecycle_instrument_sha256": digest(LIFECYCLE_INSTRUMENT_PATH),
-        "attestation_definition_sha256": digest(ATTESTATION_DEFINITION_PATH),
         "collector_sha256": digest(COLLECTOR_PATH),
         "checker_sha256": digest(Path(__file__).resolve()),
     }
@@ -577,6 +626,261 @@ def validate_source(value: Any, errors: list[str]) -> None:
             errors.append(
                 f"federation-revocation {field} differs: expected {supplied}, observed {observed}"
             )
+
+
+def revocation_sentinel(run_id: str) -> str:
+    return f"sub=patchyard-control-plane{REVOCATION_SENTINEL_MARKER}{run_id}"
+
+
+def bounded_identity_text(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and 1 <= len(value) <= 128
+        and all(character.isprintable() for character in value)
+        and "\n" not in value
+    )
+
+
+def walk_forbidden(value: Any, errors: list[str]) -> None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key in FORBIDDEN_KEYS:
+                errors.append(
+                    f"federation-revocation Result contains forbidden key: {key}"
+                )
+            walk_forbidden(child, errors)
+    elif isinstance(value, list):
+        for child in value:
+            walk_forbidden(child, errors)
+    elif isinstance(value, str):
+        if value == OPERATOR_CAPTURE_METHOD:
+            errors.append(
+                "federation-revocation Result uses the operator capture method"
+            )
+
+
+def extract_single_json_fence(body: str, errors: list[str]) -> Any:
+    openings = list(re.finditer(r"```json[ \t]*\n", body))
+    if len(openings) != 1:
+        errors.append("authorization body must contain exactly one fenced JSON object")
+        return None
+    start = openings[0].end()
+    end = body.find("\n```", start)
+    if end < 0:
+        errors.append("authorization JSON fence is unclosed")
+        return None
+    try:
+        parsed = json.loads(
+            body[start:end],
+            object_pairs_hook=reject_duplicate_keys,
+            parse_constant=reject_json_constant,
+        )
+    except (json.JSONDecodeError, UnicodeDecodeError, EvidenceJsonError):
+        errors.append("authorization fence is not strict JSON")
+        return None
+    if not isinstance(parsed, dict):
+        errors.append("authorization fence is not an object")
+        return None
+    return parsed
+
+
+def validate_authorization(
+    value: Any,
+    run_id: str,
+    source: Any,
+    window_start: datetime | None,
+    errors: list[str],
+) -> tuple[datetime | None, str | None, str | None]:
+    if not exact_keys(value, HUMAN_AUTHORIZATION_KEYS, "human_authorization", errors):
+        return None, None, None
+    if value.get("source") != "github_issue_comment":
+        errors.append("authorization source is not a GitHub comment")
+    if value.get("issue_url") != AUTHORIZATION_ISSUE_URL:
+        errors.append("authorization does not name the requirement-4 ticket")
+    comment_id = value.get("comment_id")
+    if not valid_int(comment_id) or comment_id <= 0:
+        errors.append("authorization comment id is malformed")
+    else:
+        expected_url = f"{AUTHORIZATION_ISSUE_URL}#issuecomment-{comment_id}"
+        if value.get("comment_url") != expected_url:
+            errors.append("authorization comment URL does not match its id")
+    if value.get("author_login") != AUTHORIZATION_AUTHOR:
+        errors.append("authorization author is not the accountable human")
+    body = value.get("body")
+    if not isinstance(body, str) or not 1 <= len(body) <= 16_384:
+        errors.append("authorization body is not bounded")
+        body = ""
+    extracted = value.get("extracted")
+    if not exact_keys(extracted, EXTRACTED_KEYS, "authorization extracted fields", errors):
+        extracted = {}
+    fenced = extract_single_json_fence(body, errors) if body else None
+    if fenced is not None and extracted and fenced != extracted:
+        errors.append("authorization fence does not match the extracted fields")
+    if extracted.get("run_id") != run_id:
+        errors.append("authorization run ID does not match the Result")
+    pairing = extracted.get("pairing")
+    task_id = extracted.get("codex_task_id")
+    if not isinstance(pairing, str) or PAIRING.fullmatch(pairing) is None:
+        errors.append("authorization pairing is not canonical")
+        pairing = None
+    if not bounded_identity_text(task_id):
+        errors.append("authorization Codex task id is not bounded")
+        task_id = None
+    if isinstance(source, dict):
+        if extracted.get("policy_sha256") != source.get("policy_sha256"):
+            errors.append("authorization policy digest differs")
+        if extracted.get("collector_sha256") != source.get("collector_sha256"):
+            errors.append("authorization collector digest differs")
+    if extracted.get("permitted_mutation") != PERMITTED_MUTATION:
+        errors.append("authorization permitted mutation differs")
+    if extracted.get("permitted_restoration") != PERMITTED_RESTORATION:
+        errors.append("authorization permitted restoration differs")
+    created = parse_time(value.get("created_at"), "authorization created_at", errors)
+    deadline = parse_time(extracted.get("deadline_at"), "authorization deadline", errors)
+    if (
+        created is not None
+        and deadline is not None
+        and deadline != created + timedelta(minutes=AUTHORIZATION_DEADLINE_MINUTES)
+    ):
+        errors.append("authorization deadline is not created_at plus 45 minutes")
+    if created is not None and window_start is not None and created >= window_start:
+        errors.append("authorization comment is not before the bounded window")
+    if value.get("attempt") != 1:
+        errors.append("authorization attempt is not 1")
+    if value.get("human_attestation_obtained") is not False:
+        errors.append("authorization claims a human attestation")
+    if value.get("human_authorship_mechanically_proven") is not False:
+        errors.append("authorization claims mechanically proven authorship")
+    return deadline, pairing, task_id
+
+
+def validate_model_identity(
+    value: Any, pairing: str | None, task_id: str | None, errors: list[str]
+) -> None:
+    if not exact_keys(value, MODEL_IDENTITY_KEYS, "model_identity", errors):
+        return
+    if value.get("pairing") != pairing:
+        errors.append("model pairing does not match the authorization")
+    if value.get("codex_task_id") != task_id:
+        errors.append("model task id does not match the authorization")
+
+
+def validate_action(
+    value: Any,
+    expected_kind: str,
+    intended_expression: str,
+    permitted_mutation: str,
+    label: str,
+    errors: list[str],
+) -> tuple[datetime | None, datetime | None, str | None]:
+    if not exact_keys(value, ACTION_KEYS, label, errors):
+        return None, None, None
+    if value.get("kind") != expected_kind:
+        errors.append(f"{label} kind differs")
+    action_id = value.get("action_id")
+    if not bounded_identity_text(action_id):
+        errors.append(f"{label} action id is not bounded")
+        action_id = None
+    intent = value.get("intent")
+    confirmation = value.get("confirmation")
+    intent_at = None
+    confirmed_at = None
+    if exact_keys(intent, INTENT_KEYS, f"{label} intent", errors):
+        intent_at = parse_time(
+            intent.get("recorded_at"), f"{label} intent recorded_at", errors
+        )
+        if not bounded_console_text(intent.get("console_location")):
+            errors.append(f"{label} intent console location is not bounded")
+        if intent.get("intended_expression") != intended_expression:
+            errors.append(f"{label} intended expression differs")
+        if intent.get("permitted_mutation") != permitted_mutation:
+            errors.append(f"{label} permitted mutation differs")
+    if exact_keys(confirmation, CONFIRMATION_KEYS, f"{label} confirmation", errors):
+        confirmed_at = parse_time(
+            confirmation.get("recorded_at"), f"{label} confirmation recorded_at", errors
+        )
+        if confirmation.get("save_completed") is not True:
+            errors.append(f"{label} Save did not complete")
+        presented = confirmation.get("product_approval_presented")
+        completed = confirmation.get("product_approval_completed")
+        if type(presented) is not bool or type(completed) is not bool:
+            errors.append(f"{label} product-approval fields are not boolean")
+        elif presented is False and completed is not False:
+            errors.append(
+                f"{label} completed a product approval that was not presented"
+            )
+        capture = confirmation.get("capture_sha256")
+        if capture is not None and (
+            not isinstance(capture, str) or HEX64.fullmatch(capture) is None
+        ):
+            errors.append(f"{label} capture digest is malformed")
+        if confirmation.get("observed_expression") != intended_expression:
+            errors.append(f"{label} observed expression does not match the intent")
+        if intent_at is not None and confirmed_at is not None and intent_at > confirmed_at:
+            errors.append(f"{label} confirmation precedes its intent")
+    return intent_at, confirmed_at, action_id
+
+
+def validate_model_observation(
+    value: Any, policy: dict[str, Any], expected_step: str, label: str, errors: list[str]
+) -> dict[str, Any]:
+    facts: dict[str, Any] = {}
+    if not exact_keys(value, OBSERVATION_KEYS, label, errors):
+        return facts
+    if value.get("step") != expected_step:
+        errors.append(f"{label} step differs")
+    if value.get("capture_method") != CAPTURE_METHOD:
+        errors.append(f"{label} capture method differs")
+    action_id = value.get("capture_action_id")
+    if not bounded_identity_text(action_id):
+        errors.append(f"{label} capture action id is not bounded")
+        action_id = None
+    before = parse_time(value.get("captured_before_at"), f"{label} captured_before_at", errors)
+    after = parse_time(value.get("captured_after_at"), f"{label} captured_after_at", errors)
+    if before is not None and after is not None and before > after:
+        errors.append(f"{label} UTC bounds are out of order")
+    state = value.get("state")
+    validate_mapping_state(state, policy, f"{label} state", errors)
+    navigation = value.get("navigation")
+    reload_started = reload_completed = None
+    if exact_keys(navigation, NAVIGATION_KEYS, f"{label} navigation", errors):
+        if navigation.get("reloaded") is not True:
+            errors.append(f"{label} was not reloaded")
+        if not bounded_console_text(navigation.get("url")):
+            errors.append(f"{label} navigation url is not bounded")
+        elif isinstance(state, dict) and navigation.get("url") != state.get(
+            "console_location"
+        ):
+            errors.append(f"{label} navigation url differs from the console location")
+        reload_started = parse_time(
+            navigation.get("reload_started_at"), f"{label} reload start", errors
+        )
+        reload_completed = parse_time(
+            navigation.get("reload_completed_at"), f"{label} reload end", errors
+        )
+        if (
+            reload_started is not None
+            and reload_completed is not None
+            and reload_started > reload_completed
+        ):
+            errors.append(f"{label} reload timestamps are out of order")
+        if (
+            reload_completed is not None
+            and before is not None
+            and reload_completed > before
+        ):
+            errors.append(f"{label} reading started before its reload completed")
+    facts.update(
+        {
+            "before": before,
+            "after": after,
+            "reload_started": reload_started,
+            "reload_completed": reload_completed,
+            "state": state if isinstance(state, dict) else {},
+            "action_id": action_id,
+        }
+    )
+    return facts
 
 
 def secret_named_key(value: Any) -> str | None:
@@ -623,7 +927,6 @@ def credential_errors(value: Any) -> list[str]:
 def validate_common(
     result: Any,
     policy: dict[str, Any],
-    attestation: types.ModuleType,
     *,
     synthetic: bool,
 ) -> list[str]:
@@ -631,6 +934,7 @@ def validate_common(
     expected_keys = RESULT_KEYS | (FIXTURE_KEYS if synthetic else set())
     if not exact_keys(result, expected_keys, "OpenAI federation-revocation Result", errors):
         return errors
+    walk_forbidden(result, errors)
     if (
         not valid_int(result.get("schema_version"))
         or result.get("schema_version") != 1
@@ -639,11 +943,12 @@ def validate_common(
         errors.append("OpenAI federation-revocation Result identity differs")
     if result.get("qualification_requirement") != "federation-rule-revocation":
         errors.append("OpenAI federation-revocation Result names another Requirement")
-    if result.get("authorization_rulings") != ["A129", "A132", "A133", "A136"]:
+    if result.get("authorization_rulings") != ["A129", "A132", "A133", "A136", "A146"]:
         errors.append("OpenAI federation-revocation authorization rulings differ")
     if result.get("observation_kind") != "federation-rule-revocation":
         errors.append("OpenAI federation-revocation observation kind differs")
-    if RUN_ID.fullmatch(str(result.get("run_id", ""))) is None:
+    run_id = str(result.get("run_id", ""))
+    if RUN_ID.fullmatch(run_id) is None:
         errors.append("OpenAI federation-revocation run ID is malformed")
     window = result.get("bounded_window")
     window_start = window_end = None
@@ -653,19 +958,117 @@ def validate_common(
         if window_start is not None and window_end is not None and window_start > window_end:
             errors.append("federation-revocation bounded window is reversed")
 
-    initial_before, initial_after, initial_state = validate_reading(
-        result.get("initial_console_reading"), policy, "initial console reading", errors
+    deadline, pairing, task_id = validate_authorization(
+        result.get("human_authorization"),
+        run_id,
+        result.get("source"),
+        window_start,
+        errors,
     )
+    validate_model_identity(result.get("model_identity"), pairing, task_id, errors)
+
+    observations_raw = result.get("model_console_observations")
+    observations: list[dict[str, Any]] = []
+    if not isinstance(observations_raw, list) or len(observations_raw) != 5:
+        errors.append("model_console_observations must contain exactly five readings")
+        observations_raw = []
+    for index, step in enumerate(OBSERVATION_STEPS):
+        item = observations_raw[index] if index < len(observations_raw) else {}
+        observations.append(
+            validate_model_observation(
+                item, policy, step, f"model console observation {step}", errors
+            )
+        )
+
+    actions_raw = result.get("model_actions")
+    if not isinstance(actions_raw, list) or len(actions_raw) != 2:
+        errors.append("model_actions must contain exactly two Saves")
+        actions_raw = [{}, {}]
+    original_expression = ""
+    if observations and observations[0].get("state"):
+        original_expression = str(
+            observations[0]["state"].get("subject_mapping_expression") or ""
+        )
+    sentinel = revocation_sentinel(run_id)
+    edit_intent, edit_confirmed, edit_id = validate_action(
+        actions_raw[0],
+        ACTION_KINDS[0],
+        sentinel,
+        PERMITTED_MUTATION,
+        "subject-expression edit Save",
+        errors,
+    )
+    restore_intent, restore_confirmed, restore_id = validate_action(
+        actions_raw[1],
+        ACTION_KINDS[1],
+        original_expression,
+        PERMITTED_RESTORATION,
+        "subject-expression restore Save",
+        errors,
+    )
+    if deadline is not None and edit_intent is not None and edit_intent > deadline:
+        errors.append("mutation Save intent is after the authorization deadline")
+
+    first = observations[0] if observations else {}
+    second = observations[1] if len(observations) > 1 else {}
+    third = observations[2] if len(observations) > 2 else {}
+    fourth = observations[3] if len(observations) > 3 else {}
+    fifth = observations[4] if len(observations) > 4 else {}
+    first_state = first.get("state") or {}
     active_state = (
-        initial_state.get("mapping_present") is True
-        and initial_state.get("enabled") is True
-        and initial_state.get("uploaded_jwks_mode") is True
-        and initial_state.get("mapped_service_account_id")
+        first_state.get("mapping_present") is True
+        and first_state.get("enabled") is True
+        and first_state.get("uploaded_jwks_mode") is True
+        and first_state.get("mapped_service_account_id")
         == policy.get("service_account_id")
-        and bool(initial_state.get("subject_mapping_expression"))
+        and bool(first_state.get("subject_mapping_expression"))
+        and REVOCATION_SENTINEL_MARKER not in str(
+            first_state.get("subject_mapping_expression") or ""
+        )
     )
     if not active_state:
-        errors.append("initial console reading is not the enabled mapping")
+        errors.append("enabled-mapping-before-baseline is not the enabled mapping")
+    if first_state and second.get("state") and state_core(first_state) != state_core(
+        second["state"]
+    ):
+        errors.append("mapping changed between baseline and mutation")
+    if third.get("state"):
+        mutated = third["state"]
+        if (
+            mutated.get("mapping_present") is not True
+            or mutated.get("enabled") is not True
+            or mutated.get("uploaded_jwks_mode") is not True
+            or mutated.get("subject_mapping_expression") != sentinel
+            or mutated.get("mapped_service_account_id")
+            != first_state.get("mapped_service_account_id")
+        ):
+            errors.append("immediate-after-mutation is not the exact sentinel")
+    if third.get("state") and fourth.get("state") and state_core(third["state"]) != state_core(
+        fourth["state"]
+    ):
+        errors.append("mapping changed between denial and restoration")
+    if first_state and fifth.get("state") and state_core(first_state) != state_core(
+        fifth["state"]
+    ):
+        errors.append("after-restoration did not recover the original mapping")
+
+    action_ids = [
+        observation.get("action_id")
+        for observation in observations
+        if observation.get("action_id")
+    ]
+    action_ids.extend(item for item in (edit_id, restore_id) if item)
+    if len(action_ids) != len(set(action_ids)):
+        errors.append("federation-revocation action IDs are not pairwise distinct")
+
+    for observation in observations:
+        state = observation.get("state") or {}
+        if state and (
+            state.get("identity_provider_id") != policy.get("identity_provider_id")
+            or state.get("mapped_service_account_id") != policy.get("service_account_id")
+            or state.get("uploaded_jwks_mode") is not True
+        ):
+            errors.append("console reading drifted from the provider or JWKS binding")
 
     baseline = validate_exchange(
         result.get("baseline_control"),
@@ -692,83 +1095,6 @@ def validate_common(
         positive=True,
     )
 
-    mutation = result.get("mapping_mutation_attestation")
-    restoration = result.get("restoration_attestation")
-    for value, label in (
-        (mutation, "mapping-mutation Attestation"),
-        (restoration, "restoration Attestation"),
-    ):
-        for error in attestation.validate_attestation(
-            value, LIFECYCLE_INSTRUMENT_SHA256
-        ):
-            errors.append(f"{label}: {error}")
-    mutation_before = mutation_after = restore_before = restore_after = {}
-    mutation_before_started = mutation_before_ended = None
-    mutation_after_started = mutation_after_ended = None
-    restore_before_started = restore_before_ended = None
-    restore_after_started = restore_after_ended = None
-    if isinstance(mutation, dict) and isinstance(mutation.get("console_readings"), dict):
-        mutation_before_started, mutation_before_ended, mutation_before = validate_reading(
-            mutation["console_readings"].get("before"),
-            policy,
-            "mapping-mutation before reading",
-            errors,
-        )
-        mutation_after_started, mutation_after_ended, mutation_after = validate_reading(
-            mutation["console_readings"].get("after"),
-            policy,
-            "mapping-mutation after reading",
-            errors,
-        )
-    if isinstance(restoration, dict) and isinstance(restoration.get("console_readings"), dict):
-        restore_before_started, restore_before_ended, restore_before = validate_reading(
-            restoration["console_readings"].get("before"),
-            policy,
-            "restoration before reading",
-            errors,
-        )
-        restore_after_started, restore_after_ended, restore_after = validate_reading(
-            restoration["console_readings"].get("after"),
-            policy,
-            "restoration after reading",
-            errors,
-        )
-    if initial_state and mutation_before and state_core(initial_state) != state_core(mutation_before):
-        errors.append("mapping changed between initial reading and mutation")
-    mutation_is_bounded = False
-    if mutation_before and mutation_after:
-        removed = (
-            mutation_after.get("mapping_present") is False
-            and mutation_after.get("enabled") is False
-        )
-        disabled = (
-            mutation_after.get("mapping_present") is True
-            and mutation_after.get("enabled") is False
-            and mutation_after.get("subject_mapping_expression")
-            == mutation_before.get("subject_mapping_expression")
-            and mutation_after.get("mapped_service_account_id")
-            == mutation_before.get("mapped_service_account_id")
-        )
-        altered = (
-            mutation_after.get("mapping_present") is True
-            and mutation_after.get("enabled") is True
-            and mutation_after.get("subject_mapping_expression")
-            != mutation_before.get("subject_mapping_expression")
-            and mutation_after.get("mapped_service_account_id")
-            == mutation_before.get("mapped_service_account_id")
-        )
-        mutation_is_bounded = removed or disabled or altered
-        if not mutation_is_bounded or mutation_after.get("uploaded_jwks_mode") is not True:
-            errors.append("mapping-mutation Attestation does not show only the mapping mutation")
-    if mutation_after and restore_before and state_core(mutation_after) != state_core(restore_before):
-        errors.append("mapping changed between denial and restoration")
-    if initial_state and restore_after and state_core(initial_state) != state_core(restore_after):
-        errors.append("restoration Attestation did not recover the original mapping")
-    if isinstance(mutation, dict) and isinstance(restoration, dict):
-        for field in ("actor", "attester", "party_relationship"):
-            if mutation.get(field) != restoration.get(field):
-                errors.append(f"Attestations name different {field}")
-
     facts = [baseline, denial, bracket]
     if all(fact.get("surface") for fact in facts) and not all(
         fact["surface"] == facts[0]["surface"] for fact in facts[1:]
@@ -779,29 +1105,43 @@ def validate_common(
         set(identities)
     ) != 1:
         errors.append("baseline, denial, and bracketing control use different keys")
-    if mutation_after_ended is not None and denial.get("request_time") is not None:
-        if (denial["request_time"] - mutation_after_ended).total_seconds() < SETTLING_FLOOR_SECONDS:
+    if third.get("after") is not None and denial.get("request_time") is not None:
+        if (denial["request_time"] - third["after"]).total_seconds() < SETTLING_FLOOR_SECONDS:
             errors.append("denial attempt falls inside the 90-second settling floor")
-    if restore_after_ended is not None and bracket.get("request_time") is not None:
-        if (bracket["request_time"] - restore_after_ended).total_seconds() < SETTLING_FLOOR_SECONDS:
+    if fifth.get("after") is not None and bracket.get("request_time") is not None:
+        if (bracket["request_time"] - fifth["after"]).total_seconds() < SETTLING_FLOOR_SECONDS:
             errors.append("bracketing control falls inside the 90-second settling floor")
 
     sequence = [
         window_start,
-        initial_before,
-        initial_after,
+        first.get("reload_started"),
+        first.get("reload_completed"),
+        first.get("before"),
+        first.get("after"),
         baseline.get("started"),
         baseline.get("removed"),
-        mutation_before_started,
-        mutation_before_ended,
-        mutation_after_started,
-        mutation_after_ended,
+        second.get("reload_started"),
+        second.get("reload_completed"),
+        second.get("before"),
+        second.get("after"),
+        edit_intent,
+        edit_confirmed,
+        third.get("reload_started"),
+        third.get("reload_completed"),
+        third.get("before"),
+        third.get("after"),
         denial.get("started"),
         denial.get("removed"),
-        restore_before_started,
-        restore_before_ended,
-        restore_after_started,
-        restore_after_ended,
+        fourth.get("reload_started"),
+        fourth.get("reload_completed"),
+        fourth.get("before"),
+        fourth.get("after"),
+        restore_intent,
+        restore_confirmed,
+        fifth.get("reload_started"),
+        fifth.get("reload_completed"),
+        fifth.get("before"),
+        fifth.get("after"),
         bracket.get("started"),
         bracket.get("removed"),
         window_end,
@@ -819,12 +1159,10 @@ def validate_common(
     return errors
 
 
-def validate_observation(
-    result: Any, policy: dict[str, Any], attestation: types.ModuleType
-) -> list[str]:
+def validate_observation(result: Any, policy: dict[str, Any]) -> list[str]:
     if isinstance(result, dict) and result.get("status") in {"in_progress", "failed"}:
         return ["non-terminal federation-revocation record is not a Result"]
-    errors = validate_common(result, policy, attestation, synthetic=False)
+    errors = validate_common(result, policy, synthetic=False)
     if isinstance(result, dict):
         if result.get("provider_response_observed") is not True:
             errors.append("federation-revocation observation lacks provider responses")
@@ -833,16 +1171,14 @@ def validate_observation(
     return errors
 
 
-def validate_contract_fixture(
-    result: Any, policy: dict[str, Any], attestation: types.ModuleType
-) -> list[str]:
-    errors = validate_common(result, policy, attestation, synthetic=True)
+def validate_contract_fixture(result: Any, policy: dict[str, Any]) -> list[str]:
+    errors = validate_common(result, policy, synthetic=True)
     if not isinstance(result, dict):
         return errors
     if result.get("fixture_kind") != "synthetic-openai-federation-revocation-satisfiability":
         errors.append("federation-revocation Fixture kind differs")
     if result.get("fixture_lineage") != {
-        "console_readings": "synthetic-bounded-operator-input",
+        "console_readings": "synthetic-bounded-model-console-input",
         "provider_responses": "unobserved-placeholders",
     }:
         errors.append("federation-revocation Fixture lineage differs")
@@ -853,19 +1189,16 @@ def validate_contract_fixture(
     return errors
 
 
-def validate_qualification_evidence(
-    result: Any, policy: dict[str, Any], attestation: types.ModuleType
-) -> list[str]:
+def validate_qualification_evidence(result: Any, policy: dict[str, Any]) -> list[str]:
     if isinstance(result, dict) and result.get("fixture_kind") is not None:
         return ["synthetic federation-revocation Fixture cannot be qualification evidence"]
-    errors = validate_observation(result, policy, attestation)
+    errors = validate_observation(result, policy)
     errors.append("federation-revocation predicate is unenforced pending observation")
     return errors
 
 
-def static_errors() -> tuple[list[str], dict[str, Any], types.ModuleType | None]:
+def static_errors() -> tuple[list[str], dict[str, Any]]:
     errors = isolation_errors()
-    attestation = load_attestation_definition(errors) if not errors else None
     try:
         policy = load_json_file(POLICY_PATH)
     except (OSError, json.JSONDecodeError, EvidenceJsonError) as error:
@@ -889,15 +1222,25 @@ def static_errors() -> tuple[list[str], dict[str, Any], types.ModuleType | None]
         source = COLLECTOR_PATH.read_text()
         for required in (
             "LIFECYCLE_INSTRUMENT_SHA256",
-            "ATTESTATION_DEFINITION_SHA256",
             "def load_exact_source(",
             '"MUTATION COMPLETE"',
             '"RESTORATION COMPLETE"',
+            '"RELOADED"',
+            "human_authorization",
+            "model_console_readback_bounded_by_control_plane_utc",
             '"no-observed-openai-federation-revocation-response"',
             "SETTLING_FLOOR_SECONDS = 90",
         ):
             if required not in source:
                 errors.append(f"federation-revocation collector is missing: {required}")
+        if "ATTESTATION_DEFINITION_SHA256" in source:
+            errors.append(
+                "federation-revocation collector still binds the Attestation definition"
+            )
+        if "operator_console_readback_bounded_by_control_plane_utc" in source:
+            errors.append(
+                "federation-revocation collector still uses the operator capture method"
+            )
     try:
         providers = load_json_file(PROVIDER_POLICY_PATH)["providers"]
     except (OSError, KeyError, TypeError, json.JSONDecodeError, EvidenceJsonError) as error:
@@ -905,7 +1248,7 @@ def static_errors() -> tuple[list[str], dict[str, Any], types.ModuleType | None]
     else:
         if len(providers) != 13:
             errors.append("provider egress policy does not contain 13 providers")
-    return errors, fields, attestation
+    return errors, fields
 
 
 def read_bounded_input(path: Path, label: str, errors: list[str]) -> Any:
@@ -921,7 +1264,7 @@ def read_bounded_input(path: Path, label: str, errors: list[str]) -> Any:
 
 
 def main() -> int:
-    errors, policy, attestation = static_errors()
+    errors, policy = static_errors()
     allow_missing = False
     mode = "default"
     path = RESULT_PATH
@@ -942,15 +1285,15 @@ def main() -> int:
     if not path.exists():
         if not allow_missing:
             errors.append("OpenAI federation-revocation Result is missing")
-    elif attestation is not None:
+    else:
         result = read_bounded_input(path, "OpenAI federation-revocation input", errors)
         if result is not None:
             if mode == "contract-fixture":
-                errors.extend(validate_contract_fixture(result, policy, attestation))
+                errors.extend(validate_contract_fixture(result, policy))
             elif mode == "evidence":
-                errors.extend(validate_qualification_evidence(result, policy, attestation))
+                errors.extend(validate_qualification_evidence(result, policy))
             else:
-                errors.extend(validate_observation(result, policy, attestation))
+                errors.extend(validate_observation(result, policy))
     if errors:
         print("OpenAI federation-rule revocation check: failed", file=sys.stderr)
         for error in errors:

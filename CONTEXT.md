@@ -32,8 +32,23 @@ _Avoid_: attestation, observation, log entry
 
 **Attestation**:
 An operator-recorded observation of a control-plane change for which no receipt
-can be obtained.
+can be obtained. An Attestation is a human-observed fact.
 _Avoid_: receipt, witness, sign-off, manual record
+
+**human_authorization**:
+A named accountable human's permission for one exact attended run. It is not an
+Attestation.
+_Avoid_: attestation, approval, sign-off
+
+**model_actions**:
+The two console Saves a named model performed during a requirement-4
+model-operated run.
+_Avoid_: attestation, actor log, mutation record
+
+**model_console_observations**:
+The five live console readings a named model made during a requirement-4
+model-operated run.
+_Avoid_: attestation, operator reading, witness
 
 **Control-plane mutation**:
 A change to provider-side configuration governing credential trust or spend.

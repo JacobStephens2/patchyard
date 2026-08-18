@@ -361,7 +361,7 @@ version = "0.4.19"
 criteria = "safe-to-deploy"
 
 [[exemptions.h2]]
-version = "0.4.15"
+version = "0.4.16"
 criteria = "safe-to-deploy"
 
 [[exemptions.hashbag]]

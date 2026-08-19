@@ -66,6 +66,14 @@ to a run-scoped sentinel value; restoration is editing the original expression
 back. The mapping stays present and enabled throughout.
 _Avoid_: disable, remove, rule deletion, mapping edit used generically
 
+**Issued claim**:
+A field the issuance JWT carries. Distinct from a mapping condition.
+_Avoid_: mapping condition, assertion claim, live claim, console row
+
+**Mapping condition**:
+A Key/Value row on a provider subject mapping. Distinct from an issued claim.
+_Avoid_: issued claim, rule.claims, CEL string
+
 **Baseline control**:
 A positive control made before a control-plane mutation, which shows that the
 path worked before the change.

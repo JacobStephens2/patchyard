@@ -49,6 +49,11 @@ seat variables; it only performs the attended capture described below.
 `policy/openai-wif.json` is the exact provider descriptor. It mirrors the
 Anthropic policy's organization, project/workspace, spend, service-account,
 issuer, and rule shape while using OpenAI's identifiers and exchange audience.
+`rule.claims.factory_environment` is issued-claim vocabulary, not a mapping
+condition: issuance still mints it and checkers require it on the assertion,
+but the live OpenAI mapping card is `sub` only. The policy file stays
+byte-untouched; the field's meaning is demoted the same way A145 demoted
+`issuer.jwks_kid`. Restore the live claim table, never this field.
 
 The assertion maximum is 300 seconds. OpenAI documents a one-hour ceiling, not
 a required lifetime, and an exchanged bearer never outlives its subject token.

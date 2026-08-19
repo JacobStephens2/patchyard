@@ -11,8 +11,14 @@ import unittest
 ROOT = Path(__file__).resolve().parents[3]
 CHECKER = ROOT / "tools/check-freeze-graph.py"
 # A144 superseded the OpenAI collectors and checkers by declared digest, so
-# they leave the byte-frozen set: the banked Results bind their pre-split
-# bytes through the supersession trail rather than through byte identity.
+# their PRE-split bytes leave the byte-frozen set: the Results banked before
+# the split bind them through the supersession trail rather than by identity.
+#
+# Three of them are back, by their post-split bytes. The requirement-4
+# revocation Result (run openai-revocation-20260819-6bd96462ce) was produced
+# by the split-identity tools and names their current digests in its `source`
+# block, so banking it froze exactly what produced it. That is the mechanism
+# working, not drift: a Result pins its own instrument.
 EXPECTED_FROZEN_PATHS = [
     "policy/anthropic-wif.json",
     "policy/openai-wif.json",
@@ -20,7 +26,10 @@ EXPECTED_FROZEN_PATHS = [
     "tools/anthropic-wif-lifecycle-admin.py",
     "tools/anthropic-wif-lifecycle.py",
     "tools/anthropic-wif-revocation.py",
+    "tools/check-openai-wif-federation-revocation.py",
     "tools/control-plane-attestation-v1.py",
+    "tools/openai-wif-federation-revocation.py",
+    "tools/openai-wif-issuance.py",
     "worker/image/production-parity.json",
     "worker/qualification/hostile-test-manifest.json",
     "worker/runtime/patchyard-anthropic-one-shot",

@@ -1,0 +1,424 @@
+{
+  "authorization_rulings": [
+    "A129",
+    "A132",
+    "A133",
+    "A136",
+    "A146",
+    "A148"
+  ],
+  "baseline_control": {
+    "assertion_descriptor": {
+      "algorithm": "RS256",
+      "audience": "https://api.openai.com",
+      "expires_at": "2026-08-19T20:41:52Z",
+      "factory_environment": "production",
+      "issued_at": "2026-08-19T20:36:52Z",
+      "issuer": "https://factory.example.com/workload-identity",
+      "jti_supplied": true,
+      "jwk_thumbprint_sha256": "61d40d83422c06f2ca7d29afe00e6e55cc6804a770e222648bdda1954a92d509",
+      "kid": "patchyard-de842961c20b52a8",
+      "lifetime_seconds": 300,
+      "minted_at": "2026-08-19T20:36:57Z",
+      "subject": "patchyard-control-plane"
+    },
+    "attempt_count": 1,
+    "credential_removed_at": "2026-08-19T20:36:57.847044Z",
+    "exchange_request": {
+      "content_type": "application/json",
+      "endpoint": "https://auth.openai.com/oauth/token",
+      "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+      "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+      "requested_at": "2026-08-19T20:36:57.495680Z",
+      "scope_supplied": false,
+      "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+      "subject_token_supplied": true,
+      "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
+    },
+    "key_role": "active",
+    "lifecycle_instrument_sha256": "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e",
+    "receipt": {
+      "access_token_supplied": true,
+      "body_bytes": 1537,
+      "body_format": "json_object",
+      "content_type": "application/json",
+      "error_type": null,
+      "expires_in": 295,
+      "http_status": 200,
+      "observed_at": "2026-08-19T20:36:57.846611Z",
+      "provider_date": "2026-08-19T20:36:57Z",
+      "request_id": "835c52cd-bc8f-497a-a2e4-fc8243c3288b",
+      "request_id_supplied": true,
+      "request_started_at": "2026-08-19T20:36:57.495680Z",
+      "response_shape": {
+        "body_kind": "json_object",
+        "error_fields": [],
+        "top_level_fields": [
+          {
+            "name": "access_token",
+            "name_recorded": true,
+            "value_type": "string"
+          },
+          {
+            "name": "expires_in",
+            "name_recorded": true,
+            "value_type": "integer"
+          },
+          {
+            "name": "issued_token_type",
+            "name_recorded": true,
+            "value_type": "string"
+          },
+          {
+            "name": "token_type",
+            "name_recorded": true,
+            "value_type": "string"
+          }
+        ]
+      },
+      "source": "openai_http_response",
+      "token_type": "Bearer"
+    },
+    "started_at": "2026-08-19T20:36:57.449745Z"
+  },
+  "bounded_window": {
+    "ended_at": "2026-08-19T21:16:15.225164Z",
+    "started_at": "2026-08-19T20:30:25.295754Z"
+  },
+  "bracketing_control": {
+    "assertion_descriptor": {
+      "algorithm": "RS256",
+      "audience": "https://api.openai.com",
+      "expires_at": "2026-08-19T21:21:09Z",
+      "factory_environment": "production",
+      "issued_at": "2026-08-19T21:16:09Z",
+      "issuer": "https://factory.example.com/workload-identity",
+      "jti_supplied": true,
+      "jwk_thumbprint_sha256": "61d40d83422c06f2ca7d29afe00e6e55cc6804a770e222648bdda1954a92d509",
+      "kid": "patchyard-de842961c20b52a8",
+      "lifetime_seconds": 300,
+      "minted_at": "2026-08-19T21:16:14Z",
+      "subject": "patchyard-control-plane"
+    },
+    "attempt_count": 1,
+    "credential_removed_at": "2026-08-19T21:16:15.224065Z",
+    "exchange_request": {
+      "content_type": "application/json",
+      "endpoint": "https://auth.openai.com/oauth/token",
+      "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+      "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+      "requested_at": "2026-08-19T21:16:14.888854Z",
+      "scope_supplied": false,
+      "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+      "subject_token_supplied": true,
+      "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
+    },
+    "key_role": "active",
+    "lifecycle_instrument_sha256": "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e",
+    "receipt": {
+      "access_token_supplied": true,
+      "body_bytes": 1537,
+      "body_format": "json_object",
+      "content_type": "application/json",
+      "error_type": null,
+      "expires_in": 294,
+      "http_status": 200,
+      "observed_at": "2026-08-19T21:16:15.223599Z",
+      "provider_date": "2026-08-19T21:16:15Z",
+      "request_id": "495f671a-3973-4bb6-8a64-d460a9befc4f",
+      "request_id_supplied": true,
+      "request_started_at": "2026-08-19T21:16:14.888854Z",
+      "response_shape": {
+        "body_kind": "json_object",
+        "error_fields": [],
+        "top_level_fields": [
+          {
+            "name": "access_token",
+            "name_recorded": true,
+            "value_type": "string"
+          },
+          {
+            "name": "expires_in",
+            "name_recorded": true,
+            "value_type": "integer"
+          },
+          {
+            "name": "issued_token_type",
+            "name_recorded": true,
+            "value_type": "string"
+          },
+          {
+            "name": "token_type",
+            "name_recorded": true,
+            "value_type": "string"
+          }
+        ]
+      },
+      "source": "openai_http_response",
+      "token_type": "Bearer"
+    },
+    "started_at": "2026-08-19T21:16:14.836814Z"
+  },
+  "denial_observation": {
+    "assertion_descriptor": {
+      "algorithm": "RS256",
+      "audience": "https://api.openai.com",
+      "expires_at": "2026-08-19T21:08:20Z",
+      "factory_environment": "production",
+      "issued_at": "2026-08-19T21:03:20Z",
+      "issuer": "https://factory.example.com/workload-identity",
+      "jti_supplied": true,
+      "jwk_thumbprint_sha256": "61d40d83422c06f2ca7d29afe00e6e55cc6804a770e222648bdda1954a92d509",
+      "kid": "patchyard-de842961c20b52a8",
+      "lifetime_seconds": 300,
+      "minted_at": "2026-08-19T21:03:25Z",
+      "subject": "patchyard-control-plane"
+    },
+    "attempt_count": 1,
+    "credential_removed_at": "2026-08-19T21:03:26.119946Z",
+    "exchange_request": {
+      "content_type": "application/json",
+      "endpoint": "https://auth.openai.com/oauth/token",
+      "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+      "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+      "requested_at": "2026-08-19T21:03:25.790625Z",
+      "scope_supplied": false,
+      "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+      "subject_token_supplied": true,
+      "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
+    },
+    "key_role": "active",
+    "lifecycle_instrument_sha256": "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e",
+    "receipt": {
+      "access_token_supplied": false,
+      "body_bytes": 195,
+      "body_format": "json_object",
+      "content_type": "application/json",
+      "error_type": "invalid_request_error",
+      "expires_in": null,
+      "http_status": 401,
+      "observed_at": "2026-08-19T21:03:26.119532Z",
+      "provider_date": "2026-08-19T21:03:26Z",
+      "request_id": "b77a3768-a5cb-40cf-9474-1e8741d30002",
+      "request_id_supplied": true,
+      "request_started_at": "2026-08-19T21:03:25.790625Z",
+      "response_shape": {
+        "body_kind": "json_object",
+        "error_fields": [
+          {
+            "name": "code",
+            "name_recorded": true,
+            "value_type": "string"
+          },
+          {
+            "name": "message",
+            "name_recorded": true,
+            "value_type": "string"
+          },
+          {
+            "name": "param",
+            "name_recorded": true,
+            "value_type": "null"
+          },
+          {
+            "name": "type",
+            "name_recorded": true,
+            "value_type": "string"
+          }
+        ],
+        "top_level_fields": [
+          {
+            "name": "error",
+            "name_recorded": true,
+            "value_type": "object"
+          }
+        ]
+      },
+      "source": "openai_http_response",
+      "token_type": null
+    },
+    "started_at": "2026-08-19T21:03:25.752825Z"
+  },
+  "human_authorization": {
+    "author_login": "JacobStephens2",
+    "grant_url": "https://github.com/JacobStephens2/patchyard/issues/253",
+    "human_attestation_obtained": false,
+    "human_authorship_mechanically_proven": false,
+    "map_url": "https://github.com/JacobStephens2/patchyard/issues/176",
+    "ruling": "A148",
+    "source": "route authorization"
+  },
+  "model_actions": [
+    {
+      "action_id": "save-subject_expression_edit_save",
+      "confirmation": {
+        "capture_sha256": null,
+        "observed_expression": "sub=patchyard-control-plane-REVOKED-openai-revocation-20260819-6bd96462ce",
+        "product_approval_completed": false,
+        "product_approval_presented": false,
+        "recorded_at": "2026-08-19T20:56:37.394605Z",
+        "save_completed": true
+      },
+      "intent": {
+        "console_location": "https://platform.openai.com/settings/organization/security/workload-identity-provider/idp_DlzD7RlQXgXxd1VSG2V93eEU",
+        "intended_expression": "sub=patchyard-control-plane-REVOKED-openai-revocation-20260819-6bd96462ce",
+        "permitted_mutation": "subject-expression Edit to the run-scoped sentinel",
+        "recorded_at": "2026-08-19T20:44:15.896856Z"
+      },
+      "kind": "subject_expression_edit_save"
+    },
+    {
+      "action_id": "save-subject_expression_restore_save",
+      "confirmation": {
+        "capture_sha256": null,
+        "observed_expression": "sub=patchyard-control-plane",
+        "product_approval_completed": false,
+        "product_approval_presented": false,
+        "recorded_at": "2026-08-19T21:12:40.954276Z",
+        "save_completed": true
+      },
+      "intent": {
+        "console_location": "https://platform.openai.com/settings/organization/security/workload-identity-provider/idp_DlzD7RlQXgXxd1VSG2V93eEU",
+        "intended_expression": "sub=patchyard-control-plane",
+        "permitted_mutation": "Edit the original expression back",
+        "recorded_at": "2026-08-19T21:05:44.714370Z"
+      },
+      "kind": "subject_expression_restore_save"
+    }
+  ],
+  "model_console_observations": [
+    {
+      "capture_action_id": "capture-enabled_mapping_before_baseline",
+      "capture_method": "model_console_readback_bounded_by_control_plane_utc",
+      "captured_after_at": "2026-08-19T20:36:57.421439Z",
+      "captured_before_at": "2026-08-19T20:36:36.125592Z",
+      "navigation": {
+        "reload_completed_at": "2026-08-19T20:36:36.125507Z",
+        "reload_started_at": "2026-08-19T20:30:25.295893Z",
+        "reloaded": true,
+        "url": "https://platform.openai.com/settings/organization/security/workload-identity-provider/idp_DlzD7RlQXgXxd1VSG2V93eEU"
+      },
+      "state": {
+        "console_location": "https://platform.openai.com/settings/organization/security/workload-identity-provider/idp_DlzD7RlQXgXxd1VSG2V93eEU",
+        "enabled": true,
+        "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+        "mapped_service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+        "mapping_present": true,
+        "subject_mapping_expression": "sub=patchyard-control-plane",
+        "uploaded_jwks_mode": true
+      },
+      "step": "enabled_mapping_before_baseline"
+    },
+    {
+      "capture_action_id": "capture-immediate_before_mutation",
+      "capture_method": "model_console_readback_bounded_by_control_plane_utc",
+      "captured_after_at": "2026-08-19T20:44:15.896620Z",
+      "captured_before_at": "2026-08-19T20:43:59.611305Z",
+      "navigation": {
+        "reload_completed_at": "2026-08-19T20:43:59.611230Z",
+        "reload_started_at": "2026-08-19T20:36:57.847978Z",
+        "reloaded": true,
+        "url": "https://platform.openai.com/settings/organization/security/workload-identity-provider/idp_DlzD7RlQXgXxd1VSG2V93eEU"
+      },
+      "state": {
+        "console_location": "https://platform.openai.com/settings/organization/security/workload-identity-provider/idp_DlzD7RlQXgXxd1VSG2V93eEU",
+        "enabled": true,
+        "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+        "mapped_service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+        "mapping_present": true,
+        "subject_mapping_expression": "sub=patchyard-control-plane",
+        "uploaded_jwks_mode": true
+      },
+      "step": "immediate_before_mutation"
+    },
+    {
+      "capture_action_id": "capture-immediate_after_mutation",
+      "capture_method": "model_console_readback_bounded_by_control_plane_utc",
+      "captured_after_at": "2026-08-19T21:01:55.640375Z",
+      "captured_before_at": "2026-08-19T21:01:39.855790Z",
+      "navigation": {
+        "reload_completed_at": "2026-08-19T21:01:39.855708Z",
+        "reload_started_at": "2026-08-19T20:56:51.173706Z",
+        "reloaded": true,
+        "url": "https://platform.openai.com/settings/organization/security/workload-identity-provider/idp_DlzD7RlQXgXxd1VSG2V93eEU"
+      },
+      "state": {
+        "console_location": "https://platform.openai.com/settings/organization/security/workload-identity-provider/idp_DlzD7RlQXgXxd1VSG2V93eEU",
+        "enabled": true,
+        "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+        "mapped_service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+        "mapping_present": true,
+        "subject_mapping_expression": "sub=patchyard-control-plane-REVOKED-openai-revocation-20260819-6bd96462ce",
+        "uploaded_jwks_mode": true
+      },
+      "step": "immediate_after_mutation"
+    },
+    {
+      "capture_action_id": "capture-before_restoration",
+      "capture_method": "model_console_readback_bounded_by_control_plane_utc",
+      "captured_after_at": "2026-08-19T21:05:44.714104Z",
+      "captured_before_at": "2026-08-19T21:05:28.929934Z",
+      "navigation": {
+        "reload_completed_at": "2026-08-19T21:05:28.929848Z",
+        "reload_started_at": "2026-08-19T21:03:26.121188Z",
+        "reloaded": true,
+        "url": "https://platform.openai.com/settings/organization/security/workload-identity-provider/idp_DlzD7RlQXgXxd1VSG2V93eEU"
+      },
+      "state": {
+        "console_location": "https://platform.openai.com/settings/organization/security/workload-identity-provider/idp_DlzD7RlQXgXxd1VSG2V93eEU",
+        "enabled": true,
+        "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+        "mapped_service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+        "mapping_present": true,
+        "subject_mapping_expression": "sub=patchyard-control-plane-REVOKED-openai-revocation-20260819-6bd96462ce",
+        "uploaded_jwks_mode": true
+      },
+      "step": "before_restoration"
+    },
+    {
+      "capture_action_id": "capture-after_restoration",
+      "capture_method": "model_console_readback_bounded_by_control_plane_utc",
+      "captured_after_at": "2026-08-19T21:14:44.796874Z",
+      "captured_before_at": "2026-08-19T21:14:28.758613Z",
+      "navigation": {
+        "reload_completed_at": "2026-08-19T21:14:28.758532Z",
+        "reload_started_at": "2026-08-19T21:12:55.234619Z",
+        "reloaded": true,
+        "url": "https://platform.openai.com/settings/organization/security/workload-identity-provider/idp_DlzD7RlQXgXxd1VSG2V93eEU"
+      },
+      "state": {
+        "console_location": "https://platform.openai.com/settings/organization/security/workload-identity-provider/idp_DlzD7RlQXgXxd1VSG2V93eEU",
+        "enabled": true,
+        "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+        "mapped_service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+        "mapping_present": true,
+        "subject_mapping_expression": "sub=patchyard-control-plane",
+        "uploaded_jwks_mode": true
+      },
+      "step": "after_restoration"
+    }
+  ],
+  "model_identity": {
+    "codex_task_id": "bc072748-3d87-4430-890f-f5c4a5d4ca04",
+    "pairing": "anthropic/claude-code/claude-opus-5/medium"
+  },
+  "mutation_receipt_obtained": false,
+  "observation_kind": "federation-rule-revocation",
+  "provider": "openai",
+  "provider_response_observed": true,
+  "qualification_evidence": false,
+  "qualification_requirement": "federation-rule-revocation",
+  "response_predicate": {
+    "basis": "no-observed-openai-federation-revocation-response",
+    "enforced": false
+  },
+  "run_id": "openai-revocation-20260819-6bd96462ce",
+  "schema_version": 1,
+  "source": {
+    "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
+    "checker_sha256": "9e1fdc60ee3c4240e1c30385f4a092c29b8d58b4ab2dfd8a55c19a42ed8439d8",
+    "collector_sha256": "7ba44eb3151e1eb61e9ae42a48b2d0d34248e7c70ae108752168eeb4b9f0b079",
+    "lifecycle_instrument_sha256": "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e",
+    "policy_sha256": "87cf13bb136ed9a365bd14822a14d4808a6ef585ce1c278b926fa173d1152e5f"
+  }
+}

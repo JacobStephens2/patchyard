@@ -376,19 +376,26 @@ Copy **only** the sanitized JSON through the reviewed management path to a new
 operator-host path. Never copy the session directory, request body, assertion,
 response body, bearer, process memory, or signing key.
 
-## What this run does not do
+## What a conforming run now produces
 
-It does not make requirement 4 Proven. `--evidence` mode fails by construction:
-`validate_qualification_evidence` appends `federation-revocation predicate is
-unenforced pending observation` to every input, because the response predicate
-is still
+Run `openai-revocation-20260819-6bd96462ce` produced the first observed OpenAI
+federation-revocation denial, and A149 descended the reviewed predicate from it:
 
 ```json
-{"enforced": false, "basis": "no-observed-openai-federation-revocation-response"}
+{
+  "enforced": true,
+  "http_status": 401,
+  "access_token_supplied": false,
+  "basis": "observed-openai-federation-revocation-response"
+}
 ```
 
-That is A125 working as intended — no OpenAI federation-revocation denial has
-ever been observed. **This run produces that first observation.** A reviewed
-predicate is written afterwards, against what was actually returned, as a
-separate change. The requirement becomes Proven only once a conforming Result is
-committed and accepted.
+A conforming run is now **born** with that enforced predicate and
+`qualification_evidence: true`, and the checker refuses a denial that is not
+HTTP 401 or that supplied a bearer. `error_type` is deliberately not pinned:
+OpenAI returns the same `invalid_request_error` for an expired assertion and a
+retired signing key, so it carries no revocation signal. Attribution to the
+subject-expression mutation rides on A129's bracket, not on the predicate.
+
+Requirement 4 is Proven by the committed Result. `credential_qualified` stays
+false until the remaining requirements are Proven.

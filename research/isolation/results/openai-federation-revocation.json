@@ -406,11 +406,13 @@
   "observation_kind": "federation-rule-revocation",
   "provider": "openai",
   "provider_response_observed": true,
-  "qualification_evidence": false,
+  "qualification_evidence": true,
   "qualification_requirement": "federation-rule-revocation",
   "response_predicate": {
-    "basis": "no-observed-openai-federation-revocation-response",
-    "enforced": false
+    "access_token_supplied": false,
+    "basis": "observed-openai-federation-revocation-response",
+    "enforced": true,
+    "http_status": 401
   },
   "run_id": "openai-revocation-20260819-6bd96462ce",
   "schema_version": 1,

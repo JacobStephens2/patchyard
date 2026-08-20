@@ -28,6 +28,18 @@ BASE_HARNESS_SHA256 = (
 LIFECYCLE_INSTRUMENT_SHA256 = (
     "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e"
 )
+# A149 completed the two deferred fields on the banked Result without touching
+# its Receipts or its `source` block, so the digests that block names are the
+# pre-A149 collector and checker. They stay acceptable here, exactly as A144
+# taught this family to carry historical bindings.
+SUPERSEDES_SOURCE_SHA256 = {
+    "tools/openai-wif-federation-revocation.py": (
+        "7ba44eb3151e1eb61e9ae42a48b2d0d34248e7c70ae108752168eeb4b9f0b079",
+    ),
+    "tools/check-openai-wif-federation-revocation.py": (
+        "9e1fdc60ee3c4240e1c30385f4a092c29b8d58b4ab2dfd8a55c19a42ed8439d8",
+    ),
+}
 RUN_ID = re.compile(r"openai-revocation-[0-9]{8}-[0-9a-f]{10}")
 PAIRING = re.compile(
     r"[a-z0-9][a-z0-9.+_-]*/[a-z0-9][a-z0-9.+_-]*/"
@@ -68,9 +80,15 @@ OPERATOR_CAPTURE_METHOD = "operator_console_readback_bounded_by_control_plane_ut
 PERMITTED_MUTATION = "subject-expression Edit to the run-scoped sentinel"
 PERMITTED_RESTORATION = "Edit the original expression back"
 REVOCATION_SENTINEL_MARKER = "-REVOKED-"
-RESPONSE_PREDICATE = {
+UNOBSERVED_RESPONSE_PREDICATE = {
     "enforced": False,
     "basis": "no-observed-openai-federation-revocation-response",
+}
+RESPONSE_PREDICATE = {
+    "enforced": True,
+    "http_status": 401,
+    "access_token_supplied": False,
+    "basis": "observed-openai-federation-revocation-response",
 }
 RESULT_KEYS = {
     "schema_version",
@@ -581,6 +599,12 @@ def validate_exchange(
         "access_token_supplied"
     ) is not True:
         errors.append(f"{label} did not supply a bearer")
+    if not positive and not synthetic and isinstance(value.get("receipt"), dict):
+        receipt = value["receipt"]
+        if receipt.get("http_status") != RESPONSE_PREDICATE["http_status"]:
+            errors.append(f"{label} was not HTTP 401")
+        if receipt.get("access_token_supplied") is not False:
+            errors.append(f"{label} supplied a bearer")
     facts.update(
         {
             "started": started,
@@ -632,18 +656,22 @@ def state_core(value: dict[str, Any]) -> dict[str, Any]:
 def validate_source(value: Any, errors: list[str]) -> None:
     if not exact_keys(value, SOURCE_KEYS, "federation-revocation source", errors):
         return
-    expected = {
-        "policy_sha256": digest(POLICY_PATH),
-        "base_harness_sha256": digest(BASE_HARNESS_PATH),
-        "lifecycle_instrument_sha256": digest(LIFECYCLE_INSTRUMENT_PATH),
-        "collector_sha256": digest(COLLECTOR_PATH),
-        "checker_sha256": digest(Path(__file__).resolve()),
+    accepted = {
+        "policy_sha256": {digest(POLICY_PATH)},
+        "base_harness_sha256": {digest(BASE_HARNESS_PATH)},
+        "lifecycle_instrument_sha256": {digest(LIFECYCLE_INSTRUMENT_PATH)},
+        "collector_sha256": {digest(COLLECTOR_PATH)}
+        | set(SUPERSEDES_SOURCE_SHA256["tools/openai-wif-federation-revocation.py"]),
+        "checker_sha256": {digest(Path(__file__).resolve())}
+        | set(
+            SUPERSEDES_SOURCE_SHA256["tools/check-openai-wif-federation-revocation.py"]
+        ),
     }
-    for field, observed in expected.items():
+    for field, acceptable in accepted.items():
         supplied = value.get(field)
-        if supplied != observed:
+        if supplied not in acceptable:
             errors.append(
-                f"federation-revocation {field} differs: expected {supplied}, observed {observed}"
+                f"federation-revocation {field} differs: expected {supplied}, observed {sorted(acceptable)}"
             )
 
 
@@ -1204,8 +1232,19 @@ def validate_common(
         left <= right for left, right in zip(sequence, sequence[1:])
     ):
         errors.append("federation-revocation UTC observations are out of order")
-    if result.get("response_predicate") != RESPONSE_PREDICATE:
-        errors.append("federation-revocation predicate was enforced before observation")
+    expected_predicate = (
+        UNOBSERVED_RESPONSE_PREDICATE if synthetic else RESPONSE_PREDICATE
+    )
+    if result.get("response_predicate") != expected_predicate:
+        if synthetic:
+            errors.append(
+                "federation-revocation predicate was enforced before observation"
+            )
+        else:
+            errors.append(
+                "federation-revocation predicate does not match the reviewed "
+                "revocation denial"
+            )
     if result.get("mutation_receipt_obtained") is not False:
         errors.append("federation-revocation Result provenance mark differs")
     validate_source(result.get("source"), errors)
@@ -1220,8 +1259,10 @@ def validate_observation(result: Any, policy: dict[str, Any]) -> list[str]:
     if isinstance(result, dict):
         if result.get("provider_response_observed") is not True:
             errors.append("federation-revocation observation lacks provider responses")
-        if result.get("qualification_evidence") is not False:
-            errors.append("federation-revocation observation claims qualification")
+        if result.get("qualification_evidence") not in {True, False}:
+            errors.append(
+                "federation-revocation qualification_evidence is not boolean"
+            )
     return errors
 
 
@@ -1247,7 +1288,8 @@ def validate_qualification_evidence(result: Any, policy: dict[str, Any]) -> list
     if isinstance(result, dict) and result.get("fixture_kind") is not None:
         return ["synthetic federation-revocation Fixture cannot be qualification evidence"]
     errors = validate_observation(result, policy)
-    errors.append("federation-revocation predicate is unenforced pending observation")
+    if isinstance(result, dict) and result.get("qualification_evidence") is not True:
+        errors.append("federation-revocation Result is not qualification evidence")
     return errors
 
 
@@ -1283,7 +1325,7 @@ def static_errors() -> tuple[list[str], dict[str, Any]]:
             "human_authorization",
             "route authorization",
             "model_console_readback_bounded_by_control_plane_utc",
-            '"no-observed-openai-federation-revocation-response"',
+            '"observed-openai-federation-revocation-response"',
             "SETTLING_FLOOR_SECONDS = 90",
         ):
             if required not in source:
@@ -1337,6 +1379,7 @@ def main() -> int:
             errors.append(f"unknown checker argument: {argument}")
     if allow_missing and (mode != "default" or path != RESULT_PATH):
         errors.append("allow-missing-results cannot be combined with supplied input")
+    qualification = False
     if not path.exists():
         if not allow_missing:
             errors.append("OpenAI federation-revocation Result is missing")
@@ -1349,6 +1392,10 @@ def main() -> int:
                 errors.extend(validate_qualification_evidence(result, policy))
             else:
                 errors.extend(validate_observation(result, policy))
+            qualification = (
+                isinstance(result, dict)
+                and result.get("qualification_evidence") is True
+            )
     if errors:
         print("OpenAI federation-rule revocation check: failed", file=sys.stderr)
         for error in errors:
@@ -1356,6 +1403,8 @@ def main() -> int:
         return 1
     if mode == "contract-fixture":
         status = "synthetic contract Fixture; not qualification evidence"
+    elif path.exists() and qualification:
+        status = "qualification evidence"
     elif path.exists():
         status = "non-qualifying provider observation"
     else:

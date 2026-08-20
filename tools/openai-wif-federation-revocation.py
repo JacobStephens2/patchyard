@@ -119,9 +119,16 @@ CONFIRMATION_INPUT_KEYS = {
     "capture_sha256",
     "observed_expression",
 }
+# A149: the reviewed revocation denial predicate, descended from the A129
+# bracket of run openai-revocation-20260819-6bd96462ce. It asserts the wire
+# denial only - HTTP 401 with no bearer. Attribution of that denial to the
+# subject-expression mutation rides on the bracket and the Attestations, never
+# on this predicate.
 RESPONSE_PREDICATE = {
-    "enforced": False,
-    "basis": "no-observed-openai-federation-revocation-response",
+    "enforced": True,
+    "http_status": 401,
+    "access_token_supplied": False,
+    "basis": "observed-openai-federation-revocation-response",
 }
 # A141: the console has no disable affordance, so revocation is a console Edit
 # of the subject mapping's claim assertion to this run-scoped sentinel. The
@@ -910,7 +917,7 @@ def collect(
         "response_predicate": RESPONSE_PREDICATE,
         "mutation_receipt_obtained": False,
         "provider_response_observed": True,
-        "qualification_evidence": False,
+        "qualification_evidence": True,
         "source": source,
     }
 

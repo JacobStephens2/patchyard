@@ -14,11 +14,15 @@ CHECKER = ROOT / "tools/check-freeze-graph.py"
 # their PRE-split bytes leave the byte-frozen set: the Results banked before
 # the split bind them through the supersession trail rather than by identity.
 #
-# Three of them are back, by their post-split bytes. The requirement-4
-# revocation Result (run openai-revocation-20260819-6bd96462ce) was produced
-# by the split-identity tools and names their current digests in its `source`
-# block, so banking it froze exactly what produced it. That is the mechanism
-# working, not drift: a Result pins its own instrument.
+# One of them is back, by its post-split bytes. The requirement-4 revocation
+# Result (run openai-revocation-20260819-6bd96462ce) was produced by the
+# split-identity tools and named their digests in its `source` block, so
+# banking it froze exactly what produced it. A149 then completed that Result's
+# two deferred fields and changed the revocation collector and checker without
+# touching the `source` block, so those two leave the byte-frozen set the same
+# way the pre-split tools did: the Result binds them through the supersession
+# trail rather than by identity. Their exact bytes stay pinned by the A101
+# readiness trust root. That is the mechanism working, not drift.
 EXPECTED_FROZEN_PATHS = [
     "policy/anthropic-wif.json",
     "policy/openai-wif.json",
@@ -26,9 +30,7 @@ EXPECTED_FROZEN_PATHS = [
     "tools/anthropic-wif-lifecycle-admin.py",
     "tools/anthropic-wif-lifecycle.py",
     "tools/anthropic-wif-revocation.py",
-    "tools/check-openai-wif-federation-revocation.py",
     "tools/control-plane-attestation-v1.py",
-    "tools/openai-wif-federation-revocation.py",
     "tools/openai-wif-issuance.py",
     "worker/image/production-parity.json",
     "worker/qualification/hostile-test-manifest.json",

@@ -473,15 +473,25 @@ The Result permanently carries:
 `independence` and `corroboration` are absent, not set false. The marks are
 permanent even if OpenAI later exposes a management API.
 
-The proposed Result carries this exact response predicate until an observed
-OpenAI federation-revocation response can support a later reviewed predicate:
+The committed Result from run `openai-revocation-20260819-6bd96462ce` now
+carries the reviewed predicate (A149): HTTP 401 and no bearer. `error_type`,
+request-id presence, `body_bytes`, and sanitized field types are not pinned.
 
 ```json
 {
-  "enforced": false,
-  "basis": "no-observed-openai-federation-revocation-response"
+  "enforced": true,
+  "http_status": 401,
+  "access_token_supplied": false,
+  "basis": "observed-openai-federation-revocation-response"
 }
 ```
+
+The predicate asserts the wire denial only. That the denial was *caused* by the
+subject-expression mutation rides on A129's bracket - a 200 baseline before and
+a 200 bracketing exchange after, on the same instrument - and on the mutation
+Attestations, never on the predicate. OpenAI returns the same 401
+`invalid_request_error` for an expired assertion and for a retired signing key,
+so the predicate proves denial, not cause.
 
 ### Sequence
 
@@ -662,16 +672,17 @@ Copy only the sanitized JSON through the reviewed management path to a new
 operator-host path. Never copy the stage, request body, assertion, response
 body, bearer, process memory, or signing key.
 
-Note what this run does *not* do. `--evidence` mode currently fails by
-construction: `validate_qualification_evidence` appends
-`federation-revocation predicate is unenforced pending observation` to every
-input. That is A125 working as intended - the response predicate is still
-`{"enforced": false, "basis":
-"no-observed-openai-federation-revocation-response"}` because no OpenAI
-federation-revocation denial has ever been observed. This run produces that
-first observation; a reviewed predicate is written against what was actually
-returned, afterwards, as a separate change. A Requirement becomes Proven only
-after a conforming Result is committed and accepted.
+**Status.** Proven by run `openai-revocation-20260819-6bd96462ce` after A149
+completed the deferred predicate (HTTP 401 and no bearer). OpenAI remains not
+Qualified.
+
+`--evidence` mode now passes on the committed Result: A149 completed the
+deferred predicate and flipped `qualification_evidence` to true. A later
+conforming run is born with the same enforced predicate. The run that produced
+this Result was performed end to end by a named model under A148 route
+authorization, with no human attestation and no independence; the predicate
+descends from OpenAI's own Receipt, which is why a model-operated run can
+support it.
 
 ## Requirement 5: signing-key rotation capture
 

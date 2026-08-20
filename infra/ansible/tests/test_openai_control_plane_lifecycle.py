@@ -821,6 +821,17 @@ class FederationRevocationCheckerContract(CheckerCase):
         self.observed_receipt(value["baseline_control"]["receipt"], denial=False)
         self.observed_receipt(value["denial_observation"]["receipt"], denial=True)
         self.observed_receipt(value["bracketing_control"]["receipt"], denial=False)
+        # A149's reviewed predicate: an observed revocation denial is HTTP 401
+        # with no bearer. The error type stays arbitrary here on purpose - it is
+        # deliberately not pinned.
+        value["denial_observation"]["receipt"]["http_status"] = 401
+        value["denial_observation"]["receipt"]["access_token_supplied"] = False
+        value["response_predicate"] = {
+            "enforced": True,
+            "http_status": 401,
+            "access_token_supplied": False,
+            "basis": "observed-openai-federation-revocation-response",
+        }
         return value
 
     def test_realistic_precision_fixture_passes_but_is_not_qualification_evidence(self) -> None:
@@ -835,11 +846,59 @@ class FederationRevocationCheckerContract(CheckerCase):
         self.assertEqual(refused.returncode, 1)
         self.assertIn("cannot be qualification evidence", refused.stderr)
 
-    def test_arbitrary_observed_denial_shape_is_accepted_while_unenforced(self) -> None:
+    def test_reviewed_predicate_accepts_401_without_a_bearer(self) -> None:
+        value = self.observed()
         result = self.run_checker(
-            "--observation", str(self.write(self.observed(), "observed.json"))
+            "--observation", str(self.write(value, "observed.json"))
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+        value["qualification_evidence"] = True
+        evidenced = self.run_checker(
+            "--evidence", str(self.write(value, "evidence.json"))
+        )
+        self.assertEqual(evidenced.returncode, 0, evidenced.stderr)
+
+    def test_reviewed_predicate_rejects_non_401_or_a_bearer(self) -> None:
+        wrong_status = self.observed()
+        wrong_status["denial_observation"]["receipt"]["http_status"] = 418
+        result = self.run_checker(
+            "--observation", str(self.write(wrong_status, "wrong-status.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("was not HTTP 401", result.stderr)
+
+        with_bearer = self.observed()
+        with_bearer["denial_observation"]["receipt"]["access_token_supplied"] = True
+        result = self.run_checker(
+            "--observation", str(self.write(with_bearer, "bearer.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("supplied a bearer", result.stderr)
+
+    def test_unenforced_predicate_is_refused_on_an_observation(self) -> None:
+        value = self.observed()
+        value["response_predicate"] = {
+            "enforced": False,
+            "basis": "no-observed-openai-federation-revocation-response",
+        }
+        result = self.run_checker(
+            "--observation", str(self.write(value, "unenforced.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            "predicate does not match the reviewed revocation denial", result.stderr
+        )
+
+    def test_banked_result_is_qualification_evidence(self) -> None:
+        defaulted = self.run_checker()
+        self.assertEqual(defaulted.returncode, 0, defaulted.stderr)
+        self.assertIn("qualification evidence", defaulted.stdout)
+        evidenced = self.run_checker(
+            "--evidence",
+            str(ROOT / "research/isolation/results/openai-federation-revocation.json"),
+        )
+        self.assertEqual(evidenced.returncode, 0, evidenced.stderr)
+        self.assertIn("qualification evidence", evidenced.stdout)
 
     def test_missing_baseline_or_bracketing_control_is_rejected(self) -> None:
         for field in ("baseline_control", "bracketing_control"):

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "ruling": "A150",
+  "comment": "A150: the roster of OpenAI service-account identities the factory has federated to, current and historical. Following A144's policy/signing-identities.json, the historical value is demoted by meaning rather than deleted. The collectors and the requirement-2 spend driver resolve current_service_account_id and send it on the wire; the checkers accept any id in this roster, because the banked Results were minted against the historical one. policy/openai-wif.json stays byte-untouched and its service_account.id and rule.service_account_id mean only the account the banked issuance-era evidence was minted against - the same demotion A145 applied to that file's issuer.jwks_kid, and for the same reason: every banked OpenAI Result pins its digest as policy_sha256.",
+  "provider": "openai",
+  "project_id": "proj_4zpZhhPPNYCvPRE5vGuRBALH",
+  "current_service_account_id": "user-1UnalMTUg8XaoKcNDHpcsqZU",
+  "service_accounts": [
+    {
+      "id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+      "name": "patchyard-worker",
+      "status": "historical",
+      "project_id": "proj_4zpZhhPPNYCvPRE5vGuRBALH",
+      "created_at": "2026-08-12T12:42:05Z",
+      "administration_api_verified": false,
+      "note": "Minted 2026-08-12 by the console federation flow, which created the account and the mapping in one action (issue #183). No Administration API call ever confirmed it. Console-read live in patchyard and Default on 2026-08-12; absent from the project's service_accounts listing by 2026-08-18T02:20:11Z (issue #229, before that ticket deleted anything). Cause unexplained: the audit log returns zero events even unbounded. The four banked Results were minted against this id and retain it as fact."
+    },
+    {
+      "id": "user-1UnalMTUg8XaoKcNDHpcsqZU",
+      "name": "patchyard-worker",
+      "status": "current",
+      "project_id": "proj_4zpZhhPPNYCvPRE5vGuRBALH",
+      "created_at": "2026-08-20T19:54:10Z",
+      "administration_api_verified": true,
+      "role": "member",
+      "api_key_count": 0,
+      "note": "Created explicitly inside proj_4zpZhhPPNYCvPRE5vGuRBALH and verified from primary source before anything depended on it: GET /v1/organization/projects/{project}/service_accounts returned HTTP 200 listing this id at role member with created_at 1787255650 (issue #267). That per-project listing is the only call that discriminates liveness - GET /v1/organization/users/{id} returns 404 for healthy service accounts too. The mapping patchyard-control-plane-to-worker resolves to this id with subject expression, audience, JWKS and Permissions unchanged."
+    }
+  ]
+}

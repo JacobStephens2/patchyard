@@ -29,7 +29,7 @@
     "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
     "requested_at": "2026-08-07T12:00:00.100000Z",
     "scope_supplied": false,
-    "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+    "service_account_id": "user-1UnalMTUg8XaoKcNDHpcsqZU",
     "subject_token_supplied": true,
     "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
   },

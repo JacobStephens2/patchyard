@@ -15,6 +15,12 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parent.parent
 POLICY_PATH = REPO / "policy/openai-wif.json"
+IDENTITY_HISTORY_PATH = REPO / "policy/openai-identity-history.json"
+# A150: the id policy/openai-wif.json still names. Demoted by meaning to the
+# account the banked Results were minted against; the live id is resolved from
+# the identity registry. The frozen policy is not edited because every banked
+# OpenAI Result pins its digest as policy_sha256.
+ISSUANCE_ERA_SERVICE_ACCOUNT_ID = "user-6tzs2hdFVN7GoYQbWfC0eu7k"
 BASE_HARNESS_PATH = REPO / "tools/anthropic-wif-lifecycle.py"
 ISSUANCE_ADAPTER_PATH = REPO / "tools/openai-wif-issuance.py"
 RESULT_PATH = REPO / "research/isolation/results/openai-first-token-exchange.json"
@@ -71,7 +77,7 @@ EXPECTED_POLICY = {
         "authorization_ruling": "A132",
     },
     "service_account": {
-        "id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+        "id": ISSUANCE_ERA_SERVICE_ACCOUNT_ID,
         "name": "patchyard-worker",
         "api_key_count": 0,
     },
@@ -90,7 +96,7 @@ EXPECTED_POLICY = {
         "subject": "patchyard-control-plane",
         "audience": "https://api.openai.com",
         "claims": {"factory_environment": "production"},
-        "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+        "service_account_id": ISSUANCE_ERA_SERVICE_ACCOUNT_ID,
         "token_lifetime_seconds": 300,
     },
 }
@@ -198,6 +204,33 @@ def load_json_file(path: Path) -> Any:
         object_pairs_hook=reject_duplicate_keys,
         parse_constant=reject_json_constant,
     )
+
+
+def roster_service_account_ids(errors: list[str]) -> frozenset[str]:
+    """A150: the banked Results were minted against the issuance-era service
+    account and later runs are minted against the current one, so a recorded
+    id is validated by membership in policy/openai-identity-history.json
+    rather than by equality with the frozen policy's demoted id."""
+    try:
+        registry = load_json_file(IDENTITY_HISTORY_PATH)
+        identifiers = frozenset(
+            entry["id"] for entry in registry["service_accounts"]
+        )
+        current = registry["current_service_account_id"]
+    except (
+        OSError,
+        KeyError,
+        TypeError,
+        json.JSONDecodeError,
+        EvidenceJsonError,
+    ) as error:
+        errors.append(f"cannot read the OpenAI identity registry: {error}")
+        return frozenset()
+    if current not in identifiers:
+        errors.append("OpenAI identity registry current id is not in its roster")
+    if ISSUANCE_ERA_SERVICE_ACCOUNT_ID not in identifiers:
+        errors.append("OpenAI identity registry lacks the issuance-era id")
+    return identifiers
 
 
 def is_within(path: Path, parent: Path) -> bool:
@@ -320,12 +353,16 @@ def validate_request(
         "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
         "subject_token_supplied": True,
         "identity_provider_id": policy["issuer"]["id"],
-        "service_account_id": policy["service_account"]["id"],
         "scope_supplied": False,
     }
     for field, expected_value in expected.items():
         if value.get(field) != expected_value:
             errors.append(f"exchange request {field} differs")
+    # A150: validated by roster membership, not by equality with the frozen
+    # policy's demoted id - the banked Result carries the issuance-era account
+    # and later runs carry the current one.
+    if value.get("service_account_id") not in roster_service_account_ids(errors):
+        errors.append("exchange request service_account_id is not a rostered identity")
     return parse_time(value.get("requested_at"), "exchange requested_at", errors)
 
 
@@ -667,6 +704,10 @@ def validate_qualification_evidence(
 
 def static_errors() -> tuple[list[str], dict[str, Any], str | None]:
     errors = isolation_errors()
+    # A150: the identity registry is gated on every CI cycle, not only when
+    # a Result is present, so a roster that lost its current or issuance-era
+    # entry fails closed here.
+    roster_service_account_ids(errors)
     try:
         policy = load_json_file(POLICY_PATH)
     except (OSError, json.JSONDecodeError, EvidenceJsonError) as error:
@@ -689,6 +730,13 @@ def static_errors() -> tuple[list[str], dict[str, Any], str | None]:
             "BASE.mint_assertion",
             'SIGNING_IDENTITIES_PATH = ROOT / "policy/signing-identities.json"',
             "def registry_trusted_kid(",
+            'IDENTITY_HISTORY_PATH = ROOT / "policy/openai-identity-history.json"',
+            "def registry_current_service_account_id(",
+            # A150: load_policy must hand back the registry's current id, so
+            # the adapter can never mint against the frozen policy's demoted
+            # issuance-era account.
+            "    return with_current_service_account(policy)",
+            'policy["service_account"] = dict(policy["service_account"], id=current)',
             'TOKEN_ENDPOINT = "https://auth.openai.com/oauth/token"',
             '"grant_type": "urn:ietf:params:oauth:grant-type:token-exchange"',
             '"subject_token_type": "urn:ietf:params:oauth:token-type:jwt"',

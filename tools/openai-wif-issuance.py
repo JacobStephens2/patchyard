@@ -29,6 +29,7 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
 POLICY_PATH = ROOT / "policy/openai-wif.json"
+IDENTITY_HISTORY_PATH = ROOT / "policy/openai-identity-history.json"
 SIGNING_IDENTITIES_PATH = ROOT / "policy/signing-identities.json"
 BASE_HARNESS_PATH = ROOT / "tools/anthropic-wif-lifecycle.py"
 BASE_HARNESS_SHA256 = (
@@ -39,6 +40,7 @@ STAGING_ROOT = Path("/run/patchyard-openai")
 TOKEN_ENDPOINT = "https://auth.openai.com/oauth/token"
 MAX_RESPONSE_BYTES = 1_000_000
 RUN_ID_PATTERN = re.compile(r"openai-wif-[0-9]{8}-[0-9a-f]{10}")
+SERVICE_ACCOUNT_ID_PATTERN = re.compile(r"user-[A-Za-z0-9]{16,48}")
 KID_PATTERN = re.compile(r"patchyard-[0-9a-f]{16}")
 SAFE_RESPONSE_STRING = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._:/+;-]{0,127}")
 SAFE_FIELD_NAME = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
@@ -167,6 +169,58 @@ def load_policy() -> dict[str, Any]:
     policy = BASE.load_json_file(POLICY_PATH)
     if policy != EXPECTED_POLICY:
         raise OpenAIWifError("OpenAI WIF policy differs from its exact binding")
+    return with_current_service_account(policy)
+
+
+def registry_current_service_account_id() -> str:
+    """A150: the OpenAI identity registry is the steady-state service-account
+    authority. The frozen policy's service_account.id is the issuance-era
+    account the banked Results were minted against - the same demotion A145
+    applied to its issuer.jwks_kid - and is no longer sent on the wire. Both
+    cross-checks read the digest-pinned policy file directly rather than a
+    caller-supplied dict, exactly as registry_trusted_kid does, so the two
+    files cannot drift apart silently."""
+    frozen = BASE.load_json_file(POLICY_PATH)
+    registry = BASE.load_json_file(IDENTITY_HISTORY_PATH)
+    try:
+        project = registry["project_id"]
+        current = registry["current_service_account_id"]
+        roster = registry["service_accounts"]
+        identifiers = [entry["id"] for entry in roster]
+        marked_current = [
+            entry["id"] for entry in roster if entry["status"] == "current"
+        ]
+        frozen_project = frozen["project"]["id"]
+        frozen_account = frozen["service_account"]["id"]
+    except (KeyError, TypeError) as error:
+        raise OpenAIWifError("OpenAI identity registry is malformed") from error
+    if project != frozen_project:
+        raise OpenAIWifError("OpenAI identity registry names another project")
+    if not isinstance(current, str) or (
+        SERVICE_ACCOUNT_ID_PATTERN.fullmatch(current) is None
+    ):
+        raise OpenAIWifError("OpenAI identity registry current id is malformed")
+    if len(identifiers) != len(set(identifiers)):
+        raise OpenAIWifError("OpenAI identity registry repeats an id")
+    if marked_current != [current]:
+        raise OpenAIWifError("OpenAI identity registry has no single current entry")
+    if frozen_account not in identifiers:
+        raise OpenAIWifError("OpenAI identity registry lacks the frozen policy id")
+    return current
+
+
+def with_current_service_account(policy: dict[str, Any]) -> dict[str, Any]:
+    """A150: substitute the registry's current service-account id for the
+    frozen policy's demoted issuance-era one, once, here. Everything
+    downstream - the wire request and the console-state comparisons - keeps
+    reading policy["service_account"]["id"] and so keeps its injection seam
+    for tests. The frozen file itself is validated above and never edited:
+    all five banked OpenAI Results pin its digest as policy_sha256."""
+    current = registry_current_service_account_id()
+    policy = dict(policy)
+    policy["service_account"] = dict(policy["service_account"], id=current)
+    if isinstance(policy.get("rule"), dict):
+        policy["rule"] = dict(policy["rule"], service_account_id=current)
     return policy
 
 

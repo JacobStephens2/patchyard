@@ -1,5 +1,24 @@
 # OpenAI A-5 lifecycle: requirements 3 through 6
 
+## A150: the mapped service-account id is registry-resolved
+
+Every collector on this page resolves the service-account id it sends from
+`policy/openai-identity-history.json` (`current_service_account_id`), **not**
+from `policy/openai-wif.json`. The 2026-08-12 account
+`user-6tzs2hdFVN7GoYQbWfC0eu7k` ceased to exist without a recorded mutation and
+was replaced on 2026-08-20 by `user-1UnalMTUg8XaoKcNDHpcsqZU`, verified from the
+per-project `service_accounts` listing before the mapping was bound to it. The
+frozen policy's two id fields are demoted by meaning to the account the banked
+Results were minted against, and the checkers accept any id in the roster.
+
+Two consequences for anyone running these procedures. The console **cannot**
+repoint a mapping's service account - that field is read-only in *Edit mapping*
+- so a repoint is a create-then-bind through *Create mapping* with its
+"Create a new service account in this project" checkbox **unchecked**; leaving
+it checked is the 2026-08-12 trap. And OpenAI's token exchange returns **200 for
+a service account that no longer exists**, so exchange success is not evidence
+that the federated identity is live.
+
 ## Status and scope
 
 OpenAI requirement 1, issuance and delivery, is Proven by the committed Result

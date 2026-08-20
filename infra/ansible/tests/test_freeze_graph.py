@@ -31,7 +31,9 @@ EXPECTED_FROZEN_PATHS = [
     "tools/anthropic-wif-lifecycle.py",
     "tools/anthropic-wif-revocation.py",
     "tools/control-plane-attestation-v1.py",
-    "tools/openai-wif-issuance.py",
+    # A150 superseded tools/openai-wif-issuance.py: the revocation Result's
+    # bare `lifecycle_instrument_sha256` is now a declared historical digest,
+    # so the file leaves the byte-frozen set exactly as A144 clause 5 describes.
     "worker/image/production-parity.json",
     "worker/qualification/hostile-test-manifest.json",
     "worker/runtime/patchyard-anthropic-one-shot",

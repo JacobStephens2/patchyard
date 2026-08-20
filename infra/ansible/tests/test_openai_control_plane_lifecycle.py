@@ -117,7 +117,7 @@ class AttestationAndCollectorContract(unittest.TestCase):
         self.assertFalse(hasattr(self.revocation, "ATTESTATION_DEFINITION_SHA256"))
         self.assertEqual(
             self.revocation.LIFECYCLE_INSTRUMENT_SHA256,
-            "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e",
+            "c53617ee45bb08f0b4aab9d4a4fa07788234abe4a6f2077a35d7a6f3357611d5",
         )
         self.assertEqual(
             self.rotation.LIFECYCLE_INSTRUMENT_SHA256,

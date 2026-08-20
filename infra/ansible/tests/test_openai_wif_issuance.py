@@ -30,19 +30,19 @@ CRASH_FIXTURE_PATH = (
     ROOT / "fixtures/checker-contracts/openai-crash-cleanup.json"
 )
 EXPECTED_ADAPTER_SHA256 = (
-    "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e"
+    "c53617ee45bb08f0b4aab9d4a4fa07788234abe4a6f2077a35d7a6f3357611d5"
 )
 EXPECTED_FIXTURE_SHA256 = (
-    "a70a8553fe1c74fa37976be4bedb069cd200147891e5c6d56a6beec72f761d55"
+    "a1963e0bfac56be44e47ccbe9fe233e1179a79ef7775b00ad43f7358dfaec970"
 )
 EXPECTED_EXPIRY_ADAPTER_SHA256 = (
-    "0308a6cf7a9b17e194c8856efd69fe94d2b62e7c0184bc2161af0996015f934f"
+    "44d7007ed7b9fe9468d163caf559b155eb62a40e063a553b087bc9931a6f54c8"
 )
 EXPECTED_CRASH_ADAPTER_SHA256 = (
-    "9a770c04b91593a304d97edf07f131cbb0c353c0551648537dc6b7dea9bc4cdf"
+    "db94f9c8bda879439c48adc1c8d26ea9af617eac5e1b5ec8a42878eb5ecda192"
 )
 EXPECTED_EXPIRY_FIXTURE_SHA256 = (
-    "5425e41f6cc278916ccc075091599acd8564323ba49ab4544b291af160328ad9"
+    "d02e68c63f988da1e149f1f7139c6d1c6a534715ce72728278e2aa57a865bac4"
 )
 EXPECTED_CRASH_FIXTURE_SHA256 = (
     "e082c544dfefc1725922032fc229d85e83e16cd6ec2711a92de16bfe38c40a49"
@@ -50,6 +50,10 @@ EXPECTED_CRASH_FIXTURE_SHA256 = (
 RUN_ID = "openai-wif-20260806-0123456789"
 EXPIRY_RUN_ID = "openai-expiry-20260807-0123456789"
 SIGNING_IDENTITIES_PATH = ROOT / "policy/signing-identities.json"
+IDENTITY_HISTORY_PATH = ROOT / "policy/openai-identity-history.json"
+REGISTRY_SERVICE_ACCOUNT = json.loads(IDENTITY_HISTORY_PATH.read_text())[
+    "current_service_account_id"
+]
 REGISTRY_KID = json.loads(SIGNING_IDENTITIES_PATH.read_text())["providers"][
     "openai"
 ]["trusted_kid"]
@@ -209,7 +213,12 @@ class OpenAIWifIssuanceAdapterContract(unittest.TestCase):
                 ADAPTER.registry_trusted_kid()
 
     def test_exchange_request_is_exact_and_never_adds_scope(self) -> None:
-        request = ADAPTER.exchange_request(self.policy, "synthetic-subject-token")
+        # A150: load_policy substitutes the registry's current id for the
+        # frozen policy's demoted issuance-era one, so the wire carries the
+        # live account. Reading the frozen file directly must not.
+        request = ADAPTER.exchange_request(
+            ADAPTER.load_policy(), "synthetic-subject-token"
+        )
         self.assertEqual(
             request,
             {
@@ -217,10 +226,35 @@ class OpenAIWifIssuanceAdapterContract(unittest.TestCase):
                 "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
                 "subject_token": "synthetic-subject-token",
                 "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
-                "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+                "service_account_id": REGISTRY_SERVICE_ACCOUNT,
             },
         )
         self.assertNotIn("scope", request)
+
+    def test_load_policy_substitutes_the_registry_service_account(self) -> None:
+        """A150: the frozen policy keeps the issuance-era id as a record; no
+        collector may mint against it once the account has been replaced."""
+        frozen = json.loads(POLICY_PATH.read_text())
+        self.assertNotEqual(
+            frozen["service_account"]["id"], REGISTRY_SERVICE_ACCOUNT
+        )
+        self.assertEqual(
+            frozen["rule"]["service_account_id"], frozen["service_account"]["id"]
+        )
+        resolved = ADAPTER.load_policy()
+        self.assertEqual(
+            resolved["service_account"]["id"], REGISTRY_SERVICE_ACCOUNT
+        )
+        self.assertEqual(
+            resolved["rule"]["service_account_id"], REGISTRY_SERVICE_ACCOUNT
+        )
+        # The roster must keep the issuance-era id, or the banked Results stop
+        # being checkable against a rostered identity.
+        roster = json.loads(IDENTITY_HISTORY_PATH.read_text())
+        self.assertIn(
+            frozen["service_account"]["id"],
+            [entry["id"] for entry in roster["service_accounts"]],
+        )
 
     def test_success_response_is_sanitized_without_pinning_success(self) -> None:
         synthetic_token = "eyJ" + "x" * 30 + "." + "y" * 30 + "." + "z" * 30

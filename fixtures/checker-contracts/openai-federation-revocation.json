@@ -30,12 +30,12 @@
       "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
       "requested_at": "2026-08-07T14:03:11.163451Z",
       "scope_supplied": false,
-      "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+      "service_account_id": "user-1UnalMTUg8XaoKcNDHpcsqZU",
       "subject_token_supplied": true,
       "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
     },
     "key_role": "active",
-    "lifecycle_instrument_sha256": "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e",
+    "lifecycle_instrument_sha256": "c53617ee45bb08f0b4aab9d4a4fa07788234abe4a6f2077a35d7a6f3357611d5",
     "receipt": {
       "access_token_supplied": true,
       "body_bytes": 0,
@@ -87,12 +87,12 @@
       "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
       "requested_at": "2026-08-07T14:06:13.359481Z",
       "scope_supplied": false,
-      "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+      "service_account_id": "user-1UnalMTUg8XaoKcNDHpcsqZU",
       "subject_token_supplied": true,
       "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
     },
     "key_role": "active",
-    "lifecycle_instrument_sha256": "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e",
+    "lifecycle_instrument_sha256": "c53617ee45bb08f0b4aab9d4a4fa07788234abe4a6f2077a35d7a6f3357611d5",
     "receipt": {
       "access_token_supplied": true,
       "body_bytes": 0,
@@ -140,12 +140,12 @@
       "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
       "requested_at": "2026-08-07T14:04:42.309685Z",
       "scope_supplied": false,
-      "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+      "service_account_id": "user-1UnalMTUg8XaoKcNDHpcsqZU",
       "subject_token_supplied": true,
       "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
     },
     "key_role": "active",
-    "lifecycle_instrument_sha256": "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e",
+    "lifecycle_instrument_sha256": "c53617ee45bb08f0b4aab9d4a4fa07788234abe4a6f2077a35d7a6f3357611d5",
     "receipt": {
       "access_token_supplied": false,
       "body_bytes": 0,
@@ -250,7 +250,7 @@
         "console_location": "https://platform.openai.com/settings/organization/workload-identity",
         "enabled": true,
         "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
-        "mapped_service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+        "mapped_service_account_id": "user-1UnalMTUg8XaoKcNDHpcsqZU",
         "mapping_present": true,
         "subject_mapping_expression": "sub == 'patchyard-control-plane' && factory_environment == 'production'",
         "uploaded_jwks_mode": true
@@ -272,7 +272,7 @@
         "console_location": "https://platform.openai.com/settings/organization/workload-identity",
         "enabled": true,
         "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
-        "mapped_service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+        "mapped_service_account_id": "user-1UnalMTUg8XaoKcNDHpcsqZU",
         "mapping_present": true,
         "subject_mapping_expression": "sub == 'patchyard-control-plane' && factory_environment == 'production'",
         "uploaded_jwks_mode": true
@@ -294,7 +294,7 @@
         "console_location": "https://platform.openai.com/settings/organization/workload-identity",
         "enabled": true,
         "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
-        "mapped_service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+        "mapped_service_account_id": "user-1UnalMTUg8XaoKcNDHpcsqZU",
         "mapping_present": true,
         "subject_mapping_expression": "sub=patchyard-control-plane-REVOKED-openai-revocation-20260807-0123456789",
         "uploaded_jwks_mode": true
@@ -316,7 +316,7 @@
         "console_location": "https://platform.openai.com/settings/organization/workload-identity",
         "enabled": true,
         "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
-        "mapped_service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+        "mapped_service_account_id": "user-1UnalMTUg8XaoKcNDHpcsqZU",
         "mapping_present": true,
         "subject_mapping_expression": "sub=patchyard-control-plane-REVOKED-openai-revocation-20260807-0123456789",
         "uploaded_jwks_mode": true
@@ -338,7 +338,7 @@
         "console_location": "https://platform.openai.com/settings/organization/workload-identity",
         "enabled": true,
         "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
-        "mapped_service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+        "mapped_service_account_id": "user-1UnalMTUg8XaoKcNDHpcsqZU",
         "mapping_present": true,
         "subject_mapping_expression": "sub == 'patchyard-control-plane' && factory_environment == 'production'",
         "uploaded_jwks_mode": true
@@ -366,7 +366,7 @@
     "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
     "checker_sha256": "9e1fdc60ee3c4240e1c30385f4a092c29b8d58b4ab2dfd8a55c19a42ed8439d8",
     "collector_sha256": "7ba44eb3151e1eb61e9ae42a48b2d0d34248e7c70ae108752168eeb4b9f0b079",
-    "lifecycle_instrument_sha256": "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e",
+    "lifecycle_instrument_sha256": "c53617ee45bb08f0b4aab9d4a4fa07788234abe4a6f2077a35d7a6f3357611d5",
     "policy_sha256": "87cf13bb136ed9a365bd14822a14d4808a6ef585ce1c278b926fa173d1152e5f"
   }
 }

@@ -13,8 +13,31 @@ unchanged provider's sole mapping pointing at it):
 | :-- | :-- | :-- |
 | Organization | `org-000000000000000000000000` | Example Company |
 | Project | `proj_4zpZhhPPNYCvPRE5vGuRBALH` | `patchyard` |
-| Service account | `user-6tzs2hdFVN7GoYQbWfC0eu7k` | `patchyard-worker` |
+| Service account | see the identity registry below | `patchyard-worker` |
 | Workload identity provider | `idp_DlzD7RlQXgXxd1VSG2V93eEU` | `patchyard` |
+
+**A150: the service-account id lives in `policy/openai-identity-history.json`,
+not here and not in `policy/openai-wif.json`.** The 2026-08-12 account
+`user-6tzs2hdFVN7GoYQbWfC0eu7k` ceased to exist without a recorded mutation
+sometime before 2026-08-18 and was replaced on 2026-08-20 by
+`user-1UnalMTUg8XaoKcNDHpcsqZU`, created explicitly in the factory project and
+verified at HTTP 200 by `GET /v1/organization/projects/{project}/service_accounts`
+before the mapping was bound to it. The registry names the current identity and
+keeps the historical one, on the A144 pattern; collectors and the requirement-2
+driver resolve the current id, and the checkers accept any id in the roster
+because the banked Results carry the historical one.
+
+`policy/openai-wif.json` still records `user-6tzs...` in `service_account.id`
+and `rule.service_account_id`. Those fields are **demoted by meaning** to "the
+account the banked issuance-era evidence was minted against" - exactly as A145
+demoted that file's `issuer.jwks_kid` - and no program reads them for the wire.
+The file is not edited because all five banked OpenAI Results pin its digest as
+`policy_sha256`.
+
+The only Administration API call that discriminates a live service account is
+the per-project `service_accounts` listing: `GET /v1/organization/users/{id}`
+returns 404 for healthy service accounts too, so a detector built on it would
+fire false every day of an account's healthy life.
 
 The operator reported that the service account has zero API keys, the project
 has a USD 50 monthly spend limit with whole-dollar granularity, and the
@@ -94,10 +117,13 @@ grant_type           urn:ietf:params:oauth:grant-type:token-exchange
 subject_token_type   urn:ietf:params:oauth:token-type:jwt
 subject_token        the in-memory signed assertion
 identity_provider_id idp_DlzD7RlQXgXxd1VSG2V93eEU
-service_account_id   user-6tzs2hdFVN7GoYQbWfC0eu7k
+service_account_id   current_service_account_id from the A150 identity registry
 ```
 
 No `scope` is sent because OpenAI says a request-body scope grants nothing.
+A `scope` may come back in the *response* whenever the mapping defines
+Permissions, so the requirement-2 driver records what arrives rather than
+asserting absence (A150 clause 6).
 Exchanged tokens cannot call Administration API endpoints. The adapter makes
 no subsequent API call and never writes the assertion, response body, or
 bearer.

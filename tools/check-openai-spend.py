@@ -30,6 +30,7 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parent.parent
 POLICY_PATH = REPO / "policy/openai-wif.json"
+IDENTITY_HISTORY_PATH = REPO / "policy/openai-identity-history.json"
 QUALIFICATION_POLICY_PATH = REPO / "policy/provider-qualification.json"
 EGRESS_POLICY_PATH = REPO / "policy/provider-egress.json"
 RESULT_PATH = REPO / "research/isolation/results/openai-spend-enforcement.json"
@@ -57,7 +58,12 @@ CAPTURE_METHOD = "operator_console_readback_bounded_by_control_plane_utc"
 SETTLING_FLOOR_SECONDS = 90
 ORGANIZATION_ID = "org-000000000000000000000000"
 PROJECT_ID = "proj_4zpZhhPPNYCvPRE5vGuRBALH"
-SERVICE_ACCOUNT_ID = "user-6tzs2hdFVN7GoYQbWfC0eu7k"
+# A150: the id policy/openai-wif.json still names. Demoted by meaning to the
+# account the banked Results were minted against; the live id is resolved from
+# policy/openai-identity-history.json. The frozen policy is not edited because
+# every banked OpenAI Result pins its digest as policy_sha256.
+ISSUANCE_ERA_SERVICE_ACCOUNT_ID = "user-6tzs2hdFVN7GoYQbWfC0eu7k"
+UNSCOPED_SENTINEL = "unscoped"
 ISSUER_ID = "idp_DlzD7RlQXgXxd1VSG2V93eEU"
 ROUTE_AUTHORIZATION_SOURCE = "route authorization"
 ROUTE_AUTHORIZATION_RULING = "A148"
@@ -156,7 +162,12 @@ REQUIRED_RUNNER_CLAUSES = (
     "SIGNING_KEY=/etc/patchyard/openai-wif-signing.pem",
     "grant_type:\"urn:ietf:params:oauth:grant-type:token-exchange\"",
     "subject_token_type:\"urn:ietf:params:oauth:token-type:jwt\"",
-    "scope:\"unscoped\"",
+    # A150: the driver must READ the scope the provider returned rather than
+    # assert one, and must resolve the service-account id from the identity
+    # registry rather than from the frozen policy's demoted field.
+    "OBSERVED_SCOPE=$(jq -r '.scope // \"unscoped\"' \"$RUN_TEMP/exchange-response.json\")",
+    "SERVICE_ACCOUNT_ID=$(jq -r .current_service_account_id \"$IDENTITY_HISTORY\")",
+    'IDENTITY_HISTORY="$CHECKOUT_ROOT/policy/openai-identity-history.json"',
     ".providers.openai.trusted_kid == $kid",
     "sudo /usr/local/sbin/patchyard-provider-run",
     "/usr/local/libexec/patchyard-openai-one-shot",
@@ -308,8 +319,33 @@ def contains_forbidden_ceiling(value: Any) -> bool:
     return False
 
 
+def roster_service_account_ids(errors: list[str]) -> frozenset[str]:
+    """A150: the requirement-2 capability carries whichever service account
+    the identity registry made current at run time, so a recorded id is
+    validated by roster membership rather than by equality with the frozen
+    policy's demoted issuance-era id."""
+    try:
+        registry = json.loads(IDENTITY_HISTORY_PATH.read_text())
+        identifiers = frozenset(
+            entry["id"] for entry in registry["service_accounts"]
+        )
+        current = registry["current_service_account_id"]
+        project = registry["project_id"]
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
+        errors.append(f"cannot read the OpenAI identity registry: {error}")
+        return frozenset()
+    if project != PROJECT_ID:
+        errors.append("OpenAI identity registry names another project")
+    if current not in identifiers:
+        errors.append("OpenAI identity registry current id is not in its roster")
+    if ISSUANCE_ERA_SERVICE_ACCOUNT_ID not in identifiers:
+        errors.append("OpenAI identity registry lacks the issuance-era id")
+    return identifiers
+
+
 def static_errors() -> tuple[list[str], dict[str, Any]]:
     errors = isolation_errors()
+    roster_service_account_ids(errors)
     try:
         policy = json.loads(POLICY_PATH.read_text())
     except (OSError, json.JSONDecodeError) as error:
@@ -318,7 +354,11 @@ def static_errors() -> tuple[list[str], dict[str, Any]]:
     for path, expected, label in (
         (("organization", "id"), ORGANIZATION_ID, "organization"),
         (("project", "id"), PROJECT_ID, "project"),
-        (("service_account", "id"), SERVICE_ACCOUNT_ID, "service account"),
+        (
+            ("service_account", "id"),
+            ISSUANCE_ERA_SERVICE_ACCOUNT_ID,
+            "issuance-era service account",
+        ),
         (("issuer", "id"), ISSUER_ID, "issuer"),
         (
             ("spend_enforcement", "authorization_ruling"),
@@ -460,11 +500,17 @@ def validate_phase(
     window: tuple[datetime, datetime] | None = None
     issued: datetime | None = None
     expires: datetime | None = None
+    # A150: the id is validated by roster membership, not by equality with the
+    # frozen policy's demoted issuance-era id. `scope` stays pinned to the
+    # sentinel because it records an ABSENT scope, which is what the frozen
+    # one-shot contract and the qualification-policy pattern still require -
+    # not because the exchange is claimed to grant none. A run that observes a
+    # real scope must fail here and take its own decision.
     if not isinstance(issuance, dict) or (
         issuance.get("workspace_id") != PROJECT_ID
-        or issuance.get("service_account_id") != SERVICE_ACCOUNT_ID
+        or issuance.get("service_account_id") not in roster_service_account_ids(errors)
         or issuance.get("rule_id") != ISSUER_ID
-        or issuance.get("scope") != "unscoped"
+        or issuance.get("scope") != UNSCOPED_SENTINEL
         or issuance.get("token_type") != "Bearer"
     ):
         errors.append(f"A132 {phase} principal differs from policy")
@@ -580,7 +626,7 @@ def validate_result(
         or result.get("authorization_ruling") != "A132"
         or result.get("organization_id") != ORGANIZATION_ID
         or result.get("project_id") != PROJECT_ID
-        or result.get("service_account_id") != SERVICE_ACCOUNT_ID
+        or result.get("service_account_id") not in roster_service_account_ids(errors)
     ):
         errors.append("A132 live result identity differs from policy")
     if result.get("refusal_predicate") != {

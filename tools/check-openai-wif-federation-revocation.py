@@ -16,6 +16,12 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parent.parent
 POLICY_PATH = REPO / "policy/openai-wif.json"
+IDENTITY_HISTORY_PATH = REPO / "policy/openai-identity-history.json"
+# A150: the id policy/openai-wif.json still names. Demoted by meaning to the
+# account the banked Results were minted against; the live id is resolved from
+# the identity registry. The frozen policy is not edited because every banked
+# OpenAI Result pins its digest as policy_sha256.
+ISSUANCE_ERA_SERVICE_ACCOUNT_ID = "user-6tzs2hdFVN7GoYQbWfC0eu7k"
 BASE_HARNESS_PATH = REPO / "tools/anthropic-wif-lifecycle.py"
 LIFECYCLE_INSTRUMENT_PATH = REPO / "tools/openai-wif-issuance.py"
 COLLECTOR_PATH = REPO / "tools/openai-wif-federation-revocation.py"
@@ -26,12 +32,15 @@ BASE_HARNESS_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
 )
 LIFECYCLE_INSTRUMENT_SHA256 = (
-    "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e"
+    "c53617ee45bb08f0b4aab9d4a4fa07788234abe4a6f2077a35d7a6f3357611d5"
 )
 # A149 completed the two deferred fields on the banked Result without touching
 # its Receipts or its `source` block, so the digests that block names are the
 # pre-A149 collector and checker. They stay acceptable here, exactly as A144
 # taught this family to carry historical bindings.
+# A150 moved the service-account id out of the lifecycle instrument's inline
+# constant and into the identity registry, so the instrument digest this
+# Result names is now historical too.
 SUPERSEDES_SOURCE_SHA256 = {
     "tools/openai-wif-federation-revocation.py": (
         "7ba44eb3151e1eb61e9ae42a48b2d0d34248e7c70ae108752168eeb4b9f0b079",
@@ -39,7 +48,14 @@ SUPERSEDES_SOURCE_SHA256 = {
     "tools/check-openai-wif-federation-revocation.py": (
         "9e1fdc60ee3c4240e1c30385f4a092c29b8d58b4ab2dfd8a55c19a42ed8439d8",
     ),
+    "tools/openai-wif-issuance.py": (
+        "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e",
+    ),
 }
+ACCEPTED_LIFECYCLE_INSTRUMENT_SHA256 = frozenset(
+    (LIFECYCLE_INSTRUMENT_SHA256,)
+    + SUPERSEDES_SOURCE_SHA256["tools/openai-wif-issuance.py"]
+)
 RUN_ID = re.compile(r"openai-revocation-[0-9]{8}-[0-9a-f]{10}")
 PAIRING = re.compile(
     r"[a-z0-9][a-z0-9.+_-]*/[a-z0-9][a-z0-9.+_-]*/"
@@ -300,6 +316,33 @@ def load_json_file(path: Path) -> Any:
     )
 
 
+def roster_service_account_ids(errors: list[str]) -> frozenset[str]:
+    """A150: the banked Results were minted against the issuance-era service
+    account and later runs are minted against the current one, so a recorded
+    id is validated by membership in policy/openai-identity-history.json
+    rather than by equality with the frozen policy's demoted id."""
+    try:
+        registry = load_json_file(IDENTITY_HISTORY_PATH)
+        identifiers = frozenset(
+            entry["id"] for entry in registry["service_accounts"]
+        )
+        current = registry["current_service_account_id"]
+    except (
+        OSError,
+        KeyError,
+        TypeError,
+        json.JSONDecodeError,
+        EvidenceJsonError,
+    ) as error:
+        errors.append(f"cannot read the OpenAI identity registry: {error}")
+        return frozenset()
+    if current not in identifiers:
+        errors.append("OpenAI identity registry current id is not in its roster")
+    if ISSUANCE_ERA_SERVICE_ACCOUNT_ID not in identifiers:
+        errors.append("OpenAI identity registry lacks the issuance-era id")
+    return identifiers
+
+
 def is_within(path: Path, parent: Path) -> bool:
     try:
         path.relative_to(parent)
@@ -399,7 +442,7 @@ def policy_fields(policy: Any, errors: list[str]) -> dict[str, Any]:
         "issuer_url": "https://factory.example.com/workload-identity",
         "audience": "https://api.openai.com",
         "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
-        "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+        "service_account_id": ISSUANCE_ERA_SERVICE_ACCOUNT_ID,
         "subject": "patchyard-control-plane",
         "maximum_lifetime": 300,
         "factory_environment": "production",
@@ -528,7 +571,9 @@ def validate_exchange(
         errors.append(f"{label} did not use the active key role")
     if not valid_int(value.get("attempt_count")) or value.get("attempt_count") != 1:
         errors.append(f"{label} was not exactly one attempt")
-    if value.get("lifecycle_instrument_sha256") != LIFECYCLE_INSTRUMENT_SHA256:
+    # A150: the banked Result's exchanges name the pre-registry instrument, so
+    # the superseded digest is accepted here exactly as it is in `source`.
+    if value.get("lifecycle_instrument_sha256") not in ACCEPTED_LIFECYCLE_INSTRUMENT_SHA256:
         errors.append(f"{label} lifecycle instrument differs")
     started = parse_time(value.get("started_at"), f"{label} started_at", errors)
     assertion = value.get("assertion_descriptor")
@@ -567,12 +612,15 @@ def validate_exchange(
             "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
             "subject_token_supplied": True,
             "identity_provider_id": policy.get("identity_provider_id"),
-            "service_account_id": policy.get("service_account_id"),
             "scope_supplied": False,
         }
         for field, expected in expected_request.items():
             if not same_json_value(request.get(field), expected):
                 errors.append(f"{label} request {field} differs")
+        # A150: roster membership, not equality with the frozen policy's
+        # demoted id.
+        if request.get("service_account_id") not in roster_service_account_ids(errors):
+            errors.append(f"{label} request service_account_id is not rostered")
         request_time = parse_time(
             request.get("requested_at"), f"{label} requested_at", errors
         )
@@ -659,7 +707,8 @@ def validate_source(value: Any, errors: list[str]) -> None:
     accepted = {
         "policy_sha256": {digest(POLICY_PATH)},
         "base_harness_sha256": {digest(BASE_HARNESS_PATH)},
-        "lifecycle_instrument_sha256": {digest(LIFECYCLE_INSTRUMENT_PATH)},
+        "lifecycle_instrument_sha256": {digest(LIFECYCLE_INSTRUMENT_PATH)}
+        | set(SUPERSEDES_SOURCE_SHA256["tools/openai-wif-issuance.py"]),
         "collector_sha256": {digest(COLLECTOR_PATH)}
         | set(SUPERSEDES_SOURCE_SHA256["tools/openai-wif-federation-revocation.py"]),
         "checker_sha256": {digest(Path(__file__).resolve())}
@@ -1102,7 +1151,7 @@ def validate_common(
         and first_state.get("enabled") is True
         and first_state.get("uploaded_jwks_mode") is True
         and first_state.get("mapped_service_account_id")
-        == policy.get("service_account_id")
+        in roster_service_account_ids(errors)
         and bool(first_state.get("subject_mapping_expression"))
         and REVOCATION_SENTINEL_MARKER not in str(
             first_state.get("subject_mapping_expression") or ""
@@ -1147,7 +1196,8 @@ def validate_common(
         state = observation.get("state") or {}
         if state and (
             state.get("identity_provider_id") != policy.get("identity_provider_id")
-            or state.get("mapped_service_account_id") != policy.get("service_account_id")
+            or state.get("mapped_service_account_id")
+            not in roster_service_account_ids(errors)
             or state.get("uploaded_jwks_mode") is not True
         ):
             errors.append("console reading drifted from the provider or JWKS binding")
@@ -1295,6 +1345,10 @@ def validate_qualification_evidence(result: Any, policy: dict[str, Any]) -> list
 
 def static_errors() -> tuple[list[str], dict[str, Any]]:
     errors = isolation_errors()
+    # A150: the identity registry is gated on every CI cycle, not only when
+    # a Result is present, so a roster that lost its current or issuance-era
+    # entry fails closed here.
+    roster_service_account_ids(errors)
     try:
         policy = load_json_file(POLICY_PATH)
     except (OSError, json.JSONDecodeError, EvidenceJsonError) as error:

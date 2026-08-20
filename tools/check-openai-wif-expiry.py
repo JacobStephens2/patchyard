@@ -15,6 +15,12 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parent.parent
 POLICY_PATH = REPO / "policy/openai-wif.json"
+IDENTITY_HISTORY_PATH = REPO / "policy/openai-identity-history.json"
+# A150: the id policy/openai-wif.json still names. Demoted by meaning to the
+# account the banked Results were minted against; the live id is resolved from
+# the identity registry. The frozen policy is not edited because every banked
+# OpenAI Result pins its digest as policy_sha256.
+ISSUANCE_ERA_SERVICE_ACCOUNT_ID = "user-6tzs2hdFVN7GoYQbWfC0eu7k"
 BASE_HARNESS_PATH = REPO / "tools/anthropic-wif-lifecycle.py"
 EXPIRY_ADAPTER_PATH = REPO / "tools/openai-wif-expiry.py"
 RESULT_PATH = REPO / "research/isolation/results/openai-expiry-denial.json"
@@ -151,6 +157,33 @@ def load_json_file(path: Path) -> Any:
     )
 
 
+def roster_service_account_ids(errors: list[str]) -> frozenset[str]:
+    """A150: the banked Results were minted against the issuance-era service
+    account and later runs are minted against the current one, so a recorded
+    id is validated by membership in policy/openai-identity-history.json
+    rather than by equality with the frozen policy's demoted id."""
+    try:
+        registry = load_json_file(IDENTITY_HISTORY_PATH)
+        identifiers = frozenset(
+            entry["id"] for entry in registry["service_accounts"]
+        )
+        current = registry["current_service_account_id"]
+    except (
+        OSError,
+        KeyError,
+        TypeError,
+        json.JSONDecodeError,
+        EvidenceJsonError,
+    ) as error:
+        errors.append(f"cannot read the OpenAI identity registry: {error}")
+        return frozenset()
+    if current not in identifiers:
+        errors.append("OpenAI identity registry current id is not in its roster")
+    if ISSUANCE_ERA_SERVICE_ACCOUNT_ID not in identifiers:
+        errors.append("OpenAI identity registry lacks the issuance-era id")
+    return identifiers
+
+
 def is_within(path: Path, parent: Path) -> bool:
     try:
         path.relative_to(parent)
@@ -238,7 +271,7 @@ def policy_fields(policy: Any, errors: list[str]) -> dict[str, Any]:
         "issuer_url": "https://factory.example.com/workload-identity",
         "audience": "https://api.openai.com",
         "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
-        "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+        "service_account_id": ISSUANCE_ERA_SERVICE_ACCOUNT_ID,
         "subject": "patchyard-control-plane",
         "maximum_lifetime": 300,
         "factory_environment": "production",
@@ -297,10 +330,16 @@ def validate_request(
         "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
         "subject_token_supplied": True,
         "identity_provider_id": policy.get("identity_provider_id"),
-        "service_account_id": policy.get("service_account_id"),
         "scope_supplied": False,
         "attempt_count": 1,
     }
+    # A150: validated by roster membership, not by equality with the frozen
+    # policy's demoted id - the banked Result carries the issuance-era account
+    # and later runs carry the current one.
+    if value.get("service_account_id") not in roster_service_account_ids(errors):
+        errors.append(
+            "expiry exchange request service_account_id is not a rostered identity"
+        )
     for field, expected_value in expected.items():
         if value.get(field) != expected_value:
             errors.append(f"expiry exchange request {field} differs")
@@ -590,6 +629,10 @@ def validate_qualification_evidence(result: Any, policy: dict[str, Any]) -> list
 
 def static_errors() -> tuple[list[str], dict[str, Any]]:
     errors = isolation_errors()
+    # A150: the identity registry is gated on every CI cycle, not only when
+    # a Result is present, so a roster that lost its current or issuance-era
+    # entry fails closed here.
+    roster_service_account_ids(errors)
     try:
         policy = load_json_file(POLICY_PATH)
     except (OSError, json.JSONDecodeError, EvidenceJsonError) as error:

@@ -16,6 +16,12 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parent.parent
 POLICY_PATH = REPO / "policy/openai-wif.json"
+IDENTITY_HISTORY_PATH = REPO / "policy/openai-identity-history.json"
+# A150: the id policy/openai-wif.json still names. Demoted by meaning to the
+# account the banked Results were minted against; the live id is resolved from
+# the identity registry. The frozen policy is not edited because every banked
+# OpenAI Result pins its digest as policy_sha256.
+ISSUANCE_ERA_SERVICE_ACCOUNT_ID = "user-6tzs2hdFVN7GoYQbWfC0eu7k"
 BASE_HARNESS_PATH = REPO / "tools/anthropic-wif-lifecycle.py"
 LIFECYCLE_INSTRUMENT_PATH = REPO / "tools/openai-wif-issuance.py"
 ATTESTATION_DEFINITION_PATH = REPO / "tools/control-plane-attestation-v1.py"
@@ -27,7 +33,7 @@ BASE_HARNESS_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
 )
 LIFECYCLE_INSTRUMENT_SHA256 = (
-    "efbd1229f7a1042d564aacb1c706fb916468d305c99f83989ea88c33b742ee0e"
+    "c53617ee45bb08f0b4aab9d4a4fa07788234abe4a6f2077a35d7a6f3357611d5"
 )
 ATTESTATION_DEFINITION_SHA256 = "0d32e80b980c334977e51eb706783896a687d29faef46d50e53f3ee56e8e4d47"
 # A144: the signing-identity split re-pointed the collector's key path (and the
@@ -224,6 +230,33 @@ def load_json_file(path: Path) -> Any:
     )
 
 
+def roster_service_account_ids(errors: list[str]) -> frozenset[str]:
+    """A150: the banked Results were minted against the issuance-era service
+    account and later runs are minted against the current one, so a recorded
+    id is validated by membership in policy/openai-identity-history.json
+    rather than by equality with the frozen policy's demoted id."""
+    try:
+        registry = load_json_file(IDENTITY_HISTORY_PATH)
+        identifiers = frozenset(
+            entry["id"] for entry in registry["service_accounts"]
+        )
+        current = registry["current_service_account_id"]
+    except (
+        OSError,
+        KeyError,
+        TypeError,
+        json.JSONDecodeError,
+        EvidenceJsonError,
+    ) as error:
+        errors.append(f"cannot read the OpenAI identity registry: {error}")
+        return frozenset()
+    if current not in identifiers:
+        errors.append("OpenAI identity registry current id is not in its roster")
+    if ISSUANCE_ERA_SERVICE_ACCOUNT_ID not in identifiers:
+        errors.append("OpenAI identity registry lacks the issuance-era id")
+    return identifiers
+
+
 def is_within(path: Path, parent: Path) -> bool:
     try:
         path.relative_to(parent)
@@ -346,7 +379,7 @@ def policy_fields(policy: Any, errors: list[str]) -> dict[str, Any]:
         "issuer_url": "https://factory.example.com/workload-identity",
         "audience": "https://api.openai.com",
         "identity_provider_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
-        "service_account_id": "user-6tzs2hdFVN7GoYQbWfC0eu7k",
+        "service_account_id": ISSUANCE_ERA_SERVICE_ACCOUNT_ID,
         "subject": "patchyard-control-plane",
         "maximum_lifetime": 300,
         "factory_environment": "production",
@@ -522,12 +555,15 @@ def validate_exchange(
             "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
             "subject_token_supplied": True,
             "identity_provider_id": policy.get("identity_provider_id"),
-            "service_account_id": policy.get("service_account_id"),
             "scope_supplied": False,
         }
         for field, expected in expected_request.items():
             if not same_json_value(request.get(field), expected):
                 errors.append(f"{label} request {field} differs")
+        # A150: roster membership, not equality with the frozen policy's
+        # demoted id.
+        if request.get("service_account_id") not in roster_service_account_ids(errors):
+            errors.append(f"{label} request service_account_id is not rostered")
         request_time = parse_time(
             request.get("requested_at"), f"{label} requested_at", errors
         )
@@ -604,8 +640,8 @@ def validate_rotation_state(
         errors.append(f"{label} is not uploaded-JWKS mode")
     if value.get("subject_mapping_enabled") is not True:
         errors.append(f"{label} subject mapping is not enabled")
-    if value.get("mapped_service_account_id") != policy.get("service_account_id"):
-        errors.append(f"{label} maps another service account")
+    if value.get("mapped_service_account_id") not in roster_service_account_ids(errors):
+        errors.append(f"{label} maps an unrostered service account")
     for field in ("subject_mapping_expression", "console_location"):
         item = value.get(field)
         if not bounded_console_text(item):
@@ -1093,6 +1129,10 @@ def validate_qualification_evidence(
 
 def static_errors() -> tuple[list[str], dict[str, Any], types.ModuleType | None]:
     errors = isolation_errors()
+    # A150: the identity registry is gated on every CI cycle, not only when
+    # a Result is present, so a roster that lost its current or issuance-era
+    # entry fails closed here.
+    roster_service_account_ids(errors)
     attestation = load_attestation_definition(errors) if not errors else None
     try:
         policy = load_json_file(POLICY_PATH)

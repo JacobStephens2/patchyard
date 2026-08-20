@@ -25,6 +25,7 @@ CHECKOUT_ROOT=/opt/patchyard
 CONFIG="$CHECKOUT_ROOT/policy/openai-wif.json"
 QUALIFICATION_POLICY="$CHECKOUT_ROOT/policy/provider-qualification.json"
 SIGNING_IDENTITIES="$CHECKOUT_ROOT/policy/signing-identities.json"
+IDENTITY_HISTORY="$CHECKOUT_ROOT/policy/openai-identity-history.json"
 SIGNING_KEY=/etc/patchyard/openai-wif-signing.pem
 # The worker fleet has a single address; the host-resident file predates the
 # second provider and keeps its original name.
@@ -45,17 +46,21 @@ derived_kid() {
 [[ -f "$CONFIG" && ! -L "$CONFIG" && -f "$SIGNING_KEY" && ! -L "$SIGNING_KEY" ]]
 [[ -f "$QUALIFICATION_POLICY" && ! -L "$QUALIFICATION_POLICY" ]]
 [[ -f "$SIGNING_IDENTITIES" && ! -L "$SIGNING_IDENTITIES" ]]
+[[ -f "$IDENTITY_HISTORY" && ! -L "$IDENTITY_HISTORY" ]]
 [[ "$(stat -c '%U:%G:%a' "$SIGNING_KEY")" == root:root:400 ]]
 # Identity binding. issuer.jwks_kid is deliberately not compared here: the
 # console trusts the requirement-5 replacement key while the frozen policy
 # still records the pre-rotation kid, and reconciling them is its own decision.
 # The kid this driver signs with derives from the key and must match the A144
 # per-provider signing-identity record instead.
+# A150: service_account.id is likewise not compared here. The mapped account
+# was replaced on 2026-08-20 and the frozen policy still records the account
+# the banked Results were minted against; the id this driver sends resolves
+# from the A150 identity registry below.
 jq -e '
   .schema_version == 1 and .provider == "openai"
   and .organization.id == "org-000000000000000000000000"
   and .project.id == "proj_4zpZhhPPNYCvPRE5vGuRBALH"
-  and .service_account.id == "user-6tzs2hdFVN7GoYQbWfC0eu7k"
   and .spend_enforcement.authorization_ruling == "A132"
   and .issuer.id == "idp_DlzD7RlQXgXxd1VSG2V93eEU"
   and .issuer.issuer_url == "https://factory.example.com/workload-identity"
@@ -69,6 +74,19 @@ jq -e --arg path "$SIGNING_KEY" --arg kid "$(derived_kid)" '
   .providers.openai.signing_key_path == $path
   and .providers.openai.trusted_kid == $kid
 ' "$SIGNING_IDENTITIES" >/dev/null
+# A150: the identity registry is the steady-state service-account authority.
+# It must name this project, carry a single current entry, and still carry the
+# frozen policy's issuance-era id so the two files cannot drift apart.
+jq -e --arg project "$(jq -r .project.id "$CONFIG")" \
+  --arg frozen "$(jq -r .service_account.id "$CONFIG")" '
+  .schema_version == 1 and .provider == "openai"
+  and .project_id == $project
+  and (.current_service_account_id | test("^user-[A-Za-z0-9]{16,48}$"))
+  and ([.service_accounts[].id] | index($frozen)) != null
+  and ([.service_accounts[] | select(.status == "current") | .id])
+    == [.current_service_account_id]
+' "$IDENTITY_HISTORY" >/dev/null
+SERVICE_ACCOUNT_ID=$(jq -r .current_service_account_id "$IDENTITY_HISTORY")
 jq -e '
   .schema_version == 1
   and .providers.openai.authorization_ruling == "A132"
@@ -241,7 +259,7 @@ printf '%s' "$ASSERTION" >"$RUN_TEMP/assertion.jwt"
 jq -n \
   --rawfile assertion "$RUN_TEMP/assertion.jwt" \
   --arg identity_provider_id "$(jq -r .issuer.id "$CONFIG")" \
-  --arg service_account_id "$(jq -r .service_account.id "$CONFIG")" \
+  --arg service_account_id "$SERVICE_ACCOUNT_ID" \
   '{grant_type:"urn:ietf:params:oauth:grant-type:token-exchange",
     subject_token_type:"urn:ietf:params:oauth:token-type:jwt",
     subject_token:$assertion,$identity_provider_id,$service_account_id}' \
@@ -285,6 +303,15 @@ ACCESS_TOKEN_NEEDLE="$RUN_TEMP/access-token.needle"
 jq -jr .access_token "$RUN_TEMP/exchange-response.json" >"$ACCESS_TOKEN_NEEDLE"
 [[ "$(stat -c '%U:%G:%a' "$ACCESS_TOKEN_NEEDLE")" == root:root:600 ]]
 EXPIRES_IN=$(jq -r .expires_in "$RUN_TEMP/exchange-response.json")
+# A150: read the scope the provider actually returned. OpenAI returns one only
+# when the mapping defines Permissions; when it is absent the "unscoped"
+# sentinel records that absence, which is what the frozen one-shot contract
+# and the qualification policy pattern both require today.
+OBSERVED_SCOPE=$(jq -r '.scope // "unscoped"' "$RUN_TEMP/exchange-response.json")
+if [[ ! "$OBSERVED_SCOPE" =~ ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$ ]]; then
+  echo 'openai_exchange_invalid scope=malformed' >&2
+  exit 1
+fi
 SERVER_DATE=$(awk 'tolower($1) == "date:" {sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' \
   "$RUN_TEMP/exchange-headers")
 ISSUED_EPOCH=$(date -u -d "$SERVER_DATE" +%s)
@@ -292,16 +319,21 @@ EXPIRES_EPOCH=$((ISSUED_EPOCH + EXPIRES_IN))
 ISSUED_AT=$(date -u -d "@$ISSUED_EPOCH" +%Y-%m-%dT%H:%M:%SZ)
 EXPIRES_AT=$(date -u -d "@$EXPIRES_EPOCH" +%Y-%m-%dT%H:%M:%SZ)
 
-# The exchange grants no scope; "unscoped" is the recorded sentinel the policy
-# patterns and the one-shot client both require. rule_id carries the identity
-# provider and workspace_id the project, the two ids the OpenAI surface maps
-# onto the capability's provider-neutral field names.
+# A150: scope is recorded as OBSERVED, never asserted. The exchange returns a
+# scope whenever the mapping defines Permissions (issue #264), so the former
+# hard-coded "unscoped" was a general claim this code never observed - the
+# exact class of false assertion that hid the dead-identity failure. Absent
+# stays absent: the sentinel is written only when the response omits scope.
+# rule_id carries the identity provider and workspace_id the project, the two
+# ids the OpenAI surface maps onto the capability's provider-neutral field
+# names.
 jq -n \
   --slurpfile exchange "$RUN_TEMP/exchange-response.json" \
   --arg issued_at "$ISSUED_AT" --arg expires_at "$EXPIRES_AT" \
   --arg exchange_request_id "$EXCHANGE_REQUEST_ID" \
   --arg capability_id "$JTI" \
-  --arg service_account_id "$(jq -r .service_account.id "$CONFIG")" \
+  --arg service_account_id "$SERVICE_ACCOUNT_ID" \
+  --arg scope "$OBSERVED_SCOPE" \
   --arg rule_id "$(jq -r .issuer.id "$CONFIG")" \
   --arg workspace_id "$(jq -r .project.id "$CONFIG")" \
   --arg qualification_requirement "$QUALIFICATION_REQUIREMENT" \
@@ -311,7 +343,7 @@ jq -n \
   '{schema_version:1,provider:"openai",$qualification_requirement,
     $qualification_phase,$authorization_ruling,$capability_id,
     secret:$exchange[0].access_token,$spend_cap_cents,$issued_at,$expires_at,
-    token_type:$exchange[0].token_type,scope:"unscoped",
+    token_type:$exchange[0].token_type,$scope,
     expires_in:$exchange[0].expires_in,$exchange_request_id,
     $service_account_id,$rule_id,$workspace_id}' >"$RUN_TEMP/capability.json"
 
@@ -417,6 +449,7 @@ EVIDENCE_VALIDATION_ARGS=(
   --arg issued_at "$ISSUED_AT"
   --arg expires_at "$EXPIRES_AT"
   --arg exchange_request_id "$EXCHANGE_REQUEST_ID"
+  --arg scope "$OBSERVED_SCOPE"
   --arg host_contract_sha256 "$HOST_CONTRACT_SHA256"
   --arg qualification_policy_sha256 "$QUALIFICATION_POLICY_SHA256"
   --arg transport_sha256 "$TRANSPORT_SOURCE_SHA256"
@@ -464,7 +497,7 @@ validate_evidence_clause credential_removed_before_output \
 validate_evidence_clause issuance '
   .issuance == {issued_at:$issued_at,expires_at:$expires_at,
     expires_in:(.issuance.expires_in),exchange_request_id:$exchange_request_id,
-    token_type:"Bearer",scope:"unscoped",
+    token_type:"Bearer",$scope,
     service_account_id:(.issuance.service_account_id),
     rule_id:(.issuance.rule_id),workspace_id:(.issuance.workspace_id)}
   and (.issuance.expires_in | type == "number" and . >= 60 and . <= 300)

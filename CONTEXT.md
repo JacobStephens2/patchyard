@@ -100,6 +100,12 @@ bound by its effects. Residency is not the test - `pins.env` and the
 `*-packages.txt` files are host-side descriptors.
 _Avoid_: host file, build script, guest file
 
+**Identity liveness**:
+The mapped principal still resolves in the provider's per-project
+service-account listing. Not implied by a successful token exchange, and not
+established by any console or organization-level view.
+_Avoid_: valid, active, working, authenticated
+
 **Signing identity**:
 The key pair one provider's issuer trusts to sign assertions, together with the
 control-plane path holding its private half. One per provider - two providers on

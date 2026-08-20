@@ -19,10 +19,77 @@ it checked is the 2026-08-12 trap. And OpenAI's token exchange returns **200 for
 a service account that no longer exists**, so exchange success is not evidence
 that the federated identity is live.
 
+## A151: what an OpenAI exchange Result establishes
+
+A150's finding is this section's premise: OpenAI's token exchange returns **200
+for a service account that no longer exists**. What follows is what that does,
+and does not do, to the evidence already banked on this page.
+
+**Exchange success is evidence about the token endpoint, never about the
+principal behind it.** The endpoint answers whether an assertion is trusted. It
+does not answer whether the mapped principal exists, belongs to a project, or
+can make a billable call.
+
+**All four banked OpenAI exchange Results are undisturbed**, and by one
+mechanism: the dead account was a *constant*, not a variable, in every arm of
+every one of them. Requirement 4's bracket is 200 (baseline `sub`) / 401
+(sentinel `sub`) / 200 (restored `sub`) with the same dead `service_account_id`
+on all three arms - only the subject expression moved, and the endpoint tracked
+it. Requirement 3 (expired assertion) and requirement 5 (retired kid, with its
+overlap positive control) have the same shape: a mutated input against a
+constant account. Requirement 6 needs no argument, because A130 already bounds
+it to local non-recoverability. The live-window argument - that requirements
+1/3/5 ran on 2026-08-12/13 while the console read the account live - was
+available and is **rejected**: it would re-lean on exactly the class of
+evidence that failed here, and only the per-project `service_accounts` listing
+discriminates liveness.
+
+**Requirement 4 stays Proven, on the narrow reading.** It claims that
+revocation is observable at the token endpoint - the mapping's `sub` condition
+controls issuance. It does **not** claim that revocation removes the identity's
+ability to act. A149 clause 2 refused to let the 401 speak to *cause*; A151
+supplies the symmetric refusal on the other end: **the bracket's two 200s prove
+issuance, not capability.** Said plainly, because it is thinner than the
+requirement's name suggests - and thinner for Anthropic's analogue too, where
+it went unnoticed only because that requirement 1 calls `/v1/models`.
+
+**Requirement 1's meaning narrows, and its Result is not re-produced.**
+`openai-first-token-exchange.json` stays byte-identical. Requirement 1 proves
+the issuance-and-delivery **path** - mint, exchange, bearer in hand, removal at
+`credential_removed_at` - and explicitly **not** that the bearer authorizes
+anything. OpenAI requirement 1 is exchange-only and has never called
+`/v1/models`; that clause is Anthropic's. The Result's own fields never
+overclaimed (`qualification_evidence: false`,
+`response_predicate.enforced: false`) - this page did, and that is what is
+corrected here.
+
+**Every OpenAI qualification run preflights the service-account listing.**
+Before a run produces a Result, assert that the mapped `service_account_id`
+resolves in `GET /v1/organization/projects/{project}/service_accounts` at HTTP
+200, and record the observation - account id, project, HTTP status, timestamp -
+in the Result, in the shape `model_console_observations` already takes. The
+preflight is called **out of band**, never from inside a collector: the
+collectors build a `credential_free_env()` that pops `OPENAI_ADMIN_KEY`,
+`PATCHYARD_OPENAI_ADMIN_KEY` and `OPENAI_API_KEY` before exchanging, and a
+preflight inside one would need the exact key the collector exists to prove it
+never held. The observation is therefore operator-supplied and must never be
+described as provider-attested. This obligation is forward-only: the four
+banked Results are cleared by the argument above and are not reopened.
+
+**Requirement 2 is now the only capability evidence this provider will ever
+have.** Every other OpenAI requirement is a control-plane observation. It is
+load-bearing and cannot be waived, downgraded, or satisfied by an exchange.
+
+Scope: this ruling covers OpenAI's console-only WIF surface and is explicitly
+not generalized to Anthropic, whose requirement 1 exercises the minted
+credential against `/v1/models` and whose lifecycle mutations carry provider
+request IDs. That exemption is earned by those two facts, and evaporates for
+any future provider that is console-only.
+
 ## Status and scope
 
 OpenAI requirement 1, issuance and delivery, is Proven by the committed Result
-from the attended 2026-08-06 exchange. This change does not run a provider
+from the attended 2026-08-12 exchange. This change does not run a provider
 call, does not create a Result, and does not make any other Requirement Proven.
 OpenAI is not Qualified, and all 13 `credential_qualified` values remain
 `false`.

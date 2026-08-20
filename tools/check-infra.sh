@@ -63,6 +63,9 @@ run_gate shellcheck --exclude=SC2329 --shell=bash \
 run_gate python3 -I "$REPO_ROOT/tools/check-credential-qualification.py"
 # A144 path-collision gate: no two providers may name one signing-key path.
 run_gate python3 -I "$REPO_ROOT/tools/check-signing-identities.py"
+# A150 registry contract: one current OpenAI service account, one project,
+# and no id promoted to current without a primary-source verification.
+run_gate python3 -I "$REPO_ROOT/tools/check-openai-identity-liveness.py"
 run_gate python3 -I "$REPO_ROOT/tools/check-stack.py"
 run_gate python3 -I "$REPO_ROOT/tools/check-independence.py"
 run_gate python3 -I "$REPO_ROOT/tools/check-worker-runtime.py"

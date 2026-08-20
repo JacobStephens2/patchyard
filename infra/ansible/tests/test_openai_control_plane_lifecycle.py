@@ -12,6 +12,7 @@ import tempfile
 import types
 import unittest
 from unittest import mock
+import urllib.error
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -1275,6 +1276,257 @@ class SpendRouteAuthorizationContract(unittest.TestCase):
                 }
             )
         self.assertIn("claims independence it cannot have", str(caught.exception))
+
+
+# ---------------------------------------------------------------------------
+# A150 OpenAI service-account liveness detector (issue #269).
+#
+# The failure it exists for: the mapped account ceased to exist between
+# 2026-08-12 and 2026-08-18 with no recorded mutation, the token exchange
+# returned 200 throughout, and the organization audit log holds zero events.
+# So the assertion must be the per-project Administration API listing, it must
+# fail closed, and it must never be satisfied by anything cheaper.
+# ---------------------------------------------------------------------------
+
+LIVENESS_DETECTOR_PATH = ROOT / "tools/check-openai-identity-liveness.py"
+IDENTITY_REGISTRY_PATH = ROOT / "policy/openai-identity-history.json"
+CONTROL_PLANE_TASKS_PATH = ROOT / "infra/ansible/roles/control_plane/tasks/main.yml"
+CONTROL_PLANE_FILES = ROOT / "infra/ansible/roles/control_plane/files"
+QUALIFY_TEMPLATE_PATH = (
+    ROOT / "infra/ansible/roles/control_plane/templates/qualify-factory-control.j2"
+)
+DETECTOR = load_source("check_openai_identity_liveness", LIVENESS_DETECTOR_PATH)
+
+PROJECT = "proj_4zpZhhPPNYCvPRE5vGuRBALH"
+CURRENT = "user-1UnalMTUg8XaoKcNDHpcsqZU"
+HISTORICAL = "user-6tzs2hdFVN7GoYQbWfC0eu7k"
+
+
+def registry(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "schema_version": 1,
+        "ruling": "A150",
+        "provider": "openai",
+        "project_id": PROJECT,
+        "current_service_account_id": CURRENT,
+        "service_accounts": [
+            {
+                "id": HISTORICAL,
+                "status": "historical",
+                "project_id": PROJECT,
+                "administration_api_verified": False,
+            },
+            {
+                "id": CURRENT,
+                "status": "current",
+                "project_id": PROJECT,
+                "administration_api_verified": True,
+            },
+        ],
+    }
+    base.update(overrides)
+    return base
+
+
+class RegistryContract(unittest.TestCase):
+    """The roster is the detector's only source for what to assert."""
+
+    def test_the_committed_registry_satisfies_the_contract(self) -> None:
+        loaded = DETECTOR.load_registry(IDENTITY_REGISTRY_PATH)
+        project, current = DETECTOR.validate_registry(loaded)
+        self.assertEqual(project, PROJECT)
+        self.assertEqual(current, CURRENT)
+
+    def test_two_current_entries_are_refused(self) -> None:
+        malformed = registry()
+        malformed["service_accounts"][0]["status"] = "current"
+        with self.assertRaisesRegex(
+            DETECTOR.IdentityRegistryError, "no single current entry"
+        ):
+            DETECTOR.validate_registry(malformed)
+
+    def test_an_unverified_current_account_is_refused(self) -> None:
+        """#267's whole lesson: the console said the old account was live and
+        it was not. Only the Administration API listing may promote an id."""
+        malformed = registry()
+        malformed["service_accounts"][1]["administration_api_verified"] = False
+        with self.assertRaisesRegex(
+            DETECTOR.IdentityRegistryError, "never verified"
+        ):
+            DETECTOR.validate_registry(malformed)
+
+    def test_a_repeated_id_is_refused(self) -> None:
+        malformed = registry()
+        malformed["service_accounts"][0]["id"] = CURRENT
+        with self.assertRaisesRegex(DETECTOR.IdentityRegistryError, "repeats"):
+            DETECTOR.validate_registry(malformed)
+
+    def test_an_entry_in_another_project_is_refused(self) -> None:
+        malformed = registry()
+        malformed["service_accounts"][0]["project_id"] = "proj_0000000000000000"
+        with self.assertRaisesRegex(
+            DETECTOR.IdentityRegistryError, "another project"
+        ):
+            DETECTOR.validate_registry(malformed)
+
+    def test_a_foreign_ruling_is_refused(self) -> None:
+        with mock.patch.object(
+            Path, "read_bytes", return_value=json.dumps(registry(ruling="A144")).encode()
+        ):
+            with self.assertRaisesRegex(DETECTOR.IdentityRegistryError, "A150"):
+                DETECTOR.load_registry(Path("registry.json"))
+
+
+class ListingContract(unittest.TestCase):
+    """The assertion is the per-project listing, read to exhaustion."""
+
+    @staticmethod
+    def page(ids: list[str], has_more: bool = False) -> bytes:
+        body: dict[str, object] = {
+            "object": "list",
+            "data": [{"id": i, "role": "member"} for i in ids],
+            "has_more": has_more,
+        }
+        if ids:
+            body["last_id"] = ids[-1]
+        return json.dumps(body).encode()
+
+    def urlopen(self, pages: list[bytes]) -> mock.MagicMock:
+        replies = []
+        for payload in pages:
+            reply = mock.MagicMock()
+            reply.status = 200
+            reply.read.return_value = payload
+            reply.__enter__.return_value = reply
+            replies.append(reply)
+        return mock.MagicMock(side_effect=replies)
+
+    def test_a_listed_account_is_live(self) -> None:
+        with mock.patch.object(
+            DETECTOR.urllib.request, "urlopen", self.urlopen([self.page([CURRENT])])
+        ):
+            live, detail = DETECTOR.assert_live(PROJECT, CURRENT, "sk-admin-testtesttest")
+        self.assertTrue(live)
+        self.assertIn(CURRENT, detail)
+
+    def test_an_unlisted_account_is_not_live(self) -> None:
+        with mock.patch.object(
+            DETECTOR.urllib.request, "urlopen", self.urlopen([self.page([HISTORICAL])])
+        ):
+            live, detail = DETECTOR.assert_live(PROJECT, CURRENT, "sk-admin-testtesttest")
+        self.assertFalse(live)
+        self.assertIn("NOT listed", detail)
+
+    def test_pagination_is_followed_before_reporting_a_miss(self) -> None:
+        """A truncated read would report a live account missing."""
+        opener = self.urlopen(
+            [self.page([HISTORICAL], has_more=True), self.page([CURRENT])]
+        )
+        with mock.patch.object(DETECTOR.urllib.request, "urlopen", opener):
+            live, _ = DETECTOR.assert_live(PROJECT, CURRENT, "sk-admin-testtesttest")
+        self.assertTrue(live)
+        self.assertEqual(opener.call_count, 2)
+
+    def test_more_pages_without_a_cursor_fails_closed(self) -> None:
+        opener = self.urlopen([self.page([], has_more=True)])
+        with mock.patch.object(DETECTOR.urllib.request, "urlopen", opener):
+            with self.assertRaisesRegex(DETECTOR.LivenessError, "no cursor"):
+                DETECTOR.assert_live(PROJECT, CURRENT, "sk-admin-testtesttest")
+
+    def test_an_http_error_fails_closed_and_never_echoes_the_key(self) -> None:
+        key = "sk-admin-supersecrettoken"
+        error = urllib.error.HTTPError(
+            "https://api.openai.com", 401, "Unauthorized", {},
+            io.BytesIO(f'{{"error":"bad key {key}"}}'.encode()),
+        )
+        with mock.patch.object(
+            DETECTOR.urllib.request, "urlopen", mock.MagicMock(side_effect=error)
+        ):
+            with self.assertRaises(DETECTOR.LivenessError) as raised:
+                DETECTOR.assert_live(PROJECT, CURRENT, key)
+        message = str(raised.exception)
+        self.assertIn("HTTP 401", message)
+        self.assertNotIn(key, message)
+        self.assertIn("[redacted]", message)
+
+    def test_a_non_json_body_fails_closed(self) -> None:
+        with mock.patch.object(
+            DETECTOR.urllib.request, "urlopen", self.urlopen([b"<html>"])
+        ):
+            with self.assertRaisesRegex(DETECTOR.LivenessError, "not JSON"):
+                DETECTOR.assert_live(PROJECT, CURRENT, "sk-admin-testtesttest")
+
+
+class MetricContract(unittest.TestCase):
+    def test_the_gauge_carries_the_reading_and_its_timestamp(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "patchyard_openai_identity.prom"
+            DETECTOR.publish_metric(target, PROJECT, CURRENT, False)
+            body = target.read_text()
+        self.assertIn(
+            f'{DETECTOR.METRIC}{{project="{PROJECT}",service_account="{CURRENT}"}} 0',
+            body,
+        )
+        self.assertIn(DETECTOR.TIMESTAMP_METRIC, body)
+
+
+class CheaperSignalsStayRuledOut(unittest.TestCase):
+    """Three signals returned the wrong answer from primary source. None of
+    them may reappear in the detector."""
+
+    def test_the_detector_calls_only_the_per_project_listing(self) -> None:
+        source = LIVENESS_DETECTOR_PATH.read_text()
+        self.assertIn("/v1/organization/projects/", source)
+        for forbidden in (
+            "/v1/organization/users/",
+            "/v1/organization/audit_logs",
+            "token-exchange",
+            "/v1/chat/completions",
+        ):
+            self.assertNotIn(f'"{forbidden}', source)
+        self.assertEqual(source.count("BASE_URL = "), 1)
+
+
+class DeploymentContract(unittest.TestCase):
+    def test_the_units_drive_the_detector_against_the_converged_paths(self) -> None:
+        service = (CONTROL_PLANE_FILES / "patchyard-openai-identity-metric.service").read_text()
+        self.assertIn("/usr/local/sbin/check-openai-identity-liveness.py", service)
+        self.assertIn("--registry /etc/patchyard/openai-identity-history.json", service)
+        self.assertIn(
+            "--admin-key-file /etc/patchyard/openai-admin-readonly.key", service
+        )
+        self.assertIn("ProtectSystem=strict", service)
+        self.assertIn(
+            "ReadWritePaths=/var/lib/node_exporter/textfile_collector", service
+        )
+
+    def test_the_timer_fires_daily_and_catches_up(self) -> None:
+        timer = (CONTROL_PLANE_FILES / "patchyard-openai-identity-metric.timer").read_text()
+        self.assertIn("OnCalendar=*-*-* 06:25:00 UTC", timer)
+        self.assertIn("Persistent=true", timer)
+
+    def test_converge_asserts_now_and_never_reinjects_the_key(self) -> None:
+        tasks = CONTROL_PLANE_TASKS_PATH.read_text()
+        self.assertIn("Assert the mapped OpenAI service account now", tasks)
+        self.assertIn("Enforce the OpenAI read-only Administration key boundary", tasks)
+        # state: file preserves and verifies; it must never become a copy task.
+        boundary = tasks.split(
+            "Enforce the OpenAI read-only Administration key boundary"
+        )[1].split("- name:")[0]
+        self.assertIn("state: file", boundary)
+        self.assertIn('mode: "0400"', boundary)
+        self.assertNotIn("content:", boundary)
+
+    def test_the_key_is_kept_off_restore_drills(self) -> None:
+        tasks = CONTROL_PLANE_TASKS_PATH.read_text()
+        drill = tasks.split("Keep the live Anthropic signing identity off restore drills")[1]
+        self.assertIn("/etc/patchyard/openai-admin-readonly.key", drill)
+
+    def test_qualification_requires_the_timer(self) -> None:
+        self.assertIn(
+            "systemctl is-active --quiet patchyard-openai-identity-metric.timer",
+            QUALIFY_TEMPLATE_PATH.read_text(),
+        )
 
 
 if __name__ == "__main__":

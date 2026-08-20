@@ -39,6 +39,43 @@ the per-project `service_accounts` listing: `GET /v1/organization/users/{id}`
 returns 404 for healthy service accounts too, so a detector built on it would
 fire false every day of an account's healthy life.
 
+### Liveness detection
+
+`tools/check-openai-identity-liveness.py` closes the blind spot that let the
+disappearance run for six days. Two modes:
+
+- **Static** (the default, a `check-infra.sh` gate) validates the registry
+  against the A150 contract with no network and no credential: one current
+  entry, unique ids, one project, and no id promoted to current without
+  `administration_api_verified` - the field that records a primary-source
+  Administration API confirmation rather than a console reading.
+- **`--live`** reads the per-project listing to exhaustion and asserts the
+  current id is in it. On the control plane the
+  `patchyard-openai-identity-metric` timer runs it daily at 06:25 UTC,
+  publishing `patchyard_openai_identity_live` and
+  `patchyard_openai_identity_checked_timestamp_seconds` to the node-exporter
+  textfile collector; the converge asserts it once directly, so a missing
+  account fails the converge rather than waiting a day. Alert on the timestamp
+  as well as the gauge: a reading that cannot be completed fails the unit
+  without republishing, so staleness is the signal for a broken detector.
+
+Three cheaper signals are ruled out by primary-source observation and must
+never be substituted: the token exchange returns 200 for a deleted account;
+`GET /v1/organization/users/{id}` 404s for healthy service accounts; and
+`GET /v1/organization/audit_logs` returns zero events even unbounded for this
+organization. Because the audit log records nothing, the daily reading *is*
+the record.
+
+Unlike the A144 kid assertion this detector cannot be credential-free. It reads
+a **Restricted, read-only** Administration key from
+`/etc/patchyard/openai-admin-readonly.key`, `0400 root:root`, installed once
+by the operator and never re-injected by converge, and excluded from restore
+drills. The standing All-permissions operator key is deliberately not used: it
+can create service accounts, mint API keys and change spend limits - the
+mutations A132 puts behind attestation - and a host-resident copy would put
+them one host compromise away, a worse trade than the blind spot being closed.
+The detector makes no token exchange and no billable call.
+
 The operator reported that the service account has zero API keys, the project
 has a USD 50 monthly spend limit with whole-dollar granularity, and the
 provider has this configuration:

@@ -1,0 +1,18 @@
+[Unit]
+Description=Assert the mapped OpenAI service account still exists in its project
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I /usr/local/sbin/check-openai-identity-liveness.py \
+  --registry /etc/patchyard/openai-identity-history.json \
+  --admin-key-file /etc/patchyard/openai-admin-readonly.key \
+  --metric /var/lib/node_exporter/textfile_collector/patchyard_openai_identity.prom
+User=root
+Group=root
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/node_exporter/textfile_collector

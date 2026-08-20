@@ -683,6 +683,72 @@
   changed_when: false
   when: not (factory_restore_drill | default(false) | bool)
 
+# A150 liveness detector. The mapped OpenAI service account vanished between
+# 2026-08-12 and 2026-08-18 with no recorded mutation and stayed dead for six
+# days, because the token exchange returns 200 for a deleted account and the
+# organization audit log records nothing. Unlike the A144 kid assertion above
+# this one cannot be credential-free: only the per-project Administration API
+# listing discriminates a live service account.
+- name: Install the A150 OpenAI identity registry
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../policy/openai-identity-history.json"
+    dest: /etc/patchyard/openai-identity-history.json
+    owner: root
+    group: root
+    mode: "0644"
+
+# The read-only Administration key is installed once by the operator and is
+# never re-injected here, matching the contract ruled for bootstrap-injected
+# inputs and the A144 treatment of the OpenAI signing key. state: file fails
+# loud when it is absent. It carries Restricted read scopes only: an All-
+# permissions key would put service-account creation, API-key minting and
+# spend-limit changes - the mutations A132 puts behind attestation - one host
+# compromise away, which is a worse trade than the blind spot it closes.
+- name: Enforce the OpenAI read-only Administration key boundary
+  ansible.builtin.file:
+    path: /etc/patchyard/openai-admin-readonly.key
+    state: file
+    owner: root
+    group: root
+    mode: "0400"
+  when: not (factory_restore_drill | default(false) | bool)
+
+- name: Install the OpenAI service-account liveness assertion
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../tools/check-openai-identity-liveness.py"
+    dest: /usr/local/sbin/check-openai-identity-liveness.py
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install OpenAI service-account liveness units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - patchyard-openai-identity-metric.service
+    - patchyard-openai-identity-metric.timer
+
+- name: Enable the daily OpenAI service-account liveness timer
+  ansible.builtin.systemd:
+    name: patchyard-openai-identity-metric.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# Fails the converge when the mapped service account is not listed by its
+# project - the same loudness the A144 assertion above has, for the failure
+# that actually happened.
+- name: Assert the mapped OpenAI service account now
+  ansible.builtin.systemd:
+    name: patchyard-openai-identity-metric.service
+    state: started
+  changed_when: false
+  when: not (factory_restore_drill | default(false) | bool)
+
 - name: Install the triage seat and its source-pinned root mint adapter
   ansible.builtin.copy:
     src: "{{ item.source }}"
@@ -795,6 +861,7 @@
     - /etc/patchyard/anthropic-wif.json
     - /etc/patchyard/anthropic-wif-signing.pem
     - /etc/patchyard/openai-wif-signing.pem
+    - /etc/patchyard/openai-admin-readonly.key
     - /etc/patchyard/anthropic-worker-ip
     - /etc/tmpfiles.d/patchyard-anthropic.conf
     - /etc/tmpfiles.d/patchyard-seat.conf

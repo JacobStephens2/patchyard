@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily OpenAI service-account liveness assertion
+
+[Timer]
+OnBootSec=10min
+OnCalendar=*-*-* 06:25:00 UTC
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

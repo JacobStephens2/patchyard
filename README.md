@@ -15,7 +15,7 @@ Patchyard's software factory: small, self-describing staff requests in, evidence
 | `research/` | Dated world-facing evidence, grouped by topic |
 | `reviews/` | Critiques of our own artifacts plus dispositions |
 | `fixtures/` | Sanitized acceptance fixtures (`alphabetize/`) and bench prompts (`bench/`) |
-| `tools/` | Bench and measurement scripts (not factory runtime) |
+| `tools/` | Repository checks, bootstrap, bench, and measurement scripts; selected checkers also serve as sources for Ansible-installed runtime assertions |
 | `rulings-queue/` | Console rulings awaiting fold-in; `processed/` once folded |
 | `policy/` | Daemon-consumed, human-ruled prompts/rubric/routing (sessions 8-9) |
 | `infra/` | Live OpenTofu + Ansible desired state for the two factory hosts (session 0) |

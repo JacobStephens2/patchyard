@@ -1,9 +1,11 @@
 # Tools
 
 Repository checks, bootstrap helpers, bench scripts, and measurement scripts.
-They are not factory runtime. Bench tools probe providers and harnesses, write
-evidence under `research/`, and never edit the decision log or reseat models on
-their own.
+Most are not factory runtime. An explicitly selected subset also serves as the
+source for control-plane runtime assertions installed by Ansible; infrastructure
+owns their deployed paths and schedules. Bench tools probe providers and
+harnesses, write evidence under `research/`, and never edit the decision log or
+reseat models on their own.
 
 | Script | Purpose |
 | :-- | :-- |
@@ -14,6 +16,7 @@ their own.
 | `check-constitution.sh` | Verify the reviewed `AGENTS.md` digest |
 | `check-freeze-graph.py` | Report the stable result-rooted frozen set and fail on digest drift |
 | `check-credential-qualification.py` | Enforce A113's per-provider conditional by mapping six Requirements to five committed Results and re-running their checkers |
+| `check-openai-identity-liveness.py` | Validate the A150 registry statically and serve as the source for the Ansible-installed daily control-plane liveness assertion |
 | `install-rustup.sh` | Install checksum-pinned rustup and resolve `rust-toolchain.toml` |
 | `install-rust-tools.sh` | Install checksum-pinned cargo-audit, cargo-deny, cargo-vet, and cargo-machete binaries |
 | `install-shellcheck.sh` | Install the checksum-pinned ShellCheck used for privileged boundary scripts |

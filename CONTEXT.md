@@ -112,6 +112,14 @@ control-plane path holding its private half. One per provider - two providers on
 one signing identity means a rotation for either silently unqualifies the other.
 _Avoid_: signing key, key file, kid, credential
 
+**Operator admin profile**:
+The named `ant` user_oauth profile (`patchyard-admin`) that holds the
+`org:admin` refresh token used to call Anthropic's Admin API. Distinct from an
+Admin API key, which federation endpoints reject, and from a federated
+`org:admin` token, which depends on the federation this profile exists to
+diagnose.
+_Avoid_: admin API key, OAuth token used unqualified, ant login
+
 **Steady-state kid authority**:
 The per-provider signing-identity registry: the one place that records which kid
 a provider's issuer trusts outside a lifecycle run. Minting asserts against it;

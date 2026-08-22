@@ -52,6 +52,10 @@ acceptance case is enabled.
 
 ## Bootstrap and live procedure
 
+The operator host must first prove the `patchyard-admin` operator admin
+profile can refresh without a browser; see `docs/anthropic-lifecycle.md`
+§ Prove the operator admin profile. Do not use an Admin API key.
+
 The initial bootstrap has two committed desired-state converges because the
 public JWKS is derived from the control-plane-only key before the provider
 object IDs exist:

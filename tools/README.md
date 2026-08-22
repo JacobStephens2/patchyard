@@ -21,7 +21,7 @@ their own.
 | `anthropic-wif-lifecycle.py` | Root-only A113 expiry, exchange, public-JWKS, key-activation, and rollback harness; never emits a bearer or assertion |
 | `anthropic-wif-revocation.py` | Source-bound exchange adapter that preserves the qualified expiry harness while recording post-mutation request starts and A126's event-specific denial contract |
 | `anthropic-wif-crash-cleanup.py` | Source-bound A130 supervisor, SIGKILL checkpoint, same-surface credential scanner, and sanitized result collector; never invalidates a provider bearer |
-| `anthropic-wif-lifecycle-admin.py` | Attended fail-closed rule disable/restore and inline-JWKS overlap/retire/rollback administration |
+| `anthropic-wif-lifecycle-admin.py` | Attended fail-closed rule disable/restore and inline-JWKS overlap/retire/rollback administration; mints its bearer from the `patchyard-admin` operator admin profile via `ant auth print-credentials` |
 | `openai-wif-issuance.py` | Source-bound attended adapter for one sanitized OpenAI token-exchange observation; never writes the assertion or bearer |
 | `openai-wif-expiry.py` | Source-bound attended adapter for one expired-assertion OpenAI exchange with an unenforced response predicate |
 | `openai-wif-crash-cleanup.py` | Source-bound A130 supervisor, SIGKILL boundary, process-image/tmpfs scanner, and sanitized OpenAI Result collector |

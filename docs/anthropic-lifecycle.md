@@ -56,7 +56,10 @@ the pre-terminal checkpoint, observes that child's actual wait status from a
 separate supervisor, and emits only sanitized metadata from its run-scoped
 surface search.
 `tools/anthropic-wif-lifecycle-admin.py` is a separate attended operator tool
-using the short-lived `ant` OAuth profile. None accepts an API key. All strip
+using the `patchyard-admin` operator admin profile. Access tokens stay
+short-lived; `ant auth print-credentials --profile patchyard-admin
+--access-token` refreshes them from the stored refresh token. None accepts an
+API key: the WIF admin endpoints reject Admin API keys. All strip
 ambient Anthropic credential variables, reject HTTP redirects and ambient
 proxies, use fixed Anthropic endpoints, write only to a new mode-0600 file, and
 never emit an assertion or bearer. Bearer-bearing proof actions make no retry.
@@ -322,6 +325,36 @@ missing provider denial with cleanup evidence. Preserve only credential-free
 diagnostics and remove the root tmpfs directory after adjudication. A `status:
 failed` or `status: in_progress` terminal record is failure evidence, not a
 result to edit or assemble.
+
+## Prove the operator admin profile
+
+Before any attended federation read or mutation, confirm the profile can mint
+a fresh bearer without a browser. On the operator host:
+
+```bash
+ant --profile patchyard-admin auth print-credentials --access-token >/dev/null
+ant --profile patchyard-admin auth status
+export ANTHROPIC_OAUTH_TOKEN="$(
+  ant --profile patchyard-admin auth print-credentials --access-token
+)"
+curl --fail-with-body -sS \
+  "https://api.anthropic.com/v1/organizations/federation_issuers/fdis_01A8wjwFPKfutAGtFN3oqF8J" \
+  --header "anthropic-version: 2023-06-01" \
+  --header "authorization: Bearer $ANTHROPIC_OAUTH_TOKEN"
+unset ANTHROPIC_OAUTH_TOKEN
+```
+
+`auth status` must show scope `org:admin` and a future expiry. The issuer GET
+must return HTTP 200. If `print-credentials` cannot refresh, re-login; do not
+open a browser for a one-shot access token and do not substitute an Admin API
+key:
+
+```bash
+ant auth login --profile patchyard-admin --scope org:admin --no-browser
+```
+
+Do not mint a federated `org:admin` token for this path. Diagnosis must not
+depend on the federation it is inspecting.
 
 ## Attended live procedure: rule revocation and restoration
 

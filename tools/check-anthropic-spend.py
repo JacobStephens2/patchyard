@@ -16,7 +16,7 @@ import types
 
 
 CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
-CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+CHECKER_RUNTIME_SHA256 = "fcd9d4c5513d8614e20dc4e2fada3da60326ff85745a989b3d4313497b0622f6"
 _checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
 if (
     CHECKER_RUNTIME_PATH.is_symlink()
@@ -195,7 +195,7 @@ EXPECTED_READINESS_TEST_SOURCE_SHA256 = (
     "f60f813b3e9e08154e8409399764a817b91d2a91f66ea7651980fba74bc72f49"
 )
 EXPECTED_EVIDENCE_SOURCE_SHA256 = (
-    "78ad4a1523c4bda4ee9dbc1867ac509ef7c5d0ab2e531d11a74d630e824c7b2d"
+    "2b91cb00bfcf4bdb194a03152aefd790128f0a530d9bf833a58b7ccb1f3700b3"
 )
 EXPECTED_PROVIDER_CALL_SEQUENCE = '''  setup_provider_transport
   assert_provider_transport_preflight

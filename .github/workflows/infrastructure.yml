@@ -25,7 +25,7 @@ jobs:
       - name: Verify A101 readiness trust root
         run: |
           printf '%s\n' \
-            'a0f76af1a1a999c45474b81f62137d5c020b9bf2295dd6598e7baa47738d404f  tools/check-a101-readiness-root.py' \
+            'e924cba0aaf19491b8d7203ee541e3a7aa262d02810156abeb63de3119938628  tools/check-a101-readiness-root.py' \
             | sha256sum --check
           python3 -I tools/check-a101-readiness-root.py
 

@@ -37,7 +37,7 @@ import types
 
 
 CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
-CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+CHECKER_RUNTIME_SHA256 = "fcd9d4c5513d8614e20dc4e2fada3da60326ff85745a989b3d4313497b0622f6"
 _checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
 if (
     CHECKER_RUNTIME_PATH.is_symlink()

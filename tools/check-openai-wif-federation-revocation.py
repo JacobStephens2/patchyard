@@ -15,7 +15,7 @@ from typing import Any
 
 
 CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
-CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+CHECKER_RUNTIME_SHA256 = "fcd9d4c5513d8614e20dc4e2fada3da60326ff85745a989b3d4313497b0622f6"
 _checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
 if (
     CHECKER_RUNTIME_PATH.is_symlink()
@@ -55,7 +55,7 @@ BASE_HARNESS_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
 )
 LIFECYCLE_INSTRUMENT_SHA256 = (
-    "3547ee7c79226123421027df527183d49a7d887368d0b3c6d234b90eaa6f5f52"
+    "88117660a2717ecd2c9b6eef4704066700e4989e1010d508769bf928fec18c8b"
 )
 # A149 completed the two deferred fields on the banked Result without touching
 # its Receipts or its `source` block, so the digests that block names are the
@@ -129,81 +129,21 @@ RESPONSE_PREDICATE = {
     "access_token_supplied": False,
     "basis": "observed-openai-federation-revocation-response",
 }
-RESULT_KEYS = {
-    "schema_version",
-    "provider",
-    "qualification_requirement",
-    "authorization_rulings",
-    "observation_kind",
-    "run_id",
-    "bounded_window",
-    "human_authorization",
-    "model_identity",
-    "model_actions",
-    "model_console_observations",
-    "baseline_control",
-    "denial_observation",
-    "bracketing_control",
-    "response_predicate",
-    "mutation_receipt_obtained",
-    "provider_response_observed",
-    "qualification_evidence",
-    "source",
-}
-FIXTURE_KEYS = {"fixture_kind", "fixture_lineage"}
-WINDOW_KEYS = {"started_at", "ended_at"}
-HUMAN_AUTHORIZATION_KEYS = {
-    "source",
-    "issue_url",
-    "comment_url",
-    "comment_id",
-    "created_at",
-    "author_login",
-    "body",
-    "extracted",
-    "attempt",
-    "human_attestation_obtained",
-    "human_authorship_mechanically_proven",
-}
-ROUTE_AUTHORIZATION_KEYS = {
-    "source",
-    "ruling",
-    "map_url",
-    "grant_url",
-    "author_login",
-    "human_attestation_obtained",
-    "human_authorship_mechanically_proven",
-}
-EXTRACTED_KEYS = {
-    "run_id",
-    "pairing",
-    "codex_task_id",
-    "policy_sha256",
-    "collector_sha256",
-    "permitted_mutation",
-    "permitted_restoration",
-    "deadline_at",
-}
-MODEL_IDENTITY_KEYS = {"pairing", "codex_task_id"}
+RESULT_SHAPE = RUNTIME.result_shape("openai-federation-revocation")
+RESULT_KEYS = RESULT_SHAPE.keys("result")
+FIXTURE_KEYS = RESULT_SHAPE.keys("fixture")
+WINDOW_KEYS = RESULT_SHAPE.keys("window")
+HUMAN_AUTHORIZATION_KEYS = RESULT_SHAPE.keys("human_authorization")
+ROUTE_AUTHORIZATION_KEYS = RESULT_SHAPE.keys("route_authorization")
+EXTRACTED_KEYS = RESULT_SHAPE.keys("extracted")
+MODEL_IDENTITY_KEYS = RESULT_SHAPE.keys("model_identity")
 ACTION_KINDS = (
     "subject_expression_edit_save",
     "subject_expression_restore_save",
 )
-ACTION_KEYS = {"kind", "action_id", "intent", "confirmation"}
-INTENT_KEYS = {
-    "recorded_at",
-    "console_location",
-    "intended_expression",
-    "permitted_mutation",
-}
-CONFIRMATION_KEYS = {
-    "recorded_at",
-    "save_completed",
-    "product_approval_presented",
-    "product_approval_completed",
-    "capture_sha256",
-    "observed_expression",
-}
+ACTION_KEYS = RESULT_SHAPE.keys("action")
+INTENT_KEYS = RESULT_SHAPE.keys("intent")
+CONFIRMATION_KEYS = RESULT_SHAPE.keys("confirmation")
 OBSERVATION_STEPS = (
     "enabled_mapping_before_baseline",
     "immediate_before_mutation",
@@ -211,103 +151,18 @@ OBSERVATION_STEPS = (
     "before_restoration",
     "after_restoration",
 )
-OBSERVATION_KEYS = {
-    "step",
-    "capture_method",
-    "capture_action_id",
-    "captured_before_at",
-    "captured_after_at",
-    "state",
-    "navigation",
-}
-NAVIGATION_KEYS = {
-    "url",
-    "reloaded",
-    "reload_started_at",
-    "reload_completed_at",
-}
-FORBIDDEN_KEYS = {
-    "attester",
-    "actor",
-    "party_relationship",
-    "mapping_mutation_attestation",
-    "restoration_attestation",
-    "initial_console_reading",
-    "independence",
-    "corroboration",
-    "attestation_definition_sha256",
-}
-MAPPING_STATE_KEYS = {
-    "identity_provider_id",
-    "mapping_present",
-    "subject_mapping_expression",
-    "mapped_service_account_id",
-    "enabled",
-    "uploaded_jwks_mode",
-    "console_location",
-}
-EXCHANGE_KEYS = {
-    "key_role",
-    "attempt_count",
-    "started_at",
-    "assertion_descriptor",
-    "exchange_request",
-    "receipt",
-    "credential_removed_at",
-    "lifecycle_instrument_sha256",
-}
-ASSERTION_KEYS = {
-    "algorithm",
-    "kid",
-    "issuer",
-    "subject",
-    "audience",
-    "issued_at",
-    "minted_at",
-    "expires_at",
-    "lifetime_seconds",
-    "jti_supplied",
-    "factory_environment",
-    "jwk_thumbprint_sha256",
-}
-REQUEST_KEYS = {
-    "endpoint",
-    "content_type",
-    "grant_type",
-    "subject_token_type",
-    "subject_token_supplied",
-    "identity_provider_id",
-    "service_account_id",
-    "scope_supplied",
-    "requested_at",
-}
-RECEIPT_KEYS = {
-    "source",
-    "http_status",
-    "request_started_at",
-    "observed_at",
-    "provider_date",
-    "request_id",
-    "request_id_supplied",
-    "content_type",
-    "body_bytes",
-    "body_format",
-    "response_shape",
-    "access_token_supplied",
-    "token_type",
-    "expires_in",
-    "error_type",
-}
-RESPONSE_SHAPE_KEYS = {"body_kind", "top_level_fields", "error_fields"}
-FIELD_DESCRIPTOR_KEYS = {"name", "name_recorded", "value_type"}
+OBSERVATION_KEYS = RESULT_SHAPE.keys("observation")
+NAVIGATION_KEYS = RESULT_SHAPE.keys("navigation")
+FORBIDDEN_KEYS = RESULT_SHAPE.keys("forbidden")
+MAPPING_STATE_KEYS = RESULT_SHAPE.keys("mapping_state")
+EXCHANGE_KEYS = RESULT_SHAPE.keys("exchange")
+ASSERTION_KEYS = RESULT_SHAPE.keys("assertion")
+REQUEST_KEYS = RESULT_SHAPE.keys("request")
+RECEIPT_KEYS = RESULT_SHAPE.keys("receipt")
+RESPONSE_SHAPE_KEYS = RESULT_SHAPE.keys("response_shape")
+FIELD_DESCRIPTOR_KEYS = RESULT_SHAPE.keys("field_descriptor")
 JSON_VALUE_TYPES = {"null", "boolean", "integer", "number", "string", "object", "array"}
-SOURCE_KEYS = {
-    "policy_sha256",
-    "base_harness_sha256",
-    "lifecycle_instrument_sha256",
-    "collector_sha256",
-    "checker_sha256",
-}
+SOURCE_KEYS = RESULT_SHAPE.keys("source")
 
 
 CHECKER = RUNTIME.checker_runtime(

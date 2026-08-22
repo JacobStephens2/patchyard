@@ -29,7 +29,7 @@ import urllib.request
 
 
 CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
-CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+CHECKER_RUNTIME_SHA256 = "fcd9d4c5513d8614e20dc4e2fada3da60326ff85745a989b3d4313497b0622f6"
 _checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
 if (
     CHECKER_RUNTIME_PATH.is_symlink()
@@ -182,14 +182,15 @@ COLLECTOR_RUNTIME = RUNTIME.openai_collector_runtime(
     service_account_id_pattern=SERVICE_ACCOUNT_ID_PATTERN,
     error_type=OpenAIExpiryError,
 )
+RESULT_SHAPE = RUNTIME.result_shape("openai-expiry-denial")
 registry_current_service_account_id = COLLECTOR_RUNTIME.registry_current_service_account_id
 with_current_service_account = COLLECTOR_RUNTIME.with_current_service_account
 def source_binding() -> dict[str, str]:
-    return {
+    return RESULT_SHAPE.emitted({
         "policy_sha256": BASE.digest_file(POLICY_PATH),
         "base_harness_sha256": BASE.digest_file(BASE_HARNESS_PATH),
         "expiry_adapter_sha256": BASE.digest_file(Path(__file__).resolve()),
-    }
+    }, "source")
 
 
 def validate_run_id(run_id: str) -> None:
@@ -453,7 +454,7 @@ def expiry_observation(
     credential_removed_at = BASE.iso_time(BASE.utc_now())
     if not isinstance(response, dict) or response.get("source") != "openai_http_response":
         raise OpenAIExpiryError("exchange requester returned no bounded HTTP observation")
-    return {
+    return RESULT_SHAPE.emitted({
         "schema_version": 1,
         "provider": "openai",
         "qualification_requirement": "credential-expiry-denial",
@@ -481,7 +482,7 @@ def expiry_observation(
         "provider_response_observed": True,
         "qualification_evidence": False,
         "source": source_binding(),
-    }
+    })
 
 
 def safe_failure_reason(error: BaseException) -> str:

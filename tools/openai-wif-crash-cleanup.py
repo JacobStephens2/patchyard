@@ -36,7 +36,7 @@ import urllib.request
 
 
 CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
-CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+CHECKER_RUNTIME_SHA256 = "fcd9d4c5513d8614e20dc4e2fada3da60326ff85745a989b3d4313497b0622f6"
 _checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
 if (
     CHECKER_RUNTIME_PATH.is_symlink()
@@ -315,6 +315,7 @@ COLLECTOR_RUNTIME = RUNTIME.openai_collector_runtime(
     service_account_id_pattern=SERVICE_ACCOUNT_ID_PATTERN,
     error_type=OpenAICrashError,
 )
+RESULT_SHAPE = RUNTIME.result_shape("openai-crash-cleanup")
 registry_current_service_account_id = COLLECTOR_RUNTIME.registry_current_service_account_id
 with_current_service_account = COLLECTOR_RUNTIME.with_current_service_account
 def safe_response_string(value: Any) -> str | None:
@@ -1290,6 +1291,57 @@ def contains_credential_material(value: Any) -> bool:
     return any(pattern.search(serialized) for _, pattern in FILE_MATERIAL_PATTERNS)
 
 
+def assemble_result(
+    *,
+    run_id: str,
+    attempt_path: Path,
+    attempt: dict[str, Any],
+    attempt_sha256: str,
+    checkpoint: dict[str, Any],
+    kill: dict[str, Any],
+    positive: dict[str, Any],
+    post: dict[str, Any],
+    rejections: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return RESULT_SHAPE.emitted({
+        "schema_version": 1,
+        "provider": "openai",
+        "qualification_requirement": "crash-cleanup-local-non-recoverability",
+        "authorization_ruling": "A130",
+        "run_id": run_id,
+        "checkpoint": checkpoint,
+        "kill": kill,
+        "positive_control": positive,
+        "post_kill_search": post,
+        "in_progress_record": {
+            "path": str(attempt_path),
+            "record": attempt,
+            "sha256_at_checkpoint": checkpoint.get("attempt_sha256"),
+            "sha256_after_sigkill": kill.get("attempt_sha256"),
+            "sha256_at_collection": attempt_sha256,
+            "unchanged": True,
+            "terminal_fields_present": [],
+        },
+        "checker_rejections": rejections,
+        "provider_exposure_boundary": {
+            "proof_scope": "local-host-non-recoverability-only",
+            "provider_side_invalidation_proven": False,
+            "provider_denial_observed": False,
+            "killed_bearer_may_remain_valid_until": "natural-expiry",
+            "maximum_assertion_lifetime_seconds": 300,
+            "separate_expiry_requirement": "credential-expiry-denial",
+            "stable_signing_identity_preserved": True,
+            "stable_signing_identity_in_proof_scope": False,
+        },
+        "response_predicate": RESPONSE_PREDICATE,
+        "control_plane_provenance": CONTROL_PLANE_PROVENANCE,
+        "provenance_limitation": "A128-attended-record-not-provider-attestation",
+        "provider_response_observed": True,
+        "qualification_evidence": False,
+        "source": source_binding(),
+    })
+
+
 def run_collect(args: argparse.Namespace) -> int:
     stage = BASE.validate_stage_directory(args.run_id)
     inputs = (
@@ -1371,43 +1423,17 @@ def run_collect(args: argparse.Namespace) -> int:
         phase = "checker_rejection_observation"
         rejections = checker_rejections(args.attempt)
         phase = "result_assembly"
-        final = {
-            "schema_version": 1,
-            "provider": "openai",
-            "qualification_requirement": "crash-cleanup-local-non-recoverability",
-            "authorization_ruling": "A130",
-            "run_id": args.run_id,
-            "checkpoint": checkpoint,
-            "kill": kill,
-            "positive_control": positive,
-            "post_kill_search": post,
-            "in_progress_record": {
-                "path": str(args.attempt),
-                "record": attempt,
-                "sha256_at_checkpoint": checkpoint.get("attempt_sha256"),
-                "sha256_after_sigkill": kill.get("attempt_sha256"),
-                "sha256_at_collection": attempt_sha256,
-                "unchanged": True,
-                "terminal_fields_present": [],
-            },
-            "checker_rejections": rejections,
-            "provider_exposure_boundary": {
-                "proof_scope": "local-host-non-recoverability-only",
-                "provider_side_invalidation_proven": False,
-                "provider_denial_observed": False,
-                "killed_bearer_may_remain_valid_until": "natural-expiry",
-                "maximum_assertion_lifetime_seconds": 300,
-                "separate_expiry_requirement": "credential-expiry-denial",
-                "stable_signing_identity_preserved": True,
-                "stable_signing_identity_in_proof_scope": False,
-            },
-            "response_predicate": RESPONSE_PREDICATE,
-            "control_plane_provenance": CONTROL_PLANE_PROVENANCE,
-            "provenance_limitation": "A128-attended-record-not-provider-attestation",
-            "provider_response_observed": True,
-            "qualification_evidence": False,
-            "source": source_binding(),
-        }
+        final = assemble_result(
+            run_id=args.run_id,
+            attempt_path=args.attempt,
+            attempt=attempt,
+            attempt_sha256=attempt_sha256,
+            checkpoint=checkpoint,
+            kill=kill,
+            positive=positive,
+            post=post,
+            rejections=rejections,
+        )
         if contains_credential_material(final):
             raise OpenAICrashError("assembled Result contains credential material")
         phase = "terminal_write"

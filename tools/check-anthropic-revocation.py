@@ -15,7 +15,7 @@ import types
 
 
 CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
-CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+CHECKER_RUNTIME_SHA256 = "fcd9d4c5513d8614e20dc4e2fada3da60326ff85745a989b3d4313497b0622f6"
 _checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
 if (
     CHECKER_RUNTIME_PATH.is_symlink()
@@ -147,18 +147,8 @@ EXPECTED_ERROR_SHAPE = {
     "error_value_type": "object",
     "error_object_keys": ["message", "type"],
 }
-REVOCATION_EVIDENCE_KEYS = {
-    "schema_version",
-    "provider",
-    "qualification_requirement",
-    "authorization_ruling",
-    "run_id",
-    "policy_sha256",
-    "lifecycle_harness_sha256",
-    "revocation_harness_sha256",
-    "admin_tool_sha256",
-    "events",
-}
+RESULT_SHAPE = RUNTIME.result_shape("anthropic-revocation")
+REVOCATION_EVIDENCE_KEYS = RESULT_SHAPE.keys("result")
 CONTRACT_FIXTURE_METADATA = {
     "fixture_kind": "synthetic-thirteen-event-satisfiability",
     "provider_response_observed": False,

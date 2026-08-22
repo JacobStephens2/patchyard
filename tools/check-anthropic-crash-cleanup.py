@@ -16,7 +16,7 @@ import types
 
 
 CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
-CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+CHECKER_RUNTIME_SHA256 = "fcd9d4c5513d8614e20dc4e2fada3da60326ff85745a989b3d4313497b0622f6"
 _checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
 if (
     CHECKER_RUNTIME_PATH.is_symlink()
@@ -92,30 +92,9 @@ TERMINAL_FIELDS = {
     "partial_evidence",
     "post_failure_state",
 }
-EVIDENCE_KEYS = {
-    "schema_version",
-    "provider",
-    "qualification_requirement",
-    "authorization_ruling",
-    "run_id",
-    "checkpoint",
-    "kill",
-    "positive_control",
-    "post_kill_search",
-    "in_progress_record",
-    "checker_rejections",
-    "provider_exposure_boundary",
-    "provenance_limitation",
-    "policy_sha256",
-    "lifecycle_harness_sha256",
-    "crash_harness_sha256",
-}
-CONTRACT_METADATA_KEYS = {
-    "fixture_kind",
-    "provider_response_observed",
-    "qualification_evidence",
-    "fixture_lineage",
-}
+RESULT_SHAPE = RUNTIME.result_shape("anthropic-crash-cleanup")
+EVIDENCE_KEYS = RESULT_SHAPE.keys("result")
+CONTRACT_METADATA_KEYS = RESULT_SHAPE.keys("contract_metadata")
 
 
 CHECKER = RUNTIME.checker_runtime(

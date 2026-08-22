@@ -53,6 +53,74 @@ class TickingClock:
         return observed
 
 
+class AdvancingClock:
+    def __init__(self, value: datetime) -> None:
+        self.value = value
+
+    def __call__(self) -> datetime:
+        observed = self.value
+        self.value += timedelta(seconds=1)
+        return observed
+
+    def sleep(self, seconds: float) -> None:
+        self.value += timedelta(seconds=seconds)
+
+
+def iso_time(value: datetime) -> str:
+    return value.isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def retime_exchange(
+    template: dict[str, object],
+    *,
+    key_role: str,
+    denial: bool,
+    request_id: str,
+    clock: AdvancingClock,
+) -> dict[str, object]:
+    value = deepcopy(template)
+    started = clock()
+    issued = started.replace(microsecond=0)
+    requested = started + timedelta(milliseconds=100)
+    observed = started + timedelta(milliseconds=200)
+    removed = started + timedelta(milliseconds=300)
+    value["key_role"] = key_role
+    value["started_at"] = iso_time(started)
+    value["assertion_descriptor"].update(
+        {
+            "issued_at": iso_time(issued),
+            "minted_at": iso_time(issued),
+            "expires_at": iso_time(issued + timedelta(seconds=300)),
+        }
+    )
+    value["exchange_request"]["requested_at"] = iso_time(requested)
+    value["receipt"].update(
+        {
+            "source": "openai_http_response",
+            "http_status": 401 if denial else 200,
+            "request_started_at": iso_time(requested),
+            "observed_at": iso_time(observed),
+            "provider_date": iso_time(issued),
+            "request_id": request_id,
+            "request_id_supplied": True,
+            "content_type": "application/json",
+            "body_bytes": 2,
+            "body_format": "json_object",
+            "response_shape": {
+                "body_kind": "json_object",
+                "top_level_fields": [],
+                "error_fields": [],
+            },
+            "access_token_supplied": not denial,
+            "token_type": None if denial else "Bearer",
+            "expires_in": None if denial else 300,
+            "error_type": "synthetic_denial" if denial else None,
+        }
+    )
+    value["credential_removed_at"] = iso_time(removed)
+    return value
+
+
 class CheckerCase(unittest.TestCase):
     checker: Path
     fixture_path: Path
@@ -118,7 +186,7 @@ class AttestationAndCollectorContract(unittest.TestCase):
         self.assertFalse(hasattr(self.revocation, "ATTESTATION_DEFINITION_SHA256"))
         self.assertEqual(
             self.revocation.LIFECYCLE_INSTRUMENT_SHA256,
-            "3547ee7c79226123421027df527183d49a7d887368d0b3c6d234b90eaa6f5f52",
+            "88117660a2717ecd2c9b6eef4704066700e4989e1010d508769bf928fec18c8b",
         )
         self.assertEqual(
             self.rotation.LIFECYCLE_INSTRUMENT_SHA256,
@@ -288,6 +356,193 @@ class AttestationAndCollectorContract(unittest.TestCase):
                 input_fn=lambda unused: self.fail("capture opened"),
             )
         self.assertIn("claims a human attestation", str(caught.exception))
+
+    def test_revocation_collector_result_passes_its_checker(self) -> None:
+        fixture = json.loads(REVOCATION_FIXTURE_PATH.read_text())
+        states = iter(
+            observation["state"]
+            for observation in fixture["model_console_observations"]
+        )
+        actions = iter(fixture["model_actions"])
+
+        def input_fn(prompt: str) -> str:
+            if "RELOADED" in prompt:
+                return "RELOADED"
+            if "console reading JSON" in prompt:
+                return json.dumps(next(states))
+            if "MUTATION COMPLETE" in prompt:
+                return "MUTATION COMPLETE"
+            if "RESTORATION COMPLETE" in prompt:
+                return "RESTORATION COMPLETE"
+            if "save confirmation JSON" in prompt:
+                confirmation = next(actions)["confirmation"]
+                return json.dumps(
+                    {
+                        key: confirmation[key]
+                        for key in (
+                            "product_approval_presented",
+                            "product_approval_completed",
+                            "capture_sha256",
+                            "observed_expression",
+                        )
+                    }
+                )
+            self.fail(f"unexpected collector prompt: {prompt}")
+
+        clock = AdvancingClock(
+            datetime(2026, 8, 7, 14, 0, 0, tzinfo=timezone.utc)
+        )
+        templates = iter(
+            (
+                (fixture["baseline_control"], False),
+                (fixture["denial_observation"], True),
+                (fixture["bracketing_control"], False),
+            )
+        )
+        exchange_count = 0
+
+        def exchange(unused_policy, unused_key, unused_run_id, key_role):
+            nonlocal exchange_count
+            del unused_policy, unused_key, unused_run_id
+            exchange_count += 1
+            template, denial = next(templates)
+            return retime_exchange(
+                template,
+                key_role=key_role,
+                denial=denial,
+                request_id=f"req_roundtrip_revocation_{exchange_count}",
+                clock=clock,
+            )
+
+        result = self.revocation.collect(
+            run_id=fixture["run_id"],
+            authorization=self.route_authorization(),
+            model_identity={
+                "pairing": "openai/codex/gpt-5.6-sol/xhigh",
+                "codex_task_id": "task_synthetic_req4_0001",
+            },
+            mutation_kind="subject-expression",
+            policy=self.revocation.load_policy(),
+            input_fn=input_fn,
+            clock=clock,
+            sleeper=clock.sleep,
+            exchanger=exchange,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "revocation-collector-result.json"
+            path.write_text(json.dumps(result))
+            checked = subprocess.run(
+                [
+                    "python3",
+                    "-I",
+                    str(REVOCATION_CHECKER_PATH),
+                    "--evidence",
+                    str(path),
+                ],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+
+    def test_rotation_collector_result_passes_its_checker(self) -> None:
+        fixture = json.loads(ROTATION_FIXTURE_PATH.read_text())
+        original = fixture["derived_public_key_descriptors"]["original"]
+        replacement = fixture["derived_public_key_descriptors"]["replacement"]
+        states = iter(
+            (
+                fixture["original_console_reading"]["state"],
+                fixture["overlap_attestation"]["console_readings"]["before"]["state"],
+                fixture["overlap_attestation"]["console_readings"]["after"]["state"],
+                fixture["retirement_attestation"]["console_readings"]["before"]["state"],
+                fixture["retirement_attestation"]["console_readings"]["after"]["state"],
+            )
+        )
+
+        def input_fn(prompt: str) -> str:
+            if "console reading JSON" in prompt:
+                return json.dumps(next(states))
+            for acknowledgement in (
+                "OVERLAP COMPLETE",
+                "ACTIVATE LOCALLY",
+                "RETIREMENT COMPLETE",
+            ):
+                if acknowledgement in prompt:
+                    return acknowledgement
+            self.fail(f"unexpected collector prompt: {prompt}")
+
+        clock = AdvancingClock(
+            datetime(2026, 8, 7, 15, 0, 0, tzinfo=timezone.utc)
+        )
+        bracket = fixture["a129_bracket"]
+        templates = iter(
+            (
+                (fixture["baseline_control"], False),
+                (fixture["overlap_positive_control"], False),
+                (bracket["bracketing_control_before_denial"], False),
+                (bracket["denial_observation"], True),
+                (bracket["bracketing_control_after_denial"], False),
+            )
+        )
+        exchange_count = 0
+
+        def exchange(unused_policy, unused_key, unused_run_id, key_role):
+            nonlocal exchange_count
+            del unused_policy, unused_key, unused_run_id
+            exchange_count += 1
+            template, denial = next(templates)
+            return retime_exchange(
+                template,
+                key_role=key_role,
+                denial=denial,
+                request_id=f"req_roundtrip_rotation_{exchange_count}",
+                clock=clock,
+            )
+
+        def activate(*unused):
+            del unused
+            activation = deepcopy(fixture["local_activation"])
+            activation["observed_at"] = iso_time(clock())
+            return activation, Path("/unused-retired")
+
+        with (
+            mock.patch.object(self.rotation.BASE, "load_public_jwk", return_value={}),
+            mock.patch.object(
+                self.rotation.BASE, "jwk_descriptor", return_value=original
+            ),
+        ):
+            result = self.rotation.collect(
+                run_id=fixture["run_id"],
+                actor_name="Fixture Operator",
+                actor_kind="accountable_human",
+                attester_name="Fixture Operator",
+                policy=self.rotation.load_policy(),
+                stage=Path("/unused"),
+                input_fn=input_fn,
+                clock=clock,
+                sleeper=clock.sleep,
+                exchanger=exchange,
+                key_generator=lambda unused: deepcopy(replacement),
+                activator=activate,
+            )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "rotation-collector-result.json"
+            path.write_text(json.dumps(result))
+            checked = subprocess.run(
+                [
+                    "python3",
+                    "-I",
+                    str(ROTATION_CHECKER_PATH),
+                    "--observation",
+                    str(path),
+                ],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(checked.returncode, 0, checked.stderr)
 
     def test_rotation_exchange_supplies_the_transitional_kid(self) -> None:
         """A145: the collector passes the derived kid explicitly and the

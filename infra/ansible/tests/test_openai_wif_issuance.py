@@ -30,16 +30,16 @@ CRASH_FIXTURE_PATH = (
     ROOT / "fixtures/checker-contracts/openai-crash-cleanup.json"
 )
 EXPECTED_ADAPTER_SHA256 = (
-    "3547ee7c79226123421027df527183d49a7d887368d0b3c6d234b90eaa6f5f52"
+    "88117660a2717ecd2c9b6eef4704066700e4989e1010d508769bf928fec18c8b"
 )
 EXPECTED_FIXTURE_SHA256 = (
     "a1963e0bfac56be44e47ccbe9fe233e1179a79ef7775b00ad43f7358dfaec970"
 )
 EXPECTED_EXPIRY_ADAPTER_SHA256 = (
-    "3b1fc50d5f4136fac9cf839c070fb9706f077d180bab7fc5e395708ec4460493"
+    "97e55b9a40f76327d3cb71eba0245bcaa79310de34b7e5703499f2a91ac81b49"
 )
 EXPECTED_CRASH_ADAPTER_SHA256 = (
-    "9dbd5024ef7b69b18c22e0a141be773c0af63bdfa1a86c13c98f3330fc596a95"
+    "f3933d696e866973fd93d7eb336a4900064786e553c70fdb144c93ab45c46738"
 )
 EXPECTED_EXPIRY_FIXTURE_SHA256 = (
     "d02e68c63f988da1e149f1f7139c6d1c6a534715ce72728278e2aa57a865bac4"
@@ -61,6 +61,21 @@ REGISTRY_KID = json.loads(SIGNING_IDENTITIES_PATH.read_text())["providers"][
 
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def check_collector_result(
+    checker: Path, result: dict[str, object]
+) -> subprocess.CompletedProcess[str]:
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "collector-result.json"
+        path.write_text(json.dumps(result))
+        return subprocess.run(
+            ["python3", "-I", str(checker), "--observation", str(path)],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
 
 
 def load_exact_source_module(
@@ -336,7 +351,15 @@ class OpenAIWifIssuanceAdapterContract(unittest.TestCase):
             self.assertEqual(body["identity_provider_id"], self.policy["issuer"]["id"])
             return deepcopy(response)
 
-        with mock.patch.object(ADAPTER.BASE, "mint_assertion", side_effect=fake_mint):
+        with (
+            mock.patch.object(ADAPTER.BASE, "mint_assertion", side_effect=fake_mint),
+            mock.patch.object(ADAPTER.time, "time", return_value=1786017605),
+            mock.patch.object(
+                ADAPTER.BASE,
+                "utc_now",
+                return_value=datetime(2026, 8, 6, 12, 0, 5, 300000, timezone.utc),
+            ),
+        ):
             result = ADAPTER.exchange_observation(
                 self.policy,
                 Path("/unused"),
@@ -348,6 +371,8 @@ class OpenAIWifIssuanceAdapterContract(unittest.TestCase):
         self.assertEqual(result["response_predicate"], ADAPTER.RESPONSE_PREDICATE)
         self.assertIs(result["provider_response_observed"], True)
         self.assertIs(result["qualification_evidence"], False)
+        checked = check_collector_result(CHECKER_PATH, result)
+        self.assertEqual(checked.returncode, 0, checked.stderr)
 
     def test_ambient_openai_credentials_and_proxies_are_removed(self) -> None:
         environment = {
@@ -605,10 +630,17 @@ class OpenAIWifExpiryAdapterContract(unittest.TestCase):
             calls.append(deepcopy(body))
             return deepcopy(response)
 
-        with mock.patch.object(
-            EXPIRY_ADAPTER,
-            "mint_expired_assertion",
-            return_value=("synthetic.assertion.signature", descriptor),
+        with (
+            mock.patch.object(
+                EXPIRY_ADAPTER,
+                "mint_expired_assertion",
+                return_value=("synthetic.assertion.signature", descriptor),
+            ),
+            mock.patch.object(
+                EXPIRY_ADAPTER.BASE,
+                "utc_now",
+                return_value=datetime(2026, 8, 7, 12, 0, 0, 300000, timezone.utc),
+            ),
         ):
             result = EXPIRY_ADAPTER.expiry_observation(
                 self.policy,
@@ -630,6 +662,8 @@ class OpenAIWifExpiryAdapterContract(unittest.TestCase):
         self.assertEqual(result["exchange_request"]["attempt_count"], 1)
         self.assertEqual(result["response_predicate"], EXPIRY_ADAPTER.RESPONSE_PREDICATE)
         self.assertIs(result["qualification_evidence"], False)
+        checked = check_collector_result(EXPIRY_CHECKER_PATH, result)
+        self.assertEqual(checked.returncode, 0, checked.stderr)
 
 
 class OpenAIWifExpiryCheckerContract(unittest.TestCase):
@@ -884,6 +918,25 @@ class OpenAIWifCrashCheckerContract(unittest.TestCase):
             "--observation", str(self.write(self.observed(), "observed.json"))
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_crash_collector_result_passes_its_checker(self) -> None:
+        observed = self.observed()
+        in_progress = observed["in_progress_record"]
+        result = CRASH_ADAPTER.assemble_result(
+            run_id=observed["run_id"],
+            attempt_path=Path(in_progress["path"]),
+            attempt=deepcopy(in_progress["record"]),
+            attempt_sha256=in_progress["sha256_at_collection"],
+            checkpoint=deepcopy(observed["checkpoint"]),
+            kill=deepcopy(observed["kill"]),
+            positive=deepcopy(observed["positive_control"]),
+            post=deepcopy(observed["post_kill_search"]),
+            rejections=deepcopy(observed["checker_rejections"]),
+        )
+        checked = self.run_checker(
+            "--observation", str(self.write(result, "collector-result.json"))
+        )
+        self.assertEqual(checked.returncode, 0, checked.stderr)
 
     def test_exact_keys_utc_and_credential_hygiene_fail_closed(self) -> None:
         extra = self.observed()

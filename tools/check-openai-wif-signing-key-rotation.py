@@ -15,7 +15,7 @@ from typing import Any
 
 
 CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
-CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+CHECKER_RUNTIME_SHA256 = "fcd9d4c5513d8614e20dc4e2fada3da60326ff85745a989b3d4313497b0622f6"
 _checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
 if (
     CHECKER_RUNTIME_PATH.is_symlink()
@@ -56,7 +56,7 @@ BASE_HARNESS_SHA256 = (
     "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d"
 )
 LIFECYCLE_INSTRUMENT_SHA256 = (
-    "3547ee7c79226123421027df527183d49a7d887368d0b3c6d234b90eaa6f5f52"
+    "88117660a2717ecd2c9b6eef4704066700e4989e1010d508769bf928fec18c8b"
 )
 ATTESTATION_DEFINITION_SHA256 = "0d32e80b980c334977e51eb706783896a687d29faef46d50e53f3ee56e8e4d47"
 # A144: the signing-identity split re-pointed the collector's key path (and the
@@ -107,121 +107,25 @@ RESPONSE_PREDICATE = {
     "enforced": False,
     "basis": "no-observed-openai-retired-signing-key-response",
 }
-RESULT_KEYS = {
-    "schema_version",
-    "provider",
-    "qualification_requirement",
-    "authorization_rulings",
-    "observation_kind",
-    "run_id",
-    "bounded_window",
-    "original_console_reading",
-    "baseline_control",
-    "derived_public_key_descriptors",
-    "overlap_attestation",
-    "overlap_positive_control",
-    "local_activation",
-    "retirement_attestation",
-    "a129_bracket",
-    "response_predicate",
-    "mutation_receipt_obtained",
-    "provider_response_observed",
-    "qualification_evidence",
-    "source",
-}
-FIXTURE_KEYS = {"fixture_kind", "fixture_lineage"}
-WINDOW_KEYS = {"started_at", "ended_at"}
-READING_KEYS = {"captured_before_at", "captured_after_at", "state"}
-ROTATION_STATE_KEYS = {
-    "identity_provider_id",
-    "uploaded_jwks_mode",
-    "public_keys",
-    "subject_mapping_expression",
-    "mapped_service_account_id",
-    "subject_mapping_enabled",
-    "console_location",
-}
-PUBLIC_KEY_KEYS = {"kid", "jwk_thumbprint_sha256", "enabled"}
-DERIVED_KEYS = {"original", "replacement"}
-DESCRIPTOR_KEYS = {"kid", "jwk_thumbprint_sha256"}
-EXCHANGE_KEYS = {
-    "key_role",
-    "attempt_count",
-    "started_at",
-    "assertion_descriptor",
-    "exchange_request",
-    "receipt",
-    "credential_removed_at",
-    "lifecycle_instrument_sha256",
-}
-ASSERTION_KEYS = {
-    "algorithm",
-    "kid",
-    "issuer",
-    "subject",
-    "audience",
-    "issued_at",
-    "minted_at",
-    "expires_at",
-    "lifetime_seconds",
-    "jti_supplied",
-    "factory_environment",
-    "jwk_thumbprint_sha256",
-}
-REQUEST_KEYS = {
-    "endpoint",
-    "content_type",
-    "grant_type",
-    "subject_token_type",
-    "subject_token_supplied",
-    "identity_provider_id",
-    "service_account_id",
-    "scope_supplied",
-    "requested_at",
-}
-RECEIPT_KEYS = {
-    "source",
-    "http_status",
-    "request_started_at",
-    "observed_at",
-    "provider_date",
-    "request_id",
-    "request_id_supplied",
-    "content_type",
-    "body_bytes",
-    "body_format",
-    "response_shape",
-    "access_token_supplied",
-    "token_type",
-    "expires_in",
-    "error_type",
-}
-RESPONSE_SHAPE_KEYS = {"body_kind", "top_level_fields", "error_fields"}
-FIELD_DESCRIPTOR_KEYS = {"name", "name_recorded", "value_type"}
+RESULT_SHAPE = RUNTIME.result_shape("openai-signing-key-rotation")
+RESULT_KEYS = RESULT_SHAPE.keys("result")
+FIXTURE_KEYS = RESULT_SHAPE.keys("fixture")
+WINDOW_KEYS = RESULT_SHAPE.keys("window")
+READING_KEYS = RESULT_SHAPE.keys("reading")
+ROTATION_STATE_KEYS = RESULT_SHAPE.keys("rotation_state")
+PUBLIC_KEY_KEYS = RESULT_SHAPE.keys("public_key")
+DERIVED_KEYS = RESULT_SHAPE.keys("derived")
+DESCRIPTOR_KEYS = RESULT_SHAPE.keys("descriptor")
+EXCHANGE_KEYS = RESULT_SHAPE.keys("exchange")
+ASSERTION_KEYS = RESULT_SHAPE.keys("assertion")
+REQUEST_KEYS = RESULT_SHAPE.keys("request")
+RECEIPT_KEYS = RESULT_SHAPE.keys("receipt")
+RESPONSE_SHAPE_KEYS = RESULT_SHAPE.keys("response_shape")
+FIELD_DESCRIPTOR_KEYS = RESULT_SHAPE.keys("field_descriptor")
 JSON_VALUE_TYPES = {"null", "boolean", "integer", "number", "string", "object", "array"}
-ACTIVATION_KEYS = {
-    "source",
-    "active_key_path",
-    "original_key",
-    "replacement_key",
-    "original_key_preserved_in_root_tmpfs",
-    "observed_at",
-    "base_harness_sha256",
-}
-BRACKET_KEYS = {
-    "bounded_subwindow",
-    "bracketing_control_before_denial",
-    "denial_observation",
-    "bracketing_control_after_denial",
-}
-SOURCE_KEYS = {
-    "policy_sha256",
-    "base_harness_sha256",
-    "lifecycle_instrument_sha256",
-    "attestation_definition_sha256",
-    "collector_sha256",
-    "checker_sha256",
-}
+ACTIVATION_KEYS = RESULT_SHAPE.keys("activation")
+BRACKET_KEYS = RESULT_SHAPE.keys("bracket")
+SOURCE_KEYS = RESULT_SHAPE.keys("source")
 
 
 CHECKER = RUNTIME.checker_runtime(

@@ -15,7 +15,7 @@ import types
 
 
 CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
-CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+CHECKER_RUNTIME_SHA256 = "fcd9d4c5513d8614e20dc4e2fada3da60326ff85745a989b3d4313497b0622f6"
 _checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
 if (
     CHECKER_RUNTIME_PATH.is_symlink()
@@ -133,71 +133,14 @@ CONTROL_PLANE_PROVENANCE = {
     "mutation_receipt_obtained": False,
     "attestation_required": True,
 }
-OBSERVATION_KEYS = {
-    "schema_version",
-    "provider",
-    "observation_kind",
-    "run_id",
-    "started_at",
-    "assertion_descriptor",
-    "exchange_request",
-    "exchange_response",
-    "credential_removed_at",
-    "response_predicate",
-    "control_plane_provenance",
-    "provider_response_observed",
-    "qualification_evidence",
-    "source",
-}
-FIXTURE_KEYS = {"fixture_kind", "fixture_lineage"}
-ASSERTION_KEYS = {
-    "algorithm",
-    "kid",
-    "issuer",
-    "subject",
-    "audience",
-    "issued_at",
-    "minted_at",
-    "expires_at",
-    "lifetime_seconds",
-    "jti_supplied",
-    "factory_environment",
-    "jwk_thumbprint_sha256",
-}
-REQUEST_KEYS = {
-    "endpoint",
-    "content_type",
-    "grant_type",
-    "subject_token_type",
-    "subject_token_supplied",
-    "identity_provider_id",
-    "service_account_id",
-    "scope_supplied",
-    "requested_at",
-}
-RESPONSE_KEYS = {
-    "source",
-    "http_status",
-    "request_started_at",
-    "observed_at",
-    "provider_date",
-    "request_id",
-    "request_id_supplied",
-    "content_type",
-    "body_bytes",
-    "body_format",
-    "response_shape",
-    "access_token_supplied",
-    "token_type",
-    "expires_in",
-    "error_type",
-}
-SOURCE_KEYS = {
-    "policy_sha256",
-    "base_harness_sha256",
-    "issuance_adapter_sha256",
-}
-FIELD_DESCRIPTOR_KEYS = {"name", "name_recorded", "value_type"}
+RESULT_SHAPE = RUNTIME.result_shape("openai-first-token-exchange")
+OBSERVATION_KEYS = RESULT_SHAPE.keys("result")
+FIXTURE_KEYS = RESULT_SHAPE.keys("fixture")
+ASSERTION_KEYS = RESULT_SHAPE.keys("assertion")
+REQUEST_KEYS = RESULT_SHAPE.keys("request")
+RESPONSE_KEYS = RESULT_SHAPE.keys("response")
+SOURCE_KEYS = RESULT_SHAPE.keys("source")
+FIELD_DESCRIPTOR_KEYS = RESULT_SHAPE.keys("field_descriptor")
 JSON_VALUE_TYPES = {"null", "boolean", "integer", "number", "string", "object", "array"}
 
 

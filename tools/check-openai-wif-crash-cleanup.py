@@ -16,7 +16,7 @@ import types
 
 
 CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
-CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+CHECKER_RUNTIME_SHA256 = "fcd9d4c5513d8614e20dc4e2fada3da60326ff85745a989b3d4313497b0622f6"
 _checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
 if (
     CHECKER_RUNTIME_PATH.is_symlink()
@@ -114,120 +114,21 @@ TERMINAL_FIELDS = {
     "partial_evidence",
     "post_failure_state",
 }
-RESULT_KEYS = {
-    "schema_version",
-    "provider",
-    "qualification_requirement",
-    "authorization_ruling",
-    "run_id",
-    "checkpoint",
-    "kill",
-    "positive_control",
-    "post_kill_search",
-    "in_progress_record",
-    "checker_rejections",
-    "provider_exposure_boundary",
-    "response_predicate",
-    "control_plane_provenance",
-    "provenance_limitation",
-    "provider_response_observed",
-    "qualification_evidence",
-    "source",
-}
-FIXTURE_KEYS = {"fixture_kind", "fixture_lineage"}
-SOURCE_KEYS = {"policy_sha256", "base_harness_sha256", "crash_adapter_sha256"}
-CHECKPOINT_KEYS = {
-    "schema_version",
-    "provider",
-    "run_id",
-    "phase",
-    "observed_at",
-    "target_pid",
-    "target_start_ticks",
-    "assertion_live",
-    "bearer_live",
-    "terminal_record_written",
-    "core_dump_limits",
-    "swap_entries",
-    "signing_key",
-    "assertion",
-    "exchange_request",
-    "exchange_response",
-    "material_fingerprints",
-    "attempt_sha256",
-    "source",
-}
-SIGNING_KEY_KEYS = {
-    "kid_derived_from_public_der",
-    "jwk_thumbprint_sha256",
-    "stable_source_preserved",
-    "copied_to_run_stage",
-    "private_key_bytes_loaded_by_adapter",
-}
-ASSERTION_KEYS = {"issued_at", "minted_at", "expires_at", "lifetime_seconds"}
-EXCHANGE_REQUEST_KEYS = {"endpoint", "attempt_count", "requested_at"}
-RESPONSE_KEYS = {
-    "source",
-    "http_status",
-    "request_started_at",
-    "observed_at",
-    "provider_date",
-    "request_id",
-    "request_id_supplied",
-    "content_type",
-    "body_bytes",
-    "body_format",
-    "response_shape",
-    "access_token_supplied",
-    "expires_in",
-    "error_type",
-}
-FIELD_DESCRIPTOR_KEYS = {"name", "name_recorded", "value_type"}
+RESULT_SHAPE = RUNTIME.result_shape("openai-crash-cleanup")
+RESULT_KEYS = RESULT_SHAPE.keys("result")
+FIXTURE_KEYS = RESULT_SHAPE.keys("fixture")
+SOURCE_KEYS = RESULT_SHAPE.keys("source")
+CHECKPOINT_KEYS = RESULT_SHAPE.keys("checkpoint")
+SIGNING_KEY_KEYS = RESULT_SHAPE.keys("signing_key")
+ASSERTION_KEYS = RESULT_SHAPE.keys("assertion")
+EXCHANGE_REQUEST_KEYS = RESULT_SHAPE.keys("exchange_request")
+RESPONSE_KEYS = RESULT_SHAPE.keys("response")
+FIELD_DESCRIPTOR_KEYS = RESULT_SHAPE.keys("field_descriptor")
 JSON_VALUE_TYPES = {"null", "boolean", "integer", "number", "string", "object", "array"}
-FINGERPRINT_KEYS = {"material_class", "sha256", "byte_length"}
-SEARCH_KEYS = {
-    "schema_version",
-    "provider",
-    "run_id",
-    "event_type",
-    "observed_at",
-    "search_contract",
-    "search_contract_sha256",
-    "files_examined",
-    "file_bytes_examined",
-    "memory_regions_examined",
-    "memory_bytes_examined",
-    "unreadable_memory_regions",
-    "credential_material_found",
-    "material_classes_found",
-    "matches",
-    "target_process_present",
-    "scan_socket_used",
-    "scanner_core_dump_limits",
-    "swap_entries",
-    "source",
-}
-MATCH_KEYS = {"material_class", "surface", "location", "occurrences"}
-KILL_KEYS = {
-    "schema_version",
-    "provider",
-    "run_id",
-    "event_type",
-    "observed_at",
-    "target_pid",
-    "target_start_ticks",
-    "signal_name",
-    "signal_number",
-    "child_returncode",
-    "supervisor_timed_out",
-    "target_process_present",
-    "scan_socket_present_after_cleanup",
-    "scan_socket_cleanup_required",
-    "checkpoint_sha256",
-    "positive_control_sha256",
-    "attempt_sha256",
-    "source",
-}
+FINGERPRINT_KEYS = RESULT_SHAPE.keys("fingerprint")
+SEARCH_KEYS = RESULT_SHAPE.keys("search")
+MATCH_KEYS = RESULT_SHAPE.keys("match")
+KILL_KEYS = RESULT_SHAPE.keys("kill")
 
 
 CHECKER = RUNTIME.checker_runtime(

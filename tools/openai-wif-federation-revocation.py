@@ -25,7 +25,7 @@ from typing import Any, Callable
 
 
 CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
-CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+CHECKER_RUNTIME_SHA256 = "fcd9d4c5513d8614e20dc4e2fada3da60326ff85745a989b3d4313497b0622f6"
 _checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
 if (
     CHECKER_RUNTIME_PATH.is_symlink()
@@ -57,7 +57,7 @@ BASE_HARNESS_SHA256 = (
 )
 LIFECYCLE_INSTRUMENT_PATH = ROOT / "tools/openai-wif-issuance.py"
 LIFECYCLE_INSTRUMENT_SHA256 = (
-    "3547ee7c79226123421027df527183d49a7d887368d0b3c6d234b90eaa6f5f52"
+    "88117660a2717ecd2c9b6eef4704066700e4989e1010d508769bf928fec18c8b"
 )
 CHECKER_PATH = ROOT / "tools/check-openai-wif-federation-revocation.py"
 SIGNING_KEY = Path("/etc/patchyard/openai-wif-signing.pem")
@@ -212,6 +212,7 @@ COLLECTOR_RUNTIME = RUNTIME.openai_collector_runtime(
     service_account_id_pattern=SERVICE_ACCOUNT_ID_PATTERN,
     error_type=RevocationCollectorError,
 )
+RESULT_SHAPE = RUNTIME.result_shape("openai-federation-revocation")
 registry_current_service_account_id = COLLECTOR_RUNTIME.registry_current_service_account_id
 with_current_service_account = COLLECTOR_RUNTIME.with_current_service_account
 def credential_shaped(value: Any) -> bool:
@@ -265,7 +266,7 @@ def load_policy() -> dict[str, Any]:
 
 
 def source_binding() -> dict[str, str]:
-    return {
+    return RESULT_SHAPE.emitted({
         "policy_sha256": BASE.digest_file(POLICY_PATH),
         "base_harness_sha256": BASE.digest_file(BASE_HARNESS_PATH),
         "lifecycle_instrument_sha256": BASE.digest_file(
@@ -273,7 +274,7 @@ def source_binding() -> dict[str, str]:
         ),
         "collector_sha256": BASE.digest_file(Path(__file__).resolve()),
         "checker_sha256": BASE.digest_file(CHECKER_PATH),
-    }
+    }, "source")
 
 
 def validate_run_id(run_id: str) -> None:
@@ -917,7 +918,7 @@ def collect(
     bracket = exchanger(policy, SIGNING_KEY, run_id, "active")
     require_positive(bracket, "bracketing control")
     window_ended_at = BASE.iso_time(clock())
-    return {
+    return RESULT_SHAPE.emitted({
         "schema_version": 1,
         "provider": "openai",
         "qualification_requirement": "federation-rule-revocation",
@@ -946,7 +947,7 @@ def collect(
         "provider_response_observed": True,
         "qualification_evidence": True,
         "source": source,
-    }
+    })
 
 
 def safe_failure_reason(error: BaseException) -> str:

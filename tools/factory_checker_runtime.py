@@ -105,7 +105,10 @@ def is_within(path: Path, parent: Path) -> bool:
 
 
 def exact_keys(
-    value: Any, expected: set[str], label: str, errors: list[str]
+    value: Any,
+    expected: set[str] | frozenset[str],
+    label: str,
+    errors: list[str],
 ) -> bool:
     if not isinstance(value, dict):
         errors.append(f"{label} is not an object")
@@ -114,6 +117,166 @@ def exact_keys(
         errors.append(f"{label} has an unexpected evidence shape")
         return False
     return True
+
+
+# One structural declaration per qualification requirement. Values are
+# whitespace-separated solely to keep this committed input reviewable; callers
+# receive immutable sets through ResultShape rather than parsing these strings.
+_RESULT_SHAPE_DECLARATIONS = {
+    "openai-first-token-exchange": {
+        "result": "schema_version provider observation_kind run_id started_at assertion_descriptor exchange_request exchange_response credential_removed_at response_predicate control_plane_provenance provider_response_observed qualification_evidence source",
+        "fixture": "fixture_kind fixture_lineage",
+        "assertion": "algorithm kid issuer subject audience issued_at minted_at expires_at lifetime_seconds jti_supplied factory_environment jwk_thumbprint_sha256",
+        "request": "endpoint content_type grant_type subject_token_type subject_token_supplied identity_provider_id service_account_id scope_supplied requested_at",
+        "response": "source http_status request_started_at observed_at provider_date request_id request_id_supplied content_type body_bytes body_format response_shape access_token_supplied token_type expires_in error_type",
+        "source": "policy_sha256 base_harness_sha256 issuance_adapter_sha256",
+        "field_descriptor": "name name_recorded value_type",
+    },
+    "openai-expiry-denial": {
+        "result": "schema_version provider qualification_requirement authorization_ruling observation_kind run_id started_at assertion_descriptor exchange_request expiry_denial credential_removed_at response_predicate control_plane_provenance provider_response_observed qualification_evidence source",
+        "fixture": "fixture_kind fixture_lineage",
+        "assertion": "algorithm kid_derived_from_public_der jwk_thumbprint_sha256 issuer subject audience issued_at minted_at expires_at lifetime_seconds expired_before_mint_seconds jti_supplied factory_environment",
+        "request": "endpoint content_type grant_type subject_token_type subject_token_supplied identity_provider_id service_account_id scope_supplied attempt_count requested_at",
+        "response": "source http_status request_started_at observed_at provider_date request_id request_id_supplied content_type body_bytes body_format response_shape access_token_supplied error_type",
+        "source": "policy_sha256 base_harness_sha256 expiry_adapter_sha256",
+        "field_descriptor": "name name_recorded value_type",
+    },
+    "openai-crash-cleanup": {
+        "result": "schema_version provider qualification_requirement authorization_ruling run_id checkpoint kill positive_control post_kill_search in_progress_record checker_rejections provider_exposure_boundary response_predicate control_plane_provenance provenance_limitation provider_response_observed qualification_evidence source",
+        "fixture": "fixture_kind fixture_lineage",
+        "source": "policy_sha256 base_harness_sha256 crash_adapter_sha256",
+        "checkpoint": "schema_version provider run_id phase observed_at target_pid target_start_ticks attempt_sha256 source core_dump_limits swap_entries signing_key assertion exchange_request exchange_response material_fingerprints assertion_live bearer_live terminal_record_written",
+        "signing_key": "copied_to_run_stage stable_source_preserved private_key_bytes_loaded_by_adapter kid_derived_from_public_der jwk_thumbprint_sha256",
+        "assertion": "issued_at minted_at expires_at lifetime_seconds",
+        "exchange_request": "endpoint attempt_count requested_at",
+        "response": "source http_status request_started_at observed_at provider_date request_id request_id_supplied content_type body_bytes body_format response_shape access_token_supplied expires_in error_type",
+        "field_descriptor": "name name_recorded value_type",
+        "fingerprint": "material_class sha256 byte_length",
+        "search": "schema_version provider run_id event_type observed_at target_process_present search_contract search_contract_sha256 memory_regions_examined unreadable_memory_regions memory_bytes_examined files_examined file_bytes_examined credential_material_found material_classes_found matches swap_entries scanner_core_dump_limits scan_socket_used source",
+        "match": "material_class surface location occurrences",
+        "kill": "schema_version provider run_id event_type observed_at target_pid target_start_ticks signal_name signal_number child_returncode supervisor_timed_out target_process_present scan_socket_cleanup_required scan_socket_present_after_cleanup attempt_sha256 checkpoint_sha256 positive_control_sha256 source",
+    },
+    "openai-federation-revocation": {
+        "result": "schema_version provider qualification_requirement authorization_rulings observation_kind run_id bounded_window human_authorization model_identity model_actions model_console_observations baseline_control denial_observation bracketing_control response_predicate mutation_receipt_obtained provider_response_observed qualification_evidence source",
+        "fixture": "fixture_kind fixture_lineage",
+        "window": "started_at ended_at",
+        "human_authorization": "source issue_url comment_id comment_url author_login created_at body attempt extracted human_attestation_obtained human_authorship_mechanically_proven",
+        "route_authorization": "source ruling map_url grant_url author_login human_attestation_obtained human_authorship_mechanically_proven",
+        "extracted": "run_id pairing codex_task_id policy_sha256 collector_sha256 permitted_mutation permitted_restoration deadline_at",
+        "model_identity": "pairing codex_task_id",
+        "action": "kind action_id intent confirmation",
+        "intent": "console_location intended_expression permitted_mutation recorded_at",
+        "confirmation": "save_completed observed_expression product_approval_presented product_approval_completed recorded_at capture_sha256",
+        "observation": "step capture_method captured_before_at captured_after_at navigation capture_action_id state",
+        "navigation": "url reloaded reload_started_at reload_completed_at",
+        "forbidden": "attester actor party_relationship mapping_mutation_attestation restoration_attestation initial_console_reading attestation_definition_sha256 independence corroboration",
+        "mapping_state": "console_location identity_provider_id mapped_service_account_id uploaded_jwks_mode mapping_present enabled subject_mapping_expression",
+        "exchange": "key_role started_at attempt_count lifecycle_instrument_sha256 assertion_descriptor exchange_request receipt credential_removed_at",
+        "assertion": "algorithm kid issuer subject audience issued_at minted_at expires_at lifetime_seconds jti_supplied factory_environment jwk_thumbprint_sha256",
+        "request": "endpoint content_type grant_type subject_token_type subject_token_supplied identity_provider_id service_account_id scope_supplied requested_at",
+        "receipt": "source http_status request_started_at observed_at provider_date request_id request_id_supplied content_type body_bytes body_format response_shape access_token_supplied token_type expires_in error_type",
+        "response_shape": "body_kind top_level_fields error_fields",
+        "field_descriptor": "name name_recorded value_type",
+        "source": "policy_sha256 base_harness_sha256 lifecycle_instrument_sha256 collector_sha256 checker_sha256",
+    },
+    "openai-signing-key-rotation": {
+        "result": "schema_version provider qualification_requirement authorization_rulings observation_kind run_id bounded_window original_console_reading baseline_control derived_public_key_descriptors overlap_attestation overlap_positive_control local_activation retirement_attestation a129_bracket response_predicate mutation_receipt_obtained provider_response_observed qualification_evidence source",
+        "fixture": "fixture_kind fixture_lineage",
+        "window": "started_at ended_at",
+        "reading": "captured_before_at captured_after_at state",
+        "rotation_state": "console_location identity_provider_id mapped_service_account_id uploaded_jwks_mode subject_mapping_enabled subject_mapping_expression public_keys",
+        "public_key": "kid jwk_thumbprint_sha256 enabled",
+        "derived": "original replacement",
+        "descriptor": "kid jwk_thumbprint_sha256",
+        "exchange": "key_role started_at attempt_count lifecycle_instrument_sha256 assertion_descriptor exchange_request receipt credential_removed_at",
+        "assertion": "algorithm kid issuer subject audience issued_at minted_at expires_at lifetime_seconds jti_supplied factory_environment jwk_thumbprint_sha256",
+        "request": "endpoint content_type grant_type subject_token_type subject_token_supplied identity_provider_id service_account_id scope_supplied requested_at",
+        "receipt": "source http_status request_started_at observed_at provider_date request_id request_id_supplied content_type body_bytes body_format response_shape access_token_supplied token_type expires_in error_type",
+        "response_shape": "body_kind top_level_fields error_fields",
+        "field_descriptor": "name name_recorded value_type",
+        "activation": "active_key_path original_key replacement_key original_key_preserved_in_root_tmpfs observed_at base_harness_sha256 source",
+        "bracket": "bounded_subwindow bracketing_control_before_denial denial_observation bracketing_control_after_denial",
+        "source": "policy_sha256 base_harness_sha256 lifecycle_instrument_sha256 collector_sha256 checker_sha256 attestation_definition_sha256",
+    },
+    "anthropic-crash-cleanup": {
+        "result": "schema_version provider qualification_requirement authorization_ruling run_id policy_sha256 lifecycle_harness_sha256 crash_harness_sha256 checkpoint kill positive_control post_kill_search in_progress_record checker_rejections provider_exposure_boundary provenance_limitation",
+        "contract_metadata": "fixture_kind fixture_lineage provider_response_observed qualification_evidence",
+    },
+    "anthropic-revocation": {
+        "result": "schema_version provider qualification_requirement authorization_ruling run_id policy_sha256 lifecycle_harness_sha256 admin_tool_sha256 revocation_harness_sha256 events",
+        "contract_metadata": "fixture_kind provider_response_observed qualification_evidence",
+    },
+}
+
+
+class ResultShape:
+    """Immutable structural declaration shared by an emitter and its checker."""
+
+    def __init__(self, requirement: str, nodes: dict[str, str]) -> None:
+        self._requirement = requirement
+        parsed: dict[str, frozenset[str]] = {}
+        for name, declaration in nodes.items():
+            keys = declaration.split()
+            if not keys or len(keys) != len(set(keys)):
+                raise RuntimeError(
+                    f"Result shape {requirement}/{name} is empty or repeats a key"
+                )
+            parsed[name] = frozenset(keys)
+        self._nodes = parsed
+
+    def keys(self, node: str) -> frozenset[str]:
+        try:
+            return self._nodes[node]
+        except KeyError as error:
+            raise KeyError(
+                f"unknown Result shape node: {self._requirement}/{node}"
+            ) from error
+
+    def emitted(self, value: Any, node: str = "result") -> dict[str, Any]:
+        """Fail closed when an emitter's object differs from its declaration."""
+        expected = self.keys(node)
+        if not isinstance(value, dict):
+            raise EvidenceJsonError(
+                f"emitted {self._requirement}/{node} is not an object"
+            )
+        observed = set(value)
+        if observed != expected:
+            missing = sorted(expected - observed)
+            unexpected = sorted(observed - expected)
+            raise EvidenceJsonError(
+                f"emitted {self._requirement}/{node} differs: "
+                f"missing={missing}, unexpected={unexpected}"
+            )
+        return value
+
+    def fixture_result(
+        self, value: Any, metadata_node: str = "fixture"
+    ) -> dict[str, Any]:
+        """Derive a checker Result from a contract Fixture declaration."""
+        if not isinstance(value, dict):
+            raise EvidenceJsonError(
+                f"fixture for {self._requirement} is not an object"
+            )
+        result_keys = self.keys("result")
+        metadata_keys = self.keys(metadata_node)
+        observed = set(value)
+        expected = result_keys | metadata_keys
+        if observed != expected:
+            missing = sorted(expected - observed)
+            unexpected = sorted(observed - expected)
+            raise EvidenceJsonError(
+                f"fixture for {self._requirement} differs: "
+                f"missing={missing}, unexpected={unexpected}"
+            )
+        return self.emitted({key: value[key] for key in result_keys})
+
+
+def result_shape(requirement: str) -> ResultShape:
+    try:
+        declaration = _RESULT_SHAPE_DECLARATIONS[requirement]
+    except KeyError as error:
+        raise KeyError(f"unknown Result shape: {requirement}") from error
+    return ResultShape(requirement, declaration)
 
 
 def parse_time(value: Any) -> datetime_module.datetime:

@@ -86,8 +86,10 @@ ROTATION_STATE_KEYS = {
 }
 PUBLIC_KEY_KEYS = {"kid", "jwk_thumbprint_sha256", "enabled"}
 RESPONSE_PREDICATE = {
-    "enforced": False,
-    "basis": "no-observed-openai-retired-signing-key-response",
+    "enforced": True,
+    "http_status": 401,
+    "access_token_supplied": False,
+    "basis": "observed-openai-retired-signing-key-response",
 }
 
 
@@ -849,7 +851,7 @@ def collect(
         "response_predicate": RESPONSE_PREDICATE,
         "mutation_receipt_obtained": False,
         "provider_response_observed": True,
-        "qualification_evidence": False,
+        "qualification_evidence": True,
         "source": source_binding(),
     })
 

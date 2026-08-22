@@ -772,6 +772,10 @@ support it.
 
 ## Requirement 5: signing-key rotation capture
 
+**Status.** Proven by run `openai-rotation-20260813-c488000f8f` after A147
+completed the deferred predicate (HTTP 401 and no bearer). OpenAI remains not
+Qualified.
+
 ### Non-recoverable precondition
 
 **The replacement-JWK upload or any other signing-key control-plane mutation
@@ -801,13 +805,16 @@ Every Attestation and the Result carry the permanent provenance mark
 console JWK changes do not become Receipts merely because they are adjacent to
 one.
 
-The proposed Result carries this exact response predicate until an observed
-OpenAI retired-signing-key response can support a later reviewed predicate:
+The committed Result from run `openai-rotation-20260813-c488000f8f` now
+carries the reviewed predicate (A147): HTTP 401 and no bearer. `error_type`,
+request-id presence, `body_bytes`, and sanitized field types are not pinned.
 
 ```json
 {
-  "enforced": false,
-  "basis": "no-observed-openai-retired-signing-key-response"
+  "enforced": true,
+  "http_status": 401,
+  "access_token_supplied": false,
+  "basis": "observed-openai-retired-signing-key-response"
 }
 ```
 
@@ -851,8 +858,9 @@ All steps occur in one bounded window:
 The three attempts in step 8 use the same token endpoint, identity provider,
 service account, request shape, assertion lifetime, and instrument SHA; only the
 signing key role differs. The original key is never re-trusted to make a test
-pass. No expected denial status, error type, error code, message, or request-ID
-shape is pinned before OpenAI's retired-key response is observed.
+pass. The reviewed predicate (A147) requires the retired-key exchange to be
+HTTP 401 with `access_token_supplied` false. No error type, error code, message,
+or request-ID shape is pinned.
 
 If overlap, replacement positive, local activation, retirement, any bounded
 capture, settling, or bracketing control fails, execute the predeclared safe
@@ -1018,10 +1026,10 @@ sudo python3 -I /opt/patchyard/tools/check-openai-wif-signing-key-rotation.py \
 command above and update anything that records it. The uploaded JWKS and the
 control plane must agree; if they do not, the seat cannot mint.
 
-As with Requirement 4, `--evidence` mode does not pass yet: the response
-predicate is still `no-observed-openai-retired-signing-key-response`, and a
-reviewed predicate is written against what OpenAI actually returns for a retired
-key, after this run has observed it.
+`--evidence` mode now passes on the committed Result: A147 completed the
+deferred predicate as HTTP 401 with no bearer, and flipped
+`qualification_evidence` to true. Requirement 5 is Proven. A later conforming
+run is born with the same enforced predicate.
 
 ## What remains unchanged
 

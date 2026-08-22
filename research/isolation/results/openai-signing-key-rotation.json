@@ -504,11 +504,13 @@
   },
   "provider": "openai",
   "provider_response_observed": true,
-  "qualification_evidence": false,
+  "qualification_evidence": true,
   "qualification_requirement": "signing-key-rotation",
   "response_predicate": {
-    "basis": "no-observed-openai-retired-signing-key-response",
-    "enforced": false
+    "access_token_supplied": false,
+    "basis": "observed-openai-retired-signing-key-response",
+    "enforced": true,
+    "http_status": 401
   },
   "retirement_attestation": {
     "actor": {

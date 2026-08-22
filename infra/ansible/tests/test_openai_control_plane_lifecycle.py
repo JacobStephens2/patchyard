@@ -156,7 +156,7 @@ class CheckerCase(unittest.TestCase):
         receipt.update(
             {
                 "source": "openai_http_response",
-                "http_status": 418 if denial else 299,
+                "http_status": 401 if denial else 299,
                 "provider_date": "2026-08-07T15:20:25Z",
                 "request_id": "req_synthetic_arbitrary",
                 "request_id_supplied": True,
@@ -1326,6 +1326,12 @@ class SigningKeyRotationCheckerContract(CheckerCase):
         del value["fixture_kind"]
         del value["fixture_lineage"]
         value["provider_response_observed"] = True
+        value["response_predicate"] = {
+            "enforced": True,
+            "http_status": 401,
+            "access_token_supplied": False,
+            "basis": "observed-openai-retired-signing-key-response",
+        }
         for exchange, denial in self.exchange_values(value):
             self.observed_receipt(exchange["receipt"], denial=denial)
         return value
@@ -1342,11 +1348,49 @@ class SigningKeyRotationCheckerContract(CheckerCase):
         self.assertEqual(refused.returncode, 1)
         self.assertIn("cannot be qualification evidence", refused.stderr)
 
-    def test_arbitrary_observed_denial_shape_is_accepted_while_unenforced(self) -> None:
+    def test_reviewed_predicate_accepts_401_without_a_bearer(self) -> None:
+        value = self.observed()
         result = self.run_checker(
-            "--observation", str(self.write(self.observed(), "observed.json"))
+            "--observation", str(self.write(value, "observed.json"))
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+        value["qualification_evidence"] = True
+        evidenced = self.run_checker(
+            "--evidence", str(self.write(value, "evidence.json"))
+        )
+        self.assertEqual(evidenced.returncode, 0, evidenced.stderr)
+
+    def test_reviewed_predicate_rejects_non_401_or_a_bearer(self) -> None:
+        wrong_status = self.observed()
+        wrong_status["a129_bracket"]["denial_observation"]["receipt"][
+            "http_status"
+        ] = 418
+        result = self.run_checker(
+            "--observation", str(self.write(wrong_status, "wrong-status.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("was not HTTP 401", result.stderr)
+
+        with_bearer = self.observed()
+        with_bearer["a129_bracket"]["denial_observation"]["receipt"][
+            "access_token_supplied"
+        ] = True
+        result = self.run_checker(
+            "--observation", str(self.write(with_bearer, "bearer.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("supplied a bearer", result.stderr)
+
+    def test_banked_result_is_qualification_evidence(self) -> None:
+        defaulted = self.run_checker()
+        self.assertEqual(defaulted.returncode, 0, defaulted.stderr)
+        self.assertIn("qualification evidence", defaulted.stdout)
+        evidenced = self.run_checker(
+            "--evidence",
+            str(ROOT / "research/isolation/results/openai-signing-key-rotation.json"),
+        )
+        self.assertEqual(evidenced.returncode, 0, evidenced.stderr)
+        self.assertIn("qualification evidence", evidenced.stdout)
 
     def test_missing_baseline_or_either_bracketing_control_is_rejected(self) -> None:
         baseline = deepcopy(self.fixture)

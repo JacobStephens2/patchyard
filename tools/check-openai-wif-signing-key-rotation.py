@@ -103,9 +103,15 @@ MAX_INPUT_BYTES = 3_000_000
 MAX_RESPONSE_BYTES = 1_000_000
 SETTLING_FLOOR_SECONDS = 90
 OVERLAP_POSITIVE_MAX_ATTEMPTS = 4
-RESPONSE_PREDICATE = {
+UNOBSERVED_RESPONSE_PREDICATE = {
     "enforced": False,
     "basis": "no-observed-openai-retired-signing-key-response",
+}
+RESPONSE_PREDICATE = {
+    "enforced": True,
+    "http_status": 401,
+    "access_token_supplied": False,
+    "basis": "observed-openai-retired-signing-key-response",
 }
 RESULT_SHAPE = RUNTIME.result_shape("openai-signing-key-rotation")
 RESULT_KEYS = RESULT_SHAPE.keys("result")
@@ -425,6 +431,16 @@ def validate_exchange(
         "access_token_supplied"
     ) is not True:
         errors.append(f"{label} did not supply a bearer")
+    if (
+        not positive
+        and not synthetic
+        and isinstance(value.get("receipt"), dict)
+    ):
+        receipt = value["receipt"]
+        if receipt.get("http_status") != RESPONSE_PREDICATE["http_status"]:
+            errors.append(f"{label} was not HTTP 401")
+        if receipt.get("access_token_supplied") is not False:
+            errors.append(f"{label} supplied a bearer")
     facts.update(
         {
             "started": started,
@@ -883,8 +899,16 @@ def validate_common(
         left <= right for left, right in zip(sequence, sequence[1:])
     ):
         errors.append("signing-key-rotation UTC observations are out of order")
-    if result.get("response_predicate") != RESPONSE_PREDICATE:
-        errors.append("signing-key-rotation predicate was enforced before observation")
+    expected_predicate = (
+        UNOBSERVED_RESPONSE_PREDICATE if synthetic else RESPONSE_PREDICATE
+    )
+    if result.get("response_predicate") != expected_predicate:
+        if synthetic:
+            errors.append("signing-key-rotation predicate was enforced before observation")
+        else:
+            errors.append(
+                "signing-key-rotation predicate does not match the reviewed retired-key denial"
+            )
     if result.get("mutation_receipt_obtained") is not False:
         errors.append("signing-key-rotation Result provenance mark differs")
     validate_source(result.get("source"), errors)
@@ -901,8 +925,8 @@ def validate_observation(
     if isinstance(result, dict):
         if result.get("provider_response_observed") is not True:
             errors.append("signing-key-rotation observation lacks provider responses")
-        if result.get("qualification_evidence") is not False:
-            errors.append("signing-key-rotation observation claims qualification")
+        if result.get("qualification_evidence") not in {True, False}:
+            errors.append("signing-key-rotation qualification_evidence is not boolean")
     return errors
 
 
@@ -933,7 +957,8 @@ def validate_qualification_evidence(
     if isinstance(result, dict) and result.get("fixture_kind") is not None:
         return ["synthetic signing-key-rotation Fixture cannot be qualification evidence"]
     errors = validate_observation(result, policy, attestation)
-    errors.append("signing-key-rotation predicate is unenforced pending observation")
+    if isinstance(result, dict) and result.get("qualification_evidence") is not True:
+        errors.append("signing-key-rotation Result is not qualification evidence")
     return errors
 
 
@@ -974,7 +999,7 @@ def static_errors() -> tuple[list[str], dict[str, Any], types.ModuleType | None]
             '"ACTIVATE LOCALLY"',
             '"SAFE ROLLBACK COMPLETE"',
             "def capture_safe_rotation_rollback(",
-            '"no-observed-openai-retired-signing-key-response"',
+            '"observed-openai-retired-signing-key-response"',
             "rsa_keygen_bits:3072",
             "SETTLING_FLOOR_SECONDS = 90",
             "OVERLAP_POSITIVE_MAX_ATTEMPTS = 4",
@@ -1023,6 +1048,7 @@ def main() -> int:
             errors.append(f"unknown checker argument: {argument}")
     if allow_missing and (mode != "default" or path != RESULT_PATH):
         errors.append("allow-missing-results cannot be combined with supplied input")
+    qualification = False
     if not path.exists():
         if not allow_missing:
             errors.append("OpenAI signing-key-rotation Result is missing")
@@ -1035,6 +1061,13 @@ def main() -> int:
                 errors.extend(validate_qualification_evidence(result, policy, attestation))
             else:
                 errors.extend(validate_observation(result, policy, attestation))
+            qualification = (
+                isinstance(result, dict) and result.get("qualification_evidence") is True
+            )
+        else:
+            qualification = False
+    else:
+        qualification = False
     if errors:
         print("OpenAI signing-key rotation check: failed", file=sys.stderr)
         for error in errors:
@@ -1042,6 +1075,8 @@ def main() -> int:
         return 1
     if mode == "contract-fixture":
         status = "synthetic contract Fixture; not qualification evidence"
+    elif path.exists() and qualification:
+        status = "qualification evidence"
     elif path.exists():
         status = "non-qualifying provider observation"
     else:

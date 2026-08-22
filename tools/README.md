@@ -35,7 +35,7 @@ their own.
 | `check-openai-wif-expiry.py` | Validate the OpenAI expired-assertion contract, unenforced response predicate, non-qualifying observation, or synthetic Fixture |
 | `check-openai-wif-crash-cleanup.py` | Validate the OpenAI A130 process-image positive control, SIGKILL, inert abrupt-death record, and local exposure boundary |
 | `check-openai-wif-federation-revocation.py` | Validate the requirement-4 A146 record shape, A148 route authorization or A146 comment, settling floors, same-surface baseline/denial/bracketing controls, and the reviewed 401-and-no-bearer revocation predicate |
-| `check-openai-wif-signing-key-rotation.py` | Validate requirement 5 derived keys, Attestations, overlap control, settling floors, A129 bracket, and the unenforced response predicate |
+| `check-openai-wif-signing-key-rotation.py` | Validate requirement 5 derived keys, Attestations, overlap control, settling floors, A129 bracket, and the reviewed 401-and-no-bearer retired-key predicate |
 | `aa-sweep.py` | Artificial Analysis catalog snapshot + move report |
 | `check-bench.py` | Validate `docs/bench.json` (schema + invariants) and sync the generated Pairs table in `docs/bench.md` (`--write` to regenerate; no flag = drift check) |
 | `check-seats.py` | Cross-check `docs/bench.md` § Seat preference orders against `bench.json` + the A61 allowlist (membership, preferred harness, floors, rank ordering, speed values; `--strict` fails on warnings) |

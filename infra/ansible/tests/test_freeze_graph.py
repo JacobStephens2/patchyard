@@ -10,6 +10,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
 CHECKER = ROOT / "tools/check-freeze-graph.py"
+CHECKER_RUNTIME = ROOT / "tools/factory_checker_runtime.py"
 # A144 superseded the OpenAI collectors and checkers by declared digest, so
 # their PRE-split bytes leave the byte-frozen set: the Results banked before
 # the split bind them through the supersession trail rather than by identity.
@@ -44,8 +45,16 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def copy_checker(target: Path) -> None:
+    shutil.copy2(CHECKER, target)
+    shutil.copy2(CHECKER_RUNTIME, target.with_name(CHECKER_RUNTIME.name))
+
+
 class FreezeGraphContract(unittest.TestCase):
     def run_checker(self, repo: Path, checker: Path = CHECKER):
+        runtime = checker.with_name(CHECKER_RUNTIME.name)
+        if not runtime.exists():
+            shutil.copy2(CHECKER_RUNTIME, runtime)
         return subprocess.run(
             ["python3", "-I", str(checker), "--repo", str(repo)],
             cwd=repo,
@@ -89,7 +98,7 @@ class FreezeGraphContract(unittest.TestCase):
             ):
                 (repo / relative).mkdir(parents=True, exist_ok=True)
             checker = repo / "tools/check-freeze-graph.py"
-            shutil.copy2(CHECKER, checker)
+            copy_checker(checker)
 
             targets = {
                 "worker/dict-target": "dict target\n",
@@ -205,7 +214,7 @@ class FreezeGraphContract(unittest.TestCase):
             (repo / "research/isolation/results/example.json").write_text(
                 json.dumps(result, indent=2) + "\n"
             )
-            shutil.copy2(CHECKER, repo / "tools/check-freeze-graph.py")
+            copy_checker(repo / "tools/check-freeze-graph.py")
             subprocess.run(["git", "init", "-q", str(repo)], check=True)
             subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
             subprocess.run(
@@ -248,7 +257,7 @@ class FreezeGraphContract(unittest.TestCase):
         (repo / "research/isolation/results/example.json").write_text(
             json.dumps(result, indent=2) + "\n"
         )
-        shutil.copy2(CHECKER, repo / "tools/check-freeze-graph.py")
+        copy_checker(repo / "tools/check-freeze-graph.py")
         subprocess.run(["git", "init", "-q", str(repo)], check=True)
         subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
         subprocess.run(
@@ -323,6 +332,9 @@ class NeutralityContract(unittest.TestCase):
     NEUTRAL_ARTIFACT = "worker/runtime/patchyard-provider-run"
 
     def run_checker(self, repo: Path):
+        runtime = repo / "tools" / CHECKER_RUNTIME.name
+        if not runtime.exists():
+            shutil.copy2(CHECKER_RUNTIME, runtime)
         return subprocess.run(
             ["python3", "-I", str(repo / "tools/check-freeze-graph.py"), "--repo", str(repo)],
             cwd=repo,
@@ -334,7 +346,7 @@ class NeutralityContract(unittest.TestCase):
     def build_repo(self, repo: Path, *, policy, launcher: str) -> None:
         for relative in ("tools", "worker/runtime", "policy", "research/isolation/results"):
             (repo / relative).mkdir(parents=True, exist_ok=True)
-        shutil.copy2(CHECKER, repo / "tools/check-freeze-graph.py")
+        copy_checker(repo / "tools/check-freeze-graph.py")
         if policy is not None:
             (repo / "policy/provider-egress.json").write_text(policy)
         (repo / self.NEUTRAL_ARTIFACT).write_text(launcher)

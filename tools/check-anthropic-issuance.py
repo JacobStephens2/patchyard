@@ -10,6 +10,30 @@ from pathlib import Path
 import re
 import sys
 from typing import Any
+import types
+
+
+CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
+CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+_checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
+if (
+    CHECKER_RUNTIME_PATH.is_symlink()
+    or hashlib.sha256(_checker_runtime_source).hexdigest()
+    != CHECKER_RUNTIME_SHA256
+):
+    raise RuntimeError("factory checker runtime differs from its exact binding")
+RUNTIME = types.ModuleType("factory_checker_runtime_check_anthropic_issuance")
+RUNTIME.__file__ = str(CHECKER_RUNTIME_PATH)
+RUNTIME.__package__ = None
+exec(
+    compile(
+        _checker_runtime_source,
+        str(CHECKER_RUNTIME_PATH),
+        "exec",
+        dont_inherit=True,
+    ),
+    RUNTIME.__dict__,
+)
 
 
 REPO = Path(__file__).resolve().parent.parent
@@ -348,21 +372,13 @@ for required in (
         errors.append(f"worker credential-absence qualifier is missing: {required}")
 
 
-def secret_named_key(value: Any) -> str | None:
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if key in {"secret", "access_token", "assertion", "identity_token", "authorization", "private_key"}:
-                return key
-            found = secret_named_key(child)
-            if found:
-                return found
-    elif isinstance(value, list):
-        for child in value:
-            found = secret_named_key(child)
-            if found:
-                return found
-    return None
-
+CHECKER = RUNTIME.checker_runtime(
+    identity="Anthropic issuance checker",
+    modules=(hashlib, json, re, types),
+    repo=REPO,
+    secret_names=frozenset({"secret", "access_token", "assertion", "identity_token", "authorization", "private_key"}),
+)
+secret_named_key = CHECKER.secret_named_key
 
 allow_missing = "--allow-missing-results" in sys.argv[1:]
 if not RESULT_PATH.exists():

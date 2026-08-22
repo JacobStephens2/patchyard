@@ -11,6 +11,31 @@ import subprocess
 import sys
 import sysconfig
 from typing import Any
+import hashlib
+import types
+
+
+CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
+CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+_checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
+if (
+    CHECKER_RUNTIME_PATH.is_symlink()
+    or hashlib.sha256(_checker_runtime_source).hexdigest()
+    != CHECKER_RUNTIME_SHA256
+):
+    raise RuntimeError("factory checker runtime differs from its exact binding")
+RUNTIME = types.ModuleType("factory_checker_runtime_check_credential_qualification")
+RUNTIME.__file__ = str(CHECKER_RUNTIME_PATH)
+RUNTIME.__package__ = None
+exec(
+    compile(
+        _checker_runtime_source,
+        str(CHECKER_RUNTIME_PATH),
+        "exec",
+        dont_inherit=True,
+    ),
+    RUNTIME.__dict__,
+)
 
 
 REPO = Path(__file__).resolve().parent.parent
@@ -78,18 +103,17 @@ class StrictJsonError(ValueError):
     """JSON input is ambiguous or outside the strict contract."""
 
 
-def reject_json_constant(value: str) -> None:
-    raise StrictJsonError(f"forbidden numeric constant: {value}")
-
-
-def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise StrictJsonError(f"duplicate JSON key: {key}")
-        result[key] = value
-    return result
-
+STRICT_JSON = RUNTIME.strict_json(StrictJsonError)
+CHECKER = RUNTIME.checker_runtime(
+    identity="credential qualification checker",
+    modules=(argparse, json, subprocess, sysconfig, types),
+    repo=REPO,
+    json_contract=STRICT_JSON,
+)
+reject_json_constant = STRICT_JSON.reject_json_constant
+reject_duplicate_keys = STRICT_JSON.reject_duplicate_keys
+is_within = RUNTIME.is_within
+isolation_errors = CHECKER.isolation_errors
 
 def load_json(path: Path) -> Any:
     if not path.is_file() or path.is_symlink():
@@ -101,39 +125,6 @@ def load_json(path: Path) -> Any:
         object_pairs_hook=reject_duplicate_keys,
         parse_constant=reject_json_constant,
     )
-
-
-def is_within(path: Path, parent: Path) -> bool:
-    try:
-        path.relative_to(parent)
-    except ValueError:
-        return False
-    return True
-
-
-def isolation_errors() -> list[str]:
-    errors: list[str] = []
-    if not sys.flags.isolated:
-        errors.append("credential qualification checker requires python3 -I")
-    stdlib = Path(sysconfig.get_path("stdlib")).resolve()
-    for module in (argparse, json, subprocess, sysconfig):
-        source = getattr(module, "__file__", None)
-        if source is None or not is_within(Path(source).resolve(), stdlib):
-            errors.append(
-                "credential qualification checker rejected "
-                f"{module.__name__} provenance: {source!r}"
-            )
-    for entry in sys.path:
-        try:
-            resolved = Path(entry).resolve()
-        except OSError:
-            continue
-        if is_within(resolved, REPO):
-            errors.append(
-                "credential qualification checker has repository import path: "
-                f"{entry}"
-            )
-    return errors
 
 
 def tracked_unchanged_result(relative: str) -> str | None:

@@ -26,6 +26,30 @@ import re
 import sys
 import sysconfig
 from typing import Any
+import types
+
+
+CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
+CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+_checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
+if (
+    CHECKER_RUNTIME_PATH.is_symlink()
+    or hashlib.sha256(_checker_runtime_source).hexdigest()
+    != CHECKER_RUNTIME_SHA256
+):
+    raise RuntimeError("factory checker runtime differs from its exact binding")
+RUNTIME = types.ModuleType("factory_checker_runtime_check_openai_spend")
+RUNTIME.__file__ = str(CHECKER_RUNTIME_PATH)
+RUNTIME.__package__ = None
+exec(
+    compile(
+        _checker_runtime_source,
+        str(CHECKER_RUNTIME_PATH),
+        "exec",
+        dont_inherit=True,
+    ),
+    RUNTIME.__dict__,
+)
 
 
 REPO = Path(__file__).resolve().parent.parent
@@ -211,39 +235,21 @@ EXCHANGE_REQUEST_ID = re.compile(
 HEX64 = re.compile(r"[0-9a-f]{64}")
 
 
-def is_within(path: Path, parent: Path) -> bool:
-    try:
-        path.relative_to(parent)
-    except ValueError:
-        return False
-    return True
-
-
-def isolation_errors() -> list[str]:
-    errors: list[str] = []
-    if not sys.flags.isolated:
-        errors.append("OpenAI spend checker requires python3 -I")
-    stdlib = Path(sysconfig.get_path("stdlib")).resolve()
-    for module in (hashlib, json, re, sysconfig):
-        source = getattr(module, "__file__", None)
-        if source is None or not is_within(Path(source).resolve(), stdlib):
-            errors.append(
-                f"OpenAI spend checker rejected {module.__name__} provenance: "
-                f"{source!r}"
-            )
-    for entry in sys.path:
-        try:
-            resolved = Path(entry).resolve()
-        except OSError:
-            continue
-        if is_within(resolved, REPO):
-            errors.append(f"OpenAI spend checker has repository import path: {entry}")
-    return errors
-
-
-def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
+CHECKER = RUNTIME.checker_runtime(
+    identity="OpenAI spend checker",
+    modules=(hashlib, json, re, sysconfig, types),
+    repo=REPO,
+    secret_names=frozenset({"secret", "access_token", "assertion", "subject_token", "identity_token", "authorization", "private_key", "api_key"}),
+    identity_history_path=IDENTITY_HISTORY_PATH,
+    issuance_era_service_account_id=ISSUANCE_ERA_SERVICE_ACCOUNT_ID,
+    project_id=PROJECT_ID,
+)
+is_within = RUNTIME.is_within
+isolation_errors = CHECKER.isolation_errors
+digest = RUNTIME.digest
+parse_time = RUNTIME.parse_time
+secret_named_key = CHECKER.secret_named_key
+roster_service_account_ids = CHECKER.roster_service_account_ids
 
 def host_contract_sha256() -> str:
     records = [
@@ -265,15 +271,6 @@ def qualification_policy_sha256(qualification_policy: dict[str, Any]) -> str:
     return hashlib.sha256(serialized.encode()).hexdigest()
 
 
-def parse_time(value: Any) -> datetime:
-    if not isinstance(value, str):
-        raise ValueError("timestamp is not a string")
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if parsed.tzinfo is None:
-        raise ValueError("timestamp has no timezone")
-    return parsed
-
-
 def decimal_value(value: Any) -> Decimal:
     if not isinstance(value, str):
         raise ValueError("decimal figure is not a string")
@@ -281,29 +278,6 @@ def decimal_value(value: Any) -> Decimal:
     if not number.is_finite():
         raise ValueError("decimal figure is not finite")
     return number
-
-
-def secret_named_key(value: Any) -> str | None:
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if key in {
-                "secret",
-                "access_token",
-                "assertion",
-                "identity_token",
-                "authorization",
-                "private_key",
-            }:
-                return key
-            found = secret_named_key(child)
-            if found:
-                return found
-    elif isinstance(value, list):
-        for child in value:
-            found = secret_named_key(child)
-            if found:
-                return found
-    return None
 
 
 def contains_forbidden_ceiling(value: Any) -> bool:
@@ -317,30 +291,6 @@ def contains_forbidden_ceiling(value: Any) -> bool:
     if isinstance(value, list):
         return any(contains_forbidden_ceiling(child) for child in value)
     return False
-
-
-def roster_service_account_ids(errors: list[str]) -> frozenset[str]:
-    """A150: the requirement-2 capability carries whichever service account
-    the identity registry made current at run time, so a recorded id is
-    validated by roster membership rather than by equality with the frozen
-    policy's demoted issuance-era id."""
-    try:
-        registry = json.loads(IDENTITY_HISTORY_PATH.read_text())
-        identifiers = frozenset(
-            entry["id"] for entry in registry["service_accounts"]
-        )
-        current = registry["current_service_account_id"]
-        project = registry["project_id"]
-    except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
-        errors.append(f"cannot read the OpenAI identity registry: {error}")
-        return frozenset()
-    if project != PROJECT_ID:
-        errors.append("OpenAI identity registry names another project")
-    if current not in identifiers:
-        errors.append("OpenAI identity registry current id is not in its roster")
-    if ISSUANCE_ERA_SERVICE_ACCOUNT_ID not in identifiers:
-        errors.append("OpenAI identity registry lacks the issuance-era id")
-    return identifiers
 
 
 def static_errors() -> tuple[list[str], dict[str, Any]]:

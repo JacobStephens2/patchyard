@@ -11,6 +11,30 @@ import re
 import sys
 import sysconfig
 from typing import Any
+import types
+
+
+CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
+CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+_checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
+if (
+    CHECKER_RUNTIME_PATH.is_symlink()
+    or hashlib.sha256(_checker_runtime_source).hexdigest()
+    != CHECKER_RUNTIME_SHA256
+):
+    raise RuntimeError("factory checker runtime differs from its exact binding")
+RUNTIME = types.ModuleType("factory_checker_runtime_check_openai_wif_expiry")
+RUNTIME.__file__ = str(CHECKER_RUNTIME_PATH)
+RUNTIME.__package__ = None
+exec(
+    compile(
+        _checker_runtime_source,
+        str(CHECKER_RUNTIME_PATH),
+        "exec",
+        dont_inherit=True,
+    ),
+    RUNTIME.__dict__,
+)
 
 
 REPO = Path(__file__).resolve().parent.parent
@@ -128,115 +152,26 @@ FIELD_DESCRIPTOR_KEYS = {"name", "name_recorded", "value_type"}
 JSON_VALUE_TYPES = {"null", "boolean", "integer", "number", "string", "object", "array"}
 
 
-class EvidenceJsonError(ValueError):
-    """Evidence JSON is ambiguous or outside the strict data contract."""
-
-
-def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def reject_json_constant(value: str) -> None:
-    raise EvidenceJsonError(f"forbidden numeric constant: {value}")
-
-
-def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise EvidenceJsonError(f"duplicate JSON key: {key}")
-        result[key] = value
-    return result
-
-
-def load_json_file(path: Path) -> Any:
-    return json.loads(
-        path.read_bytes(),
-        object_pairs_hook=reject_duplicate_keys,
-        parse_constant=reject_json_constant,
-    )
-
-
-def roster_service_account_ids(errors: list[str]) -> frozenset[str]:
-    """A150: the banked Results were minted against the issuance-era service
-    account and later runs are minted against the current one, so a recorded
-    id is validated by membership in policy/openai-identity-history.json
-    rather than by equality with the frozen policy's demoted id."""
-    try:
-        registry = load_json_file(IDENTITY_HISTORY_PATH)
-        identifiers = frozenset(
-            entry["id"] for entry in registry["service_accounts"]
-        )
-        current = registry["current_service_account_id"]
-    except (
-        OSError,
-        KeyError,
-        TypeError,
-        json.JSONDecodeError,
-        EvidenceJsonError,
-    ) as error:
-        errors.append(f"cannot read the OpenAI identity registry: {error}")
-        return frozenset()
-    if current not in identifiers:
-        errors.append("OpenAI identity registry current id is not in its roster")
-    if ISSUANCE_ERA_SERVICE_ACCOUNT_ID not in identifiers:
-        errors.append("OpenAI identity registry lacks the issuance-era id")
-    return identifiers
-
-
-def is_within(path: Path, parent: Path) -> bool:
-    try:
-        path.relative_to(parent)
-    except ValueError:
-        return False
-    return True
-
-
-def isolation_errors() -> list[str]:
-    errors: list[str] = []
-    if not sys.flags.isolated:
-        errors.append("OpenAI expiry checker requires python3 -I")
-    stdlib = Path(sysconfig.get_path("stdlib")).resolve()
-    for module in (hashlib, json, re, sysconfig):
-        source = getattr(module, "__file__", None)
-        if source is None or not is_within(Path(source).resolve(), stdlib):
-            errors.append(
-                f"OpenAI expiry checker rejected {module.__name__} provenance: {source!r}"
-            )
-    for entry in sys.path:
-        try:
-            resolved = Path(entry).resolve()
-        except OSError:
-            continue
-        if is_within(resolved, REPO):
-            errors.append(f"OpenAI expiry checker has repository import path: {entry}")
-    return errors
-
-
-def exact_keys(value: Any, expected: set[str], label: str, errors: list[str]) -> bool:
-    if not isinstance(value, dict):
-        errors.append(f"{label} is not an object")
-        return False
-    if set(value) != expected:
-        errors.append(f"{label} has an unexpected evidence shape")
-        return False
-    return True
-
-
-def parse_time(value: Any, label: str, errors: list[str]) -> datetime | None:
-    if not isinstance(value, str) or UTC_TIMESTAMP.fullmatch(value) is None:
-        errors.append(f"{label} is not a UTC timestamp")
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        errors.append(f"{label} is malformed")
-        return None
-    if parsed.tzinfo is None:
-        errors.append(f"{label} has no timezone")
-        return None
-    return parsed
-
+CHECKER = RUNTIME.checker_runtime(
+    identity="OpenAI expiry checker",
+    modules=(hashlib, json, re, sysconfig, types),
+    repo=REPO,
+    timestamp_pattern=UTC_TIMESTAMP,
+    secret_names=frozenset({"secret", "access_token", "assertion", "subject_token", "identity_token", "authorization", "private_key", "api_key"}),
+    identity_history_path=IDENTITY_HISTORY_PATH,
+    issuance_era_service_account_id=ISSUANCE_ERA_SERVICE_ACCOUNT_ID,
+)
+EvidenceJsonError = RUNTIME.EvidenceJsonError
+digest = RUNTIME.digest
+load_json_file = CHECKER.load_json_file
+reject_json_constant = CHECKER.reject_json_constant
+reject_duplicate_keys = CHECKER.reject_duplicate_keys
+roster_service_account_ids = CHECKER.roster_service_account_ids
+is_within = RUNTIME.is_within
+isolation_errors = CHECKER.isolation_errors
+exact_keys = RUNTIME.exact_keys
+parse_time = CHECKER.parse_time
+secret_named_key = CHECKER.secret_named_key
 
 def valid_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
@@ -481,31 +416,6 @@ def validate_source(value: Any, errors: list[str]) -> None:
         or value.get("expiry_adapter_sha256") not in accepted_adapter
     ):
         errors.append("OpenAI expiry source binding differs from current sources")
-
-
-def secret_named_key(value: Any) -> str | None:
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if key in {
-                "secret",
-                "access_token",
-                "assertion",
-                "subject_token",
-                "identity_token",
-                "authorization",
-                "private_key",
-                "api_key",
-            }:
-                return key
-            found = secret_named_key(child)
-            if found is not None:
-                return found
-    elif isinstance(value, list):
-        for child in value:
-            found = secret_named_key(child)
-            if found is not None:
-                return found
-    return None
 
 
 def credential_errors(value: Any) -> list[str]:

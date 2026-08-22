@@ -118,7 +118,7 @@ class AttestationAndCollectorContract(unittest.TestCase):
         self.assertFalse(hasattr(self.revocation, "ATTESTATION_DEFINITION_SHA256"))
         self.assertEqual(
             self.revocation.LIFECYCLE_INSTRUMENT_SHA256,
-            "c53617ee45bb08f0b4aab9d4a4fa07788234abe4a6f2077a35d7a6f3357611d5",
+            "3547ee7c79226123421027df527183d49a7d887368d0b3c6d234b90eaa6f5f52",
         )
         self.assertEqual(
             self.rotation.LIFECYCLE_INSTRUMENT_SHA256,
@@ -1509,6 +1509,15 @@ class DeploymentContract(unittest.TestCase):
         tasks = CONTROL_PLANE_TASKS_PATH.read_text()
         self.assertIn("Assert the mapped OpenAI service account now", tasks)
         self.assertIn("Enforce the OpenAI read-only Administration key boundary", tasks)
+        self.assertIn(
+            "../../tools/factory_checker_runtime.py",
+            tasks,
+        )
+        self.assertIn("dest: /usr/local/sbin/factory_checker_runtime.py", tasks)
+        self.assertLess(
+            tasks.index("Install the shared qualification checker runtime"),
+            tasks.index("Install the OpenAI service-account liveness assertion"),
+        )
         # state: file preserves and verifies; it must never become a copy task.
         boundary = tasks.split(
             "Enforce the OpenAI read-only Administration key boundary"

@@ -71,6 +71,7 @@ TEST_FILES=(
   infra/ansible/tests/test_child_launcher.py
   infra/ansible/tests/test_cloud_init_bootstrap.py
   infra/ansible/tests/test_dashboard_checkout.py
+  infra/ansible/tests/test_factory_checker_runtime.py
   infra/ansible/tests/test_freeze_graph.py
   infra/ansible/tests/test_live_review_disposition_seats.py
   infra/ansible/tests/test_log_secret_scan.py

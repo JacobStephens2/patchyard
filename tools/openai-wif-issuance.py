@@ -27,6 +27,29 @@ import urllib.error
 import urllib.request
 
 
+CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
+CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+_checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
+if (
+    CHECKER_RUNTIME_PATH.is_symlink()
+    or hashlib.sha256(_checker_runtime_source).hexdigest()
+    != CHECKER_RUNTIME_SHA256
+):
+    raise RuntimeError("factory checker runtime differs from its exact binding")
+RUNTIME = types.ModuleType("factory_checker_runtime_openai_wif_issuance")
+RUNTIME.__file__ = str(CHECKER_RUNTIME_PATH)
+RUNTIME.__package__ = None
+exec(
+    compile(
+        _checker_runtime_source,
+        str(CHECKER_RUNTIME_PATH),
+        "exec",
+        dont_inherit=True,
+    ),
+    RUNTIME.__dict__,
+)
+
+
 ROOT = Path(__file__).resolve().parent.parent
 POLICY_PATH = ROOT / "policy/openai-wif.json"
 IDENTITY_HISTORY_PATH = ROOT / "policy/openai-identity-history.json"
@@ -172,58 +195,15 @@ def load_policy() -> dict[str, Any]:
     return with_current_service_account(policy)
 
 
-def registry_current_service_account_id() -> str:
-    """A150: the OpenAI identity registry is the steady-state service-account
-    authority. The frozen policy's service_account.id is the issuance-era
-    account the banked Results were minted against - the same demotion A145
-    applied to its issuer.jwks_kid - and is no longer sent on the wire. Both
-    cross-checks read the digest-pinned policy file directly rather than a
-    caller-supplied dict, exactly as registry_trusted_kid does, so the two
-    files cannot drift apart silently."""
-    frozen = BASE.load_json_file(POLICY_PATH)
-    registry = BASE.load_json_file(IDENTITY_HISTORY_PATH)
-    try:
-        project = registry["project_id"]
-        current = registry["current_service_account_id"]
-        roster = registry["service_accounts"]
-        identifiers = [entry["id"] for entry in roster]
-        marked_current = [
-            entry["id"] for entry in roster if entry["status"] == "current"
-        ]
-        frozen_project = frozen["project"]["id"]
-        frozen_account = frozen["service_account"]["id"]
-    except (KeyError, TypeError) as error:
-        raise OpenAIWifError("OpenAI identity registry is malformed") from error
-    if project != frozen_project:
-        raise OpenAIWifError("OpenAI identity registry names another project")
-    if not isinstance(current, str) or (
-        SERVICE_ACCOUNT_ID_PATTERN.fullmatch(current) is None
-    ):
-        raise OpenAIWifError("OpenAI identity registry current id is malformed")
-    if len(identifiers) != len(set(identifiers)):
-        raise OpenAIWifError("OpenAI identity registry repeats an id")
-    if marked_current != [current]:
-        raise OpenAIWifError("OpenAI identity registry has no single current entry")
-    if frozen_account not in identifiers:
-        raise OpenAIWifError("OpenAI identity registry lacks the frozen policy id")
-    return current
-
-
-def with_current_service_account(policy: dict[str, Any]) -> dict[str, Any]:
-    """A150: substitute the registry's current service-account id for the
-    frozen policy's demoted issuance-era one, once, here. Everything
-    downstream - the wire request and the console-state comparisons - keeps
-    reading policy["service_account"]["id"] and so keeps its injection seam
-    for tests. The frozen file itself is validated above and never edited:
-    all five banked OpenAI Results pin its digest as policy_sha256."""
-    current = registry_current_service_account_id()
-    policy = dict(policy)
-    policy["service_account"] = dict(policy["service_account"], id=current)
-    if isinstance(policy.get("rule"), dict):
-        policy["rule"] = dict(policy["rule"], service_account_id=current)
-    return policy
-
-
+COLLECTOR_RUNTIME = RUNTIME.openai_collector_runtime(
+    load_json_file=BASE.load_json_file,
+    policy_path=POLICY_PATH,
+    identity_history_path=IDENTITY_HISTORY_PATH,
+    service_account_id_pattern=SERVICE_ACCOUNT_ID_PATTERN,
+    error_type=OpenAIWifError,
+)
+registry_current_service_account_id = COLLECTOR_RUNTIME.registry_current_service_account_id
+with_current_service_account = COLLECTOR_RUNTIME.with_current_service_account
 def registry_trusted_kid() -> str:
     """A145: the per-provider signing-identity registry is the steady-state
     kid authority. The frozen policy's issuer.jwks_kid is the historical

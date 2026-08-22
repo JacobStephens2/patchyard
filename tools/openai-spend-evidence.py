@@ -32,6 +32,31 @@ import re
 from typing import Any
 import urllib.parse
 import urllib.request
+import hashlib
+import types
+
+
+CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
+CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+_checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
+if (
+    CHECKER_RUNTIME_PATH.is_symlink()
+    or hashlib.sha256(_checker_runtime_source).hexdigest()
+    != CHECKER_RUNTIME_SHA256
+):
+    raise RuntimeError("factory checker runtime differs from its exact binding")
+RUNTIME = types.ModuleType("factory_checker_runtime_openai_spend_evidence")
+RUNTIME.__file__ = str(CHECKER_RUNTIME_PATH)
+RUNTIME.__package__ = None
+exec(
+    compile(
+        _checker_runtime_source,
+        str(CHECKER_RUNTIME_PATH),
+        "exec",
+        dont_inherit=True,
+    ),
+    RUNTIME.__dict__,
+)
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -111,14 +136,7 @@ def iso_time(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def parse_time(value: Any) -> datetime:
-    if not isinstance(value, str):
-        raise ValueError("timestamp is not a string")
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if parsed.tzinfo is None:
-        raise ValueError("timestamp has no timezone")
-    return parsed
-
+parse_time = RUNTIME.parse_time
 
 def utc_day(value: datetime) -> str:
     return value.astimezone(timezone.utc).date().isoformat()

@@ -713,6 +713,14 @@
     mode: "0400"
   when: not (factory_restore_drill | default(false) | bool)
 
+- name: Install the shared qualification checker runtime
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../tools/factory_checker_runtime.py"
+    dest: /usr/local/sbin/factory_checker_runtime.py
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: Install the OpenAI service-account liveness assertion
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../../tools/check-openai-identity-liveness.py"

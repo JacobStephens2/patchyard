@@ -16,6 +16,30 @@ import subprocess
 import sys
 import sysconfig
 from typing import Any
+import types
+
+
+CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
+CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+_checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
+if (
+    CHECKER_RUNTIME_PATH.is_symlink()
+    or hashlib.sha256(_checker_runtime_source).hexdigest()
+    != CHECKER_RUNTIME_SHA256
+):
+    raise RuntimeError("factory checker runtime differs from its exact binding")
+RUNTIME = types.ModuleType("factory_checker_runtime_check_freeze_graph")
+RUNTIME.__file__ = str(CHECKER_RUNTIME_PATH)
+RUNTIME.__package__ = None
+exec(
+    compile(
+        _checker_runtime_source,
+        str(CHECKER_RUNTIME_PATH),
+        "exec",
+        dont_inherit=True,
+    ),
+    RUNTIME.__dict__,
+)
 
 
 REPO = Path(__file__).resolve().parent.parent
@@ -72,37 +96,20 @@ def pin_sort_key(pin: Pin) -> tuple[str, str, str, str]:
     return (pin.digest, pin.owner, pin.location, pin.target or "")
 
 
-def is_within(path: Path, parent: Path) -> bool:
-    try:
-        path.relative_to(parent)
-    except ValueError:
-        return False
-    return True
-
-
-def isolation_errors(repo: Path) -> list[str]:
-    errors: list[str] = []
-    if not sys.flags.isolated:
-        errors.append("freeze-graph checker requires python3 -I")
-
-    stdlib = Path(sysconfig.get_path("stdlib")).resolve()
-    for module in STDLIB_MODULES:
-        source = getattr(module, "__file__", None)
-        if source is None or not is_within(Path(source).resolve(), stdlib):
-            errors.append(
-                "freeze-graph checker rejected "
-                f"{module.__name__} provenance: {source!r}"
-            )
-
-    for entry in sys.path:
-        try:
-            resolved = Path(entry).resolve()
-        except OSError:
-            continue
-        if is_within(resolved, repo):
-            errors.append(f"freeze-graph checker has repository import path: {entry}")
-    return errors
-
+STRICT_JSON = RUNTIME.strict_json(
+    FreezeGraphError,
+    constant_template="forbidden JSON numeric constant: {value}",
+)
+CHECKER = RUNTIME.checker_runtime(
+    identity="freeze-graph checker",
+    modules=(*STDLIB_MODULES, types),
+    repo=REPO,
+    json_contract=STRICT_JSON,
+)
+is_within = RUNTIME.is_within
+isolation_errors = CHECKER.isolation_errors
+reject_json_constant = STRICT_JSON.reject_json_constant
+reject_duplicate_keys = STRICT_JSON.reject_duplicate_keys
 
 def git(repo: Path, *args: str, input_bytes: bytes | None = None) -> bytes:
     completed = subprocess.run(
@@ -149,19 +156,6 @@ def read_regular(repo: Path, relative: str) -> bytes:
         raise FreezeGraphError(
             f"cannot read repository file {relative}: {error}"
         ) from error
-
-
-def reject_json_constant(value: str) -> None:
-    raise FreezeGraphError(f"forbidden JSON numeric constant: {value}")
-
-
-def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise FreezeGraphError(f"duplicate JSON key: {key}")
-        result[key] = value
-    return result
 
 
 def load_json(source: bytes, relative: str) -> Any:

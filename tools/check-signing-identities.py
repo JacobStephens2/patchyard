@@ -23,6 +23,30 @@ import re
 import subprocess
 import sys
 from typing import Any
+import types
+
+
+CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
+CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+_checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
+if (
+    CHECKER_RUNTIME_PATH.is_symlink()
+    or hashlib.sha256(_checker_runtime_source).hexdigest()
+    != CHECKER_RUNTIME_SHA256
+):
+    raise RuntimeError("factory checker runtime differs from its exact binding")
+RUNTIME = types.ModuleType("factory_checker_runtime_check_signing_identities")
+RUNTIME.__file__ = str(CHECKER_RUNTIME_PATH)
+RUNTIME.__package__ = None
+exec(
+    compile(
+        _checker_runtime_source,
+        str(CHECKER_RUNTIME_PATH),
+        "exec",
+        dont_inherit=True,
+    ),
+    RUNTIME.__dict__,
+)
 
 
 REPO = Path(__file__).resolve().parent.parent
@@ -38,14 +62,8 @@ class SigningIdentityError(ValueError):
     """The signing-identity policy is outside the A144 contract."""
 
 
-def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    seen: set[str] = set()
-    for key, _ in pairs:
-        if key in seen:
-            raise SigningIdentityError(f"duplicate JSON key: {key}")
-        seen.add(key)
-    return dict(pairs)
-
+STRICT_JSON = RUNTIME.strict_json(SigningIdentityError)
+reject_duplicate_keys = STRICT_JSON.reject_duplicate_keys
 
 def load_policy(path: Path) -> dict[str, Any]:
     raw = path.read_bytes()

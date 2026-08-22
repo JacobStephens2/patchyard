@@ -13,6 +13,29 @@ import types
 import unittest
 
 
+CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
+CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+_checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
+if (
+    CHECKER_RUNTIME_PATH.is_symlink()
+    or hashlib.sha256(_checker_runtime_source).hexdigest()
+    != CHECKER_RUNTIME_SHA256
+):
+    raise RuntimeError("factory checker runtime differs from its exact binding")
+RUNTIME = types.ModuleType("factory_checker_runtime_run_isolated_unittest")
+RUNTIME.__file__ = str(CHECKER_RUNTIME_PATH)
+RUNTIME.__package__ = None
+exec(
+    compile(
+        _checker_runtime_source,
+        str(CHECKER_RUNTIME_PATH),
+        "exec",
+        dont_inherit=True,
+    ),
+    RUNTIME.__dict__,
+)
+
+
 REPO = Path(__file__).resolve().parent.parent
 TEST_ROOT = REPO / "infra/ansible/tests"
 EXPECTED_TEST_FILES = (
@@ -25,6 +48,7 @@ EXPECTED_TEST_FILES = (
     "test_child_launcher.py",
     "test_cloud_init_bootstrap.py",
     "test_dashboard_checkout.py",
+    "test_factory_checker_runtime.py",
     "test_freeze_graph.py",
     "test_live_review_disposition_seats.py",
     "test_log_secret_scan.py",
@@ -43,37 +67,13 @@ EXPECTED_TEST_FILES = (
 STDLIB_MODULES = (hashlib, importlib, sysconfig, unittest)
 
 
-def is_within(path: Path, parent: Path) -> bool:
-    try:
-        path.relative_to(parent)
-    except ValueError:
-        return False
-    return True
-
-
-def isolation_errors() -> list[str]:
-    errors: list[str] = []
-    if not sys.flags.isolated:
-        errors.append("isolated unittest runner requires python3 -I")
-
-    stdlib = Path(sysconfig.get_path("stdlib")).resolve()
-    for module in STDLIB_MODULES:
-        source = getattr(module, "__file__", None)
-        if source is None or not is_within(Path(source).resolve(), stdlib):
-            errors.append(
-                f"isolated unittest runner rejected {module.__name__} provenance: "
-                f"{source!r}"
-            )
-
-    for entry in sys.path:
-        try:
-            resolved = Path(entry).resolve()
-        except OSError:
-            continue
-        if is_within(resolved, REPO):
-            errors.append(f"isolated unittest runner has repository import path: {entry}")
-    return errors
-
+CHECKER = RUNTIME.checker_runtime(
+    identity="isolated unittest runner",
+    modules=(hashlib, importlib, sysconfig, types, unittest),
+    repo=REPO,
+)
+is_within = RUNTIME.is_within
+isolation_errors = CHECKER.isolation_errors
 
 def main() -> int:
     errors = isolation_errors()

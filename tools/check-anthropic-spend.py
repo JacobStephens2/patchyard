@@ -12,6 +12,30 @@ import re
 import sys
 import sysconfig
 from typing import Any
+import types
+
+
+CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
+CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+_checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
+if (
+    CHECKER_RUNTIME_PATH.is_symlink()
+    or hashlib.sha256(_checker_runtime_source).hexdigest()
+    != CHECKER_RUNTIME_SHA256
+):
+    raise RuntimeError("factory checker runtime differs from its exact binding")
+RUNTIME = types.ModuleType("factory_checker_runtime_check_anthropic_spend")
+RUNTIME.__file__ = str(CHECKER_RUNTIME_PATH)
+RUNTIME.__package__ = None
+exec(
+    compile(
+        _checker_runtime_source,
+        str(CHECKER_RUNTIME_PATH),
+        "exec",
+        dont_inherit=True,
+    ),
+    RUNTIME.__dict__,
+)
 
 
 REPO = Path(__file__).resolve().parent.parent
@@ -165,13 +189,13 @@ EXPECTED_REPLACEMENT_OPERATOR_SOURCE_SHA256 = (
     "27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e"
 )
 EXPECTED_ANSIBLE_WRAPPER_SOURCE_SHA256 = (
-    "36c00f46f8e70c1302a425741b588d989ce1b8c85d85735fb7d59e0db0f6a52c"
+    "aeb91e5ee1b2ffaf758d681a18d3e1efa196ab7dfcff9e960f9452f69623f3da"
 )
 EXPECTED_READINESS_TEST_SOURCE_SHA256 = (
-    "aee76db6075ca6450fdcc38537f5688cb519664ef6270ef163b93672151b1918"
+    "f60f813b3e9e08154e8409399764a817b91d2a91f66ea7651980fba74bc72f49"
 )
 EXPECTED_EVIDENCE_SOURCE_SHA256 = (
-    "494cba4a628e592004dc975ead283aa32fe1fbfe6236c6d6a4a7c7d7ee733099"
+    "78ad4a1523c4bda4ee9dbc1867ac509ef7c5d0ab2e531d11a74d630e824c7b2d"
 )
 EXPECTED_PROVIDER_CALL_SEQUENCE = '''  setup_provider_transport
   assert_provider_transport_preflight
@@ -261,41 +285,17 @@ PHASES = (
 )
 
 
-def is_within(path: Path, parent: Path) -> bool:
-    try:
-        path.relative_to(parent)
-    except ValueError:
-        return False
-    return True
-
-
-def isolation_errors() -> list[str]:
-    errors: list[str] = []
-    if not sys.flags.isolated:
-        errors.append("Anthropic spend checker requires python3 -I")
-
-    stdlib = Path(sysconfig.get_path("stdlib")).resolve()
-    for module in (hashlib, json, re, sysconfig):
-        source = getattr(module, "__file__", None)
-        if source is None or not is_within(Path(source).resolve(), stdlib):
-            errors.append(
-                f"Anthropic spend checker rejected {module.__name__} provenance: "
-                f"{source!r}"
-            )
-
-    for entry in sys.path:
-        try:
-            resolved = Path(entry).resolve()
-        except OSError:
-            continue
-        if is_within(resolved, REPO):
-            errors.append(f"Anthropic spend checker has repository import path: {entry}")
-    return errors
-
-
-def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
+CHECKER = RUNTIME.checker_runtime(
+    identity="Anthropic spend checker",
+    modules=(hashlib, json, re, sysconfig, types),
+    repo=REPO,
+    secret_names=frozenset({"secret", "access_token", "assertion", "identity_token", "authorization", "private_key"}),
+)
+is_within = RUNTIME.is_within
+isolation_errors = CHECKER.isolation_errors
+digest = RUNTIME.digest
+parse_time = RUNTIME.parse_time
+secret_named_key = CHECKER.secret_named_key
 
 def qualified_image_inventory_errors() -> list[str]:
     """Hold the image to the inventory A115's evidence actually ran under (A142).
@@ -410,15 +410,6 @@ def host_contract_sha256() -> str:
     return hashlib.sha256("".join(records).encode()).hexdigest()
 
 
-def parse_time(value: Any) -> datetime:
-    if not isinstance(value, str):
-        raise ValueError("timestamp is not a string")
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if parsed.tzinfo is None:
-        raise ValueError("timestamp has no timezone")
-    return parsed
-
-
 def utc_day(value: datetime) -> str:
     return value.astimezone(timezone.utc).date().isoformat()
 
@@ -463,22 +454,6 @@ def decimal_value(value: Any) -> Decimal:
     if not number.is_finite():
         raise ValueError("decimal figure is not finite")
     return number
-
-
-def secret_named_key(value: Any) -> str | None:
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if key in {"secret", "access_token", "assertion", "identity_token", "authorization", "private_key"}:
-                return key
-            found = secret_named_key(child)
-            if found:
-                return found
-    elif isinstance(value, list):
-        for child in value:
-            found = secret_named_key(child)
-            if found:
-                return found
-    return None
 
 
 def contains_forbidden_ceiling(value: Any) -> bool:

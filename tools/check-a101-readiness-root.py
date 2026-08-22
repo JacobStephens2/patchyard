@@ -9,6 +9,32 @@ from pathlib import Path
 import re
 import sys
 import sysconfig
+import types
+
+
+CHECKER_RUNTIME_PATH = Path(__file__).with_name("factory_checker_runtime.py")
+CHECKER_RUNTIME_SHA256 = "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe"
+_checker_runtime_source = CHECKER_RUNTIME_PATH.read_bytes()
+if (
+    CHECKER_RUNTIME_PATH.is_symlink()
+    or hashlib.sha256(_checker_runtime_source).hexdigest()
+    != CHECKER_RUNTIME_SHA256
+):
+    raise RuntimeError(
+        "bound A101 source differs: tools/factory_checker_runtime.py"
+    )
+RUNTIME = types.ModuleType("factory_checker_runtime_check_a101_readiness_root")
+RUNTIME.__file__ = str(CHECKER_RUNTIME_PATH)
+RUNTIME.__package__ = None
+exec(
+    compile(
+        _checker_runtime_source,
+        str(CHECKER_RUNTIME_PATH),
+        "exec",
+        dont_inherit=True,
+    ),
+    RUNTIME.__dict__,
+)
 
 
 REPO = Path(__file__).resolve().parent.parent
@@ -25,51 +51,51 @@ BOUND_SOURCES = {
     "tools/read-infra-tool-version.py": "d94d97d605736d0201d0fc0517e0e780d6c346ab79ddc3bd84de7b472edeccd8",
     "tools/install-shellcheck.sh": "715047c90f6a877c57a5495f1bc24feecd40f365ccd8239a6dc711be22a3f535",
     "tools/check-infra.sh": "4a0bd59083afbf5e5afd6fda5c5f0f7668187b9602feecfc99f9bbae73405152",
-    "tools/check-ansible.sh": "36c00f46f8e70c1302a425741b588d989ce1b8c85d85735fb7d59e0db0f6a52c",
-    "tools/run-isolated-unittest.py": "f201a6a57353b485d15a47b803bf274cdf9033ef1e78ed3e07e6f188a728ecc7",
-    "tools/check-credential-qualification.py": "7080339d1c05c7cfc0af4f57d57c12151048b21ba7d174e76c106688946ab320",
-    "tools/anthropic-spend-evidence.py": "494cba4a628e592004dc975ead283aa32fe1fbfe6236c6d6a4a7c7d7ee733099",
-    "tools/openai-spend-evidence.py": "49a8152ec73128717957fffe21faf2321f10ac285371e9187a1fcee1c204078c",
-    "tools/check-openai-spend.py": "610e5cb37e82d7a15ff0e23ffab465b13f5b47734986363300786bd92f893574",
+    "tools/check-ansible.sh": "aeb91e5ee1b2ffaf758d681a18d3e1efa196ab7dfcff9e960f9452f69623f3da",
+    "tools/run-isolated-unittest.py": "09e4f7e2ed4c24d9eb96030a502c033805619b9960d5beb12ff900ea3ef9a365",
+    "tools/check-credential-qualification.py": "748338956bb2e6ca8e3124e59cb75ce36e72e658f40a5eb9853d52d893dec78e",
+    "tools/anthropic-spend-evidence.py": "78ad4a1523c4bda4ee9dbc1867ac509ef7c5d0ab2e531d11a74d630e824c7b2d",
+    "tools/openai-spend-evidence.py": "739db8a699ca25acd46f83a62af68c7b4567b4974fd48604c9027f0111756397",
+    "tools/check-openai-spend.py": "cdbd284f51f6678e426d4fdde0622c9a0cf6cd3f473ad5a5c73a8ef73642474b",
     "worker/qualification/patchyard-run-openai-spend": "0218da08c26700d5b04b2ab92c758eb1eddd428ceeb2cb2ff6842dfb141d7cb4",
     "tools/anthropic-wif-admin.py": "89794bd6235d5b37dfa4999a792588396ece9935b17820954b75d8b055822c91",
     "tools/anthropic-wif-lifecycle.py": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
     "tools/anthropic-wif-revocation.py": "ef4c204880cdc002ccee17f080b6011191a183c07e3ae173b34beb215737b61f",
     "tools/anthropic-wif-crash-cleanup.py": "88bb709eb662734fd85d17ac30b0d30592fadbbd83ce366f17e84ea0143e844c",
     "tools/anthropic-wif-lifecycle-admin.py": "1a1e08060a5ad68f65b3a798e2b992ee2c34fc336e4f7fd8922bfdf2effecc55",
-    "tools/openai-wif-issuance.py": "c53617ee45bb08f0b4aab9d4a4fa07788234abe4a6f2077a35d7a6f3357611d5",
-    "tools/openai-wif-expiry.py": "44d7007ed7b9fe9468d163caf559b155eb62a40e063a553b087bc9931a6f54c8",
-    "tools/openai-wif-crash-cleanup.py": "db94f9c8bda879439c48adc1c8d26ea9af617eac5e1b5ec8a42878eb5ecda192",
+    "tools/openai-wif-issuance.py": "3547ee7c79226123421027df527183d49a7d887368d0b3c6d234b90eaa6f5f52",
+    "tools/openai-wif-expiry.py": "3b1fc50d5f4136fac9cf839c070fb9706f077d180bab7fc5e395708ec4460493",
+    "tools/openai-wif-crash-cleanup.py": "9dbd5024ef7b69b18c22e0a141be773c0af63bdfa1a86c13c98f3330fc596a95",
     "tools/control-plane-attestation-v1.py": "0d32e80b980c334977e51eb706783896a687d29faef46d50e53f3ee56e8e4d47",
-    "tools/openai-wif-federation-revocation.py": "63fc81422a19c19cb53f69cdeb69f1842c187a3b1d793bcf1fd572e186d1cb44",
-    "tools/check-openai-wif-federation-revocation.py": "52c14ac1843051ea0dca0ed048bba381b6ba51921d0ef01d83b6bdfb4456c443",
-    "tools/openai-wif-signing-key-rotation.py": "7f937d6b4d57a623712bbc3f60a10e99beade6bbed916ae3332647e83c0280b2",
-    "tools/check-openai-wif-signing-key-rotation.py": "d9330b4c10e5273561829a37ba5641678a0bbb065f68d14975f1e5c0b3174f3d",
-    "tools/check-anthropic-expiry.py": "8d9de38c16bbcc4ad63a73a0f570703581f8264371503385ef513057ff0f8ca8",
-    "tools/check-anthropic-spend.py": "f87e2bec8b015222193dc3eaf7853622844e8aa0f0683c3a8fb8723d7dd03a4d",
-    "tools/check-anthropic-issuance.py": "c3896ebf62fbf605ec4055bc020aa695026d72a821cbfeaf0d5a3fda0a62fe46",
-    "tools/check-anthropic-revocation.py": "748cea22f9ece87dee2b6915f3609c8041cae1b5d6fdfd27b1f165901d9d7297",
-    "tools/check-anthropic-crash-cleanup.py": "35dd6d624e4302dd230560b1380736eb43df3aa6b345015a4fce3f429d354e66",
-    "tools/check-openai-wif-issuance.py": "5475f594f3316f3622af961cda2246c1313cabfdc9f84e2cf8710a04b26f80a5",
-    "tools/check-openai-wif-expiry.py": "4e7507053d0cb7d45e40a76666bdcf6cbc3014c22e9bf0a910ccaff43d96b4e0",
-    "tools/check-openai-wif-crash-cleanup.py": "2b7b3fdc34a72c3a96d7e3afb60f18cf04a33cb75012c17e6543d94df3db90a0",
+    "tools/openai-wif-federation-revocation.py": "114676c2e8577556d300a8d1940e2940efabfaaf47654bc6396730506464ea47",
+    "tools/check-openai-wif-federation-revocation.py": "5c80366a7656a245577dc0cb4a02db5934136ad6d1dc49e05bee0f133e90d03b",
+    "tools/openai-wif-signing-key-rotation.py": "9f9d108dcf070ef91f540b82cde746074666b06601a0ec3cb9c73f976cc4d95c",
+    "tools/check-openai-wif-signing-key-rotation.py": "09026ff34475719eb4e1474104dd48790c2415daca8a4514ef7324ec02598faf",
+    "tools/check-anthropic-expiry.py": "7cd0d64c272df1d1a5caf2a68d6307afdd1c24e296c5da1f2792eb06a49a4c43",
+    "tools/check-anthropic-spend.py": "0c4c4fe610ad17de9ff755817bc8d300880d63fd254a78a49d5d1aa61b4d16c8",
+    "tools/check-anthropic-issuance.py": "9f98d90d6ac7dc454e63deab0d223a96ac76ca829a0874579c30107056fa701e",
+    "tools/check-anthropic-revocation.py": "81e0ddfc9417df30d3f8b7ef9c407972c1a8d901db219ac69107bef5485bf84c",
+    "tools/check-anthropic-crash-cleanup.py": "3edd2ffea5b8129d567f182ba836564fca9de33855edf8ab3dba96ba56dc7a1a",
+    "tools/check-openai-wif-issuance.py": "291b85570b18cbf911bfcffa2de46392d8399c71d0cb495a5b9201285f36da5e",
+    "tools/check-openai-wif-expiry.py": "3b72f849643a0c79d46069562ab9b8b42bee7111ce0c0e7ed93b25e19db683ca",
+    "tools/check-openai-wif-crash-cleanup.py": "50dc3d66da53422ba9cdf026d5e34fc946bbe6b40e12fee8c61184045047bfd5",
     "tools/check-independence.py": "baaa2e5058862a253c5042e7ccaea4bfea8af05a93825f5ce5cf99bbd1f93782",
     "tools/check-preview-runtime.py": "2f9a6e994c3d50e7e1f729546b3180330c4ccf0d471ee5b75f016cbbc95292be",
-    "tools/check-openai-identity-liveness.py": "607926928985f0462111e672d7988f2e1c588bb854434fbf733db8e38e01679a",
-    "tools/check-signing-identities.py": "368f4edca351829d21b98621d8dc5dad49262cd48d03268cc0735005b140e165",
+    "tools/check-openai-identity-liveness.py": "ca9512dbd094108e2183bab873f9938caf74ba88595cf34a3560427e676deab9",
+    "tools/check-signing-identities.py": "dd10e498b51b300baad40e87f43ec09658ac0616c181cfe39461eebe8397b7fa",
     "tools/check-stack.py": "ddce869a4bd4983c35c1b246ba01b5e8b1ea25219c761ebbdb2d5b4a8194deff",
     "tools/check-worker-qualification.py": "e9d5662bed3f7002fb6b0d23b777f12a401e8f9a0be4d340a5cf7580fdb3f15d",
     "tools/check-worker-runtime.py": "2ba1b99160441214acd53e4d8ed3aeb69aedbb540c0960cd47c02b0ecfe1d3c3",
-    "infra/ansible/tests/test_a101_readiness_root.py": "6be1b217ec44db6f7858143e5e4696914c97d6978a6fdb9ed4643b065f21dbd8",
-    "infra/ansible/tests/test_freeze_graph.py": "fceb032ad52170ac6743e561937bab47b61bbfb4652d1a398de56372a3081927",
-    "infra/ansible/tests/test_worker_firewall_readiness.py": "aee76db6075ca6450fdcc38537f5688cb519664ef6270ef163b93672151b1918",
-    "infra/ansible/tests/test_anthropic_spend.py": "6182ffe6006e5fd09245300d4035530c6207f4f2ffd9cfc800950263ec8d0b42",
+    "infra/ansible/tests/test_a101_readiness_root.py": "ca2db8402d75ed31e07ab5ca4419438034d578779fce8c436341639780a9b867",
+    "infra/ansible/tests/test_freeze_graph.py": "621e0677b0a63128fc488f7d42acd215d56277cda98f20ee0144e83106db55c3",
+    "infra/ansible/tests/test_worker_firewall_readiness.py": "f60f813b3e9e08154e8409399764a817b91d2a91f66ea7651980fba74bc72f49",
+    "infra/ansible/tests/test_anthropic_spend.py": "8fef8a169e0136c57bb4a6dd1e61819c84749b9bcfe5d28c785675bd443c5a4c",
     "infra/ansible/tests/test_anthropic_issuance.py": "bde14af86dcc84cf1a618af2ed91c099b82e718523b2b16245fb7e52c8a4824a",
-    "infra/ansible/tests/test_anthropic_lifecycle.py": "55c0296ef879e263172e5c7418b085ca317378b5030b65619017d1bd072ec057",
+    "infra/ansible/tests/test_anthropic_lifecycle.py": "729204ed003739269b56d87fb31f36ac7d6bdc664242024b5dc5efe9478ba2e9",
     "infra/ansible/tests/test_anthropic_wif_admin.py": "1d53f8ffe4ef6ad55b8d7187705344836aed831337c26f310bd11538888a9670",
-    "infra/ansible/tests/test_openai_wif_issuance.py": "b4b4713b3fd90c7892fa865382425346477d95a4ad4f657c324dbf9347d29345",
-    "infra/ansible/tests/test_openai_control_plane_lifecycle.py": "2af2bed6b29ad323b19bcf04b93dd8940774041d72f77d2928789b21ae8d7810",
-    "fixtures/checker-contracts/openai-federation-revocation.json": "e9111b48f59d3c7349d7fcb966ffaa7ae78a109044f8917afc151c20353f22bf",
+    "infra/ansible/tests/test_openai_wif_issuance.py": "067cdd837c56676102b5ddfb06a75f76b1f18742bd1b84a4fd5833745df475ce",
+    "infra/ansible/tests/test_openai_control_plane_lifecycle.py": "dd9cb2e27c681cbc7e2a5843dbd6444bf2ae142f8c7907d911171bf0429fd5d5",
+    "fixtures/checker-contracts/openai-federation-revocation.json": "ee5084c8c2a673d4055bcdd2425767563f46c5d867dae53efc689ca751adbab9",
     "fixtures/checker-contracts/openai-signing-key-rotation.json": "5ad7bb5efb7a3dd25ece00a53012c00df7f1b1154e1e00e12c10b479bf8801bc",
     "fixtures/checker-contracts/credential-qualification-conforming.json": "00301b44a5d7ac1592f6591d3428aeb272f2d2e7cf7793ed5d05cccdd941c36e",
     "fixtures/checker-contracts/credential-qualification-missing-requirements.json": "5caec87918dc89db7e47d1b37f3dde8b7fac912b9fb273f9fa01562bbc4ae527",
@@ -87,6 +113,8 @@ BOUND_SOURCES = {
     "infra/ansible/roles/control_plane/files/patchyard-mint-seat-bearer": "6b0c88263b4ff4ba2cc22ecc3d892c3b962a62aa64f1375eb31ab25705f6baaf",
     "infra/ansible/roles/control_plane/files/patchyard-request-seat-bearer": "20958c674ecb24e19a8aabb11910189e10a6413187f90cd017e8698978b254a0",
     "infra/ansible/roles/control_plane/files/patchyard-triage-seat": "ae414ec9427f8b0cbace8fc140850fb4a7b3bfd041880ae927677ebc98fc30a3",
+    "tools/factory_checker_runtime.py": "db4217cdd58d3dc8343f0ba2a9d1842eb07d6356d6aa430a2e3ff9b0be07e9fe",
+    "infra/ansible/tests/test_factory_checker_runtime.py": "079997de05c95662b02e89304fbb327df8b0b60602882260466f867a24d5e1fc",
 }
 EXPECTED_TEST_FILES = (
     "infra/ansible/tests/test_a101_readiness_root.py",
@@ -98,6 +126,7 @@ EXPECTED_TEST_FILES = (
     "infra/ansible/tests/test_child_launcher.py",
     "infra/ansible/tests/test_cloud_init_bootstrap.py",
     "infra/ansible/tests/test_dashboard_checkout.py",
+    "infra/ansible/tests/test_factory_checker_runtime.py",
     "infra/ansible/tests/test_freeze_graph.py",
     "infra/ansible/tests/test_live_review_disposition_seats.py",
     "infra/ansible/tests/test_log_secret_scan.py",
@@ -152,6 +181,7 @@ EXPECTED_TOOL_PYTHON_FILES = (
     "tools/check-worker-runtime.py",
     "tools/codebase-metrics.py",
     "tools/control-plane-attestation-v1.py",
+    "tools/factory_checker_runtime.py",
     "tools/merge-refix.py",
     "tools/openai-spend-evidence.py",
     "tools/openai-wif-crash-cleanup.py",
@@ -210,41 +240,14 @@ PROTECTED_MODULE_FILES = {
 STDLIB_MODULES = (hashlib, importlib, re, sysconfig)
 
 
-def is_within(path: Path, parent: Path) -> bool:
-    try:
-        path.relative_to(parent)
-    except ValueError:
-        return False
-    return True
-
-
-def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def isolation_errors() -> list[str]:
-    errors: list[str] = []
-    if not sys.flags.isolated:
-        errors.append("A101 readiness trust root requires python3 -I")
-
-    stdlib = Path(sysconfig.get_path("stdlib")).resolve()
-    for module in STDLIB_MODULES:
-        source = getattr(module, "__file__", None)
-        if source is None or not is_within(Path(source).resolve(), stdlib):
-            errors.append(
-                f"A101 readiness trust root rejected {module.__name__} provenance: "
-                f"{source!r}"
-            )
-
-    for entry in sys.path:
-        try:
-            resolved = Path(entry).resolve()
-        except OSError:
-            continue
-        if is_within(resolved, REPO):
-            errors.append(f"A101 readiness trust root has repository import path: {entry}")
-    return errors
-
+CHECKER = RUNTIME.checker_runtime(
+    identity="A101 readiness trust root",
+    modules=(hashlib, importlib, re, sysconfig, types),
+    repo=REPO,
+)
+is_within = RUNTIME.is_within
+digest = RUNTIME.digest
+isolation_errors = CHECKER.isolation_errors
 
 def expected_workflow(pin: str) -> str:
     return """name: Infrastructure

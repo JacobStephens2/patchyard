@@ -35,7 +35,7 @@
       "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
     },
     "key_role": "active",
-    "lifecycle_instrument_sha256": "c53617ee45bb08f0b4aab9d4a4fa07788234abe4a6f2077a35d7a6f3357611d5",
+    "lifecycle_instrument_sha256": "3547ee7c79226123421027df527183d49a7d887368d0b3c6d234b90eaa6f5f52",
     "receipt": {
       "access_token_supplied": true,
       "body_bytes": 0,
@@ -92,7 +92,7 @@
       "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
     },
     "key_role": "active",
-    "lifecycle_instrument_sha256": "c53617ee45bb08f0b4aab9d4a4fa07788234abe4a6f2077a35d7a6f3357611d5",
+    "lifecycle_instrument_sha256": "3547ee7c79226123421027df527183d49a7d887368d0b3c6d234b90eaa6f5f52",
     "receipt": {
       "access_token_supplied": true,
       "body_bytes": 0,
@@ -145,7 +145,7 @@
       "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
     },
     "key_role": "active",
-    "lifecycle_instrument_sha256": "c53617ee45bb08f0b4aab9d4a4fa07788234abe4a6f2077a35d7a6f3357611d5",
+    "lifecycle_instrument_sha256": "3547ee7c79226123421027df527183d49a7d887368d0b3c6d234b90eaa6f5f52",
     "receipt": {
       "access_token_supplied": false,
       "body_bytes": 0,
@@ -366,7 +366,7 @@
     "base_harness_sha256": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
     "checker_sha256": "9e1fdc60ee3c4240e1c30385f4a092c29b8d58b4ab2dfd8a55c19a42ed8439d8",
     "collector_sha256": "7ba44eb3151e1eb61e9ae42a48b2d0d34248e7c70ae108752168eeb4b9f0b079",
-    "lifecycle_instrument_sha256": "c53617ee45bb08f0b4aab9d4a4fa07788234abe4a6f2077a35d7a6f3357611d5",
+    "lifecycle_instrument_sha256": "3547ee7c79226123421027df527183d49a7d887368d0b3c6d234b90eaa6f5f52",
     "policy_sha256": "87cf13bb136ed9a365bd14822a14d4808a6ef585ce1c278b926fa173d1152e5f"
   }
 }

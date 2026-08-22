@@ -38,6 +38,8 @@ EXPECTED_FROZEN_PATHS = [
     "worker/image/production-parity.json",
     "worker/qualification/hostile-test-manifest.json",
     "worker/runtime/patchyard-anthropic-one-shot",
+    # The requirement-2 Result banks the exact OpenAI one-shot it exercised.
+    "worker/runtime/patchyard-openai-one-shot",
 ]
 
 

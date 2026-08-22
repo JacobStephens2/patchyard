@@ -61,6 +61,7 @@ exec(
 
 ROOT = Path(__file__).resolve().parent.parent
 POLICY_PATH = ROOT / "policy" / "openai-wif.json"
+IDENTITY_HISTORY_PATH = ROOT / "policy" / "openai-identity-history.json"
 QUALIFICATION_POLICY_PATH = ROOT / "policy" / "provider-qualification.json"
 BASE_URL = "https://api.openai.com"
 ADMIN_KEY_ENVIRONMENT_VARIABLE = "PATCHYARD_OPENAI_ADMIN_KEY"
@@ -76,7 +77,7 @@ EXCHANGE_REQUEST_ID_PATTERN = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 )
 BOUNDED_STRING = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._:-]{0,63}")
-BOUNDED_CHANGE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 .,$'()_:-]{0,255}")
+BOUNDED_CHANGE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 .,$%'()_:-]{0,255}")
 PHASES = (
     "operational_acceptance",
     "temporary_refusal",
@@ -130,6 +131,19 @@ ROUTE_ATTESTATION_KEYS = {
     "mutation_receipt_obtained",
     "mutations",
 }
+MODEL_OPERATED_RECORD_KEYS = {
+    "model_identity",
+    "model_actions",
+    "model_console_observations",
+}
+LIMITS_URL = "https://platform.openai.com/settings/organization/limits"
+LIVENESS_CAPTURE_METHOD = (
+    "administration_api_service_accounts_listing_bounded_by_control_plane_utc"
+)
+PAIRING_PATTERN = re.compile(
+    r"[a-z0-9-]+/[a-z0-9-]+/[A-Za-z0-9._-]+/[a-z0-9-]+"
+)
+TASK_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{7,127}")
 
 
 def iso_time(value: datetime) -> str:
@@ -367,15 +381,261 @@ def validate_mutations(mutations: Any, label: str) -> None:
     if (
         not isinstance(mutations, list)
         or [item.get("phase") for item in mutations if isinstance(item, dict)]
-        != ["temporary_refusal", "restored_acceptance"]
+        != [
+            "temporary_refusal",
+            "temporary_refusal",
+            "restored_acceptance",
+            "restored_acceptance",
+        ]
     ):
-        raise ValueError(f"{label} does not record exactly two mutations")
+        raise ValueError(f"{label} does not record exactly four mutations")
     for item in mutations:
         if set(item) != {"phase", "change"}:
             raise ValueError(f"{label} mutation has an unexpected shape")
         change = item["change"]
         if not isinstance(change, str) or BOUNDED_CHANGE.fullmatch(change) is None:
             raise ValueError(f"{label} change is not a bounded description")
+
+
+def current_service_account_id(
+    identity_history: Any, policy: dict[str, Any]
+) -> str:
+    if (
+        not isinstance(identity_history, dict)
+        or identity_history.get("schema_version") != 1
+        or identity_history.get("ruling") != "A150"
+        or identity_history.get("provider") != "openai"
+        or identity_history.get("project_id") != policy["project"]["id"]
+    ):
+        raise ValueError("A150 identity history differs from policy")
+    current = identity_history.get("current_service_account_id")
+    accounts = identity_history.get("service_accounts")
+    if not isinstance(current, str) or not isinstance(accounts, list):
+        raise ValueError("A150 identity history has no current service account")
+    matches = [
+        entry
+        for entry in accounts
+        if isinstance(entry, dict)
+        and entry.get("id") == current
+        and entry.get("status") == "current"
+        and entry.get("project_id") == policy["project"]["id"]
+        and entry.get("administration_api_verified") is True
+    ]
+    if len(matches) != 1:
+        raise ValueError("A150 current service account lacks primary-source verification")
+    return current
+
+
+def validate_identity_liveness_observation(
+    observation: Any,
+    readbacks: dict[str, Any],
+    policy: dict[str, Any],
+    identity_history: dict[str, Any],
+) -> dict[str, Any]:
+    current = current_service_account_id(identity_history, policy)
+    endpoint = (
+        f"/v1/organization/projects/{policy['project']['id']}/service_accounts"
+    )
+    if (
+        not isinstance(observation, dict)
+        or set(observation)
+        != {
+            "step",
+            "capture_action_id",
+            "capture_method",
+            "captured_before_at",
+            "captured_after_at",
+            "request",
+            "state",
+        }
+        or observation.get("step") != "identity_liveness_preflight"
+        or observation.get("capture_action_id")
+        != "capture-identity-liveness-preflight"
+        or observation.get("capture_method") != LIVENESS_CAPTURE_METHOD
+        or observation.get("request")
+        != {
+            "method": "GET",
+            "endpoint": endpoint,
+            "pagination_exhausted": True,
+        }
+        or observation.get("state")
+        != {
+            "project_id": policy["project"]["id"],
+            "service_account_id": current,
+            "http_status": 200,
+            "listed": True,
+        }
+    ):
+        raise ValueError("A151 identity-liveness preflight is malformed")
+    before = parse_time(observation["captured_before_at"])
+    after = parse_time(observation["captured_after_at"])
+    operational_before = parse_time(
+        readbacks["operational_acceptance"]["captured_before_at"]
+    )
+    if (
+        before > after
+        or (after - before).total_seconds() > 300
+        or after > operational_before
+    ):
+        raise ValueError("A151 identity-liveness preflight is not a bounded preflight")
+    return observation
+
+
+def validate_model_operated_record(
+    record: Any,
+    readbacks: dict[str, Any],
+    policy: dict[str, Any],
+    identity_history: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate A148 disclosure plus A151's identity-liveness preflight."""
+    if not isinstance(record, dict) or set(record) != MODEL_OPERATED_RECORD_KEYS:
+        raise ValueError("A148 model-operated record has an unexpected shape")
+    identity = record["model_identity"]
+    if (
+        not isinstance(identity, dict)
+        or set(identity) != {"pairing", "codex_task_id"}
+        or not isinstance(identity.get("pairing"), str)
+        or PAIRING_PATTERN.fullmatch(identity["pairing"]) is None
+        or not isinstance(identity.get("codex_task_id"), str)
+        or TASK_ID_PATTERN.fullmatch(identity["codex_task_id"]) is None
+    ):
+        raise ValueError("A148 model identity is malformed")
+
+    observations = record["model_console_observations"]
+    if not isinstance(observations, list) or len(observations) != 4:
+        raise ValueError(
+            "A151 identity-liveness preflight and three cap observations are required"
+        )
+    validate_identity_liveness_observation(
+        observations[0], readbacks, policy, identity_history
+    )
+
+    for index, phase in enumerate(PHASES, start=1):
+        observation = observations[index]
+        reading = readbacks[phase]
+        if (
+            not isinstance(observation, dict)
+            or set(observation)
+            != {
+                "step",
+                "capture_action_id",
+                "capture_method",
+                "captured_before_at",
+                "captured_after_at",
+                "navigation",
+                "state",
+            }
+            or observation.get("step") != phase
+            or observation.get("capture_action_id") != f"capture-{phase}"
+            or observation.get("capture_method") != reading["capture_method"]
+            or observation.get("captured_before_at")
+            != reading["captured_before_at"]
+            or observation.get("captured_after_at") != reading["captured_after_at"]
+            or observation.get("navigation")
+            != {"url": LIMITS_URL, "reloaded": True}
+            or observation.get("state")
+            != {
+                "organization_id": policy["organization"]["id"],
+                "project_id": policy["project"]["id"],
+                "organization_monthly_limit_usd": reading[
+                    "organization_monthly_limit_usd"
+                ],
+                "hard_limit_enforced": reading["hard_limit_enforced"],
+            }
+        ):
+            raise ValueError(f"A148 {phase} model console observation is malformed")
+
+    actions = record["model_actions"]
+    alert_state = {
+        "threshold_percentage": "50",
+        "email_subject_prefix": "",
+        "additional_recipients": [],
+    }
+    action_contracts = (
+        {
+            "kind": "organization_spend_alert_remove",
+            "phase": "temporary_refusal",
+            "state": alert_state,
+            "change": "Temporarily remove the 50% spend alert",
+        },
+        {
+            "kind": "organization_spend_limit_enforce_save",
+            "phase": "temporary_refusal",
+            "state": {
+                "organization_monthly_limit_usd": "0.01",
+                "hard_limit_enforced": True,
+            },
+            "change": "Set monthly limit to $0.01 and enforce ON",
+        },
+        {
+            "kind": "organization_spend_limit_restore_save",
+            "phase": "restored_acceptance",
+            "state": {
+                "organization_monthly_limit_usd": "100.00",
+                "hard_limit_enforced": False,
+            },
+            "change": "Restore monthly limit to $100.00 and enforce OFF",
+        },
+        {
+            "kind": "organization_spend_alert_restore_save",
+            "phase": "restored_acceptance",
+            "state": alert_state,
+            "change": "Restore the 50% spend alert",
+        },
+    )
+    if not isinstance(actions, list) or len(actions) != len(action_contracts):
+        raise ValueError("A148 model actions do not record exactly four actions")
+    for action, contract in zip(actions, action_contracts):
+        phase = contract["phase"]
+        if not isinstance(action, dict) or set(action) != {
+            "kind",
+            "intent",
+            "confirmed",
+        }:
+            raise ValueError(f"A148 {phase} model action has an unexpected shape")
+        intent = action["intent"]
+        confirmed = action["confirmed"]
+        if (
+            action["kind"] != contract["kind"]
+            or not isinstance(intent, dict)
+            or set(intent)
+            != {
+                "console_location",
+                "state",
+                "permitted_mutation",
+                "recorded_at",
+            }
+            or intent.get("console_location") != LIMITS_URL
+            or intent.get("state") != contract["state"]
+            or intent.get("permitted_mutation") != contract["change"]
+            or not isinstance(confirmed, dict)
+            or set(confirmed)
+            != {
+                "recorded_at",
+                "action_completed",
+                "product_approval_presented",
+                "product_approval_completed",
+            }
+            or confirmed.get("action_completed") is not True
+            or not isinstance(confirmed.get("product_approval_presented"), bool)
+            or not isinstance(confirmed.get("product_approval_completed"), bool)
+            or (
+                confirmed["product_approval_completed"]
+                and not confirmed["product_approval_presented"]
+            )
+        ):
+            raise ValueError(f"A148 {phase} model action disclosure is malformed")
+        intent_at = parse_time(intent["recorded_at"])
+        confirmed_at = parse_time(confirmed["recorded_at"])
+        interval = (
+            parse_time(readbacks[phase]["captured_before_at"]),
+            parse_time(readbacks[phase]["captured_after_at"]),
+        )
+        if not (interval[0] <= intent_at <= confirmed_at <= interval[1]):
+            raise ValueError(
+                f"A148 {phase} model action is outside its bounded readback"
+            )
+    return record
 
 
 def validate_route_authorization(authorization: Any) -> None:
@@ -447,11 +707,36 @@ def validate_attestation(attestation: dict[str, Any]) -> dict[str, Any]:
     return attestation
 
 
+def model_operated_result_fields(
+    attestation: dict[str, Any],
+    record: dict[str, Any] | None,
+    identity_liveness_observation: dict[str, Any],
+    readbacks: dict[str, Any],
+    policy: dict[str, Any],
+    identity_history: dict[str, Any],
+) -> dict[str, Any]:
+    if set(attestation) == ROUTE_ATTESTATION_KEYS:
+        if record is None:
+            raise ValueError("A148 route-authorized Result lacks model disclosure")
+        validated = validate_model_operated_record(
+            record, readbacks, policy, identity_history
+        )
+        if validated["model_console_observations"][0] != (
+            identity_liveness_observation
+        ):
+            raise ValueError("A151 top-level and model liveness observations differ")
+        return validated
+    if record is not None:
+        raise ValueError("A132 human-attested Result carries model disclosure")
+    return {}
+
+
 def validate_phase(
     evidence: dict[str, Any],
     phase: str,
     policy: dict[str, Any],
     qualification_policy: dict[str, Any],
+    service_account_id: str,
 ) -> datetime:
     expected_keys = {
         "schema_version",
@@ -520,7 +805,7 @@ def validate_phase(
         raise ValueError(f"{phase} issuance has an unexpected shape")
     if (
         issuance["workspace_id"] != policy["project"]["id"]
-        or issuance["service_account_id"] != policy["service_account"]["id"]
+        or issuance["service_account_id"] != service_account_id
         or issuance["rule_id"] != policy["issuer"]["id"]
         or issuance["scope"] != "unscoped"
         or issuance["token_type"] != "Bearer"
@@ -680,14 +965,24 @@ def finalize(
     attestation: dict[str, Any],
     policy: dict[str, Any],
     qualification_policy: dict[str, Any],
+    identity_history: dict[str, Any],
+    identity_liveness_observation: dict[str, Any],
+    model_operated_record: dict[str, Any] | None,
 ) -> dict[str, Any]:
     phases = {
         "operational_acceptance": operational,
         "temporary_refusal": refusal,
         "restored_acceptance": restored,
     }
+    service_account_id = current_service_account_id(identity_history, policy)
     observed = {
-        phase: validate_phase(evidence, phase, policy, qualification_policy)
+        phase: validate_phase(
+            evidence,
+            phase,
+            policy,
+            qualification_policy,
+            service_account_id,
+        )
         for phase, evidence in phases.items()
     }
     invariant_fields = (
@@ -739,6 +1034,20 @@ def finalize(
     )
     cap_times = validate_cap_readbacks(readbacks, policy, qualification_policy)
     attestation = validate_attestation(attestation)
+    identity_liveness_observation = validate_identity_liveness_observation(
+        identity_liveness_observation,
+        readbacks,
+        policy,
+        identity_history,
+    )
+    model_fields = model_operated_result_fields(
+        attestation,
+        model_operated_record,
+        identity_liveness_observation,
+        readbacks,
+        policy,
+        identity_history,
+    )
     temporary_cap = Decimal(
         phase_cap_cents(qualification_policy, "temporary_refusal")
     ) / 100
@@ -784,14 +1093,14 @@ def finalize(
     if after_amount < before_amount:
         raise ValueError("post-restoration settled spend moved backwards")
 
-    return {
+    result = {
         "schema_version": 1,
         "provider": "openai",
         "qualification_requirement": "provider-spend-enforcement",
         "authorization_ruling": "A132",
         "organization_id": policy["organization"]["id"],
         "project_id": policy["project"]["id"],
-        "service_account_id": policy["service_account"]["id"],
+        "service_account_id": service_account_id,
         "request_binding": {
             "model": PROVIDER_MODEL,
             "endpoint": PROVIDER_ENDPOINT,
@@ -806,6 +1115,7 @@ def finalize(
         },
         "phases": phases,
         "cap_control": readbacks,
+        "identity_liveness_observation": identity_liveness_observation,
         "attestation": attestation,
         "control_plane_provenance": CONTROL_PLANE_PROVENANCE,
         "cost_measurement": {
@@ -825,6 +1135,8 @@ def finalize(
             ),
         },
     }
+    result.update(model_fields)
+    return result
 
 
 def write_json(path: Path, value: dict[str, Any]) -> None:
@@ -844,9 +1156,12 @@ def main() -> int:
     final.add_argument("--settled-after", required=True, type=Path)
     final.add_argument("--cap-readbacks", required=True, type=Path)
     final.add_argument("--attestation", required=True, type=Path)
+    final.add_argument("--identity-liveness-observation", required=True, type=Path)
+    final.add_argument("--model-operated-record", type=Path)
     final.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     policy = load_json(POLICY_PATH)
+    identity_history = load_json(IDENTITY_HISTORY_PATH)
     qualification_policy = load_json(QUALIFICATION_POLICY_PATH)
     if args.command == "snapshot":
         write_json(args.output, fetch_project_cost(policy))
@@ -861,6 +1176,13 @@ def main() -> int:
         load_json(args.attestation),
         policy,
         qualification_policy,
+        identity_history,
+        load_json(args.identity_liveness_observation),
+        (
+            load_json(args.model_operated_record)
+            if args.model_operated_record is not None
+            else None
+        ),
     )
     write_json(args.output, result)
     return 0

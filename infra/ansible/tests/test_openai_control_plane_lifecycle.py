@@ -1515,6 +1515,10 @@ class SpendRouteAuthorizationContract(unittest.TestCase):
             "openai_spend_evidence_contract",
             ROOT / "tools/openai-spend-evidence.py",
         )
+        cls.checker = load_source(
+            "openai_spend_checker_contract",
+            ROOT / "tools/check-openai-spend.py",
+        )
 
     def route_attestation(self) -> dict[str, object]:
         return {
@@ -1537,8 +1541,199 @@ class SpendRouteAuthorizationContract(unittest.TestCase):
             "mutation_surface": "organization-limits-console",
             "mutation_receipt_obtained": False,
             "mutations": [
+                {
+                    "phase": "temporary_refusal",
+                    "change": "Temporarily remove the 50% spend alert",
+                },
                 {"phase": "temporary_refusal", "change": "Set monthly limit to $0.01 and enforce ON"},
                 {"phase": "restored_acceptance", "change": "Restore monthly limit to $100.00 and enforce OFF"},
+                {
+                    "phase": "restored_acceptance",
+                    "change": "Restore the 50% spend alert",
+                },
+            ],
+        }
+
+    def cap_readbacks(self) -> dict[str, object]:
+        return {
+            "schema_version": 1,
+            "provider": "openai",
+            "organization_id": "org-000000000000000000000000",
+            "project_id": "proj_4zpZhhPPNYCvPRE5vGuRBALH",
+            "operational_acceptance": {
+                "captured_before_at": "2026-08-22T13:10:00Z",
+                "captured_after_at": "2026-08-22T13:10:10Z",
+                "organization_monthly_limit_usd": "100.00",
+                "hard_limit_enforced": False,
+                "capture_method": (
+                    "operator_console_readback_bounded_by_control_plane_utc"
+                ),
+            },
+            "temporary_refusal": {
+                "captured_before_at": "2026-08-22T13:20:00Z",
+                "captured_after_at": "2026-08-22T13:20:10Z",
+                "organization_monthly_limit_usd": "0.01",
+                "hard_limit_enforced": True,
+                "capture_method": (
+                    "operator_console_readback_bounded_by_control_plane_utc"
+                ),
+            },
+            "restored_acceptance": {
+                "captured_before_at": "2026-08-22T13:30:00Z",
+                "captured_after_at": "2026-08-22T13:30:10Z",
+                "organization_monthly_limit_usd": "100.00",
+                "hard_limit_enforced": False,
+                "capture_method": (
+                    "operator_console_readback_bounded_by_control_plane_utc"
+                ),
+            },
+        }
+
+    def model_operated_record(self) -> dict[str, object]:
+        limits_url = "https://platform.openai.com/settings/organization/limits"
+        return {
+            "model_identity": {
+                "pairing": "openai/codex/gpt-5.6-sol/xhigh",
+                "codex_task_id": "task_synthetic_req2_0001",
+            },
+            "model_actions": [
+                {
+                    "kind": "organization_spend_alert_remove",
+                    "intent": {
+                        "console_location": limits_url,
+                        "state": {
+                            "threshold_percentage": "50",
+                            "email_subject_prefix": "",
+                            "additional_recipients": [],
+                        },
+                        "permitted_mutation": (
+                            "Temporarily remove the 50% spend alert"
+                        ),
+                        "recorded_at": "2026-08-22T13:20:01Z",
+                    },
+                    "confirmed": {
+                        "recorded_at": "2026-08-22T13:20:02Z",
+                        "action_completed": True,
+                        "product_approval_presented": False,
+                        "product_approval_completed": False,
+                    },
+                },
+                {
+                    "kind": "organization_spend_limit_enforce_save",
+                    "intent": {
+                        "console_location": limits_url,
+                        "state": {
+                            "organization_monthly_limit_usd": "0.01",
+                            "hard_limit_enforced": True,
+                        },
+                        "permitted_mutation": (
+                            "Set monthly limit to $0.01 and enforce ON"
+                        ),
+                        "recorded_at": "2026-08-22T13:20:03Z",
+                    },
+                    "confirmed": {
+                        "recorded_at": "2026-08-22T13:20:08Z",
+                        "action_completed": True,
+                        "product_approval_presented": False,
+                        "product_approval_completed": False,
+                    },
+                },
+                {
+                    "kind": "organization_spend_limit_restore_save",
+                    "intent": {
+                        "console_location": limits_url,
+                        "state": {
+                            "organization_monthly_limit_usd": "100.00",
+                            "hard_limit_enforced": False,
+                        },
+                        "permitted_mutation": (
+                            "Restore monthly limit to $100.00 and enforce OFF"
+                        ),
+                        "recorded_at": "2026-08-22T13:30:02Z",
+                    },
+                    "confirmed": {
+                        "recorded_at": "2026-08-22T13:30:05Z",
+                        "action_completed": True,
+                        "product_approval_presented": False,
+                        "product_approval_completed": False,
+                    },
+                },
+                {
+                    "kind": "organization_spend_alert_restore_save",
+                    "intent": {
+                        "console_location": limits_url,
+                        "state": {
+                            "threshold_percentage": "50",
+                            "email_subject_prefix": "",
+                            "additional_recipients": [],
+                        },
+                        "permitted_mutation": "Restore the 50% spend alert",
+                        "recorded_at": "2026-08-22T13:30:06Z",
+                    },
+                    "confirmed": {
+                        "recorded_at": "2026-08-22T13:30:08Z",
+                        "action_completed": True,
+                        "product_approval_presented": False,
+                        "product_approval_completed": False,
+                    },
+                },
+            ],
+            "model_console_observations": [
+                {
+                    "step": "identity_liveness_preflight",
+                    "capture_action_id": "capture-identity-liveness-preflight",
+                    "capture_method": (
+                        "administration_api_service_accounts_listing_bounded_by_"
+                        "control_plane_utc"
+                    ),
+                    "captured_before_at": "2026-08-22T13:05:00Z",
+                    "captured_after_at": "2026-08-22T13:05:10Z",
+                    "request": {
+                        "method": "GET",
+                        "endpoint": (
+                            "/v1/organization/projects/"
+                            "proj_4zpZhhPPNYCvPRE5vGuRBALH/service_accounts"
+                        ),
+                        "pagination_exhausted": True,
+                    },
+                    "state": {
+                        "project_id": "proj_4zpZhhPPNYCvPRE5vGuRBALH",
+                        "service_account_id": "user-1UnalMTUg8XaoKcNDHpcsqZU",
+                        "http_status": 200,
+                        "listed": True,
+                    },
+                },
+                *[
+                    {
+                        "step": phase,
+                        "capture_action_id": f"capture-{phase}",
+                        "capture_method": reading["capture_method"],
+                        "captured_before_at": reading["captured_before_at"],
+                        "captured_after_at": reading["captured_after_at"],
+                        "navigation": {
+                            "url": limits_url,
+                            "reloaded": True,
+                        },
+                        "state": {
+                            "organization_id": "org-000000000000000000000000",
+                            "project_id": "proj_4zpZhhPPNYCvPRE5vGuRBALH",
+                            "organization_monthly_limit_usd": reading[
+                                "organization_monthly_limit_usd"
+                            ],
+                            "hard_limit_enforced": reading[
+                                "hard_limit_enforced"
+                            ],
+                        },
+                    }
+                    for phase, reading in (
+                        (phase, self.cap_readbacks()[phase])
+                        for phase in (
+                            "operational_acceptance",
+                            "temporary_refusal",
+                            "restored_acceptance",
+                        )
+                    )
+                ],
             ],
         }
 
@@ -1548,6 +1743,101 @@ class SpendRouteAuthorizationContract(unittest.TestCase):
         self.assertEqual(
             accepted["human_authorization"]["source"], "route authorization"
         )
+
+    def test_route_authorization_requires_model_and_liveness_disclosure(self) -> None:
+        accepted = self.evidence.validate_model_operated_record(
+            self.model_operated_record(),
+            self.cap_readbacks(),
+            self.evidence.load_json(self.evidence.POLICY_PATH),
+            self.evidence.load_json(self.evidence.IDENTITY_HISTORY_PATH),
+        )
+        self.assertEqual(
+            accepted["model_identity"]["pairing"],
+            "openai/codex/gpt-5.6-sol/xhigh",
+        )
+        self.assertTrue(
+            accepted["model_console_observations"][0]["state"]["listed"]
+        )
+
+    def test_route_authorization_rejects_missing_liveness_preflight(self) -> None:
+        value = self.model_operated_record()
+        value["model_console_observations"] = value[
+            "model_console_observations"
+        ][1:]
+        with self.assertRaises(ValueError) as caught:
+            self.evidence.validate_model_operated_record(
+                value,
+                self.cap_readbacks(),
+                self.evidence.load_json(self.evidence.POLICY_PATH),
+                self.evidence.load_json(self.evidence.IDENTITY_HISTORY_PATH),
+            )
+        self.assertIn("identity-liveness preflight", str(caught.exception))
+
+    def test_route_disclosure_becomes_top_level_result_fields(self) -> None:
+        disclosure = self.evidence.model_operated_result_fields(
+            self.route_attestation(),
+            self.model_operated_record(),
+            self.model_operated_record()["model_console_observations"][0],
+            self.cap_readbacks(),
+            self.evidence.load_json(self.evidence.POLICY_PATH),
+            self.evidence.load_json(self.evidence.IDENTITY_HISTORY_PATH),
+        )
+        self.assertEqual(set(disclosure), self.evidence.MODEL_OPERATED_RECORD_KEYS)
+        self.assertEqual(len(disclosure["model_actions"]), 4)
+        self.assertEqual(len(disclosure["model_console_observations"]), 4)
+
+    def test_checker_accepts_the_same_model_operated_contract(self) -> None:
+        errors: list[str] = []
+        self.checker.validate_model_operated_result_fields(
+            self.model_operated_record(),
+            self.model_operated_record()["model_console_observations"][0],
+            self.cap_readbacks(),
+            errors,
+        )
+        self.assertEqual(errors, [])
+
+    def test_checker_rejects_a_route_result_without_liveness(self) -> None:
+        record = self.model_operated_record()
+        record["model_console_observations"] = record[
+            "model_console_observations"
+        ][1:]
+        errors: list[str] = []
+        self.checker.validate_model_operated_result_fields(
+            record,
+            self.model_operated_record()["model_console_observations"][0],
+            self.cap_readbacks(),
+            errors,
+        )
+        self.assertIn(
+            "A151 identity-liveness preflight and three cap observations are required",
+            errors,
+        )
+
+    def test_checker_requires_disclosure_keys_for_route_results(self) -> None:
+        keys = self.checker.expected_live_result_keys(self.route_attestation())
+        self.assertTrue(self.checker.MODEL_OPERATED_RECORD_KEYS <= keys)
+        self.assertIn("identity_liveness_observation", keys)
+
+    def test_a151_liveness_is_required_after_the_route_expires(self) -> None:
+        keys = self.checker.expected_live_result_keys(
+            {
+                "schema_version": 1,
+                "provider": "openai",
+                "authorization_ruling": "A132",
+                "actor": "Fixture Operator",
+                "attester": "Fixture Operator",
+                "independent_attestation": False,
+                "mutation_surface": "organization-limits-console",
+                "mutation_receipt_obtained": False,
+                "mutations": [
+                    {"phase": "temporary_refusal", "change": "Remove alert"},
+                    {"phase": "temporary_refusal", "change": "Set limit"},
+                    {"phase": "restored_acceptance", "change": "Restore limit"},
+                    {"phase": "restored_acceptance", "change": "Restore alert"},
+                ],
+            }
+        )
+        self.assertIn("identity_liveness_observation", keys)
 
     def test_route_authorization_rejects_a_human_attestation_claim(self) -> None:
         value = self.route_attestation()
@@ -1569,8 +1859,10 @@ class SpendRouteAuthorizationContract(unittest.TestCase):
                     "mutation_surface": "organization-limits-console",
                     "mutation_receipt_obtained": False,
                     "mutations": [
+                        {"phase": "temporary_refusal", "change": "Remove alert"},
                         {"phase": "temporary_refusal", "change": "Set monthly limit to $0.01"},
                         {"phase": "restored_acceptance", "change": "Restore monthly limit to $100.00"},
+                        {"phase": "restored_acceptance", "change": "Restore alert"},
                     ],
                 }
             )

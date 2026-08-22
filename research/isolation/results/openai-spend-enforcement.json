@@ -1,0 +1,529 @@
+{
+  "schema_version": 1,
+  "provider": "openai",
+  "qualification_requirement": "provider-spend-enforcement",
+  "authorization_ruling": "A132",
+  "organization_id": "org-000000000000000000000000",
+  "project_id": "proj_4zpZhhPPNYCvPRE5vGuRBALH",
+  "service_account_id": "user-1UnalMTUg8XaoKcNDHpcsqZU",
+  "request_binding": {
+    "model": "gpt-5.6-luna",
+    "endpoint": "/v1/chat/completions",
+    "request_body_sha256": "bc3886868b8184ea7dbdedab20999ef707c30b5da26766a319e202cac538a24c",
+    "byte_identical_across_phases": true
+  },
+  "refusal_predicate": {
+    "enforced": false,
+    "basis": "no-observed-openai-spend-refusal"
+  },
+  "phases": {
+    "operational_acceptance": {
+      "schema_version": 1,
+      "run_id": "openai-s2-operational-20260822-91dddd23f7",
+      "base_sha": "227c8b40b2f3da5e9b8701702c41f661b01ba084",
+      "request_sha256": "376ef23d3b31012a30ebb366e98499722c9aa5cfc0dd67f90320a5db38026c70",
+      "provider": "openai",
+      "qualification_requirement": "provider-spend-enforcement",
+      "authorization_ruling": "A132",
+      "qualification_phase": "operational_acceptance",
+      "patch_sha256": "4c985c913956445e20aa7e14586f9ec85477a0c9d6505168d0361f1b755a0374",
+      "observed_rootfs_sha256": "f7111efd158a855b94f099f2545a482839471d4dc4ed5d5bada0a1b0e3d3d947",
+      "image_recipe_sha256": "0b97df3c1af400f487c43f6673b5c4592c65c4b21c013c51bbce04c1bcb87ea3",
+      "production_parity_sha256": "108becf1fced5dbe28f7675a73fcbf2c1b1ac301baed8811eb23fc492cc01809",
+      "git_remote_count": 0,
+      "host_contract_sha256": "5ca1dae44c2c34b5381bc7f6c12b2ba694d2d25fbd41ce418375045fed0bdb26",
+      "qualification_policy_sha256": "b69c5f8ecc5b6cd0883081767f4d102fd527d7c4df716ebb38df4b5f485c1f44",
+      "credential_removed_before_output": true,
+      "issuance": {
+        "issued_at": "2026-08-22T15:21:39Z",
+        "expires_at": "2026-08-22T15:26:33Z",
+        "expires_in": 294,
+        "exchange_request_id": "395e68b7-8478-4c7f-8490-4c2f7c51d718",
+        "token_type": "Bearer",
+        "scope": "unscoped",
+        "service_account_id": "user-1UnalMTUg8XaoKcNDHpcsqZU",
+        "rule_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+        "workspace_id": "proj_4zpZhhPPNYCvPRE5vGuRBALH"
+      },
+      "delivery": {
+        "worker_host_tmpfs": true,
+        "credential_delivered_to_guest": false,
+        "credential_removed_before_guest_boot": true,
+        "assertion_delivered": false,
+        "signing_key_delivered": false,
+        "admin_credential_delivered": false
+      },
+      "provider_transport": {
+        "schema_version": 1,
+        "authorization_ruling": "A117",
+        "mechanism": "host-one-shot-network-namespace-v1",
+        "http_version": "1.0",
+        "connection_close": true,
+        "client_sha256": "279842bd758043e3fb08d75fcd0a10f0666d0c6b6d114bb676f9fdbd47adbfa9",
+        "admitted_conntrack_ids": 1,
+        "admitted_new_connections": 1,
+        "rejected_new_connections": 0,
+        "rejected_connection_packets": 0,
+        "guest_provider_allowlist_entries": 0,
+        "namespace_ipv6_disabled": true,
+        "credential_removed_before_guest_boot": true
+      },
+      "provider_observation": {
+        "outcome": "accepted",
+        "endpoint": "/v1/chat/completions",
+        "http_status": 200,
+        "observed_at": "2026-08-22T15:21:49Z",
+        "request_id": "req_fbc7f7ebe9424420a6c98dfc0dba0b84",
+        "request_id_supplied": true,
+        "request_body_sha256": "bc3886868b8184ea7dbdedab20999ef707c30b5da26766a319e202cac538a24c",
+        "response_type": "chat.completion",
+        "model": "gpt-5.6-luna",
+        "expected_project_cap_cents": 10000,
+        "usage": {
+          "prompt_tokens": 64021,
+          "completion_tokens": 16,
+          "cached_tokens": 0
+        },
+        "request_attempts": 1
+      },
+      "observation_predicate": {
+        "endpoint": "/v1/chat/completions",
+        "refusal_predicate_enforced": false
+      },
+      "host_teardown": {
+        "processes": 0,
+        "taps": 0,
+        "nftables_tables": 0,
+        "run_directories": 0,
+        "credential_files": 0,
+        "guest_provider_egress_packets": 0
+      }
+    },
+    "temporary_refusal": {
+      "schema_version": 1,
+      "run_id": "openai-s2-refusal-20260822-d64d137525",
+      "base_sha": "227c8b40b2f3da5e9b8701702c41f661b01ba084",
+      "request_sha256": "376ef23d3b31012a30ebb366e98499722c9aa5cfc0dd67f90320a5db38026c70",
+      "provider": "openai",
+      "qualification_requirement": "provider-spend-enforcement",
+      "authorization_ruling": "A132",
+      "qualification_phase": "temporary_refusal",
+      "patch_sha256": "4c985c913956445e20aa7e14586f9ec85477a0c9d6505168d0361f1b755a0374",
+      "observed_rootfs_sha256": "f7111efd158a855b94f099f2545a482839471d4dc4ed5d5bada0a1b0e3d3d947",
+      "image_recipe_sha256": "0b97df3c1af400f487c43f6673b5c4592c65c4b21c013c51bbce04c1bcb87ea3",
+      "production_parity_sha256": "108becf1fced5dbe28f7675a73fcbf2c1b1ac301baed8811eb23fc492cc01809",
+      "git_remote_count": 0,
+      "host_contract_sha256": "5ca1dae44c2c34b5381bc7f6c12b2ba694d2d25fbd41ce418375045fed0bdb26",
+      "qualification_policy_sha256": "b69c5f8ecc5b6cd0883081767f4d102fd527d7c4df716ebb38df4b5f485c1f44",
+      "credential_removed_before_output": true,
+      "issuance": {
+        "issued_at": "2026-08-22T15:31:55Z",
+        "expires_at": "2026-08-22T15:36:49Z",
+        "expires_in": 294,
+        "exchange_request_id": "0553900e-c706-477a-82e9-9302a7dbee05",
+        "token_type": "Bearer",
+        "scope": "unscoped",
+        "service_account_id": "user-1UnalMTUg8XaoKcNDHpcsqZU",
+        "rule_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+        "workspace_id": "proj_4zpZhhPPNYCvPRE5vGuRBALH"
+      },
+      "delivery": {
+        "worker_host_tmpfs": true,
+        "credential_delivered_to_guest": false,
+        "credential_removed_before_guest_boot": true,
+        "assertion_delivered": false,
+        "signing_key_delivered": false,
+        "admin_credential_delivered": false
+      },
+      "provider_transport": {
+        "schema_version": 1,
+        "authorization_ruling": "A117",
+        "mechanism": "host-one-shot-network-namespace-v1",
+        "http_version": "1.0",
+        "connection_close": true,
+        "client_sha256": "279842bd758043e3fb08d75fcd0a10f0666d0c6b6d114bb676f9fdbd47adbfa9",
+        "admitted_conntrack_ids": 1,
+        "admitted_new_connections": 1,
+        "rejected_new_connections": 0,
+        "rejected_connection_packets": 0,
+        "guest_provider_allowlist_entries": 0,
+        "namespace_ipv6_disabled": true,
+        "credential_removed_before_guest_boot": true
+      },
+      "provider_observation": {
+        "outcome": "refused",
+        "endpoint": "/v1/chat/completions",
+        "http_status": 429,
+        "observed_at": "2026-08-22T15:32:05Z",
+        "request_id": "req_8b5ef4f3aea94c6db91b76e95ae0b950",
+        "request_id_supplied": true,
+        "request_body_sha256": "bc3886868b8184ea7dbdedab20999ef707c30b5da26766a319e202cac538a24c",
+        "expected_project_cap_cents": 1,
+        "response_predicate": {
+          "enforced": false,
+          "basis": "no-observed-openai-spend-refusal"
+        },
+        "provider_error": {
+          "error_type": "insufficient_quota",
+          "error_code": "organization_spend_limit_exceeded",
+          "message_class": "spend_attributable",
+          "message_sha256": "aaacfa24f45ca1741252803f1117e983fed2a64b73f2f6489e6c291f21251def",
+          "body_shape": "error-envelope",
+          "shape": {
+            "top_level_keys": [
+              "error"
+            ],
+            "error_keys": [
+              "code",
+              "message",
+              "param",
+              "type"
+            ]
+          }
+        },
+        "request_attempts": 1
+      },
+      "observation_predicate": {
+        "endpoint": "/v1/chat/completions",
+        "refusal_predicate_enforced": false
+      },
+      "host_teardown": {
+        "processes": 0,
+        "taps": 0,
+        "nftables_tables": 0,
+        "run_directories": 0,
+        "credential_files": 0,
+        "guest_provider_egress_packets": 0
+      }
+    },
+    "restored_acceptance": {
+      "schema_version": 1,
+      "run_id": "openai-s2-restored-20260822-f3b7acecc6",
+      "base_sha": "227c8b40b2f3da5e9b8701702c41f661b01ba084",
+      "request_sha256": "376ef23d3b31012a30ebb366e98499722c9aa5cfc0dd67f90320a5db38026c70",
+      "provider": "openai",
+      "qualification_requirement": "provider-spend-enforcement",
+      "authorization_ruling": "A132",
+      "qualification_phase": "restored_acceptance",
+      "patch_sha256": "4c985c913956445e20aa7e14586f9ec85477a0c9d6505168d0361f1b755a0374",
+      "observed_rootfs_sha256": "f7111efd158a855b94f099f2545a482839471d4dc4ed5d5bada0a1b0e3d3d947",
+      "image_recipe_sha256": "0b97df3c1af400f487c43f6673b5c4592c65c4b21c013c51bbce04c1bcb87ea3",
+      "production_parity_sha256": "108becf1fced5dbe28f7675a73fcbf2c1b1ac301baed8811eb23fc492cc01809",
+      "git_remote_count": 0,
+      "host_contract_sha256": "5ca1dae44c2c34b5381bc7f6c12b2ba694d2d25fbd41ce418375045fed0bdb26",
+      "qualification_policy_sha256": "b69c5f8ecc5b6cd0883081767f4d102fd527d7c4df716ebb38df4b5f485c1f44",
+      "credential_removed_before_output": true,
+      "issuance": {
+        "issued_at": "2026-08-22T15:37:00Z",
+        "expires_at": "2026-08-22T15:41:54Z",
+        "expires_in": 294,
+        "exchange_request_id": "f91aef46-6681-4d04-8973-3ff1e547eee3",
+        "token_type": "Bearer",
+        "scope": "unscoped",
+        "service_account_id": "user-1UnalMTUg8XaoKcNDHpcsqZU",
+        "rule_id": "idp_DlzD7RlQXgXxd1VSG2V93eEU",
+        "workspace_id": "proj_4zpZhhPPNYCvPRE5vGuRBALH"
+      },
+      "delivery": {
+        "worker_host_tmpfs": true,
+        "credential_delivered_to_guest": false,
+        "credential_removed_before_guest_boot": true,
+        "assertion_delivered": false,
+        "signing_key_delivered": false,
+        "admin_credential_delivered": false
+      },
+      "provider_transport": {
+        "schema_version": 1,
+        "authorization_ruling": "A117",
+        "mechanism": "host-one-shot-network-namespace-v1",
+        "http_version": "1.0",
+        "connection_close": true,
+        "client_sha256": "279842bd758043e3fb08d75fcd0a10f0666d0c6b6d114bb676f9fdbd47adbfa9",
+        "admitted_conntrack_ids": 1,
+        "admitted_new_connections": 1,
+        "rejected_new_connections": 0,
+        "rejected_connection_packets": 0,
+        "guest_provider_allowlist_entries": 0,
+        "namespace_ipv6_disabled": true,
+        "credential_removed_before_guest_boot": true
+      },
+      "provider_observation": {
+        "outcome": "accepted",
+        "endpoint": "/v1/chat/completions",
+        "http_status": 200,
+        "observed_at": "2026-08-22T15:37:11Z",
+        "request_id": "req_724c3e9d51ed4812a7137d2c9b4b25e7",
+        "request_id_supplied": true,
+        "request_body_sha256": "bc3886868b8184ea7dbdedab20999ef707c30b5da26766a319e202cac538a24c",
+        "response_type": "chat.completion",
+        "model": "gpt-5.6-luna",
+        "expected_project_cap_cents": 10000,
+        "usage": {
+          "prompt_tokens": 64021,
+          "completion_tokens": 16,
+          "cached_tokens": 64018
+        },
+        "request_attempts": 1
+      },
+      "observation_predicate": {
+        "endpoint": "/v1/chat/completions",
+        "refusal_predicate_enforced": false
+      },
+      "host_teardown": {
+        "processes": 0,
+        "taps": 0,
+        "nftables_tables": 0,
+        "run_directories": 0,
+        "credential_files": 0,
+        "guest_provider_egress_packets": 0
+      }
+    }
+  },
+  "cap_control": {
+    "schema_version": 1,
+    "provider": "openai",
+    "organization_id": "org-000000000000000000000000",
+    "project_id": "proj_4zpZhhPPNYCvPRE5vGuRBALH",
+    "operational_acceptance": {
+      "captured_before_at": "2026-08-22T15:20:40Z",
+      "captured_after_at": "2026-08-22T15:21:08Z",
+      "organization_monthly_limit_usd": "100.00",
+      "hard_limit_enforced": false,
+      "capture_method": "operator_console_readback_bounded_by_control_plane_utc"
+    },
+    "temporary_refusal": {
+      "captured_before_at": "2026-08-22T15:28:49Z",
+      "captured_after_at": "2026-08-22T15:30:14Z",
+      "organization_monthly_limit_usd": "0.01",
+      "hard_limit_enforced": true,
+      "capture_method": "operator_console_readback_bounded_by_control_plane_utc"
+    },
+    "restored_acceptance": {
+      "captured_before_at": "2026-08-22T15:32:25Z",
+      "captured_after_at": "2026-08-22T15:33:37Z",
+      "organization_monthly_limit_usd": "100.00",
+      "hard_limit_enforced": false,
+      "capture_method": "operator_console_readback_bounded_by_control_plane_utc"
+    }
+  },
+  "identity_liveness_observation": {
+    "step": "identity_liveness_preflight",
+    "capture_action_id": "capture-identity-liveness-preflight",
+    "capture_method": "administration_api_service_accounts_listing_bounded_by_control_plane_utc",
+    "captured_before_at": "2026-08-22T15:20:22Z",
+    "captured_after_at": "2026-08-22T15:20:22Z",
+    "request": {
+      "method": "GET",
+      "endpoint": "/v1/organization/projects/proj_4zpZhhPPNYCvPRE5vGuRBALH/service_accounts",
+      "pagination_exhausted": true
+    },
+    "state": {
+      "project_id": "proj_4zpZhhPPNYCvPRE5vGuRBALH",
+      "service_account_id": "user-1UnalMTUg8XaoKcNDHpcsqZU",
+      "http_status": 200,
+      "listed": true
+    }
+  },
+  "attestation": {
+    "schema_version": 1,
+    "provider": "openai",
+    "authorization_ruling": "A148",
+    "human_authorization": {
+      "source": "route authorization",
+      "ruling": "A148",
+      "map_url": "https://github.com/JacobStephens2/patchyard/issues/176",
+      "grant_url": "https://github.com/JacobStephens2/patchyard/issues/253",
+      "author_login": "JacobStephens2",
+      "human_attestation_obtained": false,
+      "human_authorship_mechanically_proven": false
+    },
+    "mutation_surface": "organization-limits-console",
+    "mutation_receipt_obtained": false,
+    "mutations": [
+      {
+        "phase": "temporary_refusal",
+        "change": "Temporarily remove the 50% spend alert"
+      },
+      {
+        "phase": "temporary_refusal",
+        "change": "Set monthly limit to $0.01 and enforce ON"
+      },
+      {
+        "phase": "restored_acceptance",
+        "change": "Restore monthly limit to $100.00 and enforce OFF"
+      },
+      {
+        "phase": "restored_acceptance",
+        "change": "Restore the 50% spend alert"
+      }
+    ]
+  },
+  "control_plane_provenance": {
+    "management_surface": "console-only",
+    "mutation_receipt_obtained": false,
+    "attestation_required": true
+  },
+  "cost_measurement": {
+    "source": "OpenAI Costs API",
+    "currency": "USD",
+    "settled_spend_before_activation_usd": "0.01602430000000000000000000000",
+    "settled_spend_after_restoration_usd": "0.01602430000000000000000000000",
+    "incremental_spend_usd": "0.00000000000000000000000000000",
+    "before_captured_at": "2026-08-22T15:24:02Z",
+    "after_captured_at": "2026-08-22T15:37:39Z",
+    "reporting_window_starting_at": "2026-08-01T00:00:00Z",
+    "settling_floor_seconds": 90,
+    "attribution": "A132_acceptance_refusal_acceptance_organization_cap_change"
+  },
+  "model_identity": {
+    "pairing": "openai/codex/gpt-5.6-sol/xhigh",
+    "codex_task_id": "01a02992-6ac4-74a2-8ea7-014c01f635d5"
+  },
+  "model_actions": [
+    {
+      "kind": "organization_spend_alert_remove",
+      "intent": {
+        "console_location": "https://platform.openai.com/settings/organization/limits",
+        "state": {
+          "threshold_percentage": "50",
+          "email_subject_prefix": "",
+          "additional_recipients": []
+        },
+        "permitted_mutation": "Temporarily remove the 50% spend alert",
+        "recorded_at": "2026-08-22T15:29:16Z"
+      },
+      "confirmed": {
+        "recorded_at": "2026-08-22T15:29:32Z",
+        "action_completed": true,
+        "product_approval_presented": false,
+        "product_approval_completed": false
+      }
+    },
+    {
+      "kind": "organization_spend_limit_enforce_save",
+      "intent": {
+        "console_location": "https://platform.openai.com/settings/organization/limits",
+        "state": {
+          "organization_monthly_limit_usd": "0.01",
+          "hard_limit_enforced": true
+        },
+        "permitted_mutation": "Set monthly limit to $0.01 and enforce ON",
+        "recorded_at": "2026-08-22T15:29:36Z"
+      },
+      "confirmed": {
+        "recorded_at": "2026-08-22T15:30:13Z",
+        "action_completed": true,
+        "product_approval_presented": false,
+        "product_approval_completed": false
+      }
+    },
+    {
+      "kind": "organization_spend_limit_restore_save",
+      "intent": {
+        "console_location": "https://platform.openai.com/settings/organization/limits",
+        "state": {
+          "organization_monthly_limit_usd": "100.00",
+          "hard_limit_enforced": false
+        },
+        "permitted_mutation": "Restore monthly limit to $100.00 and enforce OFF",
+        "recorded_at": "2026-08-22T15:32:29Z"
+      },
+      "confirmed": {
+        "recorded_at": "2026-08-22T15:32:50Z",
+        "action_completed": true,
+        "product_approval_presented": false,
+        "product_approval_completed": false
+      }
+    },
+    {
+      "kind": "organization_spend_alert_restore_save",
+      "intent": {
+        "console_location": "https://platform.openai.com/settings/organization/limits",
+        "state": {
+          "threshold_percentage": "50",
+          "email_subject_prefix": "",
+          "additional_recipients": []
+        },
+        "permitted_mutation": "Restore the 50% spend alert",
+        "recorded_at": "2026-08-22T15:32:54Z"
+      },
+      "confirmed": {
+        "recorded_at": "2026-08-22T15:33:36Z",
+        "action_completed": true,
+        "product_approval_presented": false,
+        "product_approval_completed": false
+      }
+    }
+  ],
+  "model_console_observations": [
+    {
+      "step": "identity_liveness_preflight",
+      "capture_action_id": "capture-identity-liveness-preflight",
+      "capture_method": "administration_api_service_accounts_listing_bounded_by_control_plane_utc",
+      "captured_before_at": "2026-08-22T15:20:22Z",
+      "captured_after_at": "2026-08-22T15:20:22Z",
+      "request": {
+        "method": "GET",
+        "endpoint": "/v1/organization/projects/proj_4zpZhhPPNYCvPRE5vGuRBALH/service_accounts",
+        "pagination_exhausted": true
+      },
+      "state": {
+        "project_id": "proj_4zpZhhPPNYCvPRE5vGuRBALH",
+        "service_account_id": "user-1UnalMTUg8XaoKcNDHpcsqZU",
+        "http_status": 200,
+        "listed": true
+      }
+    },
+    {
+      "step": "operational_acceptance",
+      "capture_action_id": "capture-operational_acceptance",
+      "capture_method": "operator_console_readback_bounded_by_control_plane_utc",
+      "captured_before_at": "2026-08-22T15:20:40Z",
+      "captured_after_at": "2026-08-22T15:21:08Z",
+      "navigation": {
+        "url": "https://platform.openai.com/settings/organization/limits",
+        "reloaded": true
+      },
+      "state": {
+        "organization_id": "org-000000000000000000000000",
+        "project_id": "proj_4zpZhhPPNYCvPRE5vGuRBALH",
+        "organization_monthly_limit_usd": "100.00",
+        "hard_limit_enforced": false
+      }
+    },
+    {
+      "step": "temporary_refusal",
+      "capture_action_id": "capture-temporary_refusal",
+      "capture_method": "operator_console_readback_bounded_by_control_plane_utc",
+      "captured_before_at": "2026-08-22T15:28:49Z",
+      "captured_after_at": "2026-08-22T15:30:14Z",
+      "navigation": {
+        "url": "https://platform.openai.com/settings/organization/limits",
+        "reloaded": true
+      },
+      "state": {
+        "organization_id": "org-000000000000000000000000",
+        "project_id": "proj_4zpZhhPPNYCvPRE5vGuRBALH",
+        "organization_monthly_limit_usd": "0.01",
+        "hard_limit_enforced": true
+      }
+    },
+    {
+      "step": "restored_acceptance",
+      "capture_action_id": "capture-restored_acceptance",
+      "capture_method": "operator_console_readback_bounded_by_control_plane_utc",
+      "captured_before_at": "2026-08-22T15:32:25Z",
+      "captured_after_at": "2026-08-22T15:33:37Z",
+      "navigation": {
+        "url": "https://platform.openai.com/settings/organization/limits",
+        "reloaded": true
+      },
+      "state": {
+        "organization_id": "org-000000000000000000000000",
+        "project_id": "proj_4zpZhhPPNYCvPRE5vGuRBALH",
+        "organization_monthly_limit_usd": "100.00",
+        "hard_limit_enforced": false
+      }
+    }
+  ]
+}

@@ -116,6 +116,36 @@ ROUTE_ATTESTATION_KEYS = {
     "mutation_receipt_obtained",
     "mutations",
 }
+MODEL_OPERATED_RECORD_KEYS = {
+    "model_identity",
+    "model_actions",
+    "model_console_observations",
+}
+LIVE_RESULT_KEYS = {
+    "schema_version",
+    "provider",
+    "qualification_requirement",
+    "authorization_ruling",
+    "organization_id",
+    "project_id",
+    "service_account_id",
+    "request_binding",
+    "refusal_predicate",
+    "phases",
+    "cap_control",
+    "identity_liveness_observation",
+    "attestation",
+    "control_plane_provenance",
+    "cost_measurement",
+}
+LIMITS_URL = "https://platform.openai.com/settings/organization/limits"
+LIVENESS_CAPTURE_METHOD = (
+    "administration_api_service_accounts_listing_bounded_by_control_plane_utc"
+)
+PAIRING_PATTERN = re.compile(
+    r"[a-z0-9-]+/[a-z0-9-]+/[A-Za-z0-9._-]+/[a-z0-9-]+"
+)
+TASK_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{7,127}")
 EXPECTED_QUALIFICATION_ENTRY = {
     "one_shot_client": "/usr/local/libexec/patchyard-openai-one-shot",
     "authorization_ruling": "A132",
@@ -216,6 +246,12 @@ REQUIRED_EVIDENCE_CLAUSES = (
     'raise ValueError("A132 attestation claims independence it cannot have")',
     'ROUTE_AUTHORIZATION_SOURCE = "route authorization"',
     'raise ValueError("authorization source is not a route authorization")',
+    'IDENTITY_HISTORY_PATH = ROOT / "policy" / "openai-identity-history.json"',
+    '"administration_api_service_accounts_listing_bounded_by_control_plane_utc"',
+    'raise ValueError("A148 route-authorized Result lacks model disclosure")',
+    'raise ValueError("A151 identity-liveness preflight is malformed")',
+    'final.add_argument("--identity-liveness-observation", required=True, type=Path)',
+    'final.add_argument("--model-operated-record", type=Path)',
     'raise ValueError("OpenAI Costs API returned no factory project row")',
     'raise ValueError("OpenAI costs pagination is malformed")',
 )
@@ -250,6 +286,252 @@ digest = RUNTIME.digest
 parse_time = RUNTIME.parse_time
 secret_named_key = CHECKER.secret_named_key
 roster_service_account_ids = CHECKER.roster_service_account_ids
+
+
+def current_service_account_id(errors: list[str]) -> str:
+    try:
+        history = json.loads(IDENTITY_HISTORY_PATH.read_text())
+        current = history["current_service_account_id"]
+        matches = [
+            entry
+            for entry in history["service_accounts"]
+            if isinstance(entry, dict)
+            and entry.get("id") == current
+            and entry.get("status") == "current"
+            and entry.get("project_id") == PROJECT_ID
+            and entry.get("administration_api_verified") is True
+        ]
+        if (
+            history.get("schema_version") != 1
+            or history.get("ruling") != "A150"
+            or history.get("provider") != "openai"
+            or history.get("project_id") != PROJECT_ID
+            or not isinstance(current, str)
+            or len(matches) != 1
+        ):
+            raise ValueError
+        return current
+    except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
+        errors.append("A150 identity history has no verified current service account")
+        return ""
+
+
+def validate_identity_liveness_observation(
+    observation: Any, cap_control: dict[str, Any], errors: list[str]
+) -> None:
+    current = current_service_account_id(errors)
+    endpoint = f"/v1/organization/projects/{PROJECT_ID}/service_accounts"
+    try:
+        if (
+            not isinstance(observation, dict)
+            or set(observation)
+            != {
+                "step",
+                "capture_action_id",
+                "capture_method",
+                "captured_before_at",
+                "captured_after_at",
+                "request",
+                "state",
+            }
+            or observation.get("step") != "identity_liveness_preflight"
+            or observation.get("capture_action_id")
+            != "capture-identity-liveness-preflight"
+            or observation.get("capture_method") != LIVENESS_CAPTURE_METHOD
+            or observation.get("request")
+            != {
+                "method": "GET",
+                "endpoint": endpoint,
+                "pagination_exhausted": True,
+            }
+            or observation.get("state")
+            != {
+                "project_id": PROJECT_ID,
+                "service_account_id": current,
+                "http_status": 200,
+                "listed": True,
+            }
+        ):
+            raise ValueError
+        before = parse_time(observation["captured_before_at"])
+        after = parse_time(observation["captured_after_at"])
+        operational_before = parse_time(
+            cap_control["operational_acceptance"]["captured_before_at"]
+        )
+        if (
+            before > after
+            or (after - before).total_seconds() > 300
+            or after > operational_before
+        ):
+            raise ValueError
+    except (KeyError, TypeError, ValueError):
+        errors.append("A151 identity-liveness preflight is malformed")
+
+
+def validate_model_operated_result_fields(
+    record: dict[str, Any],
+    identity_liveness_observation: dict[str, Any],
+    cap_control: dict[str, Any],
+    errors: list[str],
+) -> None:
+    if not isinstance(record, dict) or set(record) != MODEL_OPERATED_RECORD_KEYS:
+        errors.append("A148 model-operated record has an unexpected shape")
+        return
+    identity = record.get("model_identity")
+    if (
+        not isinstance(identity, dict)
+        or set(identity) != {"pairing", "codex_task_id"}
+        or not isinstance(identity.get("pairing"), str)
+        or PAIRING_PATTERN.fullmatch(identity["pairing"]) is None
+        or not isinstance(identity.get("codex_task_id"), str)
+        or TASK_ID_PATTERN.fullmatch(identity["codex_task_id"]) is None
+    ):
+        errors.append("A148 model identity is malformed")
+
+    observations = record.get("model_console_observations")
+    if not isinstance(observations, list) or len(observations) != 4:
+        errors.append(
+            "A151 identity-liveness preflight and three cap observations are required"
+        )
+        observations = []
+    if observations:
+        validate_identity_liveness_observation(observations[0], cap_control, errors)
+        if observations[0] != identity_liveness_observation:
+            errors.append("A151 top-level and model liveness observations differ")
+
+        for index, phase in enumerate(PHASES, start=1):
+            observation = observations[index]
+            reading = cap_control.get(phase, {})
+            if (
+                not isinstance(observation, dict)
+                or set(observation)
+                != {
+                    "step",
+                    "capture_action_id",
+                    "capture_method",
+                    "captured_before_at",
+                    "captured_after_at",
+                    "navigation",
+                    "state",
+                }
+                or observation.get("step") != phase
+                or observation.get("capture_action_id") != f"capture-{phase}"
+                or observation.get("capture_method") != reading.get("capture_method")
+                or observation.get("captured_before_at")
+                != reading.get("captured_before_at")
+                or observation.get("captured_after_at")
+                != reading.get("captured_after_at")
+                or observation.get("navigation")
+                != {"url": LIMITS_URL, "reloaded": True}
+                or observation.get("state")
+                != {
+                    "organization_id": ORGANIZATION_ID,
+                    "project_id": PROJECT_ID,
+                    "organization_monthly_limit_usd": reading.get(
+                        "organization_monthly_limit_usd"
+                    ),
+                    "hard_limit_enforced": reading.get("hard_limit_enforced"),
+                }
+            ):
+                errors.append(
+                    f"A148 {phase} model console observation is malformed"
+                )
+
+    actions = record.get("model_actions")
+    alert_state = {
+        "threshold_percentage": "50",
+        "email_subject_prefix": "",
+        "additional_recipients": [],
+    }
+    contracts = (
+        {
+            "kind": "organization_spend_alert_remove",
+            "phase": "temporary_refusal",
+            "state": alert_state,
+            "change": "Temporarily remove the 50% spend alert",
+        },
+        {
+            "kind": "organization_spend_limit_enforce_save",
+            "phase": "temporary_refusal",
+            "state": {
+                "organization_monthly_limit_usd": "0.01",
+                "hard_limit_enforced": True,
+            },
+            "change": "Set monthly limit to $0.01 and enforce ON",
+        },
+        {
+            "kind": "organization_spend_limit_restore_save",
+            "phase": "restored_acceptance",
+            "state": {
+                "organization_monthly_limit_usd": "100.00",
+                "hard_limit_enforced": False,
+            },
+            "change": "Restore monthly limit to $100.00 and enforce OFF",
+        },
+        {
+            "kind": "organization_spend_alert_restore_save",
+            "phase": "restored_acceptance",
+            "state": alert_state,
+            "change": "Restore the 50% spend alert",
+        },
+    )
+    if not isinstance(actions, list) or len(actions) != 4:
+        errors.append("A148 model actions do not record exactly four actions")
+        return
+    for action, contract in zip(actions, contracts):
+        phase = contract["phase"]
+        try:
+            intent = action["intent"]
+            confirmed = action["confirmed"]
+            if (
+                not isinstance(action, dict)
+                or set(action) != {"kind", "intent", "confirmed"}
+                or action["kind"] != contract["kind"]
+                or not isinstance(intent, dict)
+                or set(intent)
+                != {
+                    "console_location",
+                    "state",
+                    "permitted_mutation",
+                    "recorded_at",
+                }
+                or intent.get("console_location") != LIMITS_URL
+                or intent.get("state") != contract["state"]
+                or intent.get("permitted_mutation") != contract["change"]
+                or not isinstance(confirmed, dict)
+                or set(confirmed)
+                != {
+                    "recorded_at",
+                    "action_completed",
+                    "product_approval_presented",
+                    "product_approval_completed",
+                }
+                or confirmed.get("action_completed") is not True
+                or not isinstance(confirmed.get("product_approval_presented"), bool)
+                or not isinstance(confirmed.get("product_approval_completed"), bool)
+                or (
+                    confirmed["product_approval_completed"]
+                    and not confirmed["product_approval_presented"]
+                )
+            ):
+                raise ValueError
+            intent_at = parse_time(intent["recorded_at"])
+            confirmed_at = parse_time(confirmed["recorded_at"])
+            interval = (
+                parse_time(cap_control[phase]["captured_before_at"]),
+                parse_time(cap_control[phase]["captured_after_at"]),
+            )
+            if not (interval[0] <= intent_at <= confirmed_at <= interval[1]):
+                raise ValueError
+        except (KeyError, TypeError, ValueError):
+            errors.append(f"A148 {phase} model action disclosure is malformed")
+
+
+def expected_live_result_keys(attestation: Any) -> set[str]:
+    keys = set(LIVE_RESULT_KEYS)
+    if isinstance(attestation, dict) and set(attestation) == ROUTE_ATTESTATION_KEYS:
+        keys.update(MODEL_OPERATED_RECORD_KEYS)
+    return keys
 
 def host_contract_sha256() -> str:
     records = [
@@ -384,6 +666,7 @@ def validate_phase(
     phase: str,
     reproducible: dict[str, str],
     caps: dict[str, int],
+    service_account_id: str,
     errors: list[str],
 ) -> tuple[datetime | None, tuple[datetime, datetime] | None, str, str]:
     """Validate one phase's worker evidence; return observed and bearer times."""
@@ -450,15 +733,16 @@ def validate_phase(
     window: tuple[datetime, datetime] | None = None
     issued: datetime | None = None
     expires: datetime | None = None
-    # A150: the id is validated by roster membership, not by equality with the
-    # frozen policy's demoted issuance-era id. `scope` stays pinned to the
+    # A150/A151: future qualification phases use the registry's current,
+    # primary-source-verified id, not merely any historical roster member.
+    # `scope` stays pinned to the
     # sentinel because it records an ABSENT scope, which is what the frozen
     # one-shot contract and the qualification-policy pattern still require -
     # not because the exchange is claimed to grant none. A run that observes a
     # real scope must fail here and take its own decision.
     if not isinstance(issuance, dict) or (
         issuance.get("workspace_id") != PROJECT_ID
-        or issuance.get("service_account_id") not in roster_service_account_ids(errors)
+        or issuance.get("service_account_id") != service_account_id
         or issuance.get("rule_id") != ISSUER_ID
         or issuance.get("scope") != UNSCOPED_SENTINEL
         or issuance.get("token_type") != "Bearer"
@@ -552,23 +836,9 @@ def validate_result(
     errors: list[str] = []
     if not isinstance(result, dict):
         return ["A132 live result is not a JSON object"]
-    if set(result) != {
-        "schema_version",
-        "provider",
-        "qualification_requirement",
-        "authorization_ruling",
-        "organization_id",
-        "project_id",
-        "service_account_id",
-        "request_binding",
-        "refusal_predicate",
-        "phases",
-        "cap_control",
-        "attestation",
-        "control_plane_provenance",
-        "cost_measurement",
-    }:
+    if set(result) != expected_live_result_keys(result.get("attestation")):
         errors.append("A132 live result has an unexpected top-level shape")
+    current_identity = current_service_account_id(errors)
     if (
         result.get("schema_version") != 1
         or result.get("provider") != "openai"
@@ -576,7 +846,7 @@ def validate_result(
         or result.get("authorization_ruling") != "A132"
         or result.get("organization_id") != ORGANIZATION_ID
         or result.get("project_id") != PROJECT_ID
-        or result.get("service_account_id") not in roster_service_account_ids(errors)
+        or result.get("service_account_id") != current_identity
     ):
         errors.append("A132 live result identity differs from policy")
     if result.get("refusal_predicate") != {
@@ -617,7 +887,12 @@ def validate_result(
     windows: list[tuple[datetime, datetime]] = []
     for phase in PHASES:
         observed, window, exchange_id, body_hash = validate_phase(
-            phases.get(phase, {}), phase, reproducible, caps, errors
+            phases.get(phase, {}),
+            phase,
+            reproducible,
+            caps,
+            current_identity,
+            errors,
         )
         if observed is not None:
             provider_times[phase] = observed
@@ -701,8 +976,18 @@ def validate_result(
         except (KeyError, InvalidOperation, TypeError, ValueError):
             errors.append(f"A132 {phase} cap readback is malformed")
 
+    identity_liveness_observation = result.get("identity_liveness_observation", {})
+    validate_identity_liveness_observation(
+        identity_liveness_observation, cap_control, errors
+    )
     attestation = result.get("attestation", {})
     if isinstance(attestation, dict) and set(attestation) == ROUTE_ATTESTATION_KEYS:
+        validate_model_operated_result_fields(
+            {key: result.get(key) for key in MODEL_OPERATED_RECORD_KEYS},
+            identity_liveness_observation,
+            cap_control,
+            errors,
+        )
         if (
             attestation.get("schema_version") != 1
             or attestation.get("provider") != "openai"
@@ -733,8 +1018,15 @@ def validate_result(
         if not isinstance(mutations, list) or [
             item.get("phase") if isinstance(item, dict) else None
             for item in mutations
-        ] != ["temporary_refusal", "restored_acceptance"]:
-            errors.append("A148 route-authorization record does not record exactly two mutations")
+        ] != [
+            "temporary_refusal",
+            "temporary_refusal",
+            "restored_acceptance",
+            "restored_acceptance",
+        ]:
+            errors.append(
+                "A148 route-authorization record does not record exactly four mutations"
+            )
     elif not isinstance(attestation, dict) or set(attestation) != {
         "schema_version",
         "provider",
@@ -770,8 +1062,13 @@ def validate_result(
         if not isinstance(mutations, list) or [
             item.get("phase") if isinstance(item, dict) else None
             for item in mutations
-        ] != ["temporary_refusal", "restored_acceptance"]:
-            errors.append("A132 attestation does not record exactly two mutations")
+        ] != [
+            "temporary_refusal",
+            "temporary_refusal",
+            "restored_acceptance",
+            "restored_acceptance",
+        ]:
+            errors.append("A132 attestation does not record exactly four mutations")
 
     cost = result.get("cost_measurement", {})
     try:

@@ -221,7 +221,21 @@ billable call at build time; the capture phases below remain attended work.
   holds both roles) remains valid after the destination - `mutation_receipt_obtained:
   false` either way - enforces the 90-second settling floor
   between each console change and the call that follows it, and writes the
-  committable Result.
+  committable Result. Every run requires
+  `--identity-liveness-observation`: A151's earlier bounded per-project
+  `service_accounts` listing. It must name the A150 registry's current,
+  Administration-API-verified account, return HTTP 200 with pagination
+  exhausted, and finish before Phase 1's cap reading. An A148 run also requires
+  `--model-operated-record`: the canonical model pairing and task id, the two
+  Limits Saves in the A146 disclosure shape, and the liveness reading plus
+  three bounded console observations copied exactly from the standalone
+  liveness input and `--cap-readbacks`. The live console also refuses to enable
+  a $0.01 hard limit while the existing 50% spend alert would resolve to half a
+  cent. The same record therefore carries four actions and mutations: remove
+  that alert, save the temporary enforced limit, restore the standing limit,
+  and recreate the alert with its original 50% threshold, empty subject prefix,
+  and no additional recipients. Human-attested runs after the map destination
+  omit only the model-operated argument.
 - `tools/check-openai-spend.py` guards the contract in CI
   (`tools/check-infra.sh`, `--allow-missing-results` until the Result lands at
   `research/isolation/results/openai-spend-enforcement.json`). Static
@@ -314,15 +328,20 @@ billable call through the neutral launcher and record that it succeeds. This is
 A132's required baseline control: it establishes the path worked before the
 change, inside the same bounded window as the attestation's own capture.
 
-**Phase 2 - temporary refusal.** Capture the budget state, make the console
-change, capture it again, then repeat the identical call and record the refusal.
+**Phase 2 - temporary refusal.** Capture the budget state, temporarily remove
+the existing 50% spend alert, make the console change, capture it again, then
+repeat the identical call and record the refusal. OpenAI will otherwise lower
+the displayed limit but refuse to enable hard enforcement because 50% of $0.01
+cannot be represented exactly. The alert removal is part of the bounded A132
+mutation record, never an unrecorded workaround.
 The request must be byte-identical to phase 1's; Anthropic's result pins one
 `request_sha256` across all three phases for exactly this reason.
 
-**Phase 3 - restored acceptance.** Restore the cap, capture before and after,
-and repeat the identical call. Under A132 this bracket is the entire causal
-argument, not corroboration for a readback that does not exist. Without phase 3,
-phase 2 is evidence that one call failed, not that the cap refused it.
+**Phase 3 - restored acceptance.** Restore the cap and the original 50% alert,
+capture before and after, and repeat the identical call. Under A132 this bracket
+is the entire causal argument, not corroboration for a readback that does not
+exist. Without phase 3, phase 2 is evidence that one call failed, not that the
+cap refused it.
 
 The settling floor applies unchanged between the console change and the call
 that follows it. Console mutations propagate no faster than API ones.
@@ -346,9 +365,12 @@ on this map are model-operated under A148's **route authorization**:
 `human_authorization.source` is `route authorization`, there is no per-run
 GitHub comment, and the record keeps the A146 disclosure shape
 (`human_attestation_obtained: false`, `mutation_receipt_obtained: false`).
-It is not an Attestation. After the destination, a human-attested A132
-record (actor and attester; no independence when one person holds both
-roles) remains the default. Resolve which path before the run, not after.
+That shape includes the named `model_identity`, all four console actions in
+`model_actions`, and the A151 liveness plus three cap readings in
+`model_console_observations`. It is not an Attestation. After the destination,
+a human-attested A132 record (actor and attester; no independence when one
+person holds both roles) remains the default. Resolve which path before the
+run, not after.
 
 ## Provenance
 

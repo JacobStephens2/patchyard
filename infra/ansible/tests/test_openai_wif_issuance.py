@@ -36,7 +36,7 @@ EXPECTED_FIXTURE_SHA256 = (
     "a1963e0bfac56be44e47ccbe9fe233e1179a79ef7775b00ad43f7358dfaec970"
 )
 EXPECTED_EXPIRY_ADAPTER_SHA256 = (
-    "97e55b9a40f76327d3cb71eba0245bcaa79310de34b7e5703499f2a91ac81b49"
+    "42042f1d8940a7c7a9bea560246813f22d25bf2238909f35980277d70911a24b"
 )
 EXPECTED_CRASH_ADAPTER_SHA256 = (
     "6214024e5788b53530273573415f2e9f679069ab6934b19250a269204de50655"
@@ -64,13 +64,13 @@ def digest(path: Path) -> str:
 
 
 def check_collector_result(
-    checker: Path, result: dict[str, object]
+    checker: Path, result: dict[str, object], *, mode: str = "--observation"
 ) -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "collector-result.json"
         path.write_text(json.dumps(result))
         return subprocess.run(
-            ["python3", "-I", str(checker), "--observation", str(path)],
+            ["python3", "-I", str(checker), mode, str(path)],
             cwd=ROOT,
             check=False,
             capture_output=True,
@@ -615,7 +615,7 @@ class OpenAIWifExpiryAdapterContract(unittest.TestCase):
         response.update(
             {
                 "source": "openai_http_response",
-                "http_status": 418,
+                "http_status": 401,
                 "body_format": "json_object",
                 "response_shape": {
                     "body_kind": "json_object",
@@ -660,10 +660,25 @@ class OpenAIWifExpiryAdapterContract(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertNotIn("scope", calls[0])
         self.assertEqual(result["exchange_request"]["attempt_count"], 1)
-        self.assertEqual(result["response_predicate"], EXPIRY_ADAPTER.RESPONSE_PREDICATE)
+        self.assertEqual(
+            result["response_predicate"],
+            {
+                "enforced": True,
+                "http_status": 401,
+                "access_token_supplied": False,
+                "basis": "observed-openai-expired-assertion-response",
+            },
+        )
         self.assertIs(result["qualification_evidence"], False)
         checked = check_collector_result(EXPIRY_CHECKER_PATH, result)
         self.assertEqual(checked.returncode, 0, checked.stderr)
+        relabelled = deepcopy(result)
+        relabelled["qualification_evidence"] = True
+        refused = check_collector_result(
+            EXPIRY_CHECKER_PATH, relabelled, mode="--evidence"
+        )
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("A151 liveness preflight", refused.stderr)
 
 
 class OpenAIWifExpiryCheckerContract(unittest.TestCase):
@@ -694,9 +709,15 @@ class OpenAIWifExpiryCheckerContract(unittest.TestCase):
         del value["fixture_kind"]
         del value["fixture_lineage"]
         value["provider_response_observed"] = True
+        value["response_predicate"] = {
+            "enforced": True,
+            "http_status": 401,
+            "access_token_supplied": False,
+            "basis": "observed-openai-expired-assertion-response",
+        }
         value["expiry_denial"] = {
             "source": "openai_http_response",
-            "http_status": 418,
+            "http_status": 401,
             "request_started_at": "2026-08-07T12:00:00.100000Z",
             "observed_at": "2026-08-07T12:00:00.200000Z",
             "provider_date": "2026-08-07T12:00:00Z",
@@ -727,11 +748,60 @@ class OpenAIWifExpiryCheckerContract(unittest.TestCase):
         self.assertEqual(refused.returncode, 1)
         self.assertIn("cannot be qualification evidence", refused.stderr)
 
-    def test_unenforced_arbitrary_response_is_accepted_as_observation(self) -> None:
+    def test_reviewed_predicate_accepts_401_without_a_bearer(self) -> None:
+        value = self.observed()
         result = self.run_checker(
-            "--observation", str(self.write(self.observed(), "observed.json"))
+            "--observation", str(self.write(value, "observed.json"))
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+        value["qualification_evidence"] = True
+        evidenced = self.run_checker(
+            "--evidence", str(self.write(value, "evidence.json"))
+        )
+        self.assertEqual(evidenced.returncode, 0, evidenced.stderr)
+
+    def test_reviewed_predicate_rejects_non_401_or_a_bearer(self) -> None:
+        wrong_status = self.observed()
+        wrong_status["expiry_denial"]["http_status"] = 418
+        result = self.run_checker(
+            "--observation", str(self.write(wrong_status, "wrong-status.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("was not HTTP 401", result.stderr)
+
+        with_bearer = self.observed()
+        with_bearer["expiry_denial"]["access_token_supplied"] = True
+        result = self.run_checker(
+            "--observation", str(self.write(with_bearer, "bearer.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("supplied a bearer", result.stderr)
+
+    def test_unenforced_predicate_is_refused_on_an_observation(self) -> None:
+        value = self.observed()
+        value["response_predicate"] = {
+            "enforced": False,
+            "basis": "no-observed-openai-expired-assertion-response",
+        }
+        result = self.run_checker(
+            "--observation", str(self.write(value, "unenforced.json"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            "predicate does not match the reviewed expired-assertion denial",
+            result.stderr,
+        )
+
+    def test_banked_result_is_qualification_evidence(self) -> None:
+        defaulted = self.run_checker()
+        self.assertEqual(defaulted.returncode, 0, defaulted.stderr)
+        self.assertIn("qualification evidence", defaulted.stdout)
+        evidenced = self.run_checker(
+            "--evidence",
+            str(ROOT / "research/isolation/results/openai-expiry-denial.json"),
+        )
+        self.assertEqual(evidenced.returncode, 0, evidenced.stderr)
+        self.assertIn("qualification evidence", evidenced.stdout)
 
     def test_exact_keys_utc_and_credential_hygiene_fail_closed(self) -> None:
         extra = self.observed()
@@ -760,14 +830,7 @@ class OpenAIWifExpiryCheckerContract(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("credential-shaped material", result.stderr)
 
-    def test_premature_enforcement_and_nonisolated_execution_are_rejected(self) -> None:
-        enforced = self.observed()
-        enforced["response_predicate"]["enforced"] = True
-        result = self.run_checker(
-            "--observation", str(self.write(enforced, "enforced.json"))
-        )
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("predicate was enforced", result.stderr)
+    def test_checker_requires_isolated_python(self) -> None:
         result = self.run_checker("--allow-missing-results", isolated=False)
         self.assertEqual(result.returncode, 1)
         self.assertIn("requires python3 -I", result.stderr)

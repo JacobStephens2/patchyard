@@ -64,6 +64,12 @@ SUPERSEDES_SOURCE_SHA256 = {
         "511b9499b47701138d8d52b87e04f7614be1b8d4938f03714cfdcbbd777976e1",
     ),
 }
+# A153 adjudicates only the already-cleared historical Result. A151 requires
+# every later qualification Result to record a fresh per-project liveness
+# preflight, which the v1 collector cannot represent.
+BANKED_QUALIFYING_ADAPTER_SHA256 = (
+    SUPERSEDES_SOURCE_SHA256["tools/openai-wif-expiry.py"][0]
+)
 RUN_ID = re.compile(r"openai-expiry-[0-9]{8}-[0-9a-f]{10}")
 HEX64 = re.compile(r"[0-9a-f]{64}")
 UTC_TIMESTAMP = re.compile(
@@ -78,6 +84,12 @@ BEARER = re.compile(r"Bearer [A-Za-z0-9._~-]{16,}", re.IGNORECASE)
 PRIVATE_KEY = re.compile(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----")
 MAX_RESPONSE_BYTES = 1_000_000
 RESPONSE_PREDICATE = {
+    "enforced": True,
+    "http_status": 401,
+    "access_token_supplied": False,
+    "basis": "observed-openai-expired-assertion-response",
+}
+UNOBSERVED_RESPONSE_PREDICATE = {
     "enforced": False,
     "basis": "no-observed-openai-expired-assertion-response",
 }
@@ -408,8 +420,22 @@ def validate_common(result: Any, policy: dict[str, Any], *, synthetic: bool) -> 
             result.get("expiry_denial"), errors
         )
     removed = parse_time(result.get("credential_removed_at"), "credential_removed_at", errors)
-    if result.get("response_predicate") != RESPONSE_PREDICATE:
-        errors.append("OpenAI expiry predicate was enforced before an observation")
+    expected_predicate = (
+        UNOBSERVED_RESPONSE_PREDICATE if synthetic else RESPONSE_PREDICATE
+    )
+    if result.get("response_predicate") != expected_predicate:
+        if synthetic:
+            errors.append("OpenAI expiry predicate was enforced before an observation")
+        else:
+            errors.append(
+                "OpenAI expiry predicate does not match the reviewed expired-assertion denial"
+            )
+    if not synthetic and isinstance(result.get("expiry_denial"), dict):
+        denial = result["expiry_denial"]
+        if denial.get("http_status") != 401:
+            errors.append("OpenAI expired-assertion denial was not HTTP 401")
+        if denial.get("access_token_supplied") is not False:
+            errors.append("OpenAI expired-assertion denial supplied a bearer")
     if result.get("control_plane_provenance") != CONTROL_PLANE_PROVENANCE:
         errors.append("OpenAI expiry Result misstates control-plane provenance")
     validate_source(result.get("source"), errors)
@@ -451,8 +477,8 @@ def validate_observation(result: Any, policy: dict[str, Any]) -> list[str]:
     if isinstance(result, dict):
         if result.get("provider_response_observed") is not True:
             errors.append("OpenAI expiry observation does not record a provider response")
-        if result.get("qualification_evidence") is not False:
-            errors.append("OpenAI expiry observation claims qualification")
+        if result.get("qualification_evidence") not in {True, False}:
+            errors.append("OpenAI expiry qualification_evidence is not boolean")
     return errors
 
 
@@ -478,7 +504,15 @@ def validate_qualification_evidence(result: Any, policy: dict[str, Any]) -> list
     if isinstance(result, dict) and result.get("fixture_kind") is not None:
         return ["synthetic OpenAI expiry Fixture cannot be qualification evidence"]
     errors = validate_observation(result, policy)
-    errors.append("OpenAI expiry qualification predicate is unenforced pending observation")
+    if isinstance(result, dict) and result.get("qualification_evidence") is not True:
+        errors.append("OpenAI expiry Result is not qualification evidence")
+    if (
+        isinstance(result, dict)
+        and isinstance(result.get("source"), dict)
+        and result["source"].get("expiry_adapter_sha256")
+        != BANKED_QUALIFYING_ADAPTER_SHA256
+    ):
+        errors.append("OpenAI expiry Result lacks the A151 liveness preflight")
     return errors
 
 
@@ -514,8 +548,8 @@ def static_errors() -> tuple[list[str], dict[str, Any]]:
             "expires_at = now_epoch - 5",
             'TOKEN_ENDPOINT = "https://auth.openai.com/oauth/token"',
             '"attempt_count": 1',
-            '"enforced": False',
-            '"basis": "no-observed-openai-expired-assertion-response"',
+            '"enforced": True',
+            '"basis": "observed-openai-expired-assertion-response"',
             'urllib.request.ProxyHandler({})',
             "BASE.ReservedOutput",
         ):
@@ -562,6 +596,7 @@ def main() -> int:
             errors.append(f"unknown checker argument: {argument}")
     if allow_missing and (mode != "default" or path != RESULT_PATH):
         errors.append("allow-missing-results cannot be combined with supplied input")
+    qualification = False
     if not path.exists():
         if not allow_missing:
             errors.append("OpenAI expiry Result is missing")
@@ -574,6 +609,9 @@ def main() -> int:
                 errors.extend(validate_qualification_evidence(result, policy))
             else:
                 errors.extend(validate_observation(result, policy))
+            qualification = (
+                isinstance(result, dict) and result.get("qualification_evidence") is True
+            )
     if errors:
         print("OpenAI WIF expiry check: failed", file=sys.stderr)
         for error in errors:
@@ -581,8 +619,10 @@ def main() -> int:
         return 1
     if mode == "contract-fixture":
         status = "synthetic contract Fixture; not qualification evidence"
+    elif path.exists() and qualification:
+        status = "qualification evidence"
     elif path.exists():
-        status = "with non-qualifying provider observation"
+        status = "non-qualifying provider observation"
     else:
         status = "static preflight"
     print(f"OpenAI WIF expiry check: pass ({status})")

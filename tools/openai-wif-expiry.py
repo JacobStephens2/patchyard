@@ -73,8 +73,10 @@ JWT_PATTERN = re.compile(
 OPENAI_KEY_PATTERN = re.compile(r"sk-[A-Za-z0-9_-]{16,}")
 PRIVATE_KEY_PATTERN = re.compile(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----")
 RESPONSE_PREDICATE = {
-    "enforced": False,
-    "basis": "no-observed-openai-expired-assertion-response",
+    "enforced": True,
+    "http_status": 401,
+    "access_token_supplied": False,
+    "basis": "observed-openai-expired-assertion-response",
 }
 CONTROL_PLANE_PROVENANCE = {
     "control_plane_mutation_claimed": False,
@@ -480,6 +482,9 @@ def expiry_observation(
         "response_predicate": RESPONSE_PREDICATE,
         "control_plane_provenance": CONTROL_PLANE_PROVENANCE,
         "provider_response_observed": True,
+        # A151 requires a fresh per-project liveness preflight in every future
+        # qualification Result. This v1 collector has no field for that
+        # observation, so later runs remain observation-only.
         "qualification_evidence": False,
         "source": source_binding(),
     })

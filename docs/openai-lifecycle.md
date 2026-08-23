@@ -160,12 +160,10 @@ isolated Python, exact keys, ordered UTC observations, current source digests,
 and the absence of credential-shaped values. A Fixture is accepted only in
 `--contract-fixture` mode and is refused as qualification Evidence.
 
-Under A125, every OpenAI response predicate in this change is unenforced. No
-expiry-denial or future revocation/rotation denial status, error type, error
-code, request-ID rule, or message shape has been observed. Each predicate
-carries a `basis` that says so. An attended run records the bounded response as
-OpenAI returned it; a later reviewed change may descend an enforced predicate
-from that observation.
+Under A125, every synthetic Fixture keeps an unenforced response predicate.
+The committed live expiry, revocation, and rotation Results now carry their
+separately reviewed predicates under A153, A149, and A147 respectively; none
+generalizes another Result's observation.
 
 ## Requirement 3: credential expiry denial
 
@@ -180,10 +178,14 @@ or private key.
 
 The sanitized observation records the assertion times, one-attempt request
 contract, bounded HTTP metadata, response field types, and whether an
-`access_token` field was supplied. It does not decide what OpenAI's response
-means. In particular, the checker accepts any bounded HTTP status in
-observation mode and rejects any attempt to set
-`response_predicate.enforced = true` before the first observation.
+`access_token` field was supplied. A153's reviewed predicate requires HTTP 401
+and no bearer. It deliberately does not pin `error_type`, request-id presence,
+`body_bytes`, content type, or the sanitized response shape.
+
+The predicate describes the wire denial only. The Result separately records
+that `exp` precedes mint and request, so the combined record says OpenAI denied
+this already-expired input. It does not say that expiry was the exclusive
+cause of the generic 401 or that another OpenAI 401 implies expiry.
 
 No control-plane mutation is made or causally claimed. A132 therefore requires
 no Attestation. The Result still carries the provenance mark with
@@ -258,6 +260,16 @@ operator-host path. Never copy the stage, request body, assertion, response
 body, bearer, process memory, or signing key. Preserve the observation for
 adjudication. A Requirement becomes Proven only after a conforming Result is
 committed and accepted; the attended command alone does not change status.
+
+**Status.** Proven by run `openai-expiry-20260812-ad967097a8` after A153
+completed the deferred predicate (HTTP 401 and no bearer). No new provider run
+was required. `--evidence` passes on the committed Result.
+
+This treatment is historical, not a forward exemption from A151. The v1
+collector records the reviewed predicate but leaves later observations
+non-qualifying because its Result shape cannot carry the required per-project
+service-account liveness preflight. A future qualifying run first needs an
+A151-capable Result shape.
 
 ## Requirement 6: A130 local non-recoverability
 

@@ -26,7 +26,7 @@ reseat models on their own.
 | `anthropic-wif-crash-cleanup.py` | Source-bound A130 supervisor, SIGKILL checkpoint, same-surface credential scanner, and sanitized result collector; never invalidates a provider bearer |
 | `anthropic-wif-lifecycle-admin.py` | Attended fail-closed rule disable/restore and inline-JWKS overlap/retire/rollback administration; mints its bearer from the `patchyard-admin` operator admin profile via `ant auth print-credentials` |
 | `openai-wif-issuance.py` | Source-bound attended adapter for one sanitized OpenAI token-exchange observation; never writes the assertion or bearer |
-| `openai-wif-expiry.py` | Source-bound attended adapter for one expired-assertion OpenAI exchange with an unenforced response predicate |
+| `openai-wif-expiry.py` | Source-bound attended adapter for one expired-assertion OpenAI exchange with the reviewed 401-and-no-bearer predicate; v1 output stays non-qualifying pending A151 liveness support |
 | `openai-wif-crash-cleanup.py` | Source-bound A130 supervisor, SIGKILL boundary, process-image/tmpfs scanner, and sanitized OpenAI Result collector |
 | `control-plane-attestation-v1.py` | Digest-loaded A132 Attestation envelope with bounded console readings and explicit A136 party disclosure |
 | `openai-wif-federation-revocation.py` | Attended requirement 4 collector; records the A146 model-operated shape (A148 route authorization or A146 comment, two Saves, five reloaded readings) and the A129 bracket |
@@ -35,7 +35,7 @@ reseat models on their own.
 | `check-anthropic-revocation.py` | Validate federation-revocation/key-rotation evidence; an unpinned denial is accepted as observation-only with exit 2 and a JSON qualification blocker |
 | `check-anthropic-crash-cleanup.py` | Validate A130 local non-recoverability, its non-vacuous positive control, inert abrupt-death record, and explicit provider-exposure boundary |
 | `check-openai-wif-issuance.py` | Validate the OpenAI policy, unenforced first-response predicate, non-qualifying observation, or synthetic contract fixture |
-| `check-openai-wif-expiry.py` | Validate the OpenAI expired-assertion contract, unenforced response predicate, non-qualifying observation, or synthetic Fixture |
+| `check-openai-wif-expiry.py` | Validate the reviewed OpenAI expired-assertion predicate, the A153 historical Result, a non-qualifying later observation, or synthetic Fixture |
 | `check-openai-wif-crash-cleanup.py` | Validate the OpenAI A130 process-image positive control, SIGKILL, inert abrupt-death record, and local exposure boundary |
 | `check-openai-wif-federation-revocation.py` | Validate the requirement-4 A146 record shape, A148 route authorization or A146 comment, settling floors, same-surface baseline/denial/bracketing controls, and the reviewed 401-and-no-bearer revocation predicate |
 | `check-openai-wif-signing-key-rotation.py` | Validate requirement 5 derived keys, Attestations, overlap control, settling floors, A129 bracket, and the reviewed 401-and-no-bearer retired-key predicate |

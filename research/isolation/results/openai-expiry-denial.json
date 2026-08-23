@@ -82,11 +82,13 @@
   "observation_kind": "expired-assertion-token-exchange",
   "provider": "openai",
   "provider_response_observed": true,
-  "qualification_evidence": false,
+  "qualification_evidence": true,
   "qualification_requirement": "credential-expiry-denial",
   "response_predicate": {
-    "basis": "no-observed-openai-expired-assertion-response",
-    "enforced": false
+    "access_token_supplied": false,
+    "basis": "observed-openai-expired-assertion-response",
+    "enforced": true,
+    "http_status": 401
   },
   "run_id": "openai-expiry-20260812-ad967097a8",
   "schema_version": 1,

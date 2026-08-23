@@ -39,7 +39,7 @@ EXPECTED_EXPIRY_ADAPTER_SHA256 = (
     "97e55b9a40f76327d3cb71eba0245bcaa79310de34b7e5703499f2a91ac81b49"
 )
 EXPECTED_CRASH_ADAPTER_SHA256 = (
-    "f3933d696e866973fd93d7eb336a4900064786e553c70fdb144c93ab45c46738"
+    "6214024e5788b53530273573415f2e9f679069ab6934b19250a269204de50655"
 )
 EXPECTED_EXPIRY_FIXTURE_SHA256 = (
     "d02e68c63f988da1e149f1f7139c6d1c6a534715ce72728278e2aa57a865bac4"
@@ -913,11 +913,48 @@ class OpenAIWifCrashCheckerContract(unittest.TestCase):
         self.assertEqual(refused.returncode, 1)
         self.assertIn("cannot be qualification evidence", refused.stderr)
 
-    def test_conforming_local_observation_is_accepted(self) -> None:
+    def test_observation_accepts_false_but_evidence_requires_true(self) -> None:
+        value = self.observed()
         result = self.run_checker(
-            "--observation", str(self.write(self.observed(), "observed.json"))
+            "--observation", str(self.write(value, "observed.json"))
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+        refused = self.run_checker(
+            "--evidence", str(self.write(value, "nonqualifying.json"))
+        )
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("is not qualification evidence", refused.stderr)
+
+        value["qualification_evidence"] = "true"
+        malformed = self.run_checker(
+            "--observation", str(self.write(value, "malformed-boolean.json"))
+        )
+        self.assertEqual(malformed.returncode, 1)
+        self.assertIn("is not boolean", malformed.stderr)
+
+    def test_evidence_mode_rejects_in_progress_and_failed_inputs(self) -> None:
+        for status, message in (
+            ("in_progress", "in-progress"),
+            ("failed", "failed"),
+        ):
+            with self.subTest(status=status):
+                value = {"status": status, "qualification_evidence": True}
+                result = self.run_checker(
+                    "--evidence", str(self.write(value, f"{status}.json"))
+                )
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(message, result.stderr)
+
+    def test_banked_result_is_qualification_evidence(self) -> None:
+        defaulted = self.run_checker()
+        self.assertEqual(defaulted.returncode, 0, defaulted.stderr)
+        self.assertIn("qualification evidence", defaulted.stdout)
+        evidenced = self.run_checker(
+            "--evidence",
+            str(ROOT / "research/isolation/results/openai-crash-cleanup.json"),
+        )
+        self.assertEqual(evidenced.returncode, 0, evidenced.stderr)
+        self.assertIn("qualification evidence", evidenced.stdout)
 
     def test_crash_collector_result_passes_its_checker(self) -> None:
         observed = self.observed()
@@ -934,51 +971,57 @@ class OpenAIWifCrashCheckerContract(unittest.TestCase):
             rejections=deepcopy(observed["checker_rejections"]),
         )
         checked = self.run_checker(
-            "--observation", str(self.write(result, "collector-result.json"))
+            "--evidence", str(self.write(result, "collector-result.json"))
         )
+        self.assertIs(result["qualification_evidence"], True)
         self.assertEqual(checked.returncode, 0, checked.stderr)
 
     def test_exact_keys_utc_and_credential_hygiene_fail_closed(self) -> None:
         extra = self.observed()
+        extra["qualification_evidence"] = True
         extra["unexpected"] = True
         result = self.run_checker(
-            "--observation", str(self.write(extra, "extra.json"))
+            "--evidence", str(self.write(extra, "extra.json"))
         )
         self.assertEqual(result.returncode, 1)
         self.assertIn("unexpected evidence shape", result.stderr)
 
         order = self.observed()
+        order["qualification_evidence"] = True
         order["post_kill_search"]["observed_at"] = (
             "2026-08-07T11:59:59Z"
         )
         result = self.run_checker(
-            "--observation", str(self.write(order, "order.json"))
+            "--evidence", str(self.write(order, "order.json"))
         )
         self.assertEqual(result.returncode, 1)
         self.assertIn("observations are out of order", result.stderr)
 
         credential = self.observed()
+        credential["qualification_evidence"] = True
         credential["checkpoint"]["exchange_response"]["request_id"] = (
             "eyJsynthetic.payload.signature"
         )
         result = self.run_checker(
-            "--observation", str(self.write(credential, "credential.json"))
+            "--evidence", str(self.write(credential, "credential.json"))
         )
         self.assertEqual(result.returncode, 1)
         self.assertIn("credential-shaped material", result.stderr)
 
     def test_sigterm_vacuous_search_and_premature_enforcement_are_rejected(self) -> None:
         sigterm = self.observed()
+        sigterm["qualification_evidence"] = True
         sigterm["kill"].update(
             {"signal_name": "SIGTERM", "signal_number": 15, "child_returncode": -15}
         )
         result = self.run_checker(
-            "--observation", str(self.write(sigterm, "sigterm.json"))
+            "--evidence", str(self.write(sigterm, "sigterm.json"))
         )
         self.assertEqual(result.returncode, 1)
         self.assertIn("not terminated by SIGKILL", result.stderr)
 
         vacuous = self.observed()
+        vacuous["qualification_evidence"] = True
         vacuous["positive_control"].update(
             {
                 "credential_material_found": False,
@@ -987,18 +1030,39 @@ class OpenAIWifCrashCheckerContract(unittest.TestCase):
             }
         )
         result = self.run_checker(
-            "--observation", str(self.write(vacuous, "vacuous.json"))
+            "--evidence", str(self.write(vacuous, "vacuous.json"))
         )
         self.assertEqual(result.returncode, 1)
         self.assertIn("positive control found no credential material", result.stderr)
 
         enforced = self.observed()
+        enforced["qualification_evidence"] = True
         enforced["response_predicate"]["enforced"] = True
         result = self.run_checker(
-            "--observation", str(self.write(enforced, "enforced.json"))
+            "--evidence", str(self.write(enforced, "enforced.json"))
         )
         self.assertEqual(result.returncode, 1)
         self.assertIn("predicate was enforced prematurely", result.stderr)
+
+    def test_evidence_mode_rechecks_instrument_record_and_exposure_boundary(self) -> None:
+        for field, nested, message in (
+            ("post_kill_search", "search_contract_sha256", "different instruments"),
+            ("in_progress_record", "unchanged", "terminal relabelling path"),
+            (
+                "provider_exposure_boundary",
+                "provider_side_invalidation_proven",
+                "conflates local cleanup",
+            ),
+        ):
+            with self.subTest(field=field):
+                value = self.observed()
+                value["qualification_evidence"] = True
+                value[field][nested] = False if nested == "unchanged" else True
+                result = self.run_checker(
+                    "--evidence", str(self.write(value, f"{field}.json"))
+                )
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(message, result.stderr)
 
     def test_checker_requires_isolated_python(self) -> None:
         result = self.run_checker("--allow-missing-results", isolated=False)

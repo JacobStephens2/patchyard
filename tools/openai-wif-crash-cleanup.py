@@ -1337,7 +1337,7 @@ def assemble_result(
         "control_plane_provenance": CONTROL_PLANE_PROVENANCE,
         "provenance_limitation": "A128-attended-record-not-provider-attestation",
         "provider_response_observed": True,
-        "qualification_evidence": False,
+        "qualification_evidence": True,
         "source": source_binding(),
     })
 

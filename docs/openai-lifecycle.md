@@ -445,7 +445,7 @@ sudo python3 -I tools/openai-wif-crash-cleanup.py collect \
   --post-kill-search "$POST_KILL" \
   --output "$RESULT"
 sudo python3 -I tools/check-openai-wif-crash-cleanup.py \
-  --observation "$RESULT"
+  --evidence "$RESULT"
 ```
 
 Copy only `RESULT` through the reviewed management path. Never copy the stage,
@@ -459,6 +459,14 @@ scan, checker rejection, or collection step fails, the observation cannot make
 the Requirement Proven. If the credential child remains present, send that
 exact PID `SIGKILL` before recovery. Do not retry the provider call. A new
 attempt requires a new run ID and new output paths.
+
+**Status.** Proven by run `openai-crash-20260812-e12437747f` after #288
+accepted its existing A130 Evidence. No new provider run was required. The
+committed Result and every later conforming collector Result carry
+`qualification_evidence: true`; default and `--evidence` checker modes accept
+them. `response_predicate.enforced` remains false: this proves local
+non-recoverability only, and the killed bearer may remain valid until natural
+expiry.
 
 ## Requirement 4: federation-rule revocation capture
 

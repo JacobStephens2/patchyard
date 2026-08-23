@@ -787,8 +787,8 @@ def validate_observation(result: Any) -> list[str]:
     if isinstance(result, dict):
         if result.get("provider_response_observed") is not True:
             errors.append("OpenAI crash observation does not record its exchange")
-        if result.get("qualification_evidence") is not False:
-            errors.append("OpenAI crash observation claims qualification")
+        if type(result.get("qualification_evidence")) is not bool:
+            errors.append("OpenAI crash qualification_evidence is not boolean")
     return errors
 
 
@@ -829,7 +829,8 @@ def validate_qualification_evidence(result: Any) -> list[str]:
     if isinstance(result, dict) and result.get("fixture_kind") is not None:
         return ["synthetic OpenAI crash-cleanup Fixture cannot be qualification evidence"]
     errors = validate_observation(result)
-    errors.append("OpenAI crash-cleanup Result remains non-qualifying pending adjudication")
+    if isinstance(result, dict) and result.get("qualification_evidence") is not True:
+        errors.append("OpenAI crash-cleanup Result is not qualification evidence")
     return errors
 
 
@@ -913,6 +914,7 @@ def main() -> int:
             errors.append(f"unknown checker argument: {argument}")
     if allow_missing and (mode != "default" or path != RESULT_PATH):
         errors.append("allow-missing-results cannot be combined with supplied input")
+    qualification = False
     if not path.exists():
         if not allow_missing:
             errors.append("OpenAI crash-cleanup Result is missing")
@@ -925,6 +927,10 @@ def main() -> int:
                 errors.extend(validate_qualification_evidence(result))
             else:
                 errors.extend(validate_observation(result))
+            qualification = (
+                isinstance(result, dict)
+                and result.get("qualification_evidence") is True
+            )
     if errors:
         print("OpenAI WIF crash-cleanup check: failed", file=sys.stderr)
         for error in errors:
@@ -932,6 +938,8 @@ def main() -> int:
         return 1
     if mode == "contract-fixture":
         status = "synthetic contract Fixture; not qualification evidence"
+    elif path.exists() and qualification:
+        status = "qualification evidence"
     elif path.exists():
         status = "with non-qualifying local observation"
     else:

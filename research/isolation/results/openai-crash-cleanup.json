@@ -285,7 +285,7 @@
     "stable_signing_identity_preserved": true
   },
   "provider_response_observed": true,
-  "qualification_evidence": false,
+  "qualification_evidence": true,
   "qualification_requirement": "crash-cleanup-local-non-recoverability",
   "response_predicate": {
     "basis": "no-observed-openai-crash-cleanup-exchange-response",

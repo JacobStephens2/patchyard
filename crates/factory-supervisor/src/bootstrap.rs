@@ -716,20 +716,20 @@ mod tests {
             .get_mut("triage")
             .expect("triage")
             .seat
-            .provider = "OpenAI".to_owned();
+            .provider = "xAI".to_owned();
         let error =
             require_qualified_seat(routing.resolve("triage").expect("triage"), &provider_egress)
-                .expect_err("OpenAI remains unqualified");
+                .expect_err("xAI remains unqualified");
         assert!(matches!(
             error,
             BootstrapError::LiveProviderForbidden {
                 ref provider,
                 reason: "credential_qualified is false in policy/provider-egress.json",
-            } if provider == "OpenAI"
+            } if provider == "xAI"
         ));
         assert_eq!(
             error.to_string(),
-            "live seat provider OpenAI is forbidden: credential_qualified is false in policy/provider-egress.json"
+            "live seat provider xAI is forbidden: credential_qualified is false in policy/provider-egress.json"
         );
     }
 }

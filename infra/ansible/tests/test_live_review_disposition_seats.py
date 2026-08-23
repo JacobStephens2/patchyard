@@ -330,7 +330,8 @@ class ProviderResolverContract(unittest.TestCase):
         module = load_module(RESOLVER, "patchyard_provider_resolver")
         hosts = module.qualified_hosts(PROVIDERS)
         self.assertIn("api.anthropic.com", hosts)
-        self.assertNotIn("api.openai.com", hosts)
+        self.assertIn("api.openai.com", hosts)
+        self.assertNotIn("api.x.ai", hosts)
         addresses = ("140.82.1.1",)
         resolved = module.resolve_stable(
             "api.anthropic.com",
@@ -341,7 +342,7 @@ class ProviderResolverContract(unittest.TestCase):
         self.assertEqual(resolved, addresses)
         with self.assertRaises(ValueError):
             module.resolve_stable(
-                "api.openai.com",
+                "api.x.ai",
                 allowed=hosts,
                 resolver=lambda host: addresses,
                 pause=lambda seconds: None,

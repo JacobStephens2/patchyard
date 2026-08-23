@@ -1,7 +1,7 @@
 {
   "$schema": "bench.schema.json",
-  "last_updated": "2026-08-12",
-  "update_note": "AA snapshot 2026-07-20 applies to all rows except Claude Opus 5 [max] and the Claude Fable 5 [max] cost, both re-read 2026-08-07. 2026-08-12: Claude Opus 5 [max] floor probe passed 3/3 (research/floors/2026-08-12-opus5-max-floor-probe.md); status flipped untested->pass.",
+  "last_updated": "2026-08-23",
+  "update_note": "AA snapshot 2026-07-20 applies to all rows except Claude Opus 5 [max] and the Claude Fable 5 [max] cost, both re-read 2026-08-07. 2026-08-12: Claude Opus 5 [max] floor probe passed 3/3 (research/floors/2026-08-12-opus5-max-floor-probe.md); status flipped untested->pass. 2026-08-23: OpenAI became Qualified after all six A131 Requirements became Proven.",
   "aa_index_version": "4.1",
   "pairs": [
     {
@@ -341,7 +341,7 @@
         "detail": ""
       },
       "provenance": "US",
-      "standing": "Implement bench #1 (no-ceiling order); **builder incumbent** (A78; coding-agents 61)",
+      "standing": "Implement bench #1 (no-ceiling order); **builder incumbent** (A78; coding-agents 61). **OpenAI is Qualified:** all six A131 Requirements are Proven.",
       "visible_tps": "",
       "long_spec_wall": "",
       "aa_intelligence": 58,
@@ -364,7 +364,7 @@
         "detail": ""
       },
       "provenance": "US",
-      "standing": "Long-spec speed-only treatment. The final document passed, but max reasoning delayed first visible text by 81.348 s ([record](../research/long-spec-speed/2026-07-18-gpt-5p6-luna-max-speed.md)).",
+      "standing": "Long-spec speed-only treatment. The final document passed, but max reasoning delayed first visible text by 81.348 s ([record](../research/long-spec-speed/2026-07-18-gpt-5p6-luna-max-speed.md)). **OpenAI is Qualified:** all six A131 Requirements are Proven.",
       "visible_tps": "166.2 after 81.348 s delay",
       "long_spec_wall": "~115 s",
       "aa_intelligence": 51,

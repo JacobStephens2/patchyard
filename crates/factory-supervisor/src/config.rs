@@ -353,7 +353,7 @@ mod tests {
     }
 
     #[test]
-    fn canonical_provider_policy_has_one_qualified_serving_host() {
+    fn canonical_provider_policy_qualifies_anthropic_and_openai() {
         let config = ProviderEgressConfig::load(Path::new("../../policy/provider-egress.json"))
             .expect("canonical provider policy");
         assert!(
@@ -363,9 +363,15 @@ mod tests {
                 .credential_qualified
         );
         assert!(
-            !config
+            config
                 .by_display_name("OpenAI")
                 .expect("OpenAI")
+                .credential_qualified
+        );
+        assert!(
+            !config
+                .by_display_name("xAI")
+                .expect("xAI")
                 .credential_qualified
         );
         assert!(config.by_display_name("missing-provider").is_none());

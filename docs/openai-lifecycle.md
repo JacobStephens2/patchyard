@@ -88,25 +88,13 @@ any future provider that is console-only.
 
 ## Status and scope
 
-OpenAI requirement 1, issuance and delivery, is Proven by the committed Result
-from the attended 2026-08-12 exchange. This change does not run a provider
-call, does not create a Result, and does not make any other Requirement Proven.
-OpenAI is not Qualified, and all 13 `credential_qualified` values remain
-`false`.
-
-This change builds the attended control-plane paths for:
-
-- requirement 3, credential expiry denial; and
-- requirement 6, A130 crash-cleanup local non-recoverability.
-
-It defines the capture procedures, but performs no run and no control-plane
-mutation, for:
-
-- requirement 4, federation-rule revocation; and
-- requirement 5, signing-key rotation.
-
-Requirement 2 remains separate. It needs a billable API call through the
-provider-neutral execution plane and stays deferred behind this work.
+All six OpenAI Requirements are Proven by committed Results that pass their
+canonical checkers. The A131 aggregate maps requirements 1 through 6 to six
+Results because OpenAI records federation-rule revocation and signing-key
+rotation separately. OpenAI is Qualified: `openai.credential_qualified` is
+`true`, as is Anthropic's; the other eleven provider values remain `false`.
+The qualification flip makes no provider call, creates no Result, and performs
+no control-plane mutation.
 
 ## Execution-plane measurement
 
@@ -779,8 +767,8 @@ operator-host path. Never copy the stage, request body, assertion, response
 body, bearer, process memory, or signing key.
 
 **Status.** Proven by run `openai-revocation-20260819-6bd96462ce` after A149
-completed the deferred predicate (HTTP 401 and no bearer). OpenAI remains not
-Qualified.
+completed the deferred predicate (HTTP 401 and no bearer). This Requirement's
+status is part of the Qualified provider status summarized above.
 
 `--evidence` mode now passes on the committed Result: A149 completed the
 deferred predicate and flipped `qualification_evidence` to true. A later
@@ -793,8 +781,8 @@ support it.
 ## Requirement 5: signing-key rotation capture
 
 **Status.** Proven by run `openai-rotation-20260813-c488000f8f` after A147
-completed the deferred predicate (HTTP 401 and no bearer). OpenAI remains not
-Qualified.
+completed the deferred predicate (HTTP 401 and no bearer). This Requirement's
+status is part of the Qualified provider status summarized above.
 
 ### Non-recoverable precondition
 
@@ -1051,12 +1039,12 @@ deferred predicate as HTTP 401 with no bearer, and flipped
 `qualification_evidence` to true. Requirement 5 is Proven. A later conforming
 run is born with the same enforced predicate.
 
-## What remains unchanged
+## What the Requirement-5 implementation left unchanged
 
 - Requirement 2 is not implemented here.
 - No control-plane mutation or provider call occurred while building this path.
 - No frozen source or committed Result is modified.
-- No `credential_qualified` value changes.
+- No `credential_qualified` value changed in that implementation.
 - Neither synthetic Fixture is a Result or qualification Evidence.
-- No Requirement becomes Proven from this change alone, and OpenAI remains not
-  Qualified.
+- No Requirement became Proven from that implementation alone; the later
+  accepted Results and policy flip establish the current status above.

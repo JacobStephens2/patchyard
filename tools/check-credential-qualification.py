@@ -57,12 +57,14 @@ class ResultBinding:
     requirements: tuple[int, ...]
     result: str
     checker: str
-    qualification_requirement: str
+    qualification_requirement: str | None
+    evidence_mode: bool = False
 
 
-# A131 has six Requirements but five Results because Requirements 4 and 5 share
-# the revocation-and-rotation Result. Subprocess replay deliberately delegates
-# evidence semantics to each Result's checker instead of reproducing them here.
+# A131 has six Requirements. Anthropic carries Requirements 4 and 5 in one
+# Result; OpenAI carries them in separate Results. Subprocess replay deliberately
+# delegates evidence semantics to each Result's checker instead of reproducing
+# them here.
 PROVIDER_RESULTS = {
     "anthropic": (
         ResultBinding(
@@ -94,6 +96,50 @@ PROVIDER_RESULTS = {
             "research/isolation/results/anthropic-crash-cleanup.json",
             "tools/check-anthropic-crash-cleanup.py",
             "crash-cleanup-local-non-recoverability",
+        ),
+    ),
+    "openai": (
+        # A136 and A151 accept the frozen issuance Result without relabelling
+        # its deliberately non-qualifying historical fields.
+        ResultBinding(
+            (1,),
+            "research/isolation/results/openai-first-token-exchange.json",
+            "tools/check-openai-wif-issuance.py",
+            None,
+        ),
+        ResultBinding(
+            (2,),
+            "research/isolation/results/openai-spend-enforcement.json",
+            "tools/check-openai-spend.py",
+            "provider-spend-enforcement",
+        ),
+        ResultBinding(
+            (3,),
+            "research/isolation/results/openai-expiry-denial.json",
+            "tools/check-openai-wif-expiry.py",
+            "credential-expiry-denial",
+            True,
+        ),
+        ResultBinding(
+            (4,),
+            "research/isolation/results/openai-federation-revocation.json",
+            "tools/check-openai-wif-federation-revocation.py",
+            "federation-rule-revocation",
+            True,
+        ),
+        ResultBinding(
+            (5,),
+            "research/isolation/results/openai-signing-key-rotation.json",
+            "tools/check-openai-wif-signing-key-rotation.py",
+            "signing-key-rotation",
+            True,
+        ),
+        ResultBinding(
+            (6,),
+            "research/isolation/results/openai-crash-cleanup.json",
+            "tools/check-openai-wif-crash-cleanup.py",
+            "crash-cleanup-local-non-recoverability",
+            True,
         ),
     ),
 }
@@ -187,9 +233,10 @@ def validate_binding(provider: str, binding: ResultBinding) -> list[str]:
     if not checker.is_file() or checker.is_symlink():
         errors.append(f"{provider}: checker is unavailable: {binding.checker}")
         return errors
+    checker_args = ["--evidence", binding.result] if binding.evidence_mode else []
     try:
         completed = subprocess.run(
-            ["python3", "-I", str(checker)],
+            ["python3", "-I", str(checker), *checker_args],
             cwd=REPO,
             check=False,
             capture_output=True,
@@ -217,15 +264,17 @@ def validate_provider(provider: str) -> tuple[list[str], list[str]]:
         return [f"{provider}: Result mapping does not cover Requirements 1 through 6"], []
 
     errors: list[str] = []
-    details: list[str] = []
+    result_details: list[str] = []
     for binding in bindings:
         errors.extend(validate_binding(provider, binding))
         names = ", ".join(
             f"{number} ({REQUIREMENT_NAMES[number]})"
             for number in binding.requirements
         )
-        details.append(f"Requirements {names}: {binding.result} via {binding.checker}")
-    return errors, details
+        result_details.append(
+            f"Requirements {names}: {binding.result} via {binding.checker}"
+        )
+    return errors, result_details
 
 
 def parse_args() -> argparse.Namespace:
@@ -259,9 +308,9 @@ def main() -> int:
                 errors.append(f"{provider}: credential_qualified is not boolean")
                 continue
             if entry["credential_qualified"]:
-                provider_errors, details = validate_provider(provider)
+                provider_errors, result_details = validate_provider(provider)
                 errors.extend(provider_errors)
-                qualified_details[provider] = details
+                qualified_details[provider] = result_details
 
     if errors:
         print("Credential qualification check: failed", file=sys.stderr)
@@ -269,11 +318,15 @@ def main() -> int:
             print(f"  {error}", file=sys.stderr)
         return 1
     print("Credential qualification check: pass")
-    for provider, details in qualified_details.items():
-        print(
-            f"  {provider}: qualified; six Requirements proven by five committed Results"
+    for provider, result_details in qualified_details.items():
+        result_count = {5: "five", 6: "six"}.get(
+            len(result_details), str(len(result_details))
         )
-        for detail in details:
+        print(
+            f"  {provider}: qualified; six Requirements proven by "
+            f"{result_count} committed Results"
+        )
+        for detail in result_details:
             print(f"    {detail}")
     return 0
 

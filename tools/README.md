@@ -15,7 +15,7 @@ reseat models on their own.
 | `check-state-restart.sh` | Restart PostgreSQL at the declared post-commit boundary and prove retry idempotence |
 | `check-constitution.sh` | Verify the reviewed `AGENTS.md` digest |
 | `check-freeze-graph.py` | Report the stable result-rooted frozen set and fail on digest drift |
-| `check-credential-qualification.py` | Enforce A113's per-provider conditional by mapping six Requirements to five committed Results and re-running their checkers |
+| `check-credential-qualification.py` | Enforce A113's per-provider conditional by mapping six Requirements to each provider's five or six committed Results and re-running their checkers |
 | `check-openai-identity-liveness.py` | Validate the A150 registry statically and serve as the source for the Ansible-installed daily control-plane liveness assertion |
 | `install-rustup.sh` | Install checksum-pinned rustup and resolve `rust-toolchain.toml` |
 | `install-rust-tools.sh` | Install checksum-pinned cargo-audit, cargo-deny, cargo-vet, and cargo-machete binaries |

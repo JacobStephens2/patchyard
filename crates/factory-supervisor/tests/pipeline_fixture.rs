@@ -684,7 +684,7 @@ async fn alphabetize_dry_run_asserts_lane_targets_patch_barrier_and_stop_boundar
     );
     assert_eq!(
         snapshot.run.provenance.routing_config_version,
-        "2026-08-12.1"
+        "2026-08-23.1"
     );
     for digest in [
         &snapshot.run.provenance.model_id_hash,

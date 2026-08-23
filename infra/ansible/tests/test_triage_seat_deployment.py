@@ -274,12 +274,6 @@ class TriageSeatDeployment(unittest.TestCase):
                 entry["credential_qualified"],
                 f"live execution is on but {triage_provider} is not qualified",
             )
-        qualified = [
-            provider["display_name"]
-            for provider in self.providers["providers"].values()
-            if provider["credential_qualified"]
-        ]
-        self.assertEqual(qualified, ["Anthropic"])
         self.assertIn('routing.resolve("triage")', self.bootstrap)
         self.assertIn("credential_qualified is false in policy/provider-egress.json", self.bootstrap)
         self.assertNotIn('commands.insert(\n        "implement"', self.bootstrap)
@@ -313,7 +307,7 @@ class WorkerQualificationInvariant(unittest.TestCase):
         self.assertNotIn("[.providers[].credential_qualified]", source)
 
     def test_worker_shape_assertion_accepts_a_qualified_provider(self) -> None:
-        """The live policy has one qualified provider and must still qualify."""
+        """The live policy has qualified providers and must still qualify."""
         policy = json.loads(self.POLICY.read_text())
         qualified = [
             name

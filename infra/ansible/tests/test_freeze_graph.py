@@ -507,6 +507,10 @@ class CredentialQualificationContract(unittest.TestCase):
         self.assertIn(
             "six Requirements proven by five committed Results", result.stdout
         )
+        self.assertIn(
+            "openai: qualified; six Requirements proven by six committed Results",
+            result.stdout,
+        )
 
     def test_qualified_provider_without_six_is_rejected(self) -> None:
         result = self.run_checker(
@@ -514,7 +518,7 @@ class CredentialQualificationContract(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn(
-            "openai: no complete A131 Result mapping is committed", result.stderr
+            "xai: no complete A131 Result mapping is committed", result.stderr
         )
 
 

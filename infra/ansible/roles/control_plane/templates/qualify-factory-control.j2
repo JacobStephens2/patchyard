@@ -13,7 +13,7 @@ cleanup() {
     rm -f -- "$SEAT_MINT_PROBE_MARKER"
   fi
   if [[ -n "$SEAT_MINT_PROBE_STAGE" ]]; then
-    rm -f -- "$SEAT_MINT_PROBE_STAGE/bearer"
+    rm -f -- "$SEAT_MINT_PROBE_STAGE/bearer" "$SEAT_MINT_PROBE_STAGE/metadata.json"
     rmdir -- "$SEAT_MINT_PROBE_STAGE" 2>/dev/null || true
   fi
   rm -r -- "$QUALIFICATION_TEMP"
@@ -124,6 +124,8 @@ test -x /usr/local/libexec/patchyard-review-seat
 test -x /usr/local/libexec/patchyard-provider-resolver
 test -x /usr/local/libexec/patchyard-request-seat-bearer
 test -x /usr/local/sbin/patchyard-mint-seat-bearer
+test -x /usr/local/libexec/patchyard-request-openai-seat-bearer
+test -x /usr/local/sbin/patchyard-mint-openai-seat-bearer
 test ! -e /etc/sudoers.d/patchyard-seat-mint
 grep -Fxq -- '{{ hostvars[groups['worker'][0]].private_ip }}' \
   /etc/patchyard/anthropic-worker-ip
@@ -222,6 +224,7 @@ systemctl show factory-supervisor.service --property=ReadWritePaths --value \
 systemctl show factory-supervisor.service --property=ReadWritePaths --value \
   | grep -Fq /run/patchyard-seats
 systemd-analyze verify /etc/systemd/system/patchyard-seat-mint@.service
+systemd-analyze verify /etc/systemd/system/patchyard-openai-seat-mint@.service
 test "$(systemctl show \
   patchyard-seat-mint@agent-00000000-0000-4000-8000-000000000000.service \
   --property=User --value)" = root
@@ -239,6 +242,8 @@ grep -Fxq 'CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE' \
 grep -Fq 'subject.user == "factory-manager"' \
   /etc/polkit-1/rules.d/50-patchyard-seat-mint.rules
 grep -Fq '/^patchyard-seat-mint@agent-' \
+  /etc/polkit-1/rules.d/50-patchyard-seat-mint.rules
+grep -Fq '/^patchyard-openai-seat-mint@agent-' \
   /etc/polkit-1/rules.d/50-patchyard-seat-mint.rules
 grep -Fq 'action.lookup("verb") == "start"' \
   /etc/polkit-1/rules.d/50-patchyard-seat-mint.rules
@@ -261,6 +266,22 @@ test "$(stat -c '%U:%G:%a' "$SEAT_MINT_PROBE_STAGE/bearer")" = \
 test "$(<"$SEAT_MINT_PROBE_STAGE/bearer")" = \
   patchyard-providerless-seat-mint-probe
 rm -f -- "$SEAT_MINT_PROBE_STAGE/bearer"
+install -o root -g root -m 0400 /dev/null "$SEAT_MINT_PROBE_MARKER"
+/usr/sbin/runuser --user factory-manager --group factory -- \
+  /usr/bin/setpriv --no-new-privs -- \
+  /usr/local/libexec/patchyard-request-openai-seat-bearer "$SEAT_MINT_PROBE_STAGE/bearer"
+test ! -e "$SEAT_MINT_PROBE_MARKER"
+test "$(stat -c '%U:%G:%a' "$SEAT_MINT_PROBE_STAGE/bearer")" = \
+  factory-manager:factory:600
+test "$(<"$SEAT_MINT_PROBE_STAGE/bearer")" = \
+  patchyard-providerless-seat-mint-probe
+test "$(stat -c '%U:%G:%a' "$SEAT_MINT_PROBE_STAGE/metadata.json")" = \
+  factory-manager:factory:600
+jq -e '.schema_version == 1 and .expires_in == 285
+  and (.service_account_id | test("^[A-Za-z0-9_-]{8,128}$"))
+  and (.workspace_id | test("^[A-Za-z0-9_-]{8,128}$"))' \
+  "$SEAT_MINT_PROBE_STAGE/metadata.json" >/dev/null
+rm -f -- "$SEAT_MINT_PROBE_STAGE/bearer" "$SEAT_MINT_PROBE_STAGE/metadata.json"
 ! /usr/sbin/runuser --user factory-manager --group factory -- \
   /usr/bin/setpriv --no-new-privs -- \
   /usr/local/libexec/patchyard-request-seat-bearer \

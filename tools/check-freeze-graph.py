@@ -58,6 +58,7 @@ NEUTRAL_ARTIFACTS = (
     "worker/image/patchyard-guest-dispatch",
     "worker/image/patchyard-guest-qualify",
     "worker/runtime/patchyard-provider-run",
+    "worker/runtime/patchyard-implement-run",
 )
 EGRESS_POLICY = "policy/provider-egress.json"
 NEUTRAL_TOKEN_MINIMUM_LENGTH = 3

@@ -39,3 +39,4 @@
   roles:
     - role: worker
     - role: neutral_launcher
+    - role: implement_seat

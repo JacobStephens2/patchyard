@@ -780,6 +780,9 @@
     - source: patchyard-mint-seat-bearer
       destination: /usr/local/sbin/patchyard-mint-seat-bearer
       mode: "0750"
+    - source: patchyard-mint-openai-seat-bearer
+      destination: /usr/local/sbin/patchyard-mint-openai-seat-bearer
+      mode: "0750"
   when: not (factory_restore_drill | default(false) | bool)
   notify: Restart factory supervisor
 
@@ -798,6 +801,16 @@
   when: not (factory_restore_drill | default(false) | bool)
   notify: Restart factory supervisor
 
+- name: Install the hardened supervisor OpenAI seat-mint requester
+  ansible.builtin.copy:
+    src: patchyard-request-openai-seat-bearer
+    dest: /usr/local/libexec/patchyard-request-openai-seat-bearer
+    owner: root
+    group: factory
+    mode: "0750"
+  when: not (factory_restore_drill | default(false) | bool)
+  notify: Restart factory supervisor
+
 - name: Remove the superseded seat-mint sudo grant
   ansible.builtin.file:
     path: /etc/sudoers.d/patchyard-seat-mint
@@ -807,6 +820,18 @@
   ansible.builtin.copy:
     src: patchyard-seat-mint@.service
     dest: /etc/systemd/system/patchyard-seat-mint@.service
+    owner: root
+    group: root
+    mode: "0644"
+  when: not (factory_restore_drill | default(false) | bool)
+  notify:
+    - Reload systemd
+    - Restart factory supervisor
+
+- name: Install the root-only OpenAI seat-mint systemd template
+  ansible.builtin.copy:
+    src: patchyard-openai-seat-mint@.service
+    dest: /etc/systemd/system/patchyard-openai-seat-mint@.service
     owner: root
     group: root
     mode: "0644"
@@ -877,14 +902,17 @@
     - /etc/polkit-1/rules.d/50-patchyard-seat-mint.rules
     - /etc/sudoers.d/patchyard-seat-mint
     - /etc/systemd/system/patchyard-seat-mint@.service
+    - /etc/systemd/system/patchyard-openai-seat-mint@.service
     - /run/patchyard-seat-mint-probes
     - /run/patchyard-seats
     - /usr/local/libexec/patchyard-request-seat-bearer
+    - /usr/local/libexec/patchyard-request-openai-seat-bearer
     - /usr/local/libexec/patchyard-triage-seat
     - /usr/local/libexec/patchyard-disposition-seat
     - /usr/local/libexec/patchyard-review-seat
     - /usr/local/libexec/patchyard-provider-resolver
     - /usr/local/sbin/patchyard-mint-seat-bearer
+    - /usr/local/sbin/patchyard-mint-openai-seat-bearer
     - /usr/local/sbin/patchyard-run-anthropic-issuance
   when: factory_restore_drill | default(false) | bool
   notify:

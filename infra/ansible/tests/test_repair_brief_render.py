@@ -2,9 +2,12 @@
 
 `request.md` is the only channel an isolated worker reads, so these bytes are
 the whole of what a repair attempt is told. They are rendered by
-`patchyard-render-request`, which this gate executes; the transport template
-calls that script rather than composing the brief itself, which is asserted
-here too so the render cannot quietly move back inside the heredoc.
+`patchyard-render-request`, which this gate executes.
+
+On this branch the live seat sends request.md as a JSON envelope built inline
+in the transport, so this render is not on the live path and the assertions
+about the transport's shape are gone. #314 owns the consequence: either this
+render builds the envelope, or it and this gate go.
 """
 
 from __future__ import annotations
@@ -218,24 +221,13 @@ class RepairBriefRenderIsTheOnlyRender(unittest.TestCase):
         cls.tasks = TASKS.read_text()
         cls.qualify = QUALIFY.read_text()
 
-    def test_the_transport_delegates_the_brief_rather_than_composing_it(self) -> None:
-        self.assertIn(
-            '/usr/local/sbin/patchyard-render-request --task "$TASK"'
-            ' --output "$RUN_TEMP/request.md"',
-            self.transport,
-        )
-        self.assertNotIn("VERIFIER_REJECTION_JSON", self.transport)
-        self.assertNotIn("Alphabetize", self.transport)
-
-    def test_the_brief_is_hashed_after_it_is_final(self) -> None:
-        """`run.json`'s `request_sha256` is over the bytes the worker receives."""
-        self.assertEqual(self.transport.count("patchyard-render-request"), 2)
-        self.assertEqual(self.transport.count('"$RUN_TEMP/request.md"'), 3)
-        rendered = self.transport.index("/usr/local/sbin/patchyard-render-request")
-        hashed = self.transport.index("REQUEST_SHA256=$(sha256sum")
-        shipped = self.transport.index('scp "${SSH_ARGS[@]}" "$RUN_TEMP/run.json"')
-        self.assertLess(rendered, hashed)
-        self.assertLess(hashed, shipped)
+    # The two assertions that stood here - that the transport delegates the
+    # brief rather than composing it, and that it hashes after the render
+    # returns - were removed when master merged into this branch on
+    # 2026-08-24. This seat builds request.md as a JSON envelope inline, so the
+    # render below is no longer on the live path and those assertions could
+    # only be red. #314 owns closing that: the live envelope's bytes are once
+    # again produced by something no test executes.
 
     def test_the_renderer_is_deployed_and_qualified(self) -> None:
         self.assertIn("src: patchyard-render-request", self.tasks)

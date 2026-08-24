@@ -493,3 +493,80 @@ raised to make room for a qualification (A107/A108).
 Use `Full stop` before uncertain external side effects or when multiple active
 runs cannot be individually assessed. Recovery from full stop is a deliberate
 dashboard `Resume`, after the external facts and ledger have been reconciled.
+
+## Ansible converge and a foreground run
+
+`infra/ansible/converge.sh` refuses before doing anything unless both input
+paths are exported. Export them in the same shell as the run:
+
+```bash
+export GH_PATCHYARD_APP_PRIVATE_KEY_FILE=/var/lib/conductor/.config/patchyard-converge/github-app-private-key.pem
+export FACTORY_DASHBOARD_ACCOUNTS_FILE=/var/lib/conductor/.config/patchyard-converge/dashboard-accounts.json
+infra/ansible/converge.sh --check-inputs   # prints converge_inputs_valid
+infra/ansible/converge.sh
+infra/ansible/qualify.sh
+```
+
+Two ordering constraints that are not obvious and each cost a failed run:
+
+**The supervisor must be running when you converge.** The control-plane play
+ends with `qualify-factory-session13`, whose first assertion is
+`systemctl is-active --quiet factory-supervisor`; `is-active` exits 3 on an
+inactive unit. Converging with the unit stopped therefore always fails that
+task, and because it aborts the control-plane play the worker play never runs -
+so no image is rebuilt and `PLAY RECAP` shows the worker at `changed=0`.
+
+The same qualifier can fail even with the unit enabled: several tasks notify
+`Restart factory supervisor`, and the qualification runs about a second after
+the last restart with no settle wait. Rapid restart cycling can hit systemd's
+start rate limit and leave a multi-second window where the unit is between
+stopped and started. If the qualifier fails on a converge that otherwise
+reports no other failure, check the unit's state and re-run before treating it
+as a real regression.
+
+**The supervisor must be stopped when you run a request in the foreground**, so
+the resident daemon cannot claim the row first. `factoryctl pause` does not
+substitute: `claim()` rejects a paused claim unless the caller is the Session 14
+qualification holder, so a plain `factoryctl run` under a pause fails with
+`ClaimingPaused`. Stop the unit instead, and start it again afterwards.
+
+Wrap a converge so its exit status survives. A wrapper whose last command is a
+`tail` of the log reports the tail's status, not the playbook's, and an
+`ansible` `failed=1` then reads as success.
+
+### Foreground run identity
+
+`factoryctl run` must execute with the supervisor unit's exact identity.
+`runuser -u factory-manager` is not sufficient: it uses that account's default
+group (`factory-manager`, gid 985) while the unit runs `Group=factory` (gid
+986). `patchyard-request-seat-bearer` asserts its tmpfs stage is
+`factory-manager:factory:700`, so a wrong-group stage fails that assertion and
+the run dies as `Stage(CredentialExit { provider: ..., code: 1 })` before
+`systemctl start` is ever called - which is why no seat-mint or Polkit entry
+appears in the journal.
+
+```bash
+sudo systemctl stop factory-supervisor
+sudo systemd-run \
+  --uid=factory-manager --gid=factory \
+  --property="SupplementaryGroups=factory-manager systemd-journal" \
+  --property="EnvironmentFile=/etc/patchyard/supervisor.env" \
+  --setenv=DATABASE_URL="postgresql:///patchyard?host=/run/patchyard-postgres&user=patchyard_supervisor&sslmode=disable" \
+  --unit=factory-foreground-run --collect --wait --pipe --quiet \
+  /usr/local/bin/factoryctl run "$REQUEST_ID" </dev/null
+sudo systemctl start factory-supervisor
+```
+
+`DATABASE_URL` is set on the unit, not in `supervisor.env`, so it has to be
+supplied separately. A request left at `claimed` with no active lease is still
+claimable: `claim()` accepts `status IN ('queued','claimed')`.
+
+### Reading a failed stage
+
+A failing seat's own stderr is not preserved. Stage transcripts are written on
+success, so a stage that exits non-zero leaves no artifact, and `factoryctl`
+surfaces only `Stage(Exit { stage, code })`. The same gap exists in the guest:
+`patchyard-guest-implement` writes `login.stdout`/`login.stderr` into
+`$PROVIDER_TEMP` and its cleanup trap removes that directory unread, so a
+failed provider login reports only `implement-codex-auth-failed`. Budget for
+re-running with the failure reproduced by hand rather than expecting a log.

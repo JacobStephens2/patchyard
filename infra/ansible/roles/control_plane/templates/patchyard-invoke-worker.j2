@@ -33,12 +33,41 @@ for path in "$BUNDLE" "$TASK" "$SNAPSHOT" "$OUTPUT"; do [[ "$path" == /* ]] || u
 [[ -d "$SNAPSHOT" && -f "$SNAPSHOT/snapshot.sql.gz" && -f "$SNAPSHOT/snapshot.json" ]]
 [[ ! -e "$OUTPUT" ]]
 [[ "$(sha256sum "$BUNDLE" | cut -d' ' -f1)" == "$BUNDLE_SHA256" ]]
+: "${PATCHYARD_MODEL:?}" "${PATCHYARD_EFFORT:?}" \
+  "${PATCHYARD_HARNESS:?}" "${PATCHYARD_PROVIDER:?}"
+[[ "$PATCHYARD_HARNESS" == "Codex" ]]
+[[ "$PATCHYARD_PROVIDER" == "OpenAI" ]]
+[[ "$PATCHYARD_MODEL" =~ ^[A-Za-z0-9][A-Za-z0-9._\ -]{0,127}$ ]]
+[[ "$PATCHYARD_EFFORT" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]]
+TASK_CLASS=$([[ "${RUN_ID##*-a}" == 0 ]] && echo implement || echo repair)
+ROUTING_POLICY=/opt/patchyard/policy/routing.json
+ROUTING_VERSION=$(jq -r .version "$ROUTING_POLICY")
+MODEL_SLUG=$(tr '[:upper:] ' '[:lower:]-' <<<"$PATCHYARD_MODEL")
+HARNESS_SLUG=$(tr '[:upper:] ' '[:lower:]-' <<<"$PATCHYARD_HARNESS")
+PROVIDER_SLUG=$(tr '[:upper:] ' '[:lower:]-' <<<"$PATCHYARD_PROVIDER")
+[[ "$MODEL_SLUG" =~ ^[a-z0-9][a-z0-9.-]{0,127}$ ]]
+[[ "$HARNESS_SLUG" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]]
+[[ "$PROVIDER_SLUG" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]]
+jq -e --arg task_class "$TASK_CLASS" --arg version "$ROUTING_VERSION" \
+  --arg model "$PATCHYARD_MODEL" --arg effort "$PATCHYARD_EFFORT" \
+  --arg harness "$PATCHYARD_HARNESS" --arg provider "$PATCHYARD_PROVIDER" '
+  .schema_version == 1 and .version == $version
+  and .rules[$task_class].seat
+    == {model:$model,effort:$effort,harness:$harness,provider:$provider}
+' "$ROUTING_POLICY" >/dev/null
 jq -e --arg run_id "${RUN_ID%-a*}" --argjson attempt "${RUN_ID##*-a}" \
-  '.schema_version == 1 and (.run_id | gsub("-"; "")) == $run_id
-    and .attempt == $attempt and .dry_run == true
-    and .task_spec.named_skill == "ui.sort-dropdown"
-    and .task_spec.allowed_paths == ["mfieldbook/common_functions.php", "mfieldbook/leads/assign.php"]' \
-  "$TASK" >/dev/null
+  --arg task_class "$TASK_CLASS" --arg routing_version "$ROUTING_VERSION" \
+  --arg model "$PATCHYARD_MODEL" --arg effort "$PATCHYARD_EFFORT" \
+  --arg harness "$PATCHYARD_HARNESS" --arg provider "$PATCHYARD_PROVIDER" '
+  .schema_version == 1 and (.run_id | gsub("-"; "")) == $run_id
+  and .attempt == $attempt and (.dry_run | type == "boolean")
+  and .invocation.task_class == $task_class
+  and .invocation.routing_version == $routing_version
+  and .invocation.seat == {model:$model,effort:$effort,harness:$harness,provider:$provider}
+  and (.task_spec.objective | type == "string" and length >= 1)
+  and (.task_spec.acceptance_tests | type == "array" and length >= 1)
+  and ((.task_spec.allowed_paths | length) + (.task_spec.allowed_globs | length) >= 1)
+  and (.task_spec.guide | type == "object")' "$TASK" >/dev/null
 
 WORKER_IP={{ hostvars[groups['worker'][0]].private_ip }}
 SSH_ARGS=(
@@ -49,40 +78,104 @@ SSH_ARGS=(
 )
 REMOTE_ROOT="/var/tmp/patchyard-incoming/$RUN_ID"
 RUN_TEMP=$(mktemp -d /var/tmp/patchyard-supervisor-worker.XXXXXX)
-cleanup_local() { rm -r -- "$RUN_TEMP"; }
+SEAT_STAGE=
+cleanup_local() {
+  rm -r -- "$RUN_TEMP"
+  if [[ -n "$SEAT_STAGE" && "$SEAT_STAGE" == /run/patchyard-seats/agent-* ]]; then
+    rm -rf -- "$SEAT_STAGE"
+  fi
+}
 trap cleanup_local EXIT
 remote_ssh() { ssh "${SSH_ARGS[@]}" {{ factory_manager_user }}@"$WORKER_IP" "$@"; }
 
 gzip -n -9 <"$BUNDLE" >"$RUN_TEMP/source.tar.gz"
 SOURCE_SHA256=$(sha256sum "$RUN_TEMP/source.tar.gz" | cut -d' ' -f1)
-# request.md is the one channel an isolated worker reads, and for a repair
-# attempt it carries the verifier's rejection as labeled data. The render is
-# its own executable so a gate can run it; this template cannot be run as it
-# stands. See roles/control_plane/files/patchyard-render-request.
-/usr/local/sbin/patchyard-render-request --task "$TASK" --output "$RUN_TEMP/request.md"
+# request.md is the one channel an isolated worker reads. This seat sends it
+# as a JSON envelope, so the verifier's rejection reaches a repair attempt
+# inside .task rather than through #302's markdown brief; how it is framed as
+# untrusted data there is #314's.
+SKILL=$(jq -r '.task_spec.named_skill // empty' "$TASK")
+GUIDE_CONTENT=
+if [[ -n "$SKILL" ]]; then
+  [[ "$SKILL" =~ ^[a-z0-9][a-z0-9.-]{0,127}$ ]]
+  GUIDE_NAME=${SKILL//./-}
+  GUIDE_PATH="/opt/patchyard/policy/skills/$GUIDE_NAME.md"
+  [[ -f "$GUIDE_PATH" && ! -L "$GUIDE_PATH" ]]
+  GUIDE_CONTENT=$(<"$GUIDE_PATH")
+fi
+jq -n --slurpfile task "$TASK" \
+  --rawfile implement_policy /opt/patchyard/policy/implement.md \
+  --arg guide_content "$GUIDE_CONTENT" \
+  '{schema_version:1,task:$task[0],$implement_policy,$guide_content}' \
+  >"$RUN_TEMP/request.md"
 REQUEST_SHA256=$(sha256sum "$RUN_TEMP/request.md" | cut -d' ' -f1)
 SNAPSHOT_SQL_SHA256=$(sha256sum "$SNAPSHOT/snapshot.sql.gz" | cut -d' ' -f1)
 SNAPSHOT_MANIFEST_SHA256=$(sha256sum "$SNAPSHOT/snapshot.json" | cut -d' ' -f1)
-jq -n \
-  --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
-  --arg source_archive_sha256 "$SOURCE_SHA256" --arg request_sha256 "$REQUEST_SHA256" \
-  --arg snapshot_sql_sha256 "$SNAPSHOT_SQL_SHA256" \
-  --arg snapshot_manifest_sha256 "$SNAPSHOT_MANIFEST_SHA256" \
-  '{schema_version:1,$run_id,$base_sha,$source_archive_sha256,$request_sha256,
-    $snapshot_sql_sha256,$snapshot_manifest_sha256,provider:"none",mode:"fixture",
-    credential_required:false,capability_sha256:null,spend_cap_cents:0}' \
-  >"$RUN_TEMP/run.json"
 
 if ! remote_ssh test -f "$REMOTE_ROOT/output/evidence.json"; then
   remote_ssh rm -rf -- "$REMOTE_ROOT"
   remote_ssh install -d -m 0700 "$REMOTE_ROOT/snapshot"
-  scp "${SSH_ARGS[@]}" "$RUN_TEMP/run.json" "$RUN_TEMP/source.tar.gz" "$RUN_TEMP/request.md" \
+  scp "${SSH_ARGS[@]}" "$RUN_TEMP/source.tar.gz" "$RUN_TEMP/request.md" \
     {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/"
   scp "${SSH_ARGS[@]}" "$SNAPSHOT/snapshot.sql.gz" "$SNAPSHOT/snapshot.json" \
     {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/snapshot/"
-  remote_ssh sudo /usr/local/sbin/patchyard-firecracker-run \
+
+  RUN_UUID=${RUN_ID%-a*}
+  SEAT_ID="agent-${RUN_UUID:0:8}-${RUN_UUID:8:4}-${RUN_UUID:12:4}-${RUN_UUID:16:4}-${RUN_UUID:20:12}"
+  [[ "$SEAT_ID" =~ ^agent-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]
+  SEAT_STAGE="/run/patchyard-seats/$SEAT_ID"
+  install -d -m 0700 "$SEAT_STAGE"
+  /usr/local/libexec/patchyard-request-openai-seat-bearer "$SEAT_STAGE/bearer"
+  MINT_METADATA="$SEAT_STAGE/metadata.json"
+  OPENAI_POLICY=/opt/patchyard/policy/openai-wif.json
+  jq -e --arg workspace_id "$(jq -r .workspace_id "$MINT_METADATA")" '
+    .schema_version == 1 and .provider == "openai"
+    and .project.id == $workspace_id
+    and .spend_enforcement.project_monthly_limit_cents >= 1
+    and .spend_enforcement.project_monthly_limit_cents <= 50000' \
+    "$OPENAI_POLICY" >/dev/null
+  ISSUED_AT_EPOCH=$(jq -r .issued_at_epoch "$MINT_METADATA")
+  EXPIRES_AT_EPOCH=$(jq -r .expires_at_epoch "$MINT_METADATA")
+  EXPIRES_IN=$(jq -r .expires_in "$MINT_METADATA")
+  ISSUED_AT=$(date -u -d "@$ISSUED_AT_EPOCH" +%Y-%m-%dT%H:%M:%SZ)
+  EXPIRES_AT=$(date -u -d "@$EXPIRES_AT_EPOCH" +%Y-%m-%dT%H:%M:%SZ)
+  jq -n --rawfile secret "$SEAT_STAGE/bearer" \
+    --arg issued_at "$ISSUED_AT" --arg expires_at "$EXPIRES_AT" \
+    --arg service_account_id "$(jq -r .service_account_id "$MINT_METADATA")" \
+    --arg workspace_id "$(jq -r .workspace_id "$MINT_METADATA")" \
+    --argjson expires_in "$EXPIRES_IN" \
+    --argjson spend_cap_cents "$(jq -r .spend_enforcement.project_monthly_limit_cents "$OPENAI_POLICY")" \
+    '{schema_version:1,credential_purpose:"implement",provider:"openai",
+      token_type:"Bearer",$secret,$issued_at,$expires_at,$expires_in,
+      $service_account_id,$workspace_id,$spend_cap_cents}' \
+    >"$SEAT_STAGE/capability.json"
+  CAPABILITY_SHA256=$(sha256sum "$SEAT_STAGE/capability.json" | cut -d' ' -f1)
+  HOST_CONTRACT_SHA256=$(sha256sum "$0" | cut -d' ' -f1)
+  PARITY_REQUIRED=$(jq -r '.dry_run | not' "$TASK")
+  jq -n \
+    --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
+    --arg source_archive_sha256 "$SOURCE_SHA256" --arg request_sha256 "$REQUEST_SHA256" \
+    --arg snapshot_sql_sha256 "$SNAPSHOT_SQL_SHA256" \
+    --arg snapshot_manifest_sha256 "$SNAPSHOT_MANIFEST_SHA256" \
+    --arg capability_sha256 "$CAPABILITY_SHA256" \
+    --arg host_contract_sha256 "$HOST_CONTRACT_SHA256" \
+    --arg model "$PATCHYARD_MODEL" --arg effort "$PATCHYARD_EFFORT" \
+    --arg harness "$PATCHYARD_HARNESS" --arg model_slug "$MODEL_SLUG" \
+    --arg routing_version "$ROUTING_VERSION" --argjson parity_required "$PARITY_REQUIRED" \
+    --argjson spend_cap_cents "$(jq -r .spend_enforcement.project_monthly_limit_cents "$OPENAI_POLICY")" \
+    '{schema_version:1,$run_id,$base_sha,$source_archive_sha256,$request_sha256,
+      $snapshot_sql_sha256,$snapshot_manifest_sha256,mode:"implement",provider:"openai",
+      credential_required:true,$capability_sha256,$spend_cap_cents,
+      $host_contract_sha256,$model,$model_slug,$effort,$harness,$routing_version,
+      $parity_required}' \
+    >"$RUN_TEMP/run.json"
+
+  scp "${SSH_ARGS[@]}" "$RUN_TEMP/run.json" \
+    {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/"
+  remote_ssh sudo /usr/local/sbin/patchyard-implement-run \
     "$REMOTE_ROOT/run.json" "$REMOTE_ROOT/source.tar.gz" \
-    "$REMOTE_ROOT/request.md" "$REMOTE_ROOT/snapshot" "$REMOTE_ROOT/output"
+    "$REMOTE_ROOT/request.md" "$REMOTE_ROOT/snapshot" "$REMOTE_ROOT/output" \
+    <"$SEAT_STAGE/capability.json"
 fi
 
 install -d -m 0700 "$RUN_TEMP/result"

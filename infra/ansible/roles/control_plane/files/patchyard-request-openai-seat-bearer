@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+OUTPUT=${1:-}
+ROOT=/run/patchyard-seats
+
+[[ $# -eq 1 ]]
+[[ "$OUTPUT" == "$ROOT/"*/bearer ]]
+STAGE=${OUTPUT%/bearer}
+ID=${STAGE#"$ROOT/"}
+[[ "$ID" =~ ^agent-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]
+[[ "$OUTPUT" == "$ROOT/$ID/bearer" ]]
+METADATA="$STAGE/metadata.json"
+[[ ! -L "$STAGE" && -d "$STAGE" ]]
+[[ "$(/usr/bin/readlink -f -- "$STAGE")" == "$STAGE" ]]
+[[ "$(/usr/bin/stat -c '%U:%G:%a' -- "$STAGE")" == factory-manager:factory:700 ]]
+[[ ! -e "$OUTPUT" && ! -L "$OUTPUT" && ! -e "$METADATA" && ! -L "$METADATA" ]]
+
+UNIT="patchyard-openai-seat-mint@$ID.service"
+/usr/bin/systemctl --quiet --no-ask-password start "$UNIT" >/dev/null 2>&1
+
+[[ -f "$OUTPUT" && ! -L "$OUTPUT" ]]
+[[ -f "$METADATA" && ! -L "$METADATA" ]]
+IFS=: read -r owner group mode size \
+    <<< "$(/usr/bin/stat -c '%U:%G:%a:%s' -- "$OUTPUT")"
+[[ "$owner:$group:$mode" == factory-manager:factory:600 ]]
+((size >= 20 && size <= 8192))
+IFS=: read -r owner group mode size \
+    <<< "$(/usr/bin/stat -c '%U:%G:%a:%s' -- "$METADATA")"
+[[ "$owner:$group:$mode" == factory-manager:factory:600 ]]
+((size >= 64 && size <= 2048))
+NOW=$(/usr/bin/date -u +%s)
+/usr/bin/jq -e --argjson now "$NOW" '
+  (keys | sort) == ["expires_at_epoch","expires_in","issued_at_epoch",
+    "schema_version","service_account_id","workspace_id"]
+  and .schema_version == 1
+  and (.issued_at_epoch | type == "number" and . <= $now)
+  and (.expires_at_epoch | type == "number" and . > $now and . <= ($now + 285))
+  and (.expires_in | type == "number" and . >= 45 and . <= 285)
+  and .expires_at_epoch == (.issued_at_epoch + .expires_in)
+  and (.service_account_id | test("^[A-Za-z0-9_-]{8,128}$"))
+  and (.workspace_id | test("^[A-Za-z0-9_-]{8,128}$"))
+' "$METADATA" >/dev/null

@@ -85,6 +85,7 @@ class FreezeGraphContract(unittest.TestCase):
                 "worker/image/patchyard-guest-dispatch",
                 "worker/image/patchyard-guest-qualify",
                 "worker/runtime/patchyard-provider-run",
+                "worker/runtime/patchyard-implement-run",
             ],
         )
         self.assertEqual(report["neutral"]["violations"], [])

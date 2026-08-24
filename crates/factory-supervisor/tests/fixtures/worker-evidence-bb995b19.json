@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "run_id": "e5e6f8d2e37c48fba8a4ed64a958ad12-a0",
+  "base_sha": "2cf693fcbe5678d2b7ae92f8e17cf2b867434f96",
+  "request_sha256": "12f9fd8049bead8f0b24f84533b01340eeb80dc99ce2382b066992c32ce484a6",
+  "provider": "openai",
+  "model": "GPT-5.6 Sol",
+  "effort": "xhigh",
+  "harness": "Codex",
+  "pairing": "openai/codex/gpt-5.6-sol/xhigh",
+  "routing_version": "2026-08-23.1",
+  "codex_version": "codex-cli 0.149.0",
+  "patch_sha256": "752183610e442327dbf5e79e183fd29817edf54810a795b2d2102b4d6b178f8e",
+  "rootfs_sha256": "7111ebb1eaddfa0598a04257e95a791f46deaf5b2d0178efbb86995734f25ba4",
+  "image_recipe_sha256": "e73098db4a6ceaaca26dc4e320a702744e8c90943f9f131b02fa6584f73afb21",
+  "production_parity_sha256": "108becf1fced5dbe28f7675a73fcbf2c1b1ac301baed8811eb23fc492cc01809",
+  "host_contract_sha256": "ec1df949b7a8e2359ba2cad5a324ed0d14f15fccf557c306f7b9734610d5b7bd",
+  "snapshot_version": "2026-08-22-6e9437f90437",
+  "parity_required": false,
+  "app_http_status": null,
+  "claims": [
+    {
+      "id": "sorted-permutation",
+      "assertion": "Worker received TaskSpec acceptance criterion sorted-permutation",
+      "evidence_ref": "TASK.json#acceptance_tests/0"
+    },
+    {
+      "id": "keys-labels-unchanged",
+      "assertion": "Worker received TaskSpec acceptance criterion keys-labels-unchanged",
+      "evidence_ref": "TASK.json#acceptance_tests/1"
+    },
+    {
+      "id": "sentinel-first",
+      "assertion": "Worker received TaskSpec acceptance criterion sentinel-first",
+      "evidence_ref": "TASK.json#acceptance_tests/2"
+    },
+    {
+      "id": "selected-value-unchanged",
+      "assertion": "Worker received TaskSpec acceptance criterion selected-value-unchanged",
+      "evidence_ref": "TASK.json#acceptance_tests/3"
+    }
+  ],
+  "usage": {
+    "input_tokens": 97018,
+    "output_tokens": 4538,
+    "cost_microusd": 0
+  },
+  "credential": {
+    "schema_version": 1,
+    "credential_purpose": "implement",
+    "provider": "openai",
+    "token_type": "Bearer",
+    "issued_at": "2026-08-24T10:43:20Z",
+    "expires_at": "2026-08-24T10:47:59Z",
+    "expires_in": 279,
+    "service_account_id": "user-REDACTED",
+    "workspace_id": "proj_REDACTED",
+    "spend_cap_cents": 5000
+  },
+  "agent_transcript": [
+    {
+      "type": "thread.started"
+    },
+    {
+      "type": "turn.completed",
+      "usage": {
+        "input_tokens": 97018,
+        "cached_input_tokens": 80078,
+        "cache_write_input_tokens": 16919,
+        "output_tokens": 4538,
+        "reasoning_output_tokens": 2815
+      }
+    }
+  ],
+  "git_remote_count": 0,
+  "capability_drive_read_only": true,
+  "credential_removed_before_output": true,
+  "host_teardown": {
+    "processes": 0,
+    "taps": 0,
+    "nftables_tables": 0,
+    "run_directories": 0,
+    "credential_files": 0
+  }
+}

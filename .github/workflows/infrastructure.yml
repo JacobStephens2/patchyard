@@ -26,7 +26,7 @@ jobs:
         run: |
           printf '%s\n' \
             'da3b4c96658c78a8f9b65d9989249e2793fddc4be016cc5e8823015050431070  tools/check-a101-readiness-root.py' \
-            'd8ad5d26ad609777da75ac4a15cf7e6ae1c8b417495a0f8c590a0c38420f0421  policy/a101-census.sha256' \
+            '3d0680c85369e286bda78bfb3fcfc95c184e0a5e3a7d01f7c1a7d29292b57915  policy/a101-census.sha256' \
             | sha256sum --check
           python3 -I tools/check-a101-readiness-root.py
 

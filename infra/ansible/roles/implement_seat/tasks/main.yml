@@ -1,0 +1,71 @@
+---
+- name: Create the live implement image recipe directory
+  ansible.builtin.file:
+    path: /usr/local/share/patchyard-worker/implement-image
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the live implement image recipe # noqa: risky-file-permissions (modes pinned by the task below)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../worker/implement-image/"
+    dest: /usr/local/share/patchyard-worker/implement-image/
+    owner: root
+    group: root
+
+- name: Pin live implement image recipe modes
+  ansible.builtin.file:
+    path: "/usr/local/share/patchyard-worker/implement-image/{{ item.name }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { name: build-implement-image, mode: "0755" }
+    - { name: codex-requirements.toml, mode: "0644" }
+    - { name: patchyard-guest-implement, mode: "0755" }
+    - { name: pins.env, mode: "0644" }
+
+- name: Install the live implement Firecracker launcher
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../worker/runtime/patchyard-implement-run"
+    dest: /usr/local/sbin/patchyard-implement-run
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Inspect the installed implement image recipe marker
+  ansible.builtin.slurp:
+    src: /opt/patchyard-worker/images/fieldbook-implement.recipe-sha256
+  register: worker_implement_image_recipe_marker
+  failed_when: false
+
+- name: Build the derived live implement root filesystem
+  ansible.builtin.command:
+    argv:
+      - /usr/local/share/patchyard-worker/implement-image/build-implement-image
+      - "{{ worker_implement_image_recipe_sha256 }}"
+  when: >-
+    worker_implement_image_recipe_marker.content is not defined
+    or (worker_implement_image_recipe_marker.content | b64decode | trim)
+       != worker_implement_image_recipe_sha256
+  changed_when: true
+
+- name: Read the derived live implement image digest
+  ansible.builtin.slurp:
+    src: /opt/patchyard-worker/images/fieldbook-implement.sha256
+  register: worker_implement_image_digest
+
+- name: Hash the derived live implement image
+  ansible.builtin.stat:
+    path: /opt/patchyard-worker/images/fieldbook-implement.ext4
+    checksum_algorithm: sha256
+  register: worker_implement_image
+
+- name: Require the exact derived live implement image
+  ansible.builtin.assert:
+    that:
+      - worker_implement_image.stat.exists
+      - >-
+        worker_implement_image.stat.checksum
+        == (worker_implement_image_digest.content | b64decode | trim)

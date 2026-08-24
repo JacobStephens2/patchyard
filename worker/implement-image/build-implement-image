@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+RECIPE_ROOT=/usr/local/share/patchyard-worker/implement-image
+IMAGE_ROOT=/opt/patchyard-worker/images
+CACHE_ROOT=/var/cache/patchyard-worker
+EXPECTED_RECIPE_SHA256=${1:?expected implement recipe SHA-256 required}
+
+# shellcheck source=/dev/null
+source "$RECIPE_ROOT/pins.env"
+
+recipe_sha256() {
+  find "$RECIPE_ROOT" -type f -printf '%P\0' \
+    | LC_ALL=C sort -z \
+    | while IFS= read -r -d '' relative; do
+        printf '%s  %s\n' "$(sha256sum "$RECIPE_ROOT/$relative" | cut -d' ' -f1)" "$relative"
+      done \
+    | sha256sum | cut -d' ' -f1
+}
+
+[[ "$(recipe_sha256)" == "$EXPECTED_RECIPE_SHA256" ]] || {
+  echo "implement image recipe hash mismatch" >&2
+  exit 1
+}
+
+BASE_ROOTFS="$IMAGE_ROOT/fieldbook-parity.ext4"
+BASE_SHA_FILE="$IMAGE_ROOT/fieldbook-parity.sha256"
+ROOTFS="$IMAGE_ROOT/fieldbook-implement.ext4"
+ROOTFS_SHA_FILE="$IMAGE_ROOT/fieldbook-implement.sha256"
+MARKER="$IMAGE_ROOT/fieldbook-implement.recipe-sha256"
+BASE_MARKER="$IMAGE_ROOT/fieldbook-implement.base-sha256"
+[[ -f "$BASE_ROOTFS" && -f "$BASE_SHA_FILE" ]]
+BASE_SHA256=$(<"$BASE_SHA_FILE")
+[[ "$BASE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+echo "$BASE_SHA256  $BASE_ROOTFS" | sha256sum --check --status
+
+if [[ -f "$ROOTFS" && -f "$ROOTFS_SHA_FILE" \
+  && -f "$MARKER" && -f "$BASE_MARKER" ]] \
+  && [[ "$(<"$MARKER")" == "$EXPECTED_RECIPE_SHA256" ]] \
+  && [[ "$(<"$BASE_MARKER")" == "$BASE_SHA256" ]] \
+  && echo "$(<"$ROOTFS_SHA_FILE")  $ROOTFS" | sha256sum --check --status \
+  && e2fsck -fn "$ROOTFS" >/dev/null 2>&1; then
+  echo "implement image already matches recipe $EXPECTED_RECIPE_SHA256"
+  exit 0
+fi
+
+fetch_pinned() {
+  local url=$1 expected=$2 destination=$3
+  if [[ ! -f "$destination" ]] \
+    || [[ "$(sha256sum "$destination" | cut -d' ' -f1)" != "$expected" ]]; then
+    curl --fail --location --retry 3 --output "$destination.tmp" "$url"
+    echo "$expected  $destination.tmp" | sha256sum --check --status
+    mv "$destination.tmp" "$destination"
+  fi
+  echo "$expected  $destination" | sha256sum --check --status
+}
+
+fetch_pinned "$CODEX_PACKAGE_URL" "$CODEX_PACKAGE_SHA256" \
+  "$CACHE_ROOT/codex-package-$CODEX_VERSION.tar.gz"
+
+BUILD_ROOT=$(mktemp -d /var/tmp/patchyard-implement-image.XXXXXX)
+MOUNT_ROOT="$BUILD_ROOT/rootfs"
+STAGED_ROOTFS="$BUILD_ROOT/fieldbook-implement.ext4"
+MOUNTED=false
+cleanup() {
+  if $MOUNTED; then umount "$MOUNT_ROOT" >/dev/null 2>&1 || true; fi
+  rm -r -- "$BUILD_ROOT"
+}
+trap cleanup EXIT
+
+install -d -m 0755 "$MOUNT_ROOT"
+cp --reflink=auto --sparse=always "$BASE_ROOTFS" "$STAGED_ROOTFS"
+e2fsck -fy "$STAGED_ROOTFS" >/dev/null
+truncate -s +512M "$STAGED_ROOTFS"
+resize2fs "$STAGED_ROOTFS" >/dev/null
+mount -o loop "$STAGED_ROOTFS" "$MOUNT_ROOT"
+MOUNTED=true
+
+CODEX_ROOT="$MOUNT_ROOT/opt/codex-$CODEX_VERSION"
+install -d -m 0755 "$CODEX_ROOT" "$MOUNT_ROOT/etc/codex"
+tar -xzf "$CACHE_ROOT/codex-package-$CODEX_VERSION.tar.gz" \
+  -C "$CODEX_ROOT" --no-same-owner
+# The archive decides what is executable; this script's umask must not. Under
+# `umask 077` plus --no-same-permissions the tree extracted 0700 root-only, so
+# factory-agent - the identity the guest actually runs codex as - could neither
+# traverse bin/ nor exec the binary, and every attempt died at exec(2) before
+# codex parsed a credential. Normalize explicitly: dirs and already-executable
+# files 0755, everything else 0644, setuid/setgid cleared.
+chmod -R u=rwX,go=rX "$CODEX_ROOT"
+[[ -f "$CODEX_ROOT/codex-package.json" \
+  && -x "$CODEX_ROOT/bin/codex" \
+  && -x "$CODEX_ROOT/codex-resources/bwrap" ]]
+ln -s "/opt/codex-$CODEX_VERSION/bin/codex" "$MOUNT_ROOT/usr/local/bin/codex"
+install -m 0644 "$RECIPE_ROOT/codex-requirements.toml" \
+  "$MOUNT_ROOT/etc/codex/requirements.toml"
+install -m 0755 "$RECIPE_ROOT/patchyard-guest-implement" \
+  "$MOUNT_ROOT/usr/local/sbin/patchyard-guest-run"
+# Verify as the identity that runs codex in the guest, not as root. A root-only
+# tree satisfies root's -x and a root `codex --version` while being unusable by
+# factory-agent, which is exactly how the 0700 tree shipped undetected.
+CODEX_CHECK_HOME=/var/lib/patchyard-codex-build-check
+chroot "$MOUNT_ROOT" install -d -m 0700 -o factory-agent -g factory-agent \
+  "$CODEX_CHECK_HOME"
+[[ "$(chroot "$MOUNT_ROOT" runuser -u factory-agent -- env -i \
+  HOME=/home/factory-agent CODEX_HOME="$CODEX_CHECK_HOME" \
+  PATH=/usr/local/bin:/usr/bin:/bin \
+  /usr/local/bin/codex --version)" == "codex-cli $CODEX_VERSION" ]]
+chroot "$MOUNT_ROOT" runuser -u factory-agent -- \
+  test -x "/opt/codex-$CODEX_VERSION/codex-resources/bwrap"
+rm -rf -- "$MOUNT_ROOT$CODEX_CHECK_HOME"
+
+sync
+umount "$MOUNT_ROOT"
+MOUNTED=false
+e2fsck -fy "$STAGED_ROOTFS" >/dev/null
+ROOTFS_SHA256=$(sha256sum "$STAGED_ROOTFS" | cut -d' ' -f1)
+mv "$STAGED_ROOTFS" "$ROOTFS"
+printf '%s\n' "$ROOTFS_SHA256" >"$ROOTFS_SHA_FILE.tmp"
+printf '%s\n' "$EXPECTED_RECIPE_SHA256" >"$MARKER.tmp"
+printf '%s\n' "$BASE_SHA256" >"$BASE_MARKER.tmp"
+mv "$ROOTFS_SHA_FILE.tmp" "$ROOTFS_SHA_FILE"
+mv "$MARKER.tmp" "$MARKER"
+mv "$BASE_MARKER.tmp" "$BASE_MARKER"
+chmod 0644 "$ROOTFS" "$ROOTFS_SHA_FILE" "$MARKER" "$BASE_MARKER"
+echo "built implement image sha256=$ROOTFS_SHA256 recipe=$EXPECTED_RECIPE_SHA256"

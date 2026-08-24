@@ -1,0 +1,367 @@
+#!/usr/bin/env python3
+"""Mint one OpenAI WIF bearer into a supervisor-owned tmpfs stage."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import grp
+import hashlib
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import secrets
+import stat
+import subprocess
+import sys
+import time
+import types
+import urllib.error
+import urllib.request
+
+
+INSTALL_ROOT = Path("/opt/patchyard")
+OPENAI_ISSUANCE_PATH = INSTALL_ROOT / "tools/openai-wif-issuance.py"
+OPENAI_ISSUANCE_SHA256 = "88117660a2717ecd2c9b6eef4704066700e4989e1010d508769bf928fec18c8b"
+SEAT_ROOT = Path("/run/patchyard-seats")
+PROBE_ROOT = Path("/run/patchyard-seat-mint-probes")
+PROBE_BEARER = "patchyard-providerless-seat-mint-probe"
+EXPIRY_SAFETY_SECONDS = 15
+STAGE_PATTERN = re.compile(
+    r"agent-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+)
+
+
+class MintError(RuntimeError):
+    """A root boundary or WIF mint precondition failed closed."""
+
+
+def load_openai_issuance() -> types.ModuleType:
+    source = OPENAI_ISSUANCE_PATH.read_bytes()
+    if (
+        OPENAI_ISSUANCE_PATH.is_symlink()
+        or hashlib.sha256(source).hexdigest() != OPENAI_ISSUANCE_SHA256
+    ):
+        raise MintError("qualified OpenAI issuance adapter differs from its exact binding")
+    module = types.ModuleType("openai_wif_issuance_seat_adapter")
+    module.__file__ = str(OPENAI_ISSUANCE_PATH)
+    module.__package__ = None
+    exec(
+        compile(source, str(OPENAI_ISSUANCE_PATH), "exec", dont_inherit=True),
+        module.__dict__,
+    )
+    return module
+
+
+def target_identity() -> tuple[int, int]:
+    if os.geteuid() != 0:
+        raise MintError("seat bearer mint requires a root service context")
+    try:
+        uid = pwd.getpwnam("factory-manager").pw_uid
+        gid = grp.getgrnam("factory").gr_gid
+    except KeyError as error:
+        raise MintError("seat bearer target identity is absent") from error
+    if uid <= 0 or gid <= 0:
+        raise MintError("seat bearer target identity is invalid")
+    return uid, gid
+
+
+def validate_output(path: Path, uid: int, gid: int) -> None:
+    metadata_path = path.with_name("metadata.json")
+    if (
+        not path.is_absolute()
+        or path.name != "bearer"
+        or path.parent.parent != SEAT_ROOT
+        or STAGE_PATTERN.fullmatch(path.parent.name) is None
+        or os.path.lexists(path)
+        or os.path.lexists(metadata_path)
+    ):
+        raise MintError("bearer output path is outside the fixed seat stage")
+    try:
+        root = SEAT_ROOT.resolve(strict=True)
+        stage = path.parent.resolve(strict=True)
+        root_metadata = root.lstat()
+        stage_metadata = stage.lstat()
+        run_metadata = Path("/run").stat()
+    except OSError as error:
+        raise MintError("seat tmpfs stage cannot be resolved") from error
+    if (
+        root != SEAT_ROOT
+        or stage != path.parent
+        or root.is_symlink()
+        or stage.is_symlink()
+        or not stat.S_ISDIR(root_metadata.st_mode)
+        or not stat.S_ISDIR(stage_metadata.st_mode)
+        or root_metadata.st_uid != uid
+        or stage_metadata.st_uid != uid
+        or stage_metadata.st_gid != gid
+        or stat.S_IMODE(root_metadata.st_mode) != 0o700
+        or stat.S_IMODE(stage_metadata.st_mode) != 0o700
+        or stage_metadata.st_dev != run_metadata.st_dev
+    ):
+        raise MintError("seat tmpfs ownership or permissions are invalid")
+    filesystem = subprocess.run(
+        ["/usr/bin/stat", "-f", "-c", "%T", "/run"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={"PATH": "/usr/bin:/bin"},
+    ).stdout.strip()
+    if filesystem != "tmpfs":
+        raise MintError("seat credential root is not on tmpfs")
+
+
+def write_private_file(
+    path: Path,
+    encoded: bytes,
+    uid: int,
+    gid: int,
+    *,
+    label: str,
+    minimum: int,
+    maximum: int,
+) -> None:
+    if not minimum <= len(encoded) <= maximum:
+        raise MintError(f"{label} is outside the byte limit")
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+        )
+        offset = 0
+        while offset < len(encoded):
+            written = os.write(descriptor, encoded[offset:])
+            if written <= 0:
+                raise MintError(f"{label} write made no progress")
+            offset += written
+        os.fchmod(descriptor, 0o600)
+        os.fchown(descriptor, uid, gid)
+        os.fsync(descriptor)
+    except BaseException:
+        if descriptor is not None:
+            os.close(descriptor)
+            descriptor = None
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    metadata = path.lstat()
+    if (
+        path.is_symlink()
+        or not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_uid != uid
+        or metadata.st_gid != gid
+        or stat.S_IMODE(metadata.st_mode) != 0o600
+        or metadata.st_size != len(encoded)
+    ):
+        path.unlink(missing_ok=True)
+        raise MintError(f"{label} output postcondition failed")
+
+
+def write_bearer(path: Path, bearer: str, uid: int, gid: int) -> None:
+    write_private_file(
+        path,
+        bearer.encode("ascii"),
+        uid,
+        gid,
+        label="minted bearer",
+        minimum=1,
+        maximum=8192,
+    )
+
+
+def write_metadata(
+    path: Path, metadata: dict[str, object], uid: int, gid: int
+) -> None:
+    encoded = (json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n").encode(
+        "ascii"
+    )
+    write_private_file(
+        path,
+        encoded,
+        uid,
+        gid,
+        label="mint metadata",
+        minimum=64,
+        maximum=2048,
+    )
+
+
+def consume_providerless_probe(path: Path) -> str | None:
+    marker = PROBE_ROOT / path.parent.name
+    if not os.path.lexists(marker):
+        return None
+    try:
+        root = PROBE_ROOT.resolve(strict=True)
+        root_metadata = root.lstat()
+        marker_metadata = marker.lstat()
+        run_metadata = Path("/run").stat()
+    except OSError as error:
+        raise MintError("seat mint probe cannot be resolved") from error
+    if (
+        root != PROBE_ROOT
+        or root.is_symlink()
+        or marker.is_symlink()
+        or not stat.S_ISDIR(root_metadata.st_mode)
+        or not stat.S_ISREG(marker_metadata.st_mode)
+        or root_metadata.st_uid != 0
+        or root_metadata.st_gid != 0
+        or marker_metadata.st_uid != 0
+        or marker_metadata.st_gid != 0
+        or stat.S_IMODE(root_metadata.st_mode) != 0o700
+        or stat.S_IMODE(marker_metadata.st_mode) != 0o400
+        or marker_metadata.st_size != 0
+        or root_metadata.st_dev != run_metadata.st_dev
+    ):
+        raise MintError("seat mint probe boundary is invalid")
+    marker.unlink()
+    return PROBE_BEARER
+
+
+def mint_openai_bearer(
+    openai: types.ModuleType, policy: dict[str, object], run_id: str
+) -> tuple[str, int, int]:
+    assertion = ""
+    encoded = b""
+    raw = b""
+    body: dict[str, object] = {}
+    payload: object = None
+    try:
+        assertion, _ = openai.mint_openai_assertion(
+            policy,
+            openai.SIGNING_KEY,
+            run_id,
+            int(time.time()),
+        )
+        body = openai.exchange_request(policy, assertion)
+        encoded = json.dumps(body, separators=(",", ":")).encode("ascii")
+        request = urllib.request.Request(
+            openai.TOKEN_ENDPOINT,
+            data=encoded,
+            headers={
+                "content-type": "application/json",
+                "user-agent": "patchyard-seat-mint/1",
+            },
+            method="POST",
+        )
+        response = openai.URL_OPENER.open(request, timeout=30)
+        with response:
+            raw = response.read(openai.MAX_RESPONSE_BYTES + 1)
+            status = int(response.status)
+        received_at_epoch = int(time.time())
+        if status != 200 or len(raw) > openai.MAX_RESPONSE_BYTES:
+            raise MintError("OpenAI token exchange failed closed")
+        payload = openai.BASE.load_json_bytes(raw)
+        if not isinstance(payload, dict) or set(payload) != {
+            "access_token",
+            "expires_in",
+            "issued_token_type",
+            "token_type",
+        }:
+            raise MintError("OpenAI token response shape differs")
+        bearer = payload.get("access_token")
+        expires_in = payload.get("expires_in")
+        if (
+            not isinstance(bearer, str)
+            or not 20 <= len(bearer.encode("ascii")) <= 8192
+            or any(character.isspace() for character in bearer)
+            or not isinstance(expires_in, int)
+            or isinstance(expires_in, bool)
+            or not 60 <= expires_in <= 300
+            or payload.get("token_type") != "Bearer"
+            or payload.get("issued_token_type")
+            != "urn:ietf:params:oauth:token-type:access_token"
+        ):
+            raise MintError("OpenAI token response values differ")
+        return bearer, expires_in - EXPIRY_SAFETY_SECONDS, received_at_epoch
+    except (UnicodeError, ValueError, OSError, urllib.error.URLError) as error:
+        del error
+        raise MintError("OpenAI token exchange failed closed") from None
+    finally:
+        assertion = ""
+        if body:
+            body["subject_token"] = ""
+            body.clear()
+        encoded = b""
+        raw = b""
+        payload = None
+
+
+def run(arguments: list[str]) -> int:
+    if len(arguments) != 2 or arguments[0] != "OpenAI":
+        raise MintError("usage: patchyard-mint-openai-seat-bearer OpenAI OUTPUT")
+    uid, gid = target_identity()
+    output = Path(arguments[1])
+    validate_output(output, uid, gid)
+    adapter = load_openai_issuance()
+    policy = adapter.load_policy()
+    service_account_id = policy["service_account"]["id"]
+    workspace_id = policy["project"]["id"]
+    if (
+        not isinstance(service_account_id, str)
+        or not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", service_account_id)
+        or not isinstance(workspace_id, str)
+        or not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", workspace_id)
+    ):
+        raise MintError("resolved OpenAI identity is invalid")
+    signing_key = adapter.SIGNING_KEY
+    adapter.BASE.validate_root_private_key(signing_key)
+    run_id = "openai-wif-" + datetime.now(timezone.utc).strftime("%Y%m%d") + "-" + secrets.token_hex(5)
+    probe_bearer = consume_providerless_probe(output)
+    if probe_bearer is not None:
+        adapter.BASE.load_public_jwk(signing_key)
+        issued_at_epoch = int(time.time())
+        expires_in = 300 - EXPIRY_SAFETY_SECONDS
+        metadata = {
+            "expires_at_epoch": issued_at_epoch + expires_in,
+            "expires_in": expires_in,
+            "issued_at_epoch": issued_at_epoch,
+            "schema_version": 1,
+            "service_account_id": service_account_id,
+            "workspace_id": workspace_id,
+        }
+        try:
+            write_metadata(output.with_name("metadata.json"), metadata, uid, gid)
+            write_bearer(output, probe_bearer, uid, gid)
+        except BaseException:
+            output.unlink(missing_ok=True)
+            output.with_name("metadata.json").unlink(missing_ok=True)
+            raise
+        return 0
+    bearer = ""
+    try:
+        bearer, expires_in, issued_at_epoch = mint_openai_bearer(adapter, policy, run_id)
+        metadata = {
+            "expires_at_epoch": issued_at_epoch + expires_in,
+            "expires_in": expires_in,
+            "issued_at_epoch": issued_at_epoch,
+            "schema_version": 1,
+            "service_account_id": service_account_id,
+            "workspace_id": workspace_id,
+        }
+        write_metadata(output.with_name("metadata.json"), metadata, uid, gid)
+        write_bearer(output, bearer, uid, gid)
+    except BaseException:
+        output.unlink(missing_ok=True)
+        output.with_name("metadata.json").unlink(missing_ok=True)
+        raise
+    finally:
+        bearer = ""
+    return 0
+
+
+if __name__ == "__main__":
+    os.umask(0o077)
+    try:
+        raise SystemExit(run(sys.argv[1:]))
+    except (MintError, OSError, RuntimeError, subprocess.CalledProcessError) as error:
+        del error
+        print("seat bearer mint failed closed", file=sys.stderr)
+        raise SystemExit(1)

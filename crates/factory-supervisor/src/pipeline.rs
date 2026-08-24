@@ -1350,8 +1350,11 @@ impl<S: PipelineStore> Pipeline<S> {
     }
 }
 
+// No `deny_unknown_fields` here, deliberately: serde rejects any key not named
+// by a field, including the ones `flatten` exists to absorb, so the two
+// attributes together make `runtime_facts` unreachable and every real envelope
+// fails to parse. The bound in `validate` is what caps the absorbed keys.
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct WorkerEvidence {
     schema_version: u16,
     #[serde(default)]
@@ -1666,7 +1669,7 @@ pub enum PipelineError {
 
 #[cfg(test)]
 mod tests {
-    use super::first_changed_lines;
+    use super::{WorkerEvidence, first_changed_lines};
 
     #[test]
     fn root_cause_lines_point_to_the_first_added_line_not_the_hunk_header() {
@@ -1685,5 +1688,40 @@ index 1111111..2222222 100644
         let lines = first_changed_lines(patch).expect("valid unified diff");
 
         assert_eq!(lines["mfieldbook/example.php"], 11);
+    }
+
+    /// The worker's real envelope, banked from request bb995b19 - the first run
+    /// to carry a model-authored patch across the host boundary. Its account
+    /// identifiers are redacted; nothing else about the shape is changed. Under
+    /// `deny_unknown_fields` this failed at the first unmodelled key (`run_id`)
+    /// and took the whole run down with it, while the stub fixture - which emits
+    /// only the three named fields - kept every test green.
+    #[test]
+    fn a_real_worker_envelope_deserializes_and_its_extra_keys_land_in_runtime_facts() {
+        let bytes = include_str!("../tests/fixtures/worker-evidence-bb995b19.json");
+
+        let evidence: WorkerEvidence =
+            serde_json::from_str(bytes).expect("the banked worker envelope parses");
+        evidence
+            .validate()
+            .expect("the banked worker envelope validates");
+
+        assert_eq!(evidence.schema_version, 1);
+        assert_eq!(evidence.claims.len(), 4);
+        assert_eq!(evidence.usage.input_tokens, 97_018);
+        for key in [
+            "run_id",
+            "pairing",
+            "codex_version",
+            "image_recipe_sha256",
+            "credential",
+            "credential_removed_before_output",
+        ] {
+            assert!(
+                evidence.runtime_facts.contains_key(key),
+                "{key} should be absorbed by runtime_facts"
+            );
+        }
+        assert!(!evidence.runtime_facts.contains_key("claims"));
     }
 }

@@ -463,5 +463,226 @@ class IssuanceWindow(unittest.TestCase):
                     )
 
 
+LIVE_SUPERVISOR_ENV = (
+    ROOT
+    / "infra/ansible/roles/control_plane/templates/patchyard-supervisor.env.j2"
+)
+LIVE_CONTROL = ROOT / "infra/ansible/roles/control_plane"
+LIVE_MINTER = LIVE_CONTROL / "files/patchyard-mint-openai-seat-bearer"
+LIVE_REQUESTER = LIVE_CONTROL / "files/patchyard-request-openai-seat-bearer"
+LIVE_OPENAI_UNIT = LIVE_CONTROL / "files/patchyard-openai-seat-mint@.service"
+LIVE_POLKIT = LIVE_CONTROL / "files/50-patchyard-seat-mint.rules"
+LIVE_TASKS = LIVE_CONTROL / "tasks/main.yml"
+LIVE_OPENAI_ISSUANCE = ROOT / "tools/openai-wif-issuance.py"
+LIVE_QUALIFY_LIVE_CONTROL = LIVE_CONTROL / "templates/qualify-factory-control.j2"
+LIVE_INVOKE_WORKER = LIVE_CONTROL / "templates/patchyard-invoke-worker.j2"
+LIVE_IMPLEMENT_LAUNCHER = ROOT / "worker/runtime/patchyard-implement-run"
+LIVE_IMPLEMENT_IMAGE = ROOT / "worker/implement-image"
+LIVE_IMAGE_PINS = LIVE_IMPLEMENT_IMAGE / "pins.env"
+LIVE_IMAGE_BUILDER = LIVE_IMPLEMENT_IMAGE / "build-implement-image"
+LIVE_GUEST_RUNNER = LIVE_IMPLEMENT_IMAGE / "patchyard-guest-implement"
+LIVE_CODEX_REQUIREMENTS = LIVE_IMPLEMENT_IMAGE / "codex-requirements.toml"
+LIVE_IMPLEMENT_ROLE = ROOT / "infra/ansible/roles/implement_seat/tasks/main.yml"
+LIVE_SITE = ROOT / "infra/ansible/site.yml"
+LIVE_GROUP_VARS = ROOT / "infra/ansible/group_vars/all.yml"
+
+
+class LiveImplementSeatContract(unittest.TestCase):
+    def test_supervisor_selects_real_worker_but_keeps_issue_207_cutover_closed(self) -> None:
+        env = LIVE_SUPERVISOR_ENV.read_text(encoding="utf-8")
+
+        self.assertIn("FACTORY_RUN_MODE=dry_run", env)
+        self.assertIn(
+            "FACTORY_WORKER_PROGRAM=/usr/local/sbin/patchyard-invoke-worker",
+            env,
+        )
+        self.assertIn(
+            "FACTORY_WORKER_CLEANUP=/usr/local/sbin/patchyard-cleanup-worker",
+            env,
+        )
+        self.assertIn("FACTORY_BUILDER_CLI_VERSION=codex-cli/0.149.0", env)
+        self.assertNotIn("worker-stub", env)
+        self.assertNotIn("worker-cleanup-stub", env)
+
+    def test_openai_bearer_uses_the_qualified_source_and_fixed_root_unit(self) -> None:
+        minter = LIVE_MINTER.read_text(encoding="utf-8")
+        requester = LIVE_REQUESTER.read_text(encoding="utf-8")
+        unit = LIVE_OPENAI_UNIT.read_text(encoding="utf-8")
+        polkit = LIVE_POLKIT.read_text(encoding="utf-8")
+        tasks = LIVE_TASKS.read_text(encoding="utf-8")
+        qualify = LIVE_QUALIFY_LIVE_CONTROL.read_text(encoding="utf-8")
+        issuance_sha = hashlib.sha256(LIVE_OPENAI_ISSUANCE.read_bytes()).hexdigest()
+
+        self.assertIn(f'OPENAI_ISSUANCE_SHA256 = "{issuance_sha}"', minter)
+        self.assertIn("openai.mint_openai_assertion(", minter)
+        self.assertIn("openai.exchange_request(", minter)
+        self.assertIn("policy = adapter.load_policy()", minter)
+        self.assertIn('policy["service_account"]["id"]', minter)
+        self.assertIn('output.with_name("metadata.json")', minter)
+        self.assertIn("EXPIRY_SAFETY_SECONDS = 15", minter)
+        self.assertIn('arguments[0] != "OpenAI"', minter)
+        self.assertIn('METADATA="$STAGE/metadata.json"', requester)
+        self.assertIn('.expires_at_epoch == (.issued_at_epoch + .expires_in)', requester)
+        self.assertIn(
+            "ExecStart=/usr/local/sbin/patchyard-mint-openai-seat-bearer OpenAI "
+            "/run/patchyard-seats/%i/bearer",
+            unit,
+        )
+        self.assertIn('UNIT="patchyard-openai-seat-mint@$ID.service"', requester)
+        self.assertIn("patchyard-openai-seat-mint@agent-", polkit)
+        self.assertIn(
+            "dest: /etc/systemd/system/patchyard-openai-seat-mint@.service",
+            tasks,
+        )
+        self.assertIn(
+            "/usr/local/libexec/patchyard-request-openai-seat-bearer",
+            qualify,
+        )
+        self.assertIn(
+            "systemd-analyze verify /etc/systemd/system/patchyard-openai-seat-mint@.service",
+            qualify,
+        )
+        self.assertIn(
+            'patchyard-request-openai-seat-bearer "$SEAT_MINT_PROBE_STAGE/bearer"',
+            qualify,
+        )
+
+    def test_transport_mints_tmpfs_capability_and_invokes_neutral_launcher(self) -> None:
+        transport = LIVE_INVOKE_WORKER.read_text(encoding="utf-8")
+        launcher = LIVE_IMPLEMENT_LAUNCHER.read_text(encoding="utf-8")
+
+        self.assertIn('PATCHYARD_HARNESS" == "Codex"', transport)
+        self.assertIn('PATCHYARD_PROVIDER" == "OpenAI"', transport)
+        self.assertIn("/opt/patchyard/policy/routing.json", transport)
+        self.assertIn(".invocation.routing_version == $routing_version", transport)
+        self.assertIn("patchyard-request-openai-seat-bearer", transport)
+        self.assertIn('SEAT_STAGE="/run/patchyard-seats/$SEAT_ID"', transport)
+        self.assertIn('MINT_METADATA="$SEAT_STAGE/metadata.json"', transport)
+        self.assertIn('.service_account_id "$MINT_METADATA"', transport)
+        self.assertNotIn('.service_account.id "$OPENAI_POLICY"', transport)
+        self.assertIn('mode:"implement",provider:"openai"', transport)
+        self.assertIn("patchyard-implement-run", transport)
+        self.assertIn(' <"$SEAT_STAGE/capability.json"', transport)
+        self.assertNotIn("Alphabetize the two salesperson", transport)
+        self.assertNotIn('named_skill == "ui.sort-dropdown"', transport)
+        self.assertIn('.mode == "implement"', launcher)
+        self.assertIn('.credential_purpose == "implement"', launcher)
+        self.assertIn('.credential_qualified == true', launcher)
+        self.assertIn('and .credential == ($capability[0] | del(.secret))', launcher)
+
+        rendered = (
+            transport.replace(
+                "{{ hostvars[groups['worker'][0]].private_ip }}", "10.0.0.2"
+            )
+            .replace("{{ factory_manager_private_key }}", "/tmp/id_ed25519")
+            .replace("{{ factory_manager_home }}", "/tmp/factory-manager")
+            .replace("{{ factory_manager_user }}", "factory-manager")
+        )
+        syntax = subprocess.run(
+            ["/bin/bash", "-n"], input=rendered, text=True, capture_output=True
+        )
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
+
+    def test_live_launcher_neutrality_is_mechanically_enforced(self) -> None:
+        checker = (ROOT / "tools/check-freeze-graph.py").read_text(encoding="utf-8")
+
+        self.assertIn('"worker/runtime/patchyard-implement-run"', checker)
+
+    def test_guest_image_installs_checksum_pinned_codex_package(self) -> None:
+        pins = LIVE_IMAGE_PINS.read_text(encoding="utf-8")
+        builder = LIVE_IMAGE_BUILDER.read_text(encoding="utf-8")
+        role = LIVE_IMPLEMENT_ROLE.read_text(encoding="utf-8")
+        site = LIVE_SITE.read_text(encoding="utf-8")
+        group_vars = LIVE_GROUP_VARS.read_text(encoding="utf-8")
+
+        self.assertIn("CODEX_VERSION=0.149.0", pins)
+        self.assertIn(
+            "CODEX_PACKAGE_URL=https://github.com/openai/codex/releases/download/"
+            "rust-v0.149.0/codex-package-x86_64-unknown-linux-musl.tar.gz",
+            pins,
+        )
+        self.assertIn(
+            "CODEX_PACKAGE_SHA256=1c08ba262820b78d49ea7a93f326b6b430b72e5fe46830e433edef12e5123244",
+            pins,
+        )
+        self.assertIn(
+            'fetch_pinned "$CODEX_PACKAGE_URL" "$CODEX_PACKAGE_SHA256"',
+            builder,
+        )
+        self.assertIn('"$MOUNT_ROOT/opt/codex-$CODEX_VERSION"', builder)
+        self.assertIn('codex-package.json', builder)
+        self.assertIn('/usr/local/bin/codex', builder)
+        self.assertIn("- role: implement_seat", site)
+        self.assertIn("patchyard-implement-run", role)
+        records = []
+        for path in sorted(LIVE_IMPLEMENT_IMAGE.iterdir()):
+            if path.is_file():
+                records.append(
+                    f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n"
+                )
+        recipe_sha = hashlib.sha256("".join(records).encode()).hexdigest()
+        self.assertIn(
+            f"worker_implement_image_recipe_sha256: {recipe_sha}", group_vars
+        )
+
+    def test_guest_runs_codex_xhigh_and_denies_model_read_access_to_auth(self) -> None:
+        guest = LIVE_GUEST_RUNNER.read_text(encoding="utf-8")
+        requirements = LIVE_CODEX_REQUIREMENTS.read_text(encoding="utf-8")
+        builder = LIVE_IMAGE_BUILDER.read_text(encoding="utf-8")
+
+        self.assertIn('.mode == "implement"', guest)
+        self.assertIn('credential_purpose == "implement"', guest)
+        self.assertIn('/usr/local/bin/codex login --with-api-key', guest)
+        self.assertIn('/usr/local/bin/codex exec', guest)
+        self.assertIn('--model "$MODEL_SLUG"', guest)
+        self.assertIn('model_reasoning_effort=\\\"$EFFORT\\\"', guest)
+        self.assertIn('--sandbox workspace-write', guest)
+        self.assertIn('--ephemeral', guest)
+        self.assertIn('--ignore-user-config', guest)
+        self.assertIn('shell_environment_policy.inherit="none"', guest)
+        self.assertIn('agent_transcript', guest)
+        self.assertIn('type:"transcript.truncated"', guest)
+        self.assertIn('"$AGENT_OUTPUT/transcript.jsonl")" -le 8388608', guest)
+        self.assertIn('"$AGENT_TRANSCRIPT" | wc -c)" -le 65536', guest)
+        self.assertIn(
+            'assertion:("Worker received TaskSpec acceptance criterion " + .value.id)',
+            guest,
+        )
+        self.assertIn('stat -c %s /result/evidence.json)" -le 122880', guest)
+        self.assertIn('PAIRING="$PROVIDER/$HARNESS_SLUG/$MODEL_SLUG/$EFFORT"', guest)
+        self.assertIn('routing_version "$ROUTING_VERSION"', guest)
+        self.assertIn('/usr/bin/timeout --signal=TERM --kill-after=5s', guest)
+        self.assertIn('credential_removed_before_output:true', guest)
+        self.assertIn(
+            'deny_read = ["/run/patchyard-provider", '
+            '"/run/patchyard-capability", "/credential"]',
+            requirements,
+        )
+        self.assertIn('/etc/codex/requirements.toml', builder)
+
+    def test_maximum_valid_acceptance_collection_fits_the_evidence_budget(self) -> None:
+        guest = LIVE_GUEST_RUNNER.read_text(encoding="utf-8")
+        start = guest.index("CLAIMS=$(jq -c '") + len("CLAIMS=$(jq -c '")
+        end = guest.index("' \\\n    /input/request.md)", start)
+        claim_filter = guest[start:end]
+        acceptance_tests = [
+            {
+                "id": f"a{index:02d}" + ("x" * 61),
+                "assertion": "💥" * 500,
+            }
+            for index in range(100)
+        ]
+
+        result = jq(
+            claim_filter,
+            {"task": {"task_spec": {"acceptance_tests": acceptance_tests}}},
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        claims = json.loads(result.stdout)
+        self.assertEqual(len(claims), 100)
+        self.assertLess(len(json.dumps(claims, separators=(",", ":")).encode()), 32_768)
+
+
 if __name__ == "__main__":
     unittest.main()

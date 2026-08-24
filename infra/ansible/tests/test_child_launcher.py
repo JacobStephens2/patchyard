@@ -123,7 +123,14 @@ class ChildLauncherContract(unittest.TestCase):
             network = self.launcher.index("create_child_netns\n", stage)
             self.assertLess(baseline, required)
             self.assertLess(required, network)
-        self.assertIn('test "$(sysctl -n net.ipv4.ip_forward)" = 0', self.qualifier)
+        # The qualifier now waits for the baseline instead of sampling it once,
+        # and accepts a 1 only while a live child legitimately owns forwarding.
+        # infra/ansible/tests/test_session13_settle.py exercises that behaviour.
+        self.assertIn("forward=$(sysctl -n net.ipv4.ip_forward)", self.qualifier)
+        self.assertIn(
+            "settle 'isolated-child teardown' child_isolation_is_settled",
+            self.qualifier,
+        )
         self.assertIn("net.ipv4.ip_forward=0", self.reaper)
 
     def test_cancel_skips_reset_after_systemd_collected_the_unit(self) -> None:

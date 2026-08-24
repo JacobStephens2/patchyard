@@ -58,6 +58,7 @@ EXPECTED_TEST_FILES = (
     "test_openai_wif_issuance.py",
     "test_preview_capability_deployment.py",
     "test_replace_worker.py",
+    "test_session13_settle.py",
     "test_session14_qualification.py",
     "test_session15_proposer.py",
     "test_session16_cutover.py",

@@ -4,7 +4,160 @@ umask 077
 
 EXPECTED_REVISION=${1:?expected repository revision required}
 
-systemctl is-active --quiet factory-supervisor.service
+# >>> settle contract
+# The region between these markers is excerpted and exercised directly by
+# infra/ansible/tests/test_session13_settle.py, so it holds only constants and
+# functions.
+#
+# Both Session 13 races are the same defect: a single sample of a state a
+# working control plane passes through. Qualification runs about a second after
+# a handler restarts the supervisor, so it can sample `activating`; and an
+# active supervisor with queue work spawns isolated children continuously, so
+# the zero-residue assertions can sample a child that is merely in flight.
+# Every assertion below therefore waits for the state it needs.
+#
+# A settle predicate returns 0 when it is satisfied, 1 when a later sample
+# could still satisfy it, and 2 when what it observed can never satisfy it.
+# Only 2 skips the wait, so a failed child still fails the play while an
+# in-flight one does not. A stuck child becomes a failed one within the bound
+# patchyard-child@.service declares, which this qualifier requires below.
+#
+# An unsatisfied predicate leaves its reason in SETTLE_REASON; settle reports
+# it once, when the wait ends, rather than on every sample.
+SETTLE_REASON=
+SETTLE_TIMEOUT_SECONDS=120
+SETTLE_INTERVAL_SECONDS=2
+CHILD_RUNTIME_ROOT=/run/patchyard-children
+EVIDENCE_RUNTIME_ROOT=/run/patchyard-evidence-qualification
+
+settle() {
+  local description=$1 predicate=$2
+  local attempts=$((SETTLE_TIMEOUT_SECONDS / SETTLE_INTERVAL_SECONDS))
+  local budget=$((attempts * SETTLE_INTERVAL_SECONDS))
+  local status
+  while true; do
+    status=0
+    SETTLE_REASON=
+    "$predicate" || status=$?
+    case "$status" in
+      0) return 0 ;;
+      1) ;;
+      *)
+        printf 'qualification refuses to wait for %s: %s\n' \
+          "$description" "$SETTLE_REASON" >&2
+        return "$status"
+        ;;
+    esac
+    if ((attempts-- <= 0)); then
+      printf 'qualification waited %ss for %s: %s\n' \
+        "$budget" "$description" "$SETTLE_REASON" >&2
+      return 1
+    fi
+    sleep "$SETTLE_INTERVAL_SECONDS"
+  done
+}
+
+supervisor_is_running() {
+  if systemctl is-failed --quiet factory-supervisor.service; then
+    SETTLE_REASON='factory-supervisor.service has failed'
+    return 2
+  fi
+  if ! systemctl is-active --quiet factory-supervisor.service; then
+    SETTLE_REASON='factory-supervisor.service is not active yet'
+    return 1
+  fi
+}
+
+# True when one of the listed 32-hex child instances owns this resource name.
+# A job directory is the instance itself; patchyard-child-launcher names the
+# network resources for the instance's first eight characters.
+child_owns() {
+  local name=$2 id
+  local -a instances
+  read -ra instances <<<"$1"
+  # No listed child owns anything; an empty array is not indexable under set -u.
+  ((${#instances[@]} > 0)) || return 1
+  for id in "${instances[@]}"; do
+    case "$name" in
+      "$id" | "efn${id:0:8}" | "eta_child_${id:0:8}") return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# Names every isolated-child resource that no listed child unit owns.
+unowned_child_resources() {
+  local ids=$1 entries namespaces tables entry name
+
+  entries=$(find "$CHILD_RUNTIME_ROOT" -mindepth 1 -maxdepth 1) || return 2
+  namespaces=$(ip netns list) || return 2
+  tables=$(nft list tables) || return 2
+
+  while IFS= read -r entry; do
+    [[ -n "$entry" ]] || continue
+    name=${entry##*/}
+    child_owns "$ids" "$name" || printf '%s\n' "$name"
+  done <<<"$entries"
+
+  while read -r name _; do
+    [[ "$name" =~ ^efn[0-9a-f]{8}$ ]] || continue
+    child_owns "$ids" "$name" || printf '%s\n' "$name"
+  done <<<"$namespaces"
+
+  while read -r _ _ name _; do
+    [[ "$name" =~ ^eta_child_[0-9a-f]{8}$ ]] || continue
+    child_owns "$ids" "$name" || printf '%s\n' "$name"
+  done <<<"$tables"
+}
+
+child_isolation_is_settled() {
+  local failed units ids unowned staging forward network_marker name
+
+  failed=$(systemctl list-units --failed --plain --no-legend \
+    'patchyard-child@*.service') || return 2
+  if [[ -n "$failed" ]]; then
+    SETTLE_REASON="isolated-child units have failed: ${failed//$'\n'/; }"
+    return 2
+  fi
+
+  units=$(systemctl list-units 'patchyard-child@*' --all --plain \
+    --no-legend) || return 2
+  ids=
+  while read -r name _; do
+    [[ -n "$name" ]] || continue
+    if [[ ! "$name" =~ ^patchyard-child@([0-9a-f]{32})\.service$ ]]; then
+      SETTLE_REASON="unrecognized isolated-child unit: $name"
+      return 2
+    fi
+    ids+="${BASH_REMATCH[1]} "
+  done <<<"$units"
+
+  unowned=$(unowned_child_resources "$ids") || return 2
+  if [[ -n "$unowned" ]]; then
+    SETTLE_REASON="isolated-child resources without a live owner: \
+${unowned//$'\n'/; }"
+    return 1
+  fi
+
+  staging=$(find "$EVIDENCE_RUNTIME_ROOT" -mindepth 1 -print -quit) || return 2
+  if [[ -n "$staging" ]]; then
+    SETTLE_REASON='evidence qualification staging is not empty'
+    return 1
+  fi
+
+  # A live child owns forwarding for its run and its reaper restores the
+  # non-router baseline; only a 1 no child owns is a finding.
+  forward=$(sysctl -n net.ipv4.ip_forward) || return 2
+  network_marker=$(find "$CHILD_RUNTIME_ROOT" -mindepth 2 -maxdepth 2 \
+    -name .network-active -print -quit) || return 2
+  if [[ "$forward" != 0 && -z "$network_marker" ]]; then
+    SETTLE_REASON="net.ipv4.ip_forward is $forward with no live isolated child"
+    return 1
+  fi
+}
+# <<< settle contract
+
+settle 'the factory supervisor to be running' supervisor_is_running
 test "$(runuser -u factory-manager -- git -C /opt/patchyard rev-parse HEAD)" = \
   "$EXPECTED_REVISION"
 
@@ -48,6 +201,13 @@ grep -Fxq 'RestrictNamespaces=~user' \
   /etc/systemd/system/patchyard-child@.service
 grep -Fxq 'ExecStopPost=/usr/local/sbin/patchyard-reap-child %i' \
   /etc/systemd/system/patchyard-child@.service
+# Refusing to wait for an in-flight child rests on systemd bounding every child
+# run, so a genuinely stuck one becomes a failed unit the qualifier refuses.
+# Both bounds must be explicit and finite; systemd's own default is infinity.
+grep -Eq '^TimeoutStartSec=[0-9]+(s|min)$' \
+  /etc/systemd/system/patchyard-child@.service
+grep -Eq '^TimeoutStopSec=[0-9]+(s|min)$' \
+  /etc/systemd/system/patchyard-child@.service
 grep -Fq '/^patchyard-child@[0-9a-f]{32}\.service$/' \
   /etc/polkit-1/rules.d/49-patchyard-child.rules
 test "$(systemctl show factory-evidence-qualification.service \
@@ -59,13 +219,7 @@ test "$(systemctl show factory-evidence-qualification.service \
 test "$(systemctl show factory-evidence-qualification.service \
   --property=RestrictAddressFamilies --value)" = AF_UNIX
 
-test -z "$(systemctl list-units 'patchyard-child@*' --all --no-legend)"
-test -z "$(find /run/patchyard-children -mindepth 1 -print -quit)"
-test -z "$(find /run/patchyard-evidence-qualification \
-  -mindepth 1 -print -quit)"
-! ip netns list | awk '{print $1}' | grep -Eq '^efn[0-9a-f]{8}$'
-! nft list tables | grep -Eq '^table inet eta_child_[0-9a-f]{8}$'
-test "$(sysctl -n net.ipv4.ip_forward)" = 0
+settle 'isolated-child teardown' child_isolation_is_settled
 grep -Eq '^net\.ipv4\.ip_forward[[:space:]]*=[[:space:]]*0$' \
   /etc/sysctl.d/90-patchyard-child.conf
 

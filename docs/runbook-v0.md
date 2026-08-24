@@ -130,6 +130,17 @@ The second normal converge must show `changed=0` for both durable hosts. A
 check-mode difference is drift; inspect and encode the repair rather than
 editing the host.
 
+Session 13 qualification waits for the two states a working control plane
+passes through rather than sampling them once: the supervisor restarting under
+a converge handler, and isolated children the supervisor legitimately has in
+flight. A converge may therefore pause briefly inside qualification, and a
+supervisor that is actively processing work qualifies without draining its
+queue. Because the wait is the qualifier's own, a Session 13 qualification
+failure is a finding to investigate, never something to re-run past: a failed
+child unit, an unrecognized child unit name, or a failed supervisor is refused
+immediately, and isolation residue no live child owns fails once the wait
+expires.
+
 ### A-14 rotation and expiring-dependency inventory
 
 This inventory contains no credential values. Rotation means creating or

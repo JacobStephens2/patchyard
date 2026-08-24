@@ -1830,6 +1830,15 @@
     group: "{{ factory_manager_user }}"
     mode: "0750"
 
+- name: Install the Session 9 worker request render
+  ansible.builtin.copy:
+    src: patchyard-render-request
+    dest: /usr/local/sbin/patchyard-render-request
+    owner: "{{ factory_manager_user }}"
+    group: "{{ factory_manager_user }}"
+    mode: "0750"
+  notify: Restart factory supervisor
+
 - name: Install the state-derived Session 9 worker transport
   ansible.builtin.template:
     src: "{{ item }}.j2"

@@ -37,6 +37,7 @@ run_gate shellcheck --exclude=SC2329 --shell=bash \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-spawn-child" \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-cancel-child" \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-request-seat-bearer" \
+  "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-render-request" \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-run-session14-qualification" \
   "$REPO_ROOT/worker/qualification/patchyard-run-anthropic-issuance" \
   "$ANSIBLE_ROOT/roles/control_plane/files/patchyard-stage-session14-qualification" \
@@ -81,6 +82,7 @@ TEST_FILES=(
   infra/ansible/tests/test_openai_control_plane_lifecycle.py
   infra/ansible/tests/test_openai_wif_issuance.py
   infra/ansible/tests/test_preview_capability_deployment.py
+  infra/ansible/tests/test_repair_brief_render.py
   infra/ansible/tests/test_replace_worker.py
   infra/ansible/tests/test_repository_copy.py
   infra/ansible/tests/test_session13_settle.py

@@ -154,7 +154,11 @@ authority="none">` block introduced as data rather than instructions. A
 verifier's output is an untrusted channel like any other tool stdout (F2 in
 [`agent-content-trust.md`](agent-content-trust.md)), and this one is now the
 only variable text in that file - it is labeled and stripped so it cannot forge
-structure in the brief it is quoted into.
+structure in the brief it is quoted into. That render is
+`patchyard-render-request`, executed by
+`infra/ansible/tests/test_repair_brief_render.py`; why it lives on the control
+plane rather than in the supervisor is recorded in
+[`session-9-pipeline.md`](session-9-pipeline.md).
 
 `verifier_reason_missing` names a breach of this contract, not a healthy
 failure. It does not change the disposition of the patch, which has already

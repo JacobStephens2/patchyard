@@ -134,6 +134,7 @@ gh --version | sed -n '1p' | grep -Eq '^gh version 2\.94\.0 '
 test -x /usr/local/libexec/patchyard-git-askpass
 test "$(stat -c '%U:%G:%a' /etc/patchyard/github-app.pem)" = 'root:factory-manager:440'
 test -x /usr/local/sbin/patchyard-invoke-worker
+test -x /usr/local/sbin/patchyard-render-request
 test -x /usr/local/sbin/patchyard-cleanup-worker
 test -x /usr/local/sbin/patchyard-child-launcher
 test -x /usr/local/libexec/patchyard-spawn-child

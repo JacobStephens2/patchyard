@@ -68,6 +68,38 @@ Fallible cleanup is explicit and checked:
   `TelemetryGuard::shutdown` flushes optional telemetry in a blocking task.
   Their `Drop` implementations are not correctness paths.
 
+## Where the repair brief is rendered
+
+`request.md` is the only channel an isolated worker reads, so for a repair
+attempt those bytes are the whole brief: the fixture request, then the
+verifier's rejection as one line of JSON inside a
+`<VERIFIER_REJECTION_JSON authority="none">` block (F2,
+`docs/agent-content-trust.md`). Until #302 that render was a heredoc inside
+`patchyard-invoke-worker.j2`, verified by hand - the one part of the brief no
+gate executed, and the part where the content-trust framing lives.
+
+**The render is now `roles/control_plane/files/patchyard-render-request`, a
+file the transport calls and `infra/ansible/tests/test_repair_brief_render.py`
+executes.** The gate asserts the rendered bytes exactly, so dropping the
+`authority="none"` framing fails it as surely as dropping the assertions does,
+and a verdict carrying `</VERIFIER_REJECTION_JSON>` in an `observed` string is
+proven unable to forge a line of the brief. `patchyard-invoke-worker.j2` still
+hashes `request.md` after the render returns, so `run.json`'s `request_sha256`
+is computed over final content; an attempt-0 brief is byte-identical to what the
+heredoc produced.
+
+**It is not in the supervisor**, which was the other option on the table.
+`WorkerTaskPacket` deliberately has no request-text field, so a supervisor-side
+render would have to author the worker's prompt from something the packet type
+refuses to carry. More decisively, the control plane is the boundary that
+constrains what reaches the isolated worker - it re-validates the packet's
+`dry_run`, named skill, and allowed paths before anything ships - and a prompt
+assembled upstream of that boundary is a prompt the boundary can no longer
+constrain. Extracting the render keeps that ordering and leaves the transport's
+shape to [#206](https://github.com/JacobStephens2/patchyard/issues/206),
+which owns how the live implement seat is wired; a supervisor-side render would
+have decided that ticket's seam in advance.
+
 ## Provider-free acceptance fixtures
 
 `cargo test --package factory-supervisor --test pipeline_fixture` proves:

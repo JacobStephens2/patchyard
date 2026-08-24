@@ -17,6 +17,9 @@ test -r "$task"
 jq -e '.dry_run | type == "boolean"' "$task" >/dev/null
 jq -e 'has("untrusted_request") | not' "$task" >/dev/null
 mkdir -m 700 -- "$output"
+# Keep the packet this attempt was actually given, so a test can assert what a
+# repair run was told rather than what the supervisor meant to tell it.
+cp -- "$task" "$fixture_root/task-a$(jq -r .attempt "$task").json"
 cp -- "$fixture_root/alphabetize.patch" "$output/change.patch"
 printf '%s\n' 'Applied the typed sorted-permutation task.' >"$output/rationale.txt"
 printf '%s\n' '{"schema_version":1,"claims":[{"id":"sorted-permutation","assertion":"Labels are sorted and values preserved","evidence_ref":"verify-evidence"}],"usage":{"input_tokens":29,"output_tokens":31,"cost_microusd":0}}' >"$output/evidence.json"

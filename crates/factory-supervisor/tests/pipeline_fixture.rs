@@ -364,6 +364,7 @@ struct Fixture {
     store: MemoryStore,
     request_id: Uuid,
     artifact_root: PathBuf,
+    worker_fixture_root: PathBuf,
     worker_program: PathBuf,
     worker_cleanup_log: PathBuf,
 }
@@ -579,6 +580,7 @@ impl Fixture {
             store,
             request_id,
             artifact_root,
+            worker_fixture_root,
             worker_program,
             worker_cleanup_log,
         }
@@ -598,6 +600,17 @@ impl Fixture {
             .await
             .expect("persisted verify evidence");
         serde_json::from_slice(&bytes).expect("the verdict is JSON")
+    }
+
+    /// The task packet an attempt was actually handed, as the worker saw it.
+    async fn task_packet(&self, attempt: u8) -> Option<Value> {
+        let bytes = tokio::fs::read(
+            self.worker_fixture_root
+                .join(format!("task-a{attempt}.json")),
+        )
+        .await
+        .ok()?;
+        Some(serde_json::from_slice(&bytes).expect("the packet is JSON"))
     }
 
     async fn run(&self) -> PipelineOutcome {
@@ -865,7 +878,43 @@ async fn one_repair_loop_exhaustion_escalates_after_two_verifier_attempts() {
         snapshot.events.last().expect("terminal").payload["attempts"],
         2
     );
+    assert_eq!(
+        snapshot.events.last().expect("terminal").payload["reason_code"],
+        "deterministic_verifier_failed",
+        "an exhausted run says it ran out of attempts on a repairable failure"
+    );
     assert!(snapshot.released);
+}
+
+/// The repair attempt is only worth its live implement run if the model is told
+/// what failed. On request bb995b19 it was told nothing and returned the
+/// byte-identical patch.
+#[tokio::test]
+async fn the_repair_attempt_is_handed_the_assertions_that_failed() {
+    let fixture = Fixture::build("review-stub", "verifier-fail-stub", 1).await;
+    assert!(matches!(
+        fixture.run().await,
+        PipelineOutcome::Escalated { .. }
+    ));
+
+    let repair = fixture.task_packet(1).await.expect("a repair attempt ran");
+    let failure = &repair["verify_failure"];
+    assert_eq!(failure["reason_code"], "deterministic_verifier_failed");
+    assert_eq!(failure["gate"], "fixture-repair-exhaustion");
+    assert_eq!(failure["attempt"], 0);
+    assert_eq!(
+        failure["failures"][0]["assertion"], "fixture_always_rejects",
+        "the repair attempt is told which assertion rejected its patch"
+    );
+    assert_eq!(
+        failure["failures"][0]["observed"],
+        "this fixture accepts none"
+    );
+    assert_eq!(failure["failures_truncated"], false);
+    assert!(
+        failure["evidence_artifact"].is_string(),
+        "the full verdict remains reachable as an artifact"
+    );
 }
 
 #[tokio::test]
@@ -911,6 +960,82 @@ async fn a_reason_less_rejection_preserves_what_the_verifier_emitted() {
             .contains("no match for mfieldbook/leads/assign.php"),
         "the only account of the rejection is carried, not discarded"
     );
+}
+
+/// The second live implement run request bb995b19 spent. A failure the model
+/// cannot see is a failure it cannot fix, so the run escalates on one attempt.
+#[tokio::test]
+async fn a_reason_less_rejection_costs_one_implement_run_rather_than_two() {
+    let fixture = Fixture::build("review-stub", "verifier-silent-fail-stub", 1).await;
+    let outcome = fixture.run().await;
+    assert!(
+        matches!(
+            &outcome,
+            PipelineOutcome::Escalated { reason, .. } if reason == "verify_not_repairable"
+        ),
+        "unexpected outcome: {outcome:?}"
+    );
+
+    let snapshot = fixture.store.snapshot();
+    assert_eq!(
+        snapshot
+            .events
+            .iter()
+            .filter(|event| event.event_type == "verify.started")
+            .count(),
+        1
+    );
+    assert!(
+        !snapshot
+            .events
+            .iter()
+            .any(|event| event.event_type == "repair.queued"),
+        "no repair is queued against a failure that states nothing"
+    );
+    assert!(
+        fixture.task_packet(1).await.is_none(),
+        "no second worker run"
+    );
+    let terminal = snapshot.events.last().expect("terminal");
+    assert_eq!(terminal.event_type, "repair.not_attempted");
+    assert_eq!(terminal.payload["attempts"], 1);
+    assert_eq!(terminal.payload["reason_code"], "verifier_reason_missing");
+    assert!(snapshot.released);
+}
+
+/// A verifier that rejected the task's shape rejected something no better patch
+/// can answer, so the escalation says it was never repairable rather than that
+/// it ran out of attempts.
+#[tokio::test]
+async fn a_task_shape_rejection_escalates_without_a_repair_attempt() {
+    let fixture = Fixture::build("review-stub", "verifier-task-reject-stub", 1).await;
+    let outcome = fixture.run().await;
+    assert!(
+        matches!(
+            &outcome,
+            PipelineOutcome::Escalated { reason, .. } if reason == "verify_not_repairable"
+        ),
+        "unexpected outcome: {outcome:?}"
+    );
+
+    let snapshot = fixture.store.snapshot();
+    assert!(
+        fixture.task_packet(1).await.is_none(),
+        "no second worker run"
+    );
+    let terminal = snapshot.events.last().expect("terminal");
+    assert_eq!(terminal.event_type, "repair.not_attempted");
+    assert_eq!(terminal.payload["reason_code"], "verifier_rejected_task");
+    assert_eq!(
+        terminal.payload["gate"], "lane-a-eligibility",
+        "the escalation names the gate that rejected the task"
+    );
+    assert_eq!(
+        fixture.first_verify_verdict().await["rejects"],
+        "task",
+        "the verdict that decided it stays on the run"
+    );
+    assert!(snapshot.released);
 }
 
 #[tokio::test]

@@ -91,26 +91,70 @@ verdict the supervisor is left with carries no reason at all. Collect the failed
 assertions and write them; do not let the shell terminate the program on the
 first one.
 
-`fixtures/pipeline/bin/verifier-stub` is the worked example of the shape, and
-`verifier-silent-fail-stub` is the deliberate breach the supervisor is tested
+`fixtures/pipeline/bin/verifier-stub` is the worked example of the shape,
+`verifier-task-reject-stub` the worked example of a task-shape rejection, and
+`verifier-silent-fail-stub` the deliberate breach the supervisor is tested
 against.
+
+**A rejection says what it rejected.** An optional `rejects` field names the
+subject: `"patch"` (the default when the field is absent) means a different
+patch could satisfy this gate; `"task"` means the task's own shape was rejected -
+it is over-cap, it names a denied path, its acceptance check is not statable -
+and no patch the task can produce will pass. Set it to `"task"` only when that
+is true, because it ends the run.
 
 ### What the supervisor does with a rejection
 
 `ProcessVerifierBackend::verify` reads the reason rather than trusting the exit
-code alone, and distinguishes three outcomes in `VerifyResult::reason_code`:
+code alone. Exit 0 is a pass; a non-zero exit becomes a `VerifyRejection`
+carrying one of four reason codes:
 
-| Outcome | `reason_code` |
-| --- | --- |
-| exit 0 | `pass` |
-| exit non-zero, verdict states a reason | `deterministic_verifier_failed` |
-| exit non-zero, verdict states no reason | `verifier_reason_missing` |
+| Outcome | `reason_code` | Repair attempt |
+| --- | --- | --- |
+| verdict states a reason, rejects the patch | `deterministic_verifier_failed` | spent |
+| verdict states a reason, rejects the task | `verifier_rejected_task` | not spent |
+| verdict states a reason, `rejects` unrecognized | `verifier_rejection_subject_unknown` | not spent |
+| verdict states no reason | `verifier_reason_missing` | not spent |
 
 A verifier that wrote no `evidence.json` gets a synthesized verdict instead of
 an empty one: `synthesized: true`, the exit code, and whatever the process put
 on stdout and stderr, each bounded at 16 KiB with a `_truncated` flag. The
 untruncated streams remain in the run's `transcript.log`. This is the only
 account of such a rejection that exists, so it is carried rather than discarded.
+
+### The one repair attempt, and when it is worth spending
+
+The repair attempt is a second live implement run: another bundle, another
+bearer, another provider bill. It is spent only on a rejection that
+affirmatively states its assertions *and* affirmatively rejects the patch.
+Request `bb995b19` spent one on neither - the verifier rejected a correct patch
+and preserved no reason - and the run returned the byte-identical patch, which
+is the only thing a model asked to fix an undisclosed failure can do.
+
+So an unrepairable rejection escalates on one attempt rather than two. Both
+escalations name themselves in the run's terminal event, because "ran out of
+attempts" and "was never repairable" are different things to read in a ledger:
+
+| Terminal event | `reason` | Attempts |
+| --- | --- | --- |
+| `repair.exhausted` | `repair_exhausted` | 2 |
+| `repair.not_attempted` | `verify_not_repairable` | 1 |
+
+Both payloads carry the `reason_code` that decided it, and `repair.not_attempted`
+also carries the `gate`.
+
+When the attempt *is* spent, it is handed what failed. The `verify_failure` on
+the repair packet carries the gate, the reason code, the artifact holding the
+full verdict, and the stated assertions themselves - at most 20 of them, each
+field at most 2 KiB and stripped of control characters, with
+`failures_truncated` set when the list was cut. The control plane appends that
+object to the worker's `request.md`, which is the only channel the isolated
+worker reads, as one line of JSON inside a `<VERIFIER_REJECTION_JSON
+authority="none">` block introduced as data rather than instructions. A
+verifier's output is an untrusted channel like any other tool stdout (F2 in
+[`agent-content-trust.md`](agent-content-trust.md)), and this one is now the
+only variable text in that file - it is labeled and stripped so it cannot forge
+structure in the brief it is quoted into.
 
 `verifier_reason_missing` names a breach of this contract, not a healthy
 failure. It does not change the disposition of the patch, which has already

@@ -1,0 +1,10 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+# Rejects the shape of the task rather than the quality of the patch: no patch
+# this task can produce is acceptable, so no repair attempt is worth spending.
+output=$5
+mkdir -m 700 -- "$output"
+printf '%s\n' '{"schema_version":1,"status":"failed","gate":"lane-a-eligibility","rejects":"task","failures":[{"assertion":"acceptance_check_is_deterministic","expected":"a statable deterministic acceptance check","observed":"the task states none"}],"publish_invoked":false}' >"$output/evidence.json"
+printf 'deterministic verifier fixture rejected the task shape\n' >&2
+exit 1

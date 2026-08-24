@@ -86,7 +86,11 @@ Fallible cleanup is explicit and checked:
 - a blocking finding flows through typed author disposition to the third-family
   arbitration stub and escalates.
 - a verifier that fails twice gets one repair only, then terminal
-  `repair.exhausted` escalation.
+  `repair.exhausted` escalation, and that repair attempt is handed the
+  assertions the verdict named.
+- a rejection the model cannot act on - one stating no reason, or one rejecting
+  the task's shape rather than the patch - escalates on the first attempt with
+  terminal `repair.not_attempted`, spending no second implement run.
 - restart replay completes after the fixture removes the worker executable,
   proving that the durable result is recovered without a second invocation.
 

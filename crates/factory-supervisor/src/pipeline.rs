@@ -36,7 +36,7 @@ use crate::{
     review::{ReviewError, SandboxedReviewer},
     stages::{
         ProcessAgentBackend, ProcessVerifierBackend, ProcessWorkerBackend, StageError,
-        read_bounded_file,
+        VerifyRejection, read_bounded_file,
     },
     store::{ExistingRun, PipelineStore, SideEffectDisposition, StoreError, WorkClaim},
     worktree::{
@@ -406,6 +406,7 @@ impl<S: PipelineStore> Pipeline<S> {
         cancellation: &CancellationToken,
     ) -> Result<PipelineOutcome, PipelineError> {
         let mut failure = None;
+        let mut exhausted = None;
         for attempt in 0..=1 {
             let task_packet = WorkerTaskPacket {
                 schema_version: 1,
@@ -490,20 +491,15 @@ impl<S: PipelineStore> Pipeline<S> {
                 )
                 .await?
             {
-                let reason = "review_dispute_requires_third_family".to_owned();
-                self.store
-                    .finish_run(
+                return self
+                    .escalate(
                         claim.request_id,
                         run.id,
-                        "escalated",
                         "run.escalated",
-                        serde_json::json!({"reason": reason, "dry_run": true, "publish_invoked": false}),
+                        "review_dispute_requires_third_family",
+                        serde_json::json!({"dry_run": true}),
                     )
-                    .await?;
-                return Ok(PipelineOutcome::Escalated {
-                    run_id: run.id,
-                    reason,
-                });
+                    .await;
             }
 
             let verify = self
@@ -516,7 +512,7 @@ impl<S: PipelineStore> Pipeline<S> {
                     cancellation,
                 )
                 .await?;
-            if verify.passed {
+            let Some(rejection) = verify.rejection else {
                 if self.config.mode == RunMode::DryRun {
                     self.store
                         .finish_run(
@@ -578,14 +574,35 @@ impl<S: PipelineStore> Pipeline<S> {
                 return self
                     .publish_durable(&input, attempt + 1, cancellation)
                     .await;
+            };
+            if attempt == 0 && !rejection.repairable {
+                // The repair attempt is a second live implement run. Spending
+                // it on a rejection the model cannot act on - one that states
+                // no assertion, or one that rejects the task rather than the
+                // patch - buys a byte-identical patch and a second bill.
+                return self
+                    .escalate(
+                        claim.request_id,
+                        run.id,
+                        "repair.not_attempted",
+                        "verify_not_repairable",
+                        serde_json::json!({
+                            "attempts": 1,
+                            "reason_code": rejection.reason_code,
+                            "gate": rejection.gate,
+                        }),
+                    )
+                    .await;
             }
             if attempt == 0 {
                 failure = Some(VerifyFailure {
                     schema_version: 1,
                     attempt,
-                    gate: "deterministic_verifier".to_owned(),
-                    reason_code: verify.reason_code,
+                    gate: rejection.gate,
+                    reason_code: rejection.reason_code.to_owned(),
                     evidence_artifact: verify.evidence.relative_path,
+                    failures: rejection.failures,
+                    failures_truncated: rejection.failures_truncated,
                 });
                 self.store
                     .transition_run(
@@ -597,21 +614,41 @@ impl<S: PipelineStore> Pipeline<S> {
                         serde_json::json!({"attempt": 1}),
                     )
                     .await?;
+            } else {
+                exhausted = Some(rejection.reason_code);
             }
         }
-        let reason = "repair_exhausted".to_owned();
+        self.escalate(
+            claim.request_id,
+            run.id,
+            "repair.exhausted",
+            "repair_exhausted",
+            serde_json::json!({"attempts": 2, "reason_code": exhausted}),
+        )
+        .await
+    }
+
+    /// End the run at the human escalation boundary. Every escalation says the
+    /// same two things - it escalated, and it published nothing - and then the
+    /// facts particular to why.
+    async fn escalate(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+        event: &str,
+        reason: &str,
+        facts: serde_json::Value,
+    ) -> Result<PipelineOutcome, PipelineError> {
+        let mut payload = serde_json::json!({"reason": reason, "publish_invoked": false});
+        if let (Some(base), Some(facts)) = (payload.as_object_mut(), facts.as_object()) {
+            base.extend(facts.clone());
+        }
         self.store
-            .finish_run(
-                claim.request_id,
-                run.id,
-                "escalated",
-                "repair.exhausted",
-                serde_json::json!({"reason": reason, "attempts": 2, "publish_invoked": false}),
-            )
+            .finish_run(request_id, run_id, "escalated", event, payload)
             .await?;
         Ok(PipelineOutcome::Escalated {
-            run_id: run.id,
-            reason,
+            run_id,
+            reason: reason.to_owned(),
         })
     }
 
@@ -1077,9 +1114,10 @@ impl<S: PipelineStore> Pipeline<S> {
                 cancellation,
             )
             .await?;
+        let passed = result.rejection.is_none();
         observability::record_stage(
             "verify",
-            if result.passed { "success" } else { "failed" },
+            if passed { "success" } else { "failed" },
             started.elapsed(),
         );
         let evidence = self
@@ -1106,14 +1144,13 @@ impl<S: PipelineStore> Pipeline<S> {
         self.store.transition_run(
             request_id,
             run_id,
-            if result.passed { "verify.passed" } else { "verify.failed" },
+            if passed { "verify.passed" } else { "verify.failed" },
             "verifying",
             &format!("verify:{run_id}:{attempt}:complete"),
-            serde_json::json!({"attempt": attempt, "passed": result.passed, "evidence": evidence.relative_path}),
+            serde_json::json!({"attempt": attempt, "passed": passed, "evidence": evidence.relative_path}),
         ).await?;
         Ok(PersistedVerify {
-            passed: result.passed,
-            reason_code: result.reason_code,
+            rejection: result.rejection,
             evidence,
         })
     }
@@ -1351,8 +1388,8 @@ struct PersistedWorker {
 }
 
 struct PersistedVerify {
-    passed: bool,
-    reason_code: String,
+    /// `None` is the pass; there is no second flag to contradict it.
+    rejection: Option<VerifyRejection>,
     evidence: StoredArtifact,
 }
 

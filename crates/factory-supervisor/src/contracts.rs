@@ -185,7 +185,25 @@ pub struct ArbitrationArtifact {
     pub usage: InvocationUsage,
 }
 
+/// One assertion the deterministic verifier rejected, as its verdict stated it.
+///
+/// This is the whole content of a repair attempt's brief. A repair run that
+/// carries no `VerifyFailureDetail` is a run asked to fix a failure it has been
+/// told nothing about, which is why an unrepairable rejection never gets one.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct VerifyFailureDetail {
+    pub assertion: String,
+    pub expected: String,
+    pub observed: String,
+}
+
 /// Typed verifier failure supplied to the sole repair attempt.
+///
+/// `failures` is bounded on both axes: at most [`MAX_CARRIED_FAILURES`] entries,
+/// each field at most [`MAX_FAILURE_FIELD_BYTES`]. The packet is an instruction
+/// channel, not a transcript bus, and a verdict is untrusted enough to be worth
+/// bounding even though the factory produced it.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct VerifyFailure {
@@ -194,7 +212,15 @@ pub struct VerifyFailure {
     pub gate: String,
     pub reason_code: String,
     pub evidence_artifact: String,
+    pub failures: Vec<VerifyFailureDetail>,
+    pub failures_truncated: bool,
 }
+
+/// Cap on the assertions carried into a repair packet.
+pub const MAX_CARRIED_FAILURES: usize = 20;
+
+/// Cap on each carried assertion string.
+pub const MAX_FAILURE_FIELD_BYTES: usize = 2 * 1024;
 
 #[cfg(test)]
 mod tests {

@@ -6,9 +6,9 @@ import os
 from pathlib import Path
 import py_compile
 import re
-import shutil
 import subprocess
 import tempfile
+import types
 import unittest
 
 
@@ -21,6 +21,23 @@ MANAGEMENT_SSH_TEMPLATE = (
     / "infra/ansible/roles/control_plane/templates/patchyard-management-ssh.j2"
 )
 CENSUS_FILE = ROOT / "policy/a101-census.sha256"
+
+
+def load_repository_copy() -> types.ModuleType:
+    """Load the shared repository-copy helper beside this test.
+
+    The isolated runner executes each test file under a synthetic module name
+    with no repository path on `sys.path`, so a sibling helper is loaded the
+    same way the tools under test are.
+    """
+    path = Path(__file__).with_name("repository_copy.py")
+    specification = importlib.util.spec_from_file_location("repository_copy", path)
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
+
+
+REPOSITORY_COPY = load_repository_copy()
 
 
 def census_rows(census: Path) -> tuple[tuple[str, str], ...]:
@@ -69,13 +86,7 @@ class A101ReadinessTrustRootContract(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.repo = Path(self.temp.name) / "repo"
-        shutil.copytree(
-            ROOT,
-            self.repo,
-            ignore=shutil.ignore_patterns(
-                ".git", ".terraform", ".venv", "target", "node_modules", "__pycache__"
-            ),
-        )
+        REPOSITORY_COPY.copy_repository(self.repo, ROOT)
 
     def run_root(self, *, isolated: bool = True) -> subprocess.CompletedProcess[str]:
         command = ["python3"]

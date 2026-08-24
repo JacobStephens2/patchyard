@@ -1,12 +1,32 @@
 import hashlib
+import importlib.util
 import json
 import pathlib
 import shlex
 import subprocess
+import tempfile
+import types
 import unittest
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
+
+
+def load_repository_copy() -> types.ModuleType:
+    """Load the shared repository-copy helper beside this test.
+
+    The isolated runner executes each test file under a synthetic module name
+    with no repository path on `sys.path`, so a sibling helper is loaded the
+    same way the tools under test are.
+    """
+    path = pathlib.Path(__file__).with_name("repository_copy.py")
+    specification = importlib.util.spec_from_file_location("repository_copy", path)
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
+
+
+REPOSITORY_COPY = load_repository_copy()
 
 
 class AnthropicIssuanceContract(unittest.TestCase):
@@ -132,24 +152,9 @@ class AnthropicIssuanceContract(unittest.TestCase):
         self.assertLess(block_probe, mount)
 
     def test_issuance_checker_rejects_an_extra_guest_network_client(self) -> None:
-        import shutil
-        import tempfile
-
         with tempfile.TemporaryDirectory() as directory:
-            root = pathlib.Path(directory) / "repo"
-            shutil.copytree(
-                ROOT,
-                root,
-                # Gitignored build state (OpenTofu providers alone are ~900MB
-                # after init) must stay out of the copy or the copy pays for it.
-                ignore=shutil.ignore_patterns(
-                    ".git",
-                    ".terraform",
-                    ".venv",
-                    "target",
-                    "node_modules",
-                    "__pycache__",
-                ),
+            root = REPOSITORY_COPY.copy_repository(
+                pathlib.Path(directory) / "repo", ROOT
             )
             result_path = (
                 root

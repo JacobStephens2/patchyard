@@ -2,11 +2,11 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
+import importlib.util
 import io
 import json
 import pathlib
 import re
-import shutil
 import subprocess
 import tempfile
 import types
@@ -14,11 +14,25 @@ import unittest
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
-# Gitignored build state (OpenTofu providers alone are ~900MB after init)
-# must stay out of repository copies or every copy pays for it.
-REPO_COPY_IGNORE = shutil.ignore_patterns(
-    ".git", ".terraform", ".venv", "target", "node_modules", "__pycache__"
-)
+
+
+def load_repository_copy() -> types.ModuleType:
+    """Load the shared repository-copy helper beside this test.
+
+    The isolated runner executes each test file under a synthetic module name
+    with no repository path on `sys.path`, so a sibling helper is loaded the
+    same way the tools under test are.
+    """
+    path = pathlib.Path(__file__).with_name("repository_copy.py")
+    specification = importlib.util.spec_from_file_location("repository_copy", path)
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
+
+
+REPOSITORY_COPY = load_repository_copy()
+
+
 EXPECTED_LAUNCHER_SOURCE_SHA256 = (
     "60b71fb24ce3c47b9b62bdece7166dd0c622a1830fb21d673db8830acf133e3f"
 )
@@ -32,7 +46,7 @@ EXPECTED_WORKER_TASKS_SOURCE_SHA256 = (
     "c25939a292c40ba750b4fbcc57dda4e3c04d4d2b810dfd467ad3b33469dec915"
 )
 EXPECTED_CHECKER_SOURCE_SHA256 = (
-    "2d00fc32265d1020e99d8985e577185e6f1a158098b29597fde0715bd7fb8999"
+    "f5f4c7c261183a6ceae54ea73bd2cb02882fce3d110e8ab97641222551c3a56f"
 )
 EXPECTED_READINESS_HELPER_SOURCE_SHA256 = (
     "5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba"
@@ -41,10 +55,10 @@ EXPECTED_REPLACEMENT_OPERATOR_SOURCE_SHA256 = (
     "27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e"
 )
 EXPECTED_ANSIBLE_WRAPPER_SOURCE_SHA256 = (
-    "edba1e49529cebb3e701bdbe4cfd673ce2b76510c4d9ba3d00a2c3f128be83d3"
+    "6ab238bb0e4e675dce24cf646c84a637db77a16cc2cc8d2bd9e446ebca633411"
 )
 EXPECTED_READINESS_TEST_SOURCE_SHA256 = (
-    "fccaf7ae72877193abcc1126554c838805c118b6f377b1d4399d5a8c943b498a"
+    "fc2ed0f2ccb1b02676a8d0de4ab7a2c4a8613e5b90accb0e9fd9417676b77350"
 )
 MODULE_PATH = ROOT / "tools/anthropic-spend-evidence.py"
 EXPECTED_EVIDENCE_SOURCE_SHA256 = (
@@ -1053,8 +1067,9 @@ fi'''
         if cls._mutation_repo is None:
             directory = tempfile.TemporaryDirectory()
             cls.addClassCleanup(directory.cleanup)
-            root = pathlib.Path(directory.name) / "repo"
-            shutil.copytree(ROOT, root, ignore=REPO_COPY_IGNORE)
+            root = REPOSITORY_COPY.copy_repository(
+                pathlib.Path(directory.name) / "repo", ROOT
+            )
             cls._mutation_repo = root
         return cls._mutation_repo
 
@@ -1141,11 +1156,8 @@ fi'''
 
     def test_checker_validates_durable_a122_result_without_snapshots(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = pathlib.Path(directory) / "repo"
-            shutil.copytree(
-                ROOT,
-                root,
-                ignore=REPO_COPY_IGNORE,
+            root = REPOSITORY_COPY.copy_repository(
+                pathlib.Path(directory) / "repo", ROOT
             )
             result_path = (
                 root
@@ -1180,11 +1192,8 @@ fi'''
     def test_a142_qualified_image_inventory_permits_only_additions(self) -> None:
         """A142: additions pass; deletion and mutation of a qualified file fail."""
         with tempfile.TemporaryDirectory() as directory:
-            root = pathlib.Path(directory) / "repo"
-            shutil.copytree(
-                ROOT,
-                root,
-                ignore=REPO_COPY_IGNORE,
+            root = REPOSITORY_COPY.copy_repository(
+                pathlib.Path(directory) / "repo", ROOT
             )
             command = [
                 "python3",
@@ -1233,11 +1242,8 @@ fi'''
     def test_a143_builder_is_bound_by_its_effects_not_its_bytes(self) -> None:
         """A143: the assembler leaves the inventory; its seven installs are bound."""
         with tempfile.TemporaryDirectory() as directory:
-            root = pathlib.Path(directory) / "repo"
-            shutil.copytree(
-                ROOT,
-                root,
-                ignore=REPO_COPY_IGNORE,
+            root = REPOSITORY_COPY.copy_repository(
+                pathlib.Path(directory) / "repo", ROOT
             )
             command = [
                 "python3",

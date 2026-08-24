@@ -37,15 +37,13 @@ class ConflictClassification(unittest.TestCase):
         self.tool = load_tool()
 
     def classify(self, body: str) -> bool:
-        with tempfile.NamedTemporaryFile(
-            "w", dir=self.tool.REPO, suffix=".tmp", delete=False
-        ) as handle:
-            handle.write(body)
-            name = Path(handle.name).name
-        try:
-            return self.tool.conflict_is_digest_only(name)
-        finally:
-            (self.tool.REPO / name).unlink()
+        # The tool reads the conflicted file relative to its own REPO, so the
+        # test moves REPO rather than writing a scratch file into the real
+        # repository root, which the parallel gates share.
+        with tempfile.TemporaryDirectory() as directory:
+            self.tool.REPO = Path(directory)
+            (self.tool.REPO / "conflicted.tmp").write_text(body)
+            return self.tool.conflict_is_digest_only("conflicted.tmp")
 
     def test_hunk_differing_only_in_digests_is_resolvable(self):
         body = conflict(f'    "a": "{DIGEST_A}",', f'    "a": "{DIGEST_B}",')

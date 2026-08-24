@@ -82,6 +82,7 @@ TEST_FILES=(
   infra/ansible/tests/test_openai_wif_issuance.py
   infra/ansible/tests/test_preview_capability_deployment.py
   infra/ansible/tests/test_replace_worker.py
+  infra/ansible/tests/test_repository_copy.py
   infra/ansible/tests/test_session13_settle.py
   infra/ansible/tests/test_session14_qualification.py
   infra/ansible/tests/test_session15_proposer.py

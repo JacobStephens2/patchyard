@@ -16,6 +16,7 @@ tree holds the records it cites.
 | [`command-a-plus/`](command-a-plus/) | Command A+ × OpenCode |
 | [`long-spec-speed/`](long-spec-speed/) | Long-form DOCX-spec speed comparisons |
 | [`aa-snapshots/`](aa-snapshots/) | Artificial Analysis catalog snapshots (`tools/aa-sweep.py`) |
+| [`model-rates/`](model-rates/) | Published provider token rates for the routed seats |
 | [`isolation/`](isolation/) | Session 3 Firecracker/rootless-Podman manifest, harness, and raw probe evidence; evidence-capture browser build-vs-buy assessment |
 
 ## Conventions

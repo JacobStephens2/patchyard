@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import os
 from pathlib import Path
 import py_compile
+import re
 import shutil
 import subprocess
 import tempfile
@@ -18,77 +20,21 @@ MANAGEMENT_SSH_TEMPLATE = (
     ROOT
     / "infra/ansible/roles/control_plane/templates/patchyard-management-ssh.j2"
 )
-BOUND_SOURCE_PATHS = (
-    "infra/wait-do-worker-firewall.sh",
-    "infra/replace-worker.sh",
-    "infra/tofu.sh",
-    "infra/ansible/converge.sh",
-    "infra/ansible/qualify.sh",
-    "infra/ansible/inventory/tofu.sh",
-    "infra/ansible/roles/control_plane/templates/patchyard-management-ssh.j2",
-    "infra/tool-versions.env",
-    "tools/read-infra-tool-version.py",
-    "tools/install-shellcheck.sh",
-    "tools/check-infra.sh",
-    "tools/check-ansible.sh",
-    "tools/run-isolated-unittest.py",
-    "tools/factory_checker_runtime.py",
-    "tools/check-credential-qualification.py",
-    "tools/anthropic-spend-evidence.py",
-    "tools/anthropic-wif-admin.py",
-    "tools/anthropic-wif-lifecycle.py",
-    "tools/anthropic-wif-crash-cleanup.py",
-    "tools/anthropic-wif-lifecycle-admin.py",
-    "tools/openai-wif-issuance.py",
-    "tools/openai-wif-expiry.py",
-    "tools/openai-wif-crash-cleanup.py",
-    "tools/control-plane-attestation-v1.py",
-    "tools/openai-wif-federation-revocation.py",
-    "tools/check-openai-wif-federation-revocation.py",
-    "tools/openai-wif-signing-key-rotation.py",
-    "tools/check-openai-wif-signing-key-rotation.py",
-    "tools/check-anthropic-expiry.py",
-    "tools/check-anthropic-spend.py",
-    "tools/check-anthropic-issuance.py",
-    "tools/check-anthropic-revocation.py",
-    "tools/check-anthropic-crash-cleanup.py",
-    "tools/check-openai-wif-issuance.py",
-    "tools/check-openai-wif-expiry.py",
-    "tools/check-openai-wif-crash-cleanup.py",
-    "tools/check-independence.py",
-    "tools/check-preview-runtime.py",
-    "tools/check-stack.py",
-    "tools/check-worker-qualification.py",
-    "tools/check-worker-runtime.py",
-    "infra/ansible/tests/test_a101_readiness_root.py",
-    "infra/ansible/tests/test_freeze_graph.py",
-    "infra/ansible/tests/test_worker_firewall_readiness.py",
-    "infra/ansible/tests/test_anthropic_spend.py",
-    "infra/ansible/tests/test_anthropic_issuance.py",
-    "infra/ansible/tests/test_anthropic_lifecycle.py",
-    "infra/ansible/tests/test_anthropic_wif_admin.py",
-    "infra/ansible/tests/test_openai_wif_issuance.py",
-    "infra/ansible/tests/test_openai_control_plane_lifecycle.py",
-    "fixtures/checker-contracts/openai-federation-revocation.json",
-    "fixtures/checker-contracts/openai-signing-key-rotation.json",
-    "fixtures/checker-contracts/credential-qualification-conforming.json",
-    "fixtures/checker-contracts/credential-qualification-missing-requirements.json",
-    "infra/ansible/tests/test_child_launcher.py",
-    "infra/ansible/tests/test_cloud_init_bootstrap.py",
-    "infra/ansible/tests/test_dashboard_checkout.py",
-    "infra/ansible/tests/test_factory_checker_runtime.py",
-    "infra/ansible/tests/test_log_secret_scan.py",
-    "infra/ansible/tests/test_preview_capability_deployment.py",
-    "infra/ansible/tests/test_replace_worker.py",
-    "infra/ansible/tests/test_session14_qualification.py",
-    "infra/ansible/tests/test_session15_proposer.py",
-    "infra/ansible/tests/test_session16_cutover.py",
-    "infra/ansible/tests/test_triage_seat_deployment.py",
-    "infra/ansible/roles/control_plane/files/patchyard-log-secret-scan",
-    "infra/ansible/roles/control_plane/files/patchyard-mint-seat-bearer",
-    "infra/ansible/roles/control_plane/files/patchyard-request-seat-bearer",
-    "infra/ansible/roles/control_plane/files/patchyard-triage-seat",
-)
+CENSUS_FILE = ROOT / "policy/a101-census.sha256"
+
+
+def census_rows(census: Path) -> tuple[tuple[str, str], ...]:
+    """Read a sha256sum-format census into (path, digest) rows."""
+    rows = []
+    for line in census.read_text().splitlines():
+        digest, separator, relative = line.partition("  ")
+        if not separator or len(digest) != 64:
+            raise ValueError(f"census row is not sha256sum data: {line}")
+        rows.append((relative, digest))
+    return tuple(rows)
+
+
+BOUND_SOURCE_PATHS = tuple(relative for relative, _ in census_rows(CENSUS_FILE))
 
 
 def validate_management_probe_contract(source: str) -> None:
@@ -157,6 +103,41 @@ class A101ReadinessTrustRootContract(unittest.TestCase):
             capture_output=True,
             text=True,
         )
+
+    def write_census(self) -> subprocess.CompletedProcess[str]:
+        """The operator flow: regenerate the census, then re-pin the workflow."""
+        written = subprocess.run(
+            [
+                "python3",
+                "-I",
+                str(self.repo / "tools/check-a101-readiness-root.py"),
+                "--write-census",
+            ],
+            cwd=self.repo,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        # Exit 2 is a refusal with nothing written; anything else rewrote the
+        # census and printed the workflow pins a human then pastes in.
+        if written.returncode != 2:
+            self.repin_workflow()
+        return written
+
+    def repin_workflow(self) -> None:
+        workflow = self.repo / ".github/workflows/infrastructure.yml"
+        source = workflow.read_text()
+        for relative in (
+            "tools/check-a101-readiness-root.py",
+            "policy/a101-census.sha256",
+        ):
+            digest = hashlib.sha256((self.repo / relative).read_bytes()).hexdigest()
+            source = re.sub(
+                rf"[0-9a-f]{{64}}(  {re.escape(relative)}')",
+                rf"{digest}\1",
+                source,
+            )
+        workflow.write_text(source)
 
     def test_every_bound_source_mutation_fails(self) -> None:
         baseline = self.run_root()
@@ -240,7 +221,7 @@ class A101ReadinessTrustRootContract(unittest.TestCase):
 
         root = self.run_root()
         self.assertNotEqual(root.returncode, 0)
-        self.assertIn("unexpected infrastructure Python source: infra/__init__.py", root.stderr)
+        self.assertIn("bound A101 source is uncensused: infra/__init__.py", root.stderr)
         self.assertIn(
             "repository package initializer is forbidden: infra/ansible/tests/__init__.py",
             root.stderr,
@@ -429,7 +410,220 @@ class A101ReadinessTrustRootContract(unittest.TestCase):
         result = self.run_root()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(
-            "unexpected tools Python source: tools/unbound-executable.py",
+            "bound A101 source is uncensused: tools/unbound-executable.py",
+            result.stderr,
+        )
+
+    def test_dropping_a_census_row_fails_closed(self) -> None:
+        census = self.repo / "policy/a101-census.sha256"
+        rows = census.read_text().splitlines(keepends=True)
+        dropped = next(
+            row for row in rows if row.endswith("  tools/check-infra.sh\n")
+        )
+        census.write_text("".join(row for row in rows if row is not dropped))
+        result = self.run_root()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "bound A101 source is uncensused: tools/check-infra.sh", result.stderr
+        )
+
+    def test_census_row_without_a_governed_file_fails_closed(self) -> None:
+        census = self.repo / "policy/a101-census.sha256"
+        census.write_text(
+            census.read_text() + f"{'0' * 64}  docs/decision-log.md\n"
+        )
+        result = self.run_root()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "censused A101 source is not governed: docs/decision-log.md",
+            result.stderr,
+        )
+
+    def test_malformed_census_data_fails_closed(self) -> None:
+        census = self.repo / "policy/a101-census.sha256"
+        census.write_text(census.read_text() + "not-a-census-row\n")
+        result = self.run_root()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("A101 census row is not sha256sum data", result.stderr)
+
+    def test_missing_census_file_fails_closed(self) -> None:
+        (self.repo / "policy/a101-census.sha256").unlink()
+        result = self.run_root()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("A101 census file is missing", result.stderr)
+
+    def test_write_regenerates_the_census_for_a_declared_change(self) -> None:
+        helper = self.repo / "infra/wait-do-worker-firewall.sh"
+        helper.write_bytes(helper.read_bytes() + b"\n# declared change\n")
+        stale = self.run_root()
+        self.assertNotEqual(stale.returncode, 0)
+        self.assertIn(
+            "bound A101 source differs: infra/wait-do-worker-firewall.sh",
+            stale.stderr,
+        )
+
+        written = self.write_census()
+        self.assertNotEqual(written.returncode, 2, written.stderr)
+        self.assertIn(
+            "census re-pins infra/wait-do-worker-firewall.sh", written.stderr
+        )
+        rebound = self.run_root()
+        self.assertEqual(rebound.returncode, 0, rebound.stderr)
+
+    def test_new_tool_source_is_governed_by_the_census_it_joins(self) -> None:
+        added = self.repo / "tools/added-helper.py"
+        added.write_text("#!/usr/bin/env python3\n")
+        written = self.write_census()
+        self.assertNotEqual(written.returncode, 2, written.stderr)
+        self.assertIn("census adds tools/added-helper.py", written.stderr)
+        self.assertEqual(self.run_root().returncode, 0)
+
+        added.write_text("#!/usr/bin/env python3\n# weakened after census\n")
+        result = self.run_root()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "bound A101 source differs: tools/added-helper.py", result.stderr
+        )
+
+    def test_removing_an_infrastructure_gate_fails_closed(self) -> None:
+        wrapper = self.repo / "tools/check-infra.sh"
+        source = wrapper.read_text()
+        gate = 'run_gate python3 -I "$REPO_ROOT/tools/check-stack.py"\n'
+        self.assertIn(gate, source)
+        wrapper.write_text(source.replace(gate, "", 1))
+        # Even a fully regenerated census cannot launder a dropped gate.
+        self.write_census()
+        result = self.run_root()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn(
+            "infrastructure wrapper lacks one isolated aggregate call: "
+            "check-stack.py",
+            result.stderr,
+        )
+
+    def test_a_new_checker_must_be_gated_before_it_can_pass(self) -> None:
+        added = self.repo / "tools/check-added-gate.py"
+        added.write_text("#!/usr/bin/env python3\n")
+        blocked = self.write_census()
+        self.assertEqual(blocked.returncode, 2, blocked.stdout)
+        self.assertIn(
+            "infrastructure wrapper lacks one isolated aggregate call: "
+            "check-added-gate.py",
+            blocked.stderr,
+        )
+        self.assertIn("refusing to rewrite the census", blocked.stderr)
+
+        wrapper = self.repo / "tools/check-infra.sh"
+        wrapper.write_text(
+            wrapper.read_text().replace(
+                'run_gate python3 -I "$REPO_ROOT/tools/check-stack.py"',
+                'run_gate python3 -I "$REPO_ROOT/tools/check-added-gate.py"\n'
+                'run_gate python3 -I "$REPO_ROOT/tools/check-stack.py"',
+                1,
+            )
+        )
+        written = self.write_census()
+        self.assertNotEqual(written.returncode, 2, written.stderr)
+        self.assertEqual(self.run_root().returncode, 0)
+
+    def test_workflow_must_pin_the_census(self) -> None:
+        workflow = self.repo / ".github/workflows/infrastructure.yml"
+        source = workflow.read_text()
+        self.assertIn("  policy/a101-census.sha256'", source)
+        workflow.write_text(
+            re.sub(r"[0-9a-f]{64}(  policy/a101-census\.sha256')", r"\g<0>", source)
+            .replace(
+                hashlib.sha256(
+                    (self.repo / "policy/a101-census.sha256").read_bytes()
+                ).hexdigest(),
+                "0" * 64,
+                1,
+            )
+        )
+        result = self.run_root()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "infrastructure workflow does not pin the A101 census", result.stderr
+        )
+
+    def test_write_census_refuses_to_launder_a_shadowed_module(self) -> None:
+        (self.repo / "tools/hashlib.py").write_text("raise RuntimeError('shadow')\n")
+        census = self.repo / "policy/a101-census.sha256"
+        before = census.read_text()
+        blocked = self.write_census()
+        self.assertEqual(blocked.returncode, 2, blocked.stdout)
+        self.assertIn(
+            "repository shadows a protected Python module: tools/hashlib.py",
+            blocked.stderr,
+        )
+        self.assertEqual(census.read_text(), before)
+
+    def test_census_covers_every_governed_python_source(self) -> None:
+        """Derive the classes independently of the checker that wrote them."""
+        censused = set(BOUND_SOURCE_PATHS)
+        governed = {
+            str(path.relative_to(ROOT))
+            for path in ROOT.glob("tools/*.py")
+        } | {
+            str(path.relative_to(ROOT))
+            for path in ROOT.glob("infra/**/*.py")
+        }
+        self.assertTrue(governed)
+        self.assertEqual(governed - censused, set())
+
+    def test_isolated_runner_refuses_an_uncensused_test_file(self) -> None:
+        added = self.repo / "infra/ansible/tests/test_uncensused.py"
+        added.write_text(
+            "import unittest\n\n"
+            "class Sneaks(unittest.TestCase):\n"
+            "    def test_runs(self):\n"
+            "        self.assertTrue(True)\n"
+        )
+        result = self.run_test("infra/ansible/tests/test_uncensused.py")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("refuses an uncensused test file", result.stderr)
+
+    def test_ansible_wrapper_test_census_must_match_the_derived_census(self) -> None:
+        wrapper = self.repo / "tools/check-ansible.sh"
+        source = wrapper.read_text()
+        wrapper.write_text(
+            source.replace(
+                "  infra/ansible/tests/test_freeze_graph.py\n", "", 1
+            )
+        )
+        result = self.run_root()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Ansible wrapper TEST_FILES census differs", result.stderr)
+
+    def test_infrastructure_gate_may_not_be_duplicated(self) -> None:
+        wrapper = self.repo / "tools/check-infra.sh"
+        source = wrapper.read_text()
+        gate = 'run_gate python3 -I "$REPO_ROOT/tools/check-stack.py"\n'
+        self.assertIn(gate, source)
+        wrapper.write_text(source.replace(gate, gate * 2, 1))
+        result = self.run_root()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "infrastructure wrapper repeats an isolated aggregate call: "
+            "check-stack.py",
+            result.stderr,
+        )
+
+    def test_infrastructure_gate_must_name_a_governed_checker(self) -> None:
+        wrapper = self.repo / "tools/check-infra.sh"
+        source = wrapper.read_text()
+        wrapper.write_text(
+            source.replace(
+                'run_gate python3 -I "$REPO_ROOT/tools/check-stack.py"',
+                'run_gate python3 -I "$REPO_ROOT/tools/check-absent.py"',
+                1,
+            )
+        )
+        result = self.run_root()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "infrastructure wrapper gate is not a governed checker: "
+            "check-absent.py",
             result.stderr,
         )
 

@@ -64,11 +64,11 @@ run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-spend.py"
 # concurrently; output is buffered per file and replayed in census order.
 TEST_FILES=(
   infra/ansible/tests/test_a101_readiness_root.py
-  infra/ansible/tests/test_attended_collector_runner.py
   infra/ansible/tests/test_anthropic_issuance.py
   infra/ansible/tests/test_anthropic_lifecycle.py
   infra/ansible/tests/test_anthropic_spend.py
   infra/ansible/tests/test_anthropic_wif_admin.py
+  infra/ansible/tests/test_attended_collector_runner.py
   infra/ansible/tests/test_child_launcher.py
   infra/ansible/tests/test_cloud_init_bootstrap.py
   infra/ansible/tests/test_dashboard_checkout.py

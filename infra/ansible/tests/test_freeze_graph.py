@@ -184,6 +184,55 @@ class FreezeGraphContract(unittest.TestCase):
                 ["worker/dict-target"],
             )
 
+    def test_ansible_test_pins_are_scanned_for_drift(self) -> None:
+        """A stale digest in infra/ansible/tests/ is drift, not an unseen copy."""
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            for relative in ("tools", "infra/ansible/tests"):
+                (repo / relative).mkdir(parents=True, exist_ok=True)
+            checker = repo / "tools/check-freeze-graph.py"
+            copy_checker(checker)
+
+            bound = repo / "tools/bound.sh"
+            bound.write_text("#!/usr/bin/env bash\ntrue\n")
+            binder = repo / "infra/ansible/tests/test_bound.py"
+            binder.write_text(
+                f'EXPECTED_BOUND_SHA256 = "{digest(bound)}"\n'
+            )
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "-c",
+                    "user.name=Freeze Graph Test",
+                    "-c",
+                    "user.email=freeze-graph@example.invalid",
+                    "commit",
+                    "-q",
+                    "-m",
+                    "fixture baseline",
+                ],
+                check=True,
+            )
+
+            clean = self.run_checker(repo, checker)
+            self.assertEqual(clean.returncode, 0, clean.stderr)
+            self.assertEqual(json.loads(clean.stdout)["drift"], [])
+
+            stale = digest(bound)
+            bound.write_text("#!/usr/bin/env bash\nfalse\n")
+            drifted = self.run_checker(repo, checker)
+            self.assertEqual(drifted.returncode, 1, drifted.stderr)
+            report = json.loads(drifted.stdout)
+            self.assertEqual([row["sha256"] for row in report["drift"]], [stale])
+            self.assertEqual(
+                report["drift"][0]["pin_locations"],
+                ["infra/ansible/tests/test_bound.py:1"],
+            )
+
     def test_checker_requires_isolated_python(self) -> None:
         result = subprocess.run(
             ["python3", str(CHECKER)],

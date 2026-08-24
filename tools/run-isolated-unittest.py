@@ -38,33 +38,12 @@ exec(
 
 REPO = Path(__file__).resolve().parent.parent
 TEST_ROOT = REPO / "infra/ansible/tests"
-EXPECTED_TEST_FILES = (
-    "test_a101_readiness_root.py",
-    "test_attended_collector_runner.py",
-    "test_anthropic_issuance.py",
-    "test_anthropic_lifecycle.py",
-    "test_anthropic_spend.py",
-    "test_anthropic_wif_admin.py",
-    "test_child_launcher.py",
-    "test_cloud_init_bootstrap.py",
-    "test_dashboard_checkout.py",
-    "test_factory_checker_runtime.py",
-    "test_freeze_graph.py",
-    "test_live_review_disposition_seats.py",
-    "test_log_secret_scan.py",
-    "test_merge_refix.py",
-    "test_neutral_guest_qualification.py",
-    "test_openai_control_plane_lifecycle.py",
-    "test_openai_wif_issuance.py",
-    "test_preview_capability_deployment.py",
-    "test_replace_worker.py",
-    "test_session13_settle.py",
-    "test_session14_qualification.py",
-    "test_session15_proposer.py",
-    "test_session16_cutover.py",
-    "test_triage_seat_deployment.py",
-    "test_worker_firewall_readiness.py",
-)
+# The census is the one the A101 readiness trust root derives and binds, read
+# from its census file rather than restated here. A test source is runnable
+# only once it is censused, so a file dropped into the test root cannot be run
+# before the trust root governs it.
+CENSUS_FILE = REPO / "policy/a101-census.sha256"
+TEST_ROOT_RELATIVE = "infra/ansible/tests"
 STDLIB_MODULES = (hashlib, importlib, sysconfig, unittest)
 
 
@@ -75,6 +54,19 @@ CHECKER = RUNTIME.checker_runtime(
 )
 is_within = RUNTIME.is_within
 isolation_errors = CHECKER.isolation_errors
+
+
+def censused_test_files() -> set[str]:
+    if not CENSUS_FILE.is_file() or CENSUS_FILE.is_symlink():
+        return set()
+    censused = set()
+    for line in CENSUS_FILE.read_text().splitlines():
+        _, separator, relative = line.partition("  ")
+        prefix = f"{TEST_ROOT_RELATIVE}/"
+        if separator and relative.startswith(prefix):
+            censused.add(relative[len(prefix):])
+    return censused
+
 
 def main() -> int:
     errors = isolation_errors()
@@ -90,7 +82,8 @@ def main() -> int:
         except (OSError, ValueError):
             errors.append("isolated unittest runner refuses a test outside its root")
         else:
-            if len(relative.parts) != 1 or relative.as_posix() not in EXPECTED_TEST_FILES:
+            name = relative.as_posix()
+            if len(relative.parts) != 1 or name not in censused_test_files():
                 errors.append("isolated unittest runner refuses an uncensused test file")
             if not test_file.is_file():
                 errors.append("isolated unittest runner test file is missing")

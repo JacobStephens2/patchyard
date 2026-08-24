@@ -39,207 +39,66 @@ exec(
 
 REPO = Path(__file__).resolve().parent.parent
 WORKFLOW = REPO / ".github/workflows/infrastructure.yml"
-BOUND_SOURCES = {
-    "infra/wait-do-worker-firewall.sh": "5aa2f71ce014671de08104356d77a5ff210efd56525e7c1ddf85f46770336cba",
-    "infra/replace-worker.sh": "27f322afc3c3c8d813f18a5003f2e2fdc2c6d75d24b28ed0c19ad215e9ad580e",
-    "infra/tofu.sh": "5863f9a885bf1add664592e118fa8b066920be6ef28dc0deb762ac3553e70b7f",
-    "infra/ansible/converge.sh": "be3de80250f7a790784a3d100bc095473762a5f49d5ada26f6038c0e1175f18f",
-    "infra/ansible/qualify.sh": "2423bb69fe19e355458158b4b49a67917dac0279bfe76110256944974533dd49",
-    "infra/ansible/inventory/tofu.sh": "7101838ae5f3eae5031c30888ae6eda754d9519f6af9d2d6884142155f69bb59",
-    "infra/ansible/roles/control_plane/templates/patchyard-management-ssh.j2": "fdd1020be15cc56c6c0207c68a876084737ef2fdaa63f74e16e8f8d8e5c41c4b",
-    "infra/tool-versions.env": "63fa7fa217d98d914a73394c98b41f97571c5c776b3a9b2d4c51d95e56ab917f",
-    "tools/read-infra-tool-version.py": "d94d97d605736d0201d0fc0517e0e780d6c346ab79ddc3bd84de7b472edeccd8",
-    "tools/install-shellcheck.sh": "715047c90f6a877c57a5495f1bc24feecd40f365ccd8239a6dc711be22a3f535",
-    "tools/check-infra.sh": "4a0bd59083afbf5e5afd6fda5c5f0f7668187b9602feecfc99f9bbae73405152",
-    "tools/check-ansible.sh": "78f91ea3823ce86e4be54093eeccd0d51f2f9de5e80408f5dcd4204e7b3112cb",
-    "tools/run-isolated-unittest.py": "b288c80c345b16e89fb6d7c9eaf7a8bd99728f8f0716d7734bd7ac5bbae5ec0e",
-    "tools/check-credential-qualification.py": "2114970cab5513ebd01a3edcea0c35f97bd68996773c55776572b18498f9a989",
-    "tools/anthropic-spend-evidence.py": "2b91cb00bfcf4bdb194a03152aefd790128f0a530d9bf833a58b7ccb1f3700b3",
-    "tools/openai-spend-evidence.py": "af1df3df053a1a232b23e3448435f6cdd068bb2ab3b466de695ba4a324f38ad8",
-    "tools/check-openai-spend.py": "29d32366f466409ae2582f36fadebcf8b5c13f384455e5e6a18d0cef75327055",
-    "worker/qualification/patchyard-run-openai-spend": "0218da08c26700d5b04b2ab92c758eb1eddd428ceeb2cb2ff6842dfb141d7cb4",
-    "tools/anthropic-wif-admin.py": "89794bd6235d5b37dfa4999a792588396ece9935b17820954b75d8b055822c91",
-    "tools/anthropic-wif-lifecycle.py": "10dfc4b3dc0002396f651734ff71f9618c119acde0065d6287193efed492873d",
-    "tools/anthropic-wif-revocation.py": "ef4c204880cdc002ccee17f080b6011191a183c07e3ae173b34beb215737b61f",
-    "tools/anthropic-wif-crash-cleanup.py": "88bb709eb662734fd85d17ac30b0d30592fadbbd83ce366f17e84ea0143e844c",
-    "tools/anthropic-wif-lifecycle-admin.py": "1a1e08060a5ad68f65b3a798e2b992ee2c34fc336e4f7fd8922bfdf2effecc55",
-    "tools/openai-wif-issuance.py": "88117660a2717ecd2c9b6eef4704066700e4989e1010d508769bf928fec18c8b",
-    "tools/openai-wif-expiry.py": "42042f1d8940a7c7a9bea560246813f22d25bf2238909f35980277d70911a24b",
-    "tools/openai-wif-crash-cleanup.py": "6214024e5788b53530273573415f2e9f679069ab6934b19250a269204de50655",
-    "tools/control-plane-attestation-v1.py": "0d32e80b980c334977e51eb706783896a687d29faef46d50e53f3ee56e8e4d47",
-    "tools/openai-wif-federation-revocation.py": "6b86800e211bf9e185fda60c513759a833534cc32c37c1c2bdddca2ab930283c",
-    "tools/check-openai-wif-federation-revocation.py": "05220aaaba071dea7e442cfcd42c193bccfa566e6f430ee6c23df2750aa9bcd7",
-    "tools/openai-wif-signing-key-rotation.py": "524b8864bc8917f54cc3d17a00210c6ed3d1a22bb44d4451a3fa6c1ede9d5404",
-    "tools/check-openai-wif-signing-key-rotation.py": "dbd428fac98abee7456d1cf71a42c96d4dc9a935aa0eb66759a6e460b18edb2d",
-    "tools/check-anthropic-expiry.py": "ad238be14bfcf5bfff383e010ad884c548601a699632a1de0e04f0279a48f175",
-    "tools/check-anthropic-spend.py": "c63a7fd54eec7ea835797bfe8fd29487d07d665b4ff17be118b8a2cf89c49b2c",
-    "tools/check-anthropic-issuance.py": "c59e95d5d6c5c83409d67899f458801efb46c566157322eb09428ef1cdb608fc",
-    "tools/check-anthropic-revocation.py": "4a9de3d68afc837a5ce48e75f42e2d0ef1f0ff2121fb442e275ec97142015c05",
-    "tools/check-anthropic-crash-cleanup.py": "cf8f425b90d37d66c14f3c527dc0357eaae6b19008c05ab61e6e981720a50135",
-    "tools/check-openai-wif-issuance.py": "6b03d72038c72d6de9efb13d02ae59f65535f4ad31a359c9ce1925c4385d15fa",
-    "tools/check-openai-wif-expiry.py": "38de9b178a1ee706d50bdb291a3215f842248bad279de78056614f24659c5033",
-    "tools/check-openai-wif-crash-cleanup.py": "43d92089939a362d789b39dd2351cb39ead0c04546b684d27cb0da59f9f30478",
-    "tools/check-independence.py": "baaa2e5058862a253c5042e7ccaea4bfea8af05a93825f5ce5cf99bbd1f93782",
-    "tools/check-preview-runtime.py": "2f9a6e994c3d50e7e1f729546b3180330c4ccf0d471ee5b75f016cbbc95292be",
-    "tools/check-openai-identity-liveness.py": "d56fc0ad8a503d1745fe5f4cd01df87b3b40c4613e43d91834cfd59daa9b5d5e",
-    "tools/check-signing-identities.py": "724602dd9bfda2a77d248b0d51e34fff4048ab4cafc390bb6f9dd2702b49603b",
-    "tools/check-stack.py": "ddce869a4bd4983c35c1b246ba01b5e8b1ea25219c761ebbdb2d5b4a8194deff",
-    "tools/check-worker-qualification.py": "e9d5662bed3f7002fb6b0d23b777f12a401e8f9a0be4d340a5cf7580fdb3f15d",
-    "tools/check-worker-runtime.py": "2ba1b99160441214acd53e4d8ed3aeb69aedbb540c0960cd47c02b0ecfe1d3c3",
-    "infra/ansible/tests/test_a101_readiness_root.py": "ca2db8402d75ed31e07ab5ca4419438034d578779fce8c436341639780a9b867",
-    "infra/ansible/tests/test_freeze_graph.py": "0ef38d834b69211d39288d71139b89fb0bed8281a5563bd1b5fb0a4e86fadd4f",
-    "infra/ansible/tests/test_worker_firewall_readiness.py": "36b57376df1d45e9a6f8ceeb95b8ab7329cf9ac33145128066f583af262861f5",
-    "infra/ansible/tests/test_anthropic_spend.py": "8d859493d127df4b03db88a1e02d23381ff0241dc54d7687a91f0606c71599c9",
-    "infra/ansible/tests/test_anthropic_issuance.py": "bde14af86dcc84cf1a618af2ed91c099b82e718523b2b16245fb7e52c8a4824a",
-    "infra/ansible/tests/test_anthropic_lifecycle.py": "8bd3571d5424e149ad4f7db3f2ef843dfc5568b294e5c7361bf42db9d1f3d187",
-    "infra/ansible/tests/test_anthropic_wif_admin.py": "1d53f8ffe4ef6ad55b8d7187705344836aed831337c26f310bd11538888a9670",
-    "infra/ansible/tests/test_openai_wif_issuance.py": "e2c4f9220b9d6320347e0d2bc5da3968f40f476f8ebdfe0b6e86c3857eec0dfd",
-    "infra/ansible/tests/test_openai_control_plane_lifecycle.py": "3b7aeec4105c0df06035ec9af7c01c92da1e0d24f3febc822c0a4f9d21948c64",
-    "fixtures/checker-contracts/openai-federation-revocation.json": "dc05adafa4a6c9dec5a9ee305f32f9631271995a4693a2e865da0a6a7d385603",
-    "fixtures/checker-contracts/openai-signing-key-rotation.json": "5ad7bb5efb7a3dd25ece00a53012c00df7f1b1154e1e00e12c10b479bf8801bc",
-    "fixtures/checker-contracts/credential-qualification-conforming.json": "5caec87918dc89db7e47d1b37f3dde8b7fac912b9fb273f9fa01562bbc4ae527",
-    "fixtures/checker-contracts/credential-qualification-missing-requirements.json": "3aa1456466c3ced518057cab1d5d168f79097339d362b9a255cdee9ad594df85",
-    "infra/ansible/tests/test_child_launcher.py": "2faccf004adc00f01e04b24e592c8d34e8e5fdd5b69475b9fa955a9d1fd39357",
-    "infra/ansible/tests/test_session13_settle.py": "37344a00e853592731fd68b2353578e334bdf185e9dcae1897a29e96b48654d7",
-    "infra/ansible/tests/test_cloud_init_bootstrap.py": "c0c79b21c2f0ed236667fc8176c1c834f1753991fef35ef6a03f4a21fe6bca04",
-    "infra/ansible/tests/test_dashboard_checkout.py": "0d7ab333e389409cf16af40d2c4269b82d22dcf3b27bfd911a18dac031c5de1c",
-    "infra/ansible/tests/test_log_secret_scan.py": "c03a26dd05028c1e1986a5db544cb23feeacac9758c4cc4e275ffa90a511c880",
-    "infra/ansible/tests/test_preview_capability_deployment.py": "f8b44dfa110c4f099711487729e5afd222ae6218beb487d5a31d39a6ee580481",
-    "infra/ansible/tests/test_replace_worker.py": "d04bb7e7351f865ba47d9cbd3acf3633eda6c4a3d0f1e9807598282c785635fb",
-    "infra/ansible/tests/test_session14_qualification.py": "832f8931dd2a4cb78f677dc991f66a8f7f81599edf74c30483d3cf924d9e0e68",
-    "infra/ansible/tests/test_session15_proposer.py": "732b56e62a789f3f442539f5bf88431dd5285558f67274d369784395d6510cb5",
-    "infra/ansible/tests/test_session16_cutover.py": "b559f960618e694d218a345efc222249a771f665899bd696a20682125dda9b73",
-    "infra/ansible/tests/test_triage_seat_deployment.py": "810b56d86eadcbfe449e81e14939202fc402ff078a7166ca6feb6cef4d779ca9",
-    "infra/ansible/roles/control_plane/files/patchyard-log-secret-scan": "356c4a962a262f4128cd22496b068dbf4b02c8a3867214c7c31f80e1ebb11eb8",
-    "infra/ansible/roles/control_plane/files/patchyard-mint-seat-bearer": "6b0c88263b4ff4ba2cc22ecc3d892c3b962a62aa64f1375eb31ab25705f6baaf",
-    "infra/ansible/roles/control_plane/files/patchyard-request-seat-bearer": "20958c674ecb24e19a8aabb11910189e10a6413187f90cd017e8698978b254a0",
-    "infra/ansible/roles/control_plane/files/patchyard-triage-seat": "ae414ec9427f8b0cbace8fc140850fb4a7b3bfd041880ae927677ebc98fc30a3",
-    "infra/ansible/roles/control_plane/files/qualify-factory-session13": "e158d52722114ff51ed4beb0c6856017fa012702a958eabc1a685299e96280a3",
-    "tools/factory_checker_runtime.py": "fcd9d4c5513d8614e20dc4e2fada3da60326ff85745a989b3d4313497b0622f6",
-    "infra/ansible/tests/test_factory_checker_runtime.py": "874f7df2dfd0262e921ffe9057b1095395322e5bccf63f9353fc036c274f06ab",
-}
-EXPECTED_TEST_FILES = (
-    "infra/ansible/tests/test_a101_readiness_root.py",
-    "infra/ansible/tests/test_attended_collector_runner.py",
-    "infra/ansible/tests/test_anthropic_issuance.py",
-    "infra/ansible/tests/test_anthropic_lifecycle.py",
-    "infra/ansible/tests/test_anthropic_spend.py",
-    "infra/ansible/tests/test_anthropic_wif_admin.py",
-    "infra/ansible/tests/test_child_launcher.py",
-    "infra/ansible/tests/test_cloud_init_bootstrap.py",
-    "infra/ansible/tests/test_dashboard_checkout.py",
-    "infra/ansible/tests/test_factory_checker_runtime.py",
-    "infra/ansible/tests/test_freeze_graph.py",
-    "infra/ansible/tests/test_live_review_disposition_seats.py",
-    "infra/ansible/tests/test_log_secret_scan.py",
-    "infra/ansible/tests/test_merge_refix.py",
-    "infra/ansible/tests/test_neutral_guest_qualification.py",
-    "infra/ansible/tests/test_openai_control_plane_lifecycle.py",
-    "infra/ansible/tests/test_openai_wif_issuance.py",
-    "infra/ansible/tests/test_preview_capability_deployment.py",
-    "infra/ansible/tests/test_replace_worker.py",
-    "infra/ansible/tests/test_session13_settle.py",
-    "infra/ansible/tests/test_session14_qualification.py",
-    "infra/ansible/tests/test_session15_proposer.py",
-    "infra/ansible/tests/test_session16_cutover.py",
-    "infra/ansible/tests/test_triage_seat_deployment.py",
-    "infra/ansible/tests/test_worker_firewall_readiness.py",
+CENSUS_RELATIVE = "policy/a101-census.sha256"
+CENSUS_FILE = REPO / CENSUS_RELATIVE
+# Governance is derived, not transcribed. Every file matching a governed class
+# is bound the moment it exists, so adding a checker or an Ansible test needs
+# no edit here; the census file records what each governed file must hash to,
+# and a governed file that is present but uncensused fails closed.
+TOOLS_DIRECTORY = "tools"
+INFRA_DIRECTORY = "infra"
+TEST_DIRECTORY = "infra/ansible/tests"
+# The governed classes cover every executable Python source under tools/ and
+# infra/. These are the bound files that belong to no class: shell entry
+# points, inert data the gates read, and the checker contract fixtures.
+BOUND_EXTRA_PATHS = (
+    "fixtures/checker-contracts/credential-qualification-conforming.json",
+    "fixtures/checker-contracts/credential-qualification-missing-requirements.json",
+    "fixtures/checker-contracts/openai-federation-revocation.json",
+    "fixtures/checker-contracts/openai-signing-key-rotation.json",
+    "infra/ansible/converge.sh",
+    "infra/ansible/inventory/tofu.sh",
+    "infra/ansible/qualify.sh",
+    "infra/ansible/roles/control_plane/files/patchyard-log-secret-scan",
+    "infra/ansible/roles/control_plane/files/patchyard-mint-seat-bearer",
+    "infra/ansible/roles/control_plane/files/patchyard-request-seat-bearer",
+    "infra/ansible/roles/control_plane/files/patchyard-triage-seat",
+    "infra/ansible/roles/control_plane/files/qualify-factory-session13",
+    "infra/ansible/roles/control_plane/templates/patchyard-management-ssh.j2",
+    "infra/replace-worker.sh",
+    "infra/tofu.sh",
+    "infra/tool-versions.env",
+    "infra/wait-do-worker-firewall.sh",
+    "tools/check-ansible.sh",
+    "tools/check-infra.sh",
+    "tools/install-shellcheck.sh",
+    "worker/qualification/patchyard-run-openai-spend",
 )
-EXPECTED_TOOL_PYTHON_FILES = (
-    "tools/aa-join.py",
-    "tools/aa-sweep.py",
-    "tools/anthropic-spend-evidence.py",
-    "tools/anthropic-wif-admin.py",
-    "tools/anthropic-wif-crash-cleanup.py",
-    "tools/anthropic-wif-lifecycle-admin.py",
-    "tools/anthropic-wif-lifecycle.py",
-    "tools/answer-attended-prompt.py",
-    "tools/anthropic-wif-revocation.py",
-    "tools/attended-collector-runner.py",
-    "tools/benchmark_harmonyagent_cerebras.py",
-    "tools/benchmark_harness_speed.py",
-    "tools/benchmark_spec_speed.py",
-    "tools/check-a101-readiness-root.py",
-    "tools/check-anthropic-crash-cleanup.py",
-    "tools/check-anthropic-expiry.py",
-    "tools/check-anthropic-issuance.py",
-    "tools/check-anthropic-revocation.py",
-    "tools/check-anthropic-spend.py",
-    "tools/check-bench.py",
-    "tools/check-credential-qualification.py",
-    "tools/check-freeze-graph.py",
-    "tools/check-independence.py",
-    "tools/check-openai-identity-liveness.py",
-    "tools/check-openai-spend.py",
-    "tools/check-openai-wif-crash-cleanup.py",
-    "tools/check-openai-wif-expiry.py",
-    "tools/check-openai-wif-federation-revocation.py",
-    "tools/check-openai-wif-issuance.py",
-    "tools/check-openai-wif-signing-key-rotation.py",
-    "tools/check-preview-runtime.py",
-    "tools/check-seats.py",
-    "tools/check-signing-identities.py",
-    "tools/check-stack.py",
-    "tools/check-worker-qualification.py",
-    "tools/check-worker-runtime.py",
-    "tools/codebase-metrics.py",
-    "tools/control-plane-attestation-v1.py",
-    "tools/factory_checker_runtime.py",
-    "tools/merge-refix.py",
-    "tools/openai-spend-evidence.py",
-    "tools/openai-wif-crash-cleanup.py",
-    "tools/openai-wif-expiry.py",
-    "tools/openai-wif-federation-revocation.py",
-    "tools/openai-wif-issuance.py",
-    "tools/openai-wif-signing-key-rotation.py",
-    "tools/read-infra-tool-version.py",
-    "tools/run-isolated-unittest.py",
-    "tools/validate-lessons-report.py",
+# Build output and virtual environments are not repository source; the census
+# and the shadow scan both stop at these directory names.
+NON_SOURCE_DIRECTORIES = frozenset(
+    {".git", ".terraform", ".venv", "__pycache__", "node_modules", "target"}
 )
-INFRA_CHECKERS = (
-    "check-freeze-graph.py",
-    "check-credential-qualification.py",
-    "check-stack.py",
-    "check-independence.py",
-    "check-worker-runtime.py",
-    "check-worker-qualification.py",
-    "check-anthropic-spend.py",
-    "check-anthropic-issuance.py",
-    "check-anthropic-expiry.py",
-    "check-anthropic-revocation.py",
-    "check-anthropic-crash-cleanup.py",
-    "check-openai-wif-issuance.py",
-    "check-openai-wif-expiry.py",
-    "check-openai-wif-crash-cleanup.py",
-    "check-openai-wif-federation-revocation.py",
-    "check-openai-wif-signing-key-rotation.py",
-    "check-openai-spend.py",
-    "check-preview-runtime.py",
-    "check-signing-identities.py",
-    "check-openai-identity-liveness.py",
+# PyYAML is not stdlib, but the Ansible runtime imports it, so a repository
+# file of that name shadows it exactly as a stdlib name would.
+SHADOWED_EXTRA_MODULES = ("yaml",)
+# Every governed tools/check-*.py is an infrastructure gate unless it is one
+# of these: this file runs ahead of the aggregate rather than inside it, and
+# the bench and seat checkers are human-run advisories that CI never gates on
+# (tools/README.md, docs/bench.md). Naming the exceptions rather than the
+# members means a new checker must be gated, and a deleted gate fails.
+UNGATED_CHECKERS = frozenset(
+    {
+        "check-a101-readiness-root.py",
+        "check-bench.py",
+        "check-seats.py",
+    }
 )
-PROTECTED_MODULE_FILES = {
-    "_hashlib.py",
-    "ast.py",
-    "copy.py",
-    "datetime.py",
-    "decimal.py",
-    "hashlib.py",
-    "importlib.py",
-    "json.py",
-    "os.py",
-    "pathlib.py",
-    "re.py",
-    "shlex.py",
-    "shutil.py",
-    "subprocess.py",
-    "sys.py",
-    "sysconfig.py",
-    "tempfile.py",
-    "typing.py",
-    "unittest.py",
-    "yaml.py",
-}
+CHECKER_PREFIX = "check-"
+SHA256 = re.compile(r"[0-9a-f]{64}")
+INFRA_GATE = re.compile(
+    r'(?m)^run_gate python3 -I "\$REPO_ROOT/tools/(?P<checker>[^"/]+)"'
+)
 STDLIB_MODULES = (hashlib, importlib, re, sysconfig)
 
 
@@ -252,7 +111,163 @@ is_within = RUNTIME.is_within
 digest = RUNTIME.digest
 isolation_errors = CHECKER.isolation_errors
 
-def expected_workflow(pin: str) -> str:
+
+def is_repository_source(path: Path) -> bool:
+    """A regular file under a directory this repository authors itself."""
+    return path.is_file() and not NON_SOURCE_DIRECTORIES.intersection(
+        path.relative_to(REPO).parts
+    )
+
+
+def repository_python_files() -> list[Path]:
+    return [path for path in REPO.rglob("*.py") if is_repository_source(path)]
+
+
+def tool_python_files() -> set[str]:
+    return {
+        str(path.relative_to(REPO))
+        for path in (REPO / TOOLS_DIRECTORY).iterdir()
+        if path.name.endswith(".py") and is_repository_source(path)
+    }
+
+
+def infra_python_files() -> set[str]:
+    return {
+        str(path.relative_to(REPO))
+        for path in (REPO / INFRA_DIRECTORY).rglob("*.py")
+        if is_repository_source(path)
+    }
+
+
+def derived_test_files() -> tuple[str, ...]:
+    """The Ansible test census every runner and wrapper must agree with."""
+    return tuple(
+        sorted(
+            relative
+            for relative in infra_python_files()
+            if relative.startswith(f"{TEST_DIRECTORY}/")
+            and Path(relative).name.startswith("test_")
+        )
+    )
+
+
+def governed_paths() -> tuple[str, ...]:
+    """Every file the trust root binds, derived from its governed classes."""
+    return tuple(
+        sorted({*BOUND_EXTRA_PATHS, *tool_python_files(), *infra_python_files()})
+    )
+
+
+def shadowed_module_files() -> frozenset[str]:
+    return frozenset(
+        f"{name}.py"
+        for name in (*sys.stdlib_module_names, *SHADOWED_EXTRA_MODULES)
+    )
+
+
+def census_text() -> str:
+    """The census this checkout would assert, in sha256sum --check format."""
+    rows = []
+    for relative in governed_paths():
+        path = REPO / relative
+        if path.is_file() and not path.is_symlink():
+            rows.append(f"{digest(path)}  {relative}\n")
+    return "".join(rows)
+
+
+def censused_digests(errors: list[str]) -> dict[str, str]:
+    if not CENSUS_FILE.is_file():
+        errors.append(f"A101 census file is missing: {CENSUS_RELATIVE}")
+        return {}
+    if CENSUS_FILE.is_symlink():
+        errors.append(f"A101 census file is a symlink: {CENSUS_RELATIVE}")
+        return {}
+    censused: dict[str, str] = {}
+    for number, line in enumerate(CENSUS_FILE.read_text().splitlines(), start=1):
+        expected, separator, relative = line.partition("  ")
+        if not separator or not relative or SHA256.fullmatch(expected) is None:
+            errors.append(
+                f"A101 census row is not sha256sum data: {CENSUS_RELATIVE}:{number}"
+            )
+            continue
+        if relative in censused:
+            errors.append(f"A101 census repeats a source: {relative}")
+            continue
+        censused[relative] = expected
+    return censused
+
+
+# Diagnostics a census rewrite plus the printed workflow re-pin resolve. A
+# rewrite can never turn these into a pass on its own - the workflow rows are
+# pasted by a human - so they do not block. Everything else does: a rewrite
+# must not be able to make a failing tree pass.
+REGENERABLE_DIAGNOSTICS = (
+    "bound A101 source is uncensused: ",
+    "bound A101 source differs: ",
+    "censused A101 source is not governed: ",
+    "A101 census file is missing: ",
+    "A101 census row is not sha256sum data: ",
+    "A101 census repeats a source: ",
+    "infrastructure workflow does not pin the A101 census",
+    "infrastructure workflow does not pin this trust-root checker",
+    "infrastructure workflow differs from its exact fail-closed binding",
+)
+
+
+def print_required_pins() -> None:
+    """Name the workflow rows a human must paste; never write CI config."""
+    root_pin, census_pin = workflow_pins()
+    print("  the infrastructure workflow must pin:", file=sys.stderr)
+    print(f"    {root_pin}", file=sys.stderr)
+    print(f"    {census_pin}", file=sys.stderr)
+
+
+def report_census_change(rewritten: str) -> None:
+    """Name every row the rewrite adds, drops, or re-pins."""
+    before = {}
+    if CENSUS_FILE.is_file():
+        for line in CENSUS_FILE.read_text().splitlines():
+            expected, separator, relative = line.partition("  ")
+            if separator:
+                before[relative] = expected
+    after = {}
+    for line in rewritten.splitlines():
+        expected, separator, relative = line.partition("  ")
+        if separator:
+            after[relative] = expected
+    for relative in sorted(set(after) - set(before)):
+        print(f"  census adds {relative}", file=sys.stderr)
+    for relative in sorted(set(before) - set(after)):
+        print(f"  census drops {relative}", file=sys.stderr)
+    for relative in sorted(set(before) & set(after)):
+        if before[relative] != after[relative]:
+            print(f"  census re-pins {relative}", file=sys.stderr)
+
+
+def required_infra_gates() -> set[str]:
+    """Every governed checker check-infra.sh must run, derived from tools/."""
+    return {
+        Path(relative).name
+        for relative in tool_python_files()
+        if Path(relative).name.startswith(CHECKER_PREFIX)
+        and Path(relative).name not in UNGATED_CHECKERS
+    }
+
+
+def workflow_pins() -> tuple[str, str]:
+    """The two sha256sum rows CI checks before it trusts anything else.
+
+    Deriving the census moved the ledger out of this file, so the workflow
+    anchors both halves: the rules (this checker) and the data they assert
+    (the census). The workflow belongs to no governed class, so pinning the
+    census here binds it without a cycle.
+    """
+    root_pin = f"{digest(Path(__file__))}  tools/check-a101-readiness-root.py"
+    census_digest = digest(CENSUS_FILE) if CENSUS_FILE.is_file() else "0" * 64
+    return root_pin, f"{census_digest}  {CENSUS_RELATIVE}"
+
+
+def expected_workflow(root_pin: str, census_pin: str) -> str:
     return """name: Infrastructure
 
 on:
@@ -281,6 +296,7 @@ jobs:
         run: |
           printf '%s\\n' \\
             '__ROOT_PIN__' \\
+            '__CENSUS_PIN__' \\
             | sha256sum --check
           python3 -I tools/check-a101-readiness-root.py
 
@@ -315,18 +331,26 @@ jobs:
       - name: Lint and syntax-check Ansible
         if: ${{ always() }}
         run: tools/check-ansible.sh
-""".replace("__ROOT_PIN__", pin)
+""".replace("__ROOT_PIN__", root_pin).replace("__CENSUS_PIN__", census_pin)
 
 
 def validate() -> list[str]:
     errors = isolation_errors()
-    for relative, expected in BOUND_SOURCES.items():
+    censused = censused_digests(errors)
+    governed = governed_paths()
+    for relative in sorted(set(censused) - set(governed)):
+        errors.append(f"censused A101 source is not governed: {relative}")
+    for relative in governed:
         path = REPO / relative
         if not path.is_file():
             errors.append(f"bound A101 source is missing: {relative}")
             continue
         if path.is_symlink():
             errors.append(f"bound A101 source is a symlink: {relative}")
+            continue
+        expected = censused.get(relative)
+        if expected is None:
+            errors.append(f"bound A101 source is uncensused: {relative}")
             continue
         actual = digest(path)
         if actual != expected:
@@ -335,39 +359,16 @@ def validate() -> list[str]:
                 f"(expected {expected}, observed {actual})"
             )
 
-    expected_tests = set(EXPECTED_TEST_FILES)
-    observed_infra_python = {
-        str(path.relative_to(REPO))
-        for path in (REPO / "infra").rglob("*.py")
-        if path.is_file()
-    }
-    for missing in sorted(expected_tests - observed_infra_python):
-        errors.append(f"explicit Ansible test census is missing: {missing}")
-    for unexpected in sorted(observed_infra_python - expected_tests):
-        errors.append(f"unexpected infrastructure Python source: {unexpected}")
-
-    expected_tools = set(EXPECTED_TOOL_PYTHON_FILES)
-    observed_tools = {
-        str(path.relative_to(REPO))
-        for path in (REPO / "tools").iterdir()
-        if path.name.endswith(".py")
-    }
-    for missing in sorted(expected_tools - observed_tools):
-        errors.append(f"explicit tools Python census is missing: {missing}")
-    for unexpected in sorted(observed_tools - expected_tools):
-        errors.append(f"unexpected tools Python source: {unexpected}")
-
-    for path in REPO.rglob("__init__.py"):
-        if path.is_file():
+    shadowed = shadowed_module_files()
+    for path in repository_python_files():
+        relative = path.relative_to(REPO)
+        if path.name == "__init__.py":
             errors.append(
-                "repository package initializer is forbidden: "
-                f"{path.relative_to(REPO)}"
+                f"repository package initializer is forbidden: {relative}"
             )
-    for path in REPO.rglob("*.py"):
-        if path.is_file() and path.name in PROTECTED_MODULE_FILES:
+        elif path.name in shadowed:
             errors.append(
-                "repository shadows a protected Python module: "
-                f"{path.relative_to(REPO)}"
+                f"repository shadows a protected Python module: {relative}"
             )
 
     wrapper_path = REPO / "tools/check-ansible.sh"
@@ -385,7 +386,7 @@ def validate() -> list[str]:
                 for line in file_block_match.group("body").splitlines()
                 if line.strip()
             )
-            if observed_files != EXPECTED_TEST_FILES:
+            if observed_files != derived_test_files():
                 errors.append("Ansible wrapper TEST_FILES census differs")
         if wrapper.count(
             'run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-spend.py"'
@@ -409,72 +410,23 @@ def validate() -> list[str]:
             'python3 -I "$REPO_ROOT/tools/check-a101-readiness-root.py"'
         ) != 1:
             errors.append("infrastructure wrapper lacks its isolated trust-root check")
-        for checker in INFRA_CHECKERS:
-            invocation = f'run_gate python3 -I "$REPO_ROOT/tools/{checker}"'
-            if infra_wrapper.count(invocation) != 1:
+        gates = INFRA_GATE.findall(infra_wrapper)
+        governed_tools = tool_python_files()
+        for checker in sorted(set(gates)):
+            if gates.count(checker) != 1:
                 errors.append(
-                    f"infrastructure wrapper lacks one isolated aggregate call: {checker}"
+                    "infrastructure wrapper repeats an isolated aggregate call: "
+                    f"{checker}"
                 )
-        spend_call = 'run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-spend.py"'
-        issuance_call = (
-            'run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-issuance.py"'
-        )
-        expiry_call = (
-            'run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-expiry.py"'
-        )
-        revocation_call = (
-            'run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-revocation.py"'
-        )
-        crash_call = (
-            'run_gate python3 -I "$REPO_ROOT/tools/check-anthropic-crash-cleanup.py"'
-        )
-        openai_call = (
-            'run_gate python3 -I "$REPO_ROOT/tools/check-openai-wif-issuance.py"'
-        )
-        openai_expiry_call = (
-            'run_gate python3 -I "$REPO_ROOT/tools/check-openai-wif-expiry.py"'
-        )
-        openai_crash_call = (
-            'run_gate python3 -I "$REPO_ROOT/tools/check-openai-wif-crash-cleanup.py"'
-        )
-        openai_revocation_call = (
-            'run_gate python3 -I "$REPO_ROOT/tools/check-openai-wif-federation-revocation.py"'
-        )
-        openai_rotation_call = (
-            'run_gate python3 -I "$REPO_ROOT/tools/check-openai-wif-signing-key-rotation.py"'
-        )
-        preview_call = 'run_gate python3 -I "$REPO_ROOT/tools/check-preview-runtime.py"'
-        try:
-            spend_index = infra_wrapper.index(spend_call)
-            issuance_index = infra_wrapper.index(issuance_call)
-            expiry_index = infra_wrapper.index(expiry_call)
-            revocation_index = infra_wrapper.index(revocation_call)
-            crash_index = infra_wrapper.index(crash_call)
-            openai_index = infra_wrapper.index(openai_call)
-            openai_expiry_index = infra_wrapper.index(openai_expiry_call)
-            openai_crash_index = infra_wrapper.index(openai_crash_call)
-            openai_revocation_index = infra_wrapper.index(openai_revocation_call)
-            openai_rotation_index = infra_wrapper.index(openai_rotation_call)
-            preview_index = infra_wrapper.index(preview_call)
-        except ValueError:
+            if f"{TOOLS_DIRECTORY}/{checker}" not in governed_tools:
+                errors.append(
+                    "infrastructure wrapper gate is not a governed checker: "
+                    f"{checker}"
+                )
+        for missing in sorted(required_infra_gates() - set(gates)):
             errors.append(
-                "infrastructure wrapper lacks a required lifecycle/preview checker"
+                f"infrastructure wrapper lacks one isolated aggregate call: {missing}"
             )
-        else:
-            if not (
-                spend_index
-                < issuance_index
-                < expiry_index
-                < revocation_index
-                < crash_index
-                < openai_index
-                < openai_expiry_index
-                < openai_crash_index
-                < openai_revocation_index
-                < openai_rotation_index
-                < preview_index
-            ):
-                errors.append("infrastructure aggregate checker ordering differs")
         if infra_wrapper.splitlines()[-1:] != ['exit "$gate_status"']:
             errors.append("infrastructure wrapper does not preserve aggregate failure")
 
@@ -505,11 +457,12 @@ def validate() -> list[str]:
 
     if WORKFLOW.is_file():
         workflow = WORKFLOW.read_text()
-        root_digest = digest(Path(__file__))
-        pin = f"{root_digest}  tools/check-a101-readiness-root.py"
-        if workflow.count(pin) != 1:
+        root_pin, census_pin = workflow_pins()
+        if workflow.count(root_pin) != 1:
             errors.append("infrastructure workflow does not pin this trust-root checker")
-        if workflow != expected_workflow(pin):
+        if workflow.count(census_pin) != 1:
+            errors.append("infrastructure workflow does not pin the A101 census")
+        if workflow != expected_workflow(root_pin, census_pin):
             errors.append("infrastructure workflow differs from its exact fail-closed binding")
     else:
         errors.append("infrastructure workflow is missing")
@@ -518,6 +471,44 @@ def validate() -> list[str]:
 
 
 def main() -> int:
+    """Exit 0 when the tree is bound, 1 when it is not, 2 when refused.
+
+    Under --write-census, 2 means nothing was written: the tree fails for a
+    reason the census does not own. 1 means the census was rewritten and the
+    workflow pins printed above still have to be pasted in by a human.
+    """
+    write_census = sys.argv[1:] == ["--write-census"]
+    if sys.argv[1:] and not write_census:
+        print(
+            f"usage: {sys.argv[0]} [--write-census]",
+            file=sys.stderr,
+        )
+        return 2
+    if write_census:
+        # Regenerate only what the census itself owns. Anything else the trust
+        # root rejects - a missing bound file, a stdlib shadow, an ungated
+        # checker, a workflow that no longer matches its binding - is a real
+        # failure, and rewriting the census must not launder it into a pass.
+        blocking = [
+            error
+            for error in validate()
+            if not error.startswith(REGENERABLE_DIAGNOSTICS)
+        ]
+        if blocking:
+            print("A101 readiness trust root: failed", file=sys.stderr)
+            for error in blocking:
+                print(f"  {error}", file=sys.stderr)
+            print(
+                "  refusing to rewrite the census while these stand",
+                file=sys.stderr,
+            )
+            print_required_pins()
+            return 2
+        report_census_change(census_text())
+        CENSUS_FILE.write_text(census_text())
+        print("A101 census written.", file=sys.stderr)
+        print_required_pins()
+
     errors = validate()
     if errors:
         print("A101 readiness trust root: failed", file=sys.stderr)

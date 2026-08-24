@@ -43,7 +43,10 @@ exec(
 
 
 REPO = Path(__file__).resolve().parent.parent
-SOURCE_ROOTS = ("tools", "worker")
+# The Ansible tests bind checker and collector sources by digest exactly as
+# the tools do, so a stale pin there is drift the same way. Roots are path
+# prefixes, not top-level directory names.
+SOURCE_ROOTS = ("tools", "worker", "infra/ansible/tests")
 RESULT_ROOT = PurePosixPath("research/isolation/results")
 # A133 rules the provider-neutral launcher may contain no provider name, and
 # assigns this checker the enforcement. Tokens come from the provider entries
@@ -345,7 +348,7 @@ def text_pins(source: bytes, owner: str) -> set[Pin]:
         text = source.decode("utf-8")
     except UnicodeDecodeError as error:
         raise FreezeGraphError(
-            f"non-UTF-8 source under tools/ or worker/: {owner}"
+            f"non-UTF-8 source under a scanned root: {owner}"
         ) from error
     pins: set[Pin] = set()
     for line_number, line in enumerate(text.splitlines(), start=1):
@@ -365,8 +368,10 @@ def source_pins(
     supersessions: dict[str, set[str]] = {}
     source_supersessions: dict[str, dict[str, set[str]]] = {}
     for relative in files:
-        parts = PurePosixPath(relative).parts
-        if not parts or parts[0] not in SOURCE_ROOTS:
+        if not any(
+            relative == root or relative.startswith(f"{root}/")
+            for root in SOURCE_ROOTS
+        ):
             continue
         source = read_regular(repo, relative)
         if relative.endswith(".py"):

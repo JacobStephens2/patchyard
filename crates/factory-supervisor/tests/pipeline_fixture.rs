@@ -584,6 +584,22 @@ impl Fixture {
         }
     }
 
+    /// The verdict persisted by the first verify attempt, parsed.
+    async fn first_verify_verdict(&self) -> Value {
+        let snapshot = self.store.snapshot();
+        let evidence = snapshot
+            .artifacts
+            .iter()
+            .find(|artifact| {
+                artifact.kind == "verify-evidence" && artifact.relative_path.contains("/verify-0/")
+            })
+            .expect("first verify evidence artifact");
+        let bytes = tokio::fs::read(self.artifact_root.join(&evidence.relative_path))
+            .await
+            .expect("persisted verify evidence");
+        serde_json::from_slice(&bytes).expect("the verdict is JSON")
+    }
+
     async fn run(&self) -> PipelineOutcome {
         self.pipeline
             .run_claim(fixture_claim(self.request_id), &CancellationToken::new())
@@ -850,6 +866,51 @@ async fn one_repair_loop_exhaustion_escalates_after_two_verifier_attempts() {
         2
     );
     assert!(snapshot.released);
+}
+
+#[tokio::test]
+async fn a_conforming_rejection_records_the_assertion_that_failed() {
+    let fixture = Fixture::build("review-stub", "verifier-fail-stub", 1).await;
+    assert!(matches!(
+        fixture.run().await,
+        PipelineOutcome::Escalated { .. }
+    ));
+
+    let verdict = fixture.first_verify_verdict().await;
+    assert_eq!(verdict["status"], "failed");
+    assert_eq!(
+        verdict["failures"][0]["assertion"], "fixture_always_rejects",
+        "a rejection names the assertion that failed"
+    );
+    assert!(
+        verdict.get("synthesized").is_none(),
+        "the verifier wrote its own verdict, so nothing is synthesized"
+    );
+}
+
+/// Request bb995b19's rejection preserved nothing but `exit_code: 1`. A verifier
+/// that breaches the contract this way still has its account preserved, and the
+/// breach itself is named rather than passed off as an ordinary failure.
+#[tokio::test]
+async fn a_reason_less_rejection_preserves_what_the_verifier_emitted() {
+    let fixture = Fixture::build("review-stub", "verifier-silent-fail-stub", 1).await;
+    assert!(matches!(
+        fixture.run().await,
+        PipelineOutcome::Escalated { .. }
+    ));
+
+    let verdict = fixture.first_verify_verdict().await;
+    assert_eq!(verdict["status"], "failed");
+    assert_eq!(verdict["exit_code"], 1);
+    assert_eq!(verdict["synthesized"], true);
+    assert!(verdict["reason_unavailable"].is_string());
+    assert!(
+        verdict["captured"]["stderr"]
+            .as_str()
+            .expect("captured stderr")
+            .contains("no match for mfieldbook/leads/assign.php"),
+        "the only account of the rejection is carried, not discarded"
+    );
 }
 
 #[tokio::test]

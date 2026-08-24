@@ -1,0 +1,8 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+# Breaches the rejection contract on purpose: exits non-zero, writes no
+# evidence.json, and says why only on stderr. Proves the supervisor preserves
+# what the process emitted instead of discarding it.
+printf 'grep: no match for mfieldbook/leads/assign.php\n' >&2
+exit 1

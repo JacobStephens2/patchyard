@@ -7,13 +7,52 @@ patch=$3
 implement_evidence=$4
 output=$5
 shift 5
-test -d "$repository"
-test "${#base_sha}" -eq 40
-jq -e '.schema_version == 1' "$implement_evidence" >/dev/null
-grep -q "mfieldbook/common_functions.php" "$patch"
-grep -q "mfieldbook/leads/assign.php" "$patch"
-test "$(grep -c "^+.*'zoe' => 'Zoe Adams'" "$patch")" -eq 2
-test "$(grep -c "^-.*'zoe' => 'Zoe Adams'" "$patch")" -eq 2
+
+# Every rejection names the assertion that failed and what it saw. Failing
+# through a bare `grep -q` under `set -e` leaves the supervisor a verdict with
+# no reason in it, which the contract in docs/factory-verify.md forbids.
+failure_count=0
+failures=""
+fail() {
+  failures="$failures$(jq -nc --arg assertion "$1" --arg expected "$2" \
+    --arg observed "$3" '{$assertion, $expected, $observed}')
+"
+  failure_count=$((failure_count + 1))
+}
+
+check_present() {
+  local assertion=$1 pattern=$2 observed
+  observed=$(grep -c -- "$pattern" "$patch" || true)
+  [[ "$observed" -ge 1 ]] ||
+    fail "$assertion" "at least one line matching ${pattern}" "0 matching lines"
+}
+
+check_count() {
+  local assertion=$1 pattern=$2 expected=$3 observed
+  observed=$(grep -c -- "$pattern" "$patch" || true)
+  [[ "$observed" -eq "$expected" ]] ||
+    fail "$assertion" "${expected} lines matching ${pattern}" "${observed} matching lines"
+}
+
+test -d "$repository" || fail repository_is_a_directory "$repository" "not a directory"
+[[ "${#base_sha}" -eq 40 ]] || fail base_sha_is_40_hex "40 characters" "${#base_sha} characters"
+jq -e '.schema_version == 1' "$implement_evidence" >/dev/null 2>&1 ||
+  fail implement_evidence_schema_version "1" "absent or not 1"
+
+check_present patch_touches_common_functions "mfieldbook/common_functions.php"
+check_present patch_touches_assign "mfieldbook/leads/assign.php"
+check_count alphabetize_adds_zoe "^+.*'zoe' => 'Zoe Adams'" 2
+check_count alphabetize_removes_zoe "^-.*'zoe' => 'Zoe Adams'" 2
+
 mkdir -m 700 -- "$output"
+if [[ "$failure_count" -gt 0 ]]; then
+  printf '%s' "$failures" | jq -sc \
+    '{schema_version: 1, status: "failed", gate: "alphabetize-semantics",
+      failures: ., publish_invoked: false}' >"$output/evidence.json"
+  printf 'deterministic verifier fixture rejected the patch on %d assertion(s)\n' \
+    "$failure_count" >&2
+  exit 1
+fi
+
 printf '%s\n' '{"schema_version":1,"status":"passed","gate":"alphabetize-semantics","publish_invoked":false}' >"$output/evidence.json"
 printf 'deterministic verifier fixture passed\n'

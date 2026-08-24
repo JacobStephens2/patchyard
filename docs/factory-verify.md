@@ -58,6 +58,68 @@ numbered preview URL and bounded element-ID selectors, captures the DOM and a
 screenshot, extracts option order, and destroys the extension/profile. The
 stronger per-run no-authority browser isolation remains Session 13 scope.
 
+## Verifier rejection contract
+
+This binds whatever program `FACTORY_VERIFIER_PROGRAM` names, not one
+implementation. A verifier is swappable; what it must say when it rejects a
+patch is not.
+
+**A rejection states its reason.** On exit non-zero the program writes
+`evidence.json` into its output directory carrying a non-empty `failures` array,
+each entry naming the `assertion` that failed and what it `expected` against
+what it `observed`:
+
+```json
+{
+  "schema_version": 1,
+  "status": "failed",
+  "gate": "alphabetize-semantics",
+  "failures": [
+    {
+      "assertion": "patch_touches_assign",
+      "expected": "at least one line matching mfieldbook/leads/assign.php",
+      "observed": "0 matching lines"
+    }
+  ],
+  "publish_invoked": false
+}
+```
+
+**Failing through a silent builtin is not a way to reject a patch.** A bare
+`grep -q` or `test` under `set -e` exits non-zero having said nothing, and the
+verdict the supervisor is left with carries no reason at all. Collect the failed
+assertions and write them; do not let the shell terminate the program on the
+first one.
+
+`fixtures/pipeline/bin/verifier-stub` is the worked example of the shape, and
+`verifier-silent-fail-stub` is the deliberate breach the supervisor is tested
+against.
+
+### What the supervisor does with a rejection
+
+`ProcessVerifierBackend::verify` reads the reason rather than trusting the exit
+code alone, and distinguishes three outcomes in `VerifyResult::reason_code`:
+
+| Outcome | `reason_code` |
+| --- | --- |
+| exit 0 | `pass` |
+| exit non-zero, verdict states a reason | `deterministic_verifier_failed` |
+| exit non-zero, verdict states no reason | `verifier_reason_missing` |
+
+A verifier that wrote no `evidence.json` gets a synthesized verdict instead of
+an empty one: `synthesized: true`, the exit code, and whatever the process put
+on stdout and stderr, each bounded at 16 KiB with a `_truncated` flag. The
+untruncated streams remain in the run's `transcript.log`. This is the only
+account of such a rejection that exists, so it is carried rather than discarded.
+
+`verifier_reason_missing` names a breach of this contract, not a healthy
+failure. It does not change the disposition of the patch, which has already
+failed closed - it changes what the run says about *why*. The reason is read
+leniently on purpose: bytes that do not parse, an unexpected shape, and an
+unknown key all read as "no reason stated" rather than as an error. A gap in
+diagnostics must never be able to fail a run harder than the gate that produced
+it already did.
+
 ## A10 mutation inventory
 
 | Subcommand | Rejected mutations exercised by `cargo test` |

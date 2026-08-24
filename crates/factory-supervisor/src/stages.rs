@@ -396,28 +396,88 @@ impl ProcessVerifierBackend {
         spec.output_limit = 2 * 1024 * 1024;
         let process = run_bounded(&spec, cancellation).await?;
         let transcript = process.transcript();
+        let passed = process.code == 0;
         let evidence_path = output_dir.join("evidence.json");
         let evidence = if evidence_path.is_file() {
             read_bounded_file(evidence_path, 512 * 1024).await?
         } else {
-            serde_json::to_vec(&serde_json::json!({
-                "schema_version": 1,
-                "status": "failed",
-                "exit_code": process.code,
-            }))?
+            synthesize_verdict(&process)?
         };
-        let reason_code = if process.code == 0 {
+        // A rejection that says nothing is a breach of the verifier contract in
+        // `docs/factory-verify.md`, not a healthy failure - but the patch has
+        // already failed closed, so the breach only changes the reason code. A
+        // diagnostics gap must never be able to take down a run that would
+        // otherwise escalate cleanly.
+        let reason_code = if passed {
             "pass"
-        } else {
+        } else if states_a_reason(&evidence) {
             "deterministic_verifier_failed"
+        } else {
+            "verifier_reason_missing"
         };
         Ok(VerifyResult {
-            passed: process.code == 0,
+            passed,
             evidence,
             transcript,
             reason_code: reason_code.to_owned(),
         })
     }
+}
+
+/// Bound on the captured stream text carried inside a synthesized verdict. The
+/// untruncated streams are persisted separately as the verifier transcript; the
+/// verdict only needs enough to name the failure without opening another file.
+const SYNTHESIZED_STREAM_LIMIT: usize = 16 * 1024;
+
+/// Build the verdict for a verifier that exited without writing `evidence.json`.
+///
+/// The contract requires the program to state its own reason, so reaching here
+/// is already a breach. What the process did emit is the only account of the
+/// rejection that exists, so it is carried rather than discarded.
+fn synthesize_verdict(process: &ProcessOutput) -> Result<Vec<u8>, StageError> {
+    let (stdout, stdout_truncated) = bounded_stream(&process.stdout);
+    let (stderr, stderr_truncated) = bounded_stream(&process.stderr);
+    Ok(serde_json::to_vec(&serde_json::json!({
+        "schema_version": 1,
+        "status": "failed",
+        "exit_code": process.code,
+        "synthesized": true,
+        "reason_unavailable": "the verifier wrote no evidence.json",
+        "captured": {
+            "stdout": stdout,
+            "stdout_truncated": stdout_truncated,
+            "stderr": stderr,
+            "stderr_truncated": stderr_truncated,
+        },
+    }))?)
+}
+
+fn bounded_stream(bytes: &[u8]) -> (String, bool) {
+    let truncated = bytes.len() > SYNTHESIZED_STREAM_LIMIT;
+    let retained = &bytes[..bytes.len().min(SYNTHESIZED_STREAM_LIMIT)];
+    (String::from_utf8_lossy(retained).into_owned(), truncated)
+}
+
+/// Whether a verdict states a machine-readable reason for its rejection.
+///
+/// Deliberately lenient: unparseable bytes, an unexpected shape, or an unknown
+/// key are all read as "no reason stated" rather than as an error. The verdict
+/// is diagnostics, and diagnostics never get to fail a run harder than the gate
+/// that produced them already did.
+fn states_a_reason(evidence: &[u8]) -> bool {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(evidence) else {
+        return false;
+    };
+    let Some(failures) = value.get("failures").and_then(serde_json::Value::as_array) else {
+        return false;
+    };
+    !failures.is_empty()
+        && failures.iter().all(|failure| {
+            failure
+                .get("assertion")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|assertion| !assertion.trim().is_empty())
+        })
 }
 
 pub async fn write_private(path: PathBuf, bytes: Vec<u8>) -> Result<(), StageError> {
@@ -505,4 +565,96 @@ pub enum StageError {
     StageIo(#[from] StageIoError),
     #[error("blocking stage task failed: {0}")]
     Join(tokio::task::JoinError),
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use crate::process::ProcessOutput;
+
+    use super::{states_a_reason, synthesize_verdict};
+
+    fn output(code: i32, stdout: &str, stderr: &str) -> ProcessOutput {
+        ProcessOutput {
+            code,
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: stderr.as_bytes().to_vec(),
+            duration: Duration::from_secs(1),
+        }
+    }
+
+    #[test]
+    fn a_named_assertion_counts_as_a_stated_reason() {
+        assert!(states_a_reason(
+            br#"{"schema_version":1,"status":"failed","failures":[
+                 {"assertion":"patch_touches_assign",
+                  "expected":"at least one line matching mfieldbook/leads/assign.php",
+                  "observed":"0 matching lines"}]}"#
+        ));
+    }
+
+    /// The verdict request bb995b19 actually produced. It is the whole point of
+    /// the ticket that this does not count as a reason.
+    #[test]
+    fn the_bare_status_verdict_states_no_reason() {
+        assert!(!states_a_reason(
+            br#"{"schema_version":1,"status":"failed","exit_code":1}"#
+        ));
+    }
+
+    #[test]
+    fn an_empty_or_unnamed_failure_list_states_no_reason() {
+        assert!(!states_a_reason(br#"{"status":"failed","failures":[]}"#));
+        assert!(!states_a_reason(
+            br#"{"status":"failed","failures":[{"expected":"a","observed":"b"}]}"#
+        ));
+        assert!(!states_a_reason(
+            br#"{"status":"failed","failures":[{"assertion":"   "}]}"#
+        ));
+    }
+
+    /// Diagnostics never get to fail a run harder than the gate already did, so
+    /// bytes that are not JSON at all read as "no reason", never as an error.
+    #[test]
+    fn unparseable_bytes_state_no_reason_rather_than_erroring() {
+        assert!(!states_a_reason(b"grep: no match\n"));
+        assert!(!states_a_reason(b""));
+        assert!(!states_a_reason(br#"["failures"]"#));
+    }
+
+    #[test]
+    fn a_synthesized_verdict_carries_what_the_process_emitted() {
+        let bytes = synthesize_verdict(&output(1, "", "grep: no match for assign.php\n"))
+            .expect("the verdict serializes");
+        let verdict: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("the verdict is JSON");
+
+        assert_eq!(verdict["status"], "failed");
+        assert_eq!(verdict["exit_code"], 1);
+        assert_eq!(verdict["synthesized"], true);
+        assert_eq!(
+            verdict["captured"]["stderr"],
+            "grep: no match for assign.php\n"
+        );
+        assert_eq!(verdict["captured"]["stderr_truncated"], false);
+        // A synthesized verdict is a contract breach by construction, so it
+        // must never be mistaken for one that stated a reason.
+        assert!(!states_a_reason(&bytes));
+    }
+
+    #[test]
+    fn an_oversized_stream_is_bounded_and_says_so() {
+        let noisy = "x".repeat(super::SYNTHESIZED_STREAM_LIMIT + 4_096);
+        let bytes = synthesize_verdict(&output(2, &noisy, "")).expect("the verdict serializes");
+        let verdict: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("the verdict is JSON");
+
+        assert_eq!(
+            verdict["captured"]["stdout"].as_str().map(str::len),
+            Some(super::SYNTHESIZED_STREAM_LIMIT)
+        );
+        assert_eq!(verdict["captured"]["stdout_truncated"], true);
+        assert_eq!(verdict["captured"]["stderr_truncated"], false);
+    }
 }

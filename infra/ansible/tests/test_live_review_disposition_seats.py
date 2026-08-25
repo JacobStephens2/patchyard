@@ -316,6 +316,112 @@ class ReviewSeatBehavior(unittest.TestCase):
         self.assertIn("review output envelope is malformed", result.stderr)
         self.assertFalse(self.output.exists())
 
+    def project(self, entries: list[dict]) -> list[dict]:
+        """Run one round trip and return the WORKSPACE_FILES channel entries."""
+        packet = json.loads(self.packet_path.read_text())
+        packet["manifest"]["files"] = entries
+        self.packet_path.write_text(json.dumps(packet))
+        result, loopback = self.invoke(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "review_id": self.review_id,
+                    "reviewed_sha": self.reviewed_sha,
+                    "findings": [],
+                }
+            )
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        message = json.loads(loopback.request_body["messages"][0]["content"])
+        channel = next(
+            entry
+            for entry in message["channels"]
+            if entry["channel"] == "WORKSPACE_FILES"
+        )
+        return channel["content"]
+
+    def test_oversize_body_is_named_omitted_rather_than_projected_as_empty(self) -> None:
+        # factory#322: a 1.4 MB core file projected as content "" while the
+        # manifest said deletions=0, and the reviewer read the two channels as
+        # a contradiction it could not certify.
+        (self.workspace / "big.php").write_text("x" * (262_144 + 1))
+        entries = self.project(
+            [
+                {
+                    "path": "big.php",
+                    "change": "modified",
+                    "additions": 1,
+                    "deletions": 0,
+                    "binary": False,
+                }
+            ]
+        )
+        self.assertEqual(entries[0]["path"], "big.php")
+        self.assertEqual(entries[0]["content"], "")
+        self.assertEqual(entries[0]["omitted"], "oversize")
+
+    def test_observed_empty_body_carries_no_omission_marker(self) -> None:
+        (self.workspace / "empty.txt").write_text("")
+        entries = self.project(
+            [
+                {
+                    "path": "empty.txt",
+                    "change": "modified",
+                    "additions": 0,
+                    "deletions": 1,
+                    "binary": False,
+                }
+            ]
+        )
+        self.assertEqual(entries[0]["content"], "")
+        self.assertNotIn("omitted", entries[0])
+
+    def test_projected_body_carries_no_omission_marker(self) -> None:
+        entries = self.project(
+            [
+                {
+                    "path": "fixture.txt",
+                    "change": "modified",
+                    "additions": 1,
+                    "deletions": 0,
+                    "binary": False,
+                }
+            ]
+        )
+        self.assertEqual(entries[0]["content"], "alpha\nbeta\n")
+        self.assertNotIn("omitted", entries[0])
+
+    def test_every_unprojectable_case_names_its_own_reason(self) -> None:
+        (self.workspace / "blob.dat").write_bytes(b"\xff\xfe\x00")
+        (self.workspace / "logo.png").write_bytes(b"\x89PNG\r\n")
+        entries = self.project(
+            [
+                {"path": "logo.png", "change": "modified", "binary": True},
+                {"path": "gone.php", "change": "deleted", "binary": False},
+                {"path": "blob.dat", "change": "modified", "binary": False},
+                {"path": "absent.php", "change": "modified", "binary": False},
+            ]
+        )
+        self.assertEqual(
+            {entry["path"]: entry["omitted"] for entry in entries},
+            {
+                "logo.png": "binary",
+                "gone.php": "deleted",
+                "blob.dat": "undecodable",
+                "absent.php": "unreadable",
+            },
+        )
+        self.assertEqual({entry["content"] for entry in entries}, {""})
+
+    def test_review_prompt_teaches_every_omission_reason(self) -> None:
+        # An omitted body is only safe if the prompt says what omission means;
+        # otherwise the reviewer keeps reading "" as evidence.
+        module = load_module(REVIEW_SEAT, "patchyard_review_seat")
+        prompt = (ROOT / "policy/review.md").read_text()
+        self.assertIn("omitted", prompt)
+        for reason in module.OMISSION_REASONS:
+            self.assertIn(f"`{reason}`", prompt)
+
     def test_manifest_path_escapes_are_rejected(self) -> None:
         packet = json.loads(self.packet_path.read_text())
         packet["manifest"]["files"][0]["path"] = "../outside.txt"

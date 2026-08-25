@@ -27,6 +27,14 @@ MAX_RESPONSE_BYTES = 1_000_000
 MAX_OUTPUT_BYTES = 1_000_000
 MAX_WORKSPACE_FILE_BYTES = 262_144
 MAX_WORKSPACE_TOTAL_BYTES = 524_288
+# Why a manifest-listed body is absent from the projection. A projected entry
+# carries no reason, so an empty `content` with no `omitted` key is an observed
+# empty file rather than an unread one; `policy/review.md` teaches the reviewer
+# to read them apart.
+OMISSION_REASONS = ("oversize", "binary", "deleted", "undecodable", "unreadable")
+# A zero-byte file is refused by the regular-file contract but is an observed
+# body at the reviewed SHA, so it is never an omission.
+OBSERVED_EMPTY = "empty"
 # Bounded below the launcher-side child timeout so the seat, not the
 # sandbox teardown, is what times a slow provider call out.
 PROVIDER_TIMEOUT_SECONDS = 180
@@ -48,7 +56,16 @@ SEVERITIES = {"blocking", "major", "minor"}
 
 
 class SeatError(RuntimeError):
-    """A bounded seat precondition or provider response failed closed."""
+    """A bounded seat precondition or provider response failed closed.
+
+    `reason` names which precondition failed, for the one caller that projects
+    a refusal instead of aborting on it. It is set from the same observation
+    that refused the read, so no second look at the path is needed.
+    """
+
+    def __init__(self, message: str, reason: str | None = None):
+        super().__init__(message)
+        self.reason = reason
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -86,15 +103,20 @@ def read_regular(path: Path, maximum: int, label: str) -> bytes:
         metadata = path.lstat()
         resolved = path.resolve(strict=True)
     except OSError as error:
-        raise SeatError(f"{label} cannot be opened") from error
+        raise SeatError(f"{label} cannot be opened", "unreadable") from error
     if (
         not path.is_absolute()
         or resolved != path
         or not stat.S_ISREG(metadata.st_mode)
         or path.is_symlink()
-        or not 1 <= metadata.st_size <= maximum
     ):
-        raise SeatError(f"{label} is outside the regular-file contract")
+        raise SeatError(f"{label} is outside the regular-file contract", "unreadable")
+    if metadata.st_size > maximum:
+        raise SeatError(f"{label} is outside the regular-file contract", "oversize")
+    if metadata.st_size == 0:
+        raise SeatError(
+            f"{label} is outside the regular-file contract", OBSERVED_EMPTY
+        )
     return path.read_bytes()
 
 
@@ -142,6 +164,12 @@ def packet_contract(path: Path) -> dict[str, Any]:
     return value
 
 
+def omitted(raw_path: str, reason: str | None) -> dict[str, str]:
+    if reason not in OMISSION_REASONS:
+        raise SeatError("workspace omission reason is unsupported")
+    return {"path": raw_path, "content": "", "omitted": reason}
+
+
 def workspace_files(manifest: dict[str, Any]) -> list[dict[str, str]]:
     """Read each manifest-listed path from the read-only reviewed worktree.
 
@@ -162,21 +190,28 @@ def workspace_files(manifest: dict[str, Any]) -> list[dict[str, str]]:
             or ".." in raw_path.split("/")
         ):
             raise SeatError("manifest path is outside the workspace contract")
-        if entry.get("binary") is True or entry.get("change") == "deleted":
-            contents.append({"path": raw_path, "content": ""})
+        if entry.get("binary") is True:
+            contents.append(omitted(raw_path, "binary"))
+            continue
+        if entry.get("change") == "deleted":
+            contents.append(omitted(raw_path, "deleted"))
             continue
         path = (root / raw_path).resolve()
         if root not in path.parents:
             raise SeatError("manifest path escapes the workspace")
         try:
             body = read_regular(path, MAX_WORKSPACE_FILE_BYTES, f"workspace file {raw_path}")
-        except SeatError:
-            contents.append({"path": raw_path, "content": ""})
+        except SeatError as error:
+            contents.append(
+                {"path": raw_path, "content": ""}
+                if error.reason == OBSERVED_EMPTY
+                else omitted(raw_path, error.reason)
+            )
             continue
         try:
             text = body.decode("utf-8")
         except UnicodeDecodeError:
-            contents.append({"path": raw_path, "content": ""})
+            contents.append(omitted(raw_path, "undecodable"))
             continue
         total += len(body)
         if total > MAX_WORKSPACE_TOTAL_BYTES:

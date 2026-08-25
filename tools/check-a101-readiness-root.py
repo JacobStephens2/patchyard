@@ -62,6 +62,7 @@ BOUND_EXTRA_PATHS = (
     "infra/ansible/roles/control_plane/files/patchyard-log-secret-scan",
     "infra/ansible/roles/control_plane/files/patchyard-mint-seat-bearer",
     "infra/ansible/roles/control_plane/files/patchyard-request-seat-bearer",
+    "infra/ansible/roles/control_plane/files/patchyard-review-seat",
     "infra/ansible/roles/control_plane/files/patchyard-triage-seat",
     "infra/ansible/roles/control_plane/files/qualify-factory-session13",
     "infra/ansible/roles/control_plane/templates/patchyard-management-ssh.j2",

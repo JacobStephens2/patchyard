@@ -55,9 +55,19 @@ postgresql_tls_directory: /var/lib/pgsql/patchyard-tls
 postgresql_tls_renewal_window_seconds: 2592000
 github_cli_nevra: gh-2.94.0-1.el9.x86_64
 artifact_retention_days: 90
-# Session 14's pinned real Fieldbook master used for the ALPHABETIZE preview
-# qualification. The publisher verifies this object after fetching origin.
-factory_fieldbook_base_sha: 4ef35181f7a700b02e63808e483d7c23f33b91d8
+# The demonstration run's base (issue 208). Not a Fieldbook master commit: it is
+# `factory_fieldbook_base_branch` below, which is master plus the one targeted
+# acceptance test the production verifier demands at this SHA and the lane-A
+# caps forbid the model's patch from adding. The publisher verifies this
+# object after fetching the base branch; the branch's tip is what it must be.
+factory_fieldbook_base_sha: 00af775db678b2877d0863cf35512874579d8407
+# The branch the demonstration pull request is opened against. The `/staging`
+# suffix is load-bearing, not decorative: Fieldbook CI filters on
+# [master, '**/staging'] and GitHub matches that against a pull request's
+# base, so a base outside it reports no checks at all - which the supervisor
+# reads as `checks_not_started` and waits on until `ci_wait_timed_out`.
+# `infra/ansible/tests/test_demonstration_run.py` asserts the whole shape.
+factory_fieldbook_base_branch: factory/alphabetize/staging
 
 # GitHub App identifiers, not secrets: identities live in Git, secrets stay
 # out. Promoted from bootstrap-injected -e plumbing by the on-host converge

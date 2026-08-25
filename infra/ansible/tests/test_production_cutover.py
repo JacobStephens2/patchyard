@@ -31,7 +31,6 @@ CONTROL = ROOT / "infra" / "ansible" / "roles" / "control_plane"
 ENVIRONMENT = CONTROL / "templates" / "patchyard-supervisor.env.j2"
 RUNNER = ROOT / "worker" / "runtime" / "patchyard-run-verifier"
 
-BASE_SHA = "4ef35181f7a700b02e63808e483d7c23f33b91d8"
 # The pinned PHPUnit PHAR digest recorded in docs/session-7-preview-verifier.md.
 PHPUNIT_SHA256 = "3160398ef3e1ac041866fab0e88bdbc46349c7420824b750d2ede9a58ead1ba8"
 TEST_PATH = "tests/Unit/AlphabetizeSalespeopleTest.php"
@@ -80,7 +79,12 @@ class SupervisorEnvironmentCutover(unittest.TestCase):
     def test_publisher_base_and_repository_are_real_fieldbook(self) -> None:
         self.assertIn("FACTORY_BASE_SHA={{ factory_fieldbook_base_sha }}", self.environment)
         self.assertIn("FACTORY_GITHUB_REPOSITORY_NAME=fieldbook", self.environment)
-        self.assertIn("FACTORY_GITHUB_BASE_BRANCH=master", self.environment)
+        # The base branch became the demonstration base in issue 208.
+        # Its shape is proven in tests/test_demonstration_run.py.
+        self.assertIn(
+            "FACTORY_GITHUB_BASE_BRANCH={{ factory_fieldbook_base_branch }}",
+            self.environment,
+        )
 
     def test_worker_verifier_and_disposition_programs_are_the_real_ones(self) -> None:
         for variable, program in (

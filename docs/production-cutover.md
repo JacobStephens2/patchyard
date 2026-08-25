@@ -67,16 +67,20 @@ executes the rendered runner against mocked hosts and proves every row.
 
 ## Blocking preconditions
 
-None is satisfied by this change, and the first will fail every production
-run until it is.
+None is satisfied by this change. Issue 208 dispositioned the first and third;
+[`demonstration-run.md`](demonstration-run.md) carries what replaced them.
 
-1. **`tests/Unit/AlphabetizeSalespeopleTest.php` must exist on Fieldbook
-   `master`.** It does not today; it lived only on the Session 7 candidate
-   branch, and `fixtures/acceptance/alphabetize/AlphabetizeSalespeopleTest.php`
-   in this repo is the exact file to land. The lane-A caps forbid the patch
-   from adding its own test, so the verifier rejects the absence by name
-   (`targeted_test_exists_at_base`, `rejects: task`) rather than reporting a
-   PHPUnit transcript from the far side of an SSH hop.
+1. ~~**`tests/Unit/AlphabetizeSalespeopleTest.php` must exist on Fieldbook
+   `master`.**~~ **Superseded by issue 208; see
+   [`demonstration-run.md`](demonstration-run.md).** The gate is real — the
+   lane-A caps forbid the patch from adding its own test, so the verifier
+   rejects the absence by name (`targeted_test_exists_at_base`,
+   `rejects: task`) rather than reporting a PHPUnit transcript from the far
+   side of an SSH hop — but `master` was the wrong place to satisfy it. The
+   verifier resolves targeted tests at `FACTORY_BASE_SHA`, not at `master`, and
+   the test is red until the patch exists while the demonstration pull request
+   is never merged. The test now lives on a dedicated base branch that is
+   `master` plus that one file.
 2. **The implement guest's production-parity path turns on with the flip.**
    `patchyard-invoke-worker` computes `parity_required` as `not dry_run`, so
    `pre_publish` is the first mode in which the guest initializes MySQL from
@@ -87,13 +91,12 @@ run until it is.
    the worker's implement image is at the pinned recipe, before the first
    production claim - a parity failure surfaces as
    `implement-mysql-prepare-failed`, not as a verifier rejection.
-3. **Decide whether `factory_fieldbook_base_sha` advances.** It is pinned at
-   `4ef35181f7a700b02e63808e483d7c23f33b91d8` (2026-07-24) while Fieldbook
-   `master` has moved on. The pin is deliberately not advanced here: the
-   preview host serves a checkout, and moving the base without re-checking
-   preview parity trades one stale artifact for a broken evidence capture. A
-   pull request opened on the old base still diffs correctly — the merge base
-   is on `master` — but its CI runs at a month-old tree.
+3. ~~**Decide whether `factory_fieldbook_base_sha` advances.**~~ **Decided by
+   issue 208: it advanced**, to the demonstration base branch off `master` at
+   2026-08-24. The caveat that deferred it still holds and became precondition
+   3 of [`demonstration-run.md`](demonstration-run.md): the preview host serves
+   a checkout, so preview parity has to be re-checked against the new base
+   before the run rather than discovered after a successful patch.
 
 ## Safety checklist before merge and converge
 
@@ -125,12 +128,15 @@ operator action; none of it happened as part of authoring this change.
    the grant; a dry-run or non-Fieldbook kill is inside it.
 
 4. **Publisher branch hygiene against real Fieldbook.** The publisher opens
-   `factory/<request-id>-change` off `master` and refuses a branch it does not
-   own. Two Session 7 branches exist and do not collide —
+   `factory/<request-id>-change` off `FACTORY_GITHUB_BASE_BRANCH` — since issue
+   208 that is `factory/alphabetize/staging`, not `master` — and refuses a
+   branch it does not own. Three branches now appear in the listing below and
+   none collides: the two Session 7 leftovers,
    `factory/session-7-alphabetize-base` and
-   `factory/session-7-alphabetize-candidate` — but confirm before converge that
-   nothing matching the production pattern is present, and that the open-PR cap
-   of two (`PublisherConfig::max_open_prs`) has room:
+   `factory/session-7-alphabetize-candidate`, and the demonstration base
+   itself, which is a base rather than a stale published branch. Confirm before
+   converge that nothing matching the production pattern is present, and that
+   the open-PR cap of two (`PublisherConfig::max_open_prs`) has room:
 
    ```
    gh api repos/example-org/fieldbook/git/matching-refs/heads/factory --jq '.[].ref'

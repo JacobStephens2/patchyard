@@ -163,12 +163,29 @@ forgotten:
 - [#261](https://github.com/JacobStephens2/patchyard/issues/261):
   re-arm the codebase metrics projection gate.
 
-## Not in this change
+## What has and has not been performed
 
-No converge, no drill, and no run was performed by the commit that added this
-file. Everything under **The run** is Jacob's.
+The base branch was pushed to Fieldbook on 2026-08-25 with Jacob's go, so
+precondition 1 is satisfied: the `gh api` call above returns `00af775d`.
 
-The base branch is committed locally and the pin points at it, but pushing it
-to Fieldbook is a write to another repository and is held for Jacob's go.
-Precondition 1 is how to confirm it landed; until that `gh api` call returns
-`00af775d`, this ticket cannot start.
+No converge, no drill, and no run has been performed. Preconditions 2, 3 and 4
+are unconfirmed. Everything under **The run** is Jacob's.
+
+### The base branch's own CI run is red, and that is the shape working
+
+Pushing to a `**/staging` branch matches Fieldbook CI's `push` filter as well as
+its `pull_request` one, so landing the base opened a run against the base
+itself — and that run fails. Read it before assuming something broke:
+
+```
+gh run list --repo example-org/fieldbook --branch factory/alphabetize/staging
+```
+
+Run `32802484260` reports `Tests: 3088, Assertions: 15156, Failures: 2`, and
+both of those failures are the acceptance test's single method — Fieldbook's
+`phpunit.xml` sweeps it into two suites, so it executes twice per run. Nothing
+else on the branch is red. That is the red half of the red-to-green
+transition the demonstration pull request is about: those two assertions turn
+green when the model's three-line patch lands on top, and no unrelated failure
+is sitting on the base waiting to hold the pull request's check run red after
+a correct patch.

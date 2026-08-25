@@ -32,7 +32,12 @@ nav { display: flex; flex-wrap: wrap; align-items: center; gap: 0.7rem; padding:
 .nav-user { margin-left: auto; color: var(--tertiary-color); }
 .inline { display: inline-block; margin: 0 0.35rem 0.35rem 0; }
 .box { border: 1px solid #304137; padding: 1rem; margin: 1rem 0; background: var(--block-background-color); }
-.error, .btn-error { color: var(--error-color); border-color: var(--error-color); }
+.error { color: var(--error-color); border-color: var(--error-color); }
+/* .btn-error is a filled button, not error text: it keeps terminal.css's
+   inverted foreground on the red fill. Folding it in with .error above set the
+   label to the same red as the fill - 1.00:1, an unreadable `kill run` and
+   `full stop`. Only the border is safe to restate here. */
+.btn-error { border-color: var(--error-color); }
 input, textarea, select, button {
   background: var(--background-color);
   color: var(--font-color);

@@ -2572,6 +2572,125 @@ mod tests {
         assert!(source.contains("NewRequest::from_intake"));
     }
 
+    /// The two stylesheets, in the order `base.html` links them.
+    const STYLESHEETS: [&str; 2] = [
+        include_str!("../../../assets/dashboard/terminal.css"),
+        include_str!("../../../assets/dashboard/patchyard-theme.css"),
+    ];
+
+    /// The sheet with `/* ... */` removed, so declarations parse cleanly.
+    ///
+    /// Both files carry palette comments between declarations. Splitting on
+    /// `;` without stripping them first silently loses the declaration that
+    /// follows one, which is how an earlier draft of this test read
+    /// `--invert-font-color` from the wrong stylesheet.
+    fn without_comments(sheet: &str) -> String {
+        let mut out = String::with_capacity(sheet.len());
+        let mut rest = sheet;
+        while let Some((before, after)) = rest.split_once("/*") {
+            out.push_str(before);
+            match after.split_once("*/") {
+                Some((_, tail)) => rest = tail,
+                None => return out,
+            }
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// The last value the cascade gives `property` for `selector`.
+    ///
+    /// Equal specificity throughout these two files, so source order decides
+    /// and "last one wins" is the whole of the cascade that matters here.
+    fn cascaded(selector: &str, property: &str) -> Option<String> {
+        let mut winner = None;
+        for sheet in STYLESHEETS {
+            let sheet = without_comments(sheet);
+            for (heads, body) in sheet.split('}').filter_map(|rule| rule.split_once('{')) {
+                if !heads.split(',').any(|head| head.trim() == selector) {
+                    continue;
+                }
+                for declaration in body.split(';') {
+                    if let Some((name, value)) = declaration.split_once(':')
+                        && name.trim() == property
+                    {
+                        winner = Some(value.trim().to_owned());
+                    }
+                }
+            }
+        }
+        winner
+    }
+
+    /// A custom property's final value from the `:root` blocks.
+    fn custom_property(name: &str) -> String {
+        cascaded(":root", name).unwrap_or_else(|| panic!("{name} must be defined on :root"))
+    }
+
+    fn relative_luminance(hex: &str) -> f64 {
+        let hex = hex.trim_start_matches('#');
+        // `#abc` is `#aabbcc`; both files use both forms.
+        let hex = if hex.len() == 3 {
+            hex.chars().flat_map(|digit| [digit, digit]).collect()
+        } else {
+            hex.to_owned()
+        };
+        let hex = hex.as_str();
+        assert_eq!(hex.len(), 6, "expected a hex colour, got {hex}");
+        let channel = |offset: usize| {
+            let value = u8::from_str_radix(&hex[offset..offset + 2], 16).expect("hex colour")
+                as f64
+                / 255.0;
+            if value <= 0.03928 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4)
+    }
+
+    fn contrast_ratio(one: &str, other: &str) -> f64 {
+        let (a, b) = (relative_luminance(one), relative_luminance(other));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    #[test]
+    fn the_destructive_button_label_is_legible_against_its_own_fill() {
+        // `kill run` and `full stop` are both `.btn-error`. They are the
+        // controls an operator reaches for when something is going wrong, so a
+        // label that disappears into its own background is a safety defect and
+        // not a cosmetic one.
+        //
+        // The failure this pins is a cascade collision, invisible in either
+        // file alone: terminal.css gives `.btn-error` an inverted foreground on
+        // a red fill, and patchyard-theme.css - which base.html links second - once
+        // reset the foreground to that same red without touching the fill,
+        // leaving the two identical at 1.00:1.
+        let foreground = cascaded(".btn-error", "color").expect(".btn-error must set a colour");
+        let background = cascaded(".btn-error", "background-color")
+            .expect(".btn-error must set a background colour");
+        assert_ne!(
+            foreground, background,
+            "the .btn-error label resolves to the same value as its fill, so it \
+             cannot be read at any brightness",
+        );
+
+        let resolve = |value: &str| {
+            value
+                .strip_prefix("var(")
+                .and_then(|rest| rest.strip_suffix(')'))
+                .map(|name| custom_property(name.trim()))
+                .unwrap_or_else(|| value.to_owned())
+        };
+        let ratio = contrast_ratio(&resolve(&foreground), &resolve(&background));
+        assert!(
+            ratio >= 4.5,
+            "the .btn-error label contrasts at {ratio:.2}:1 against its fill, \
+             below the 4.5:1 floor for body-sized text",
+        );
+    }
+
     #[allow(dead_code)]
     fn test_state_shape(store: DashboardStore) -> AppState {
         AppState::with_dummy_hash(

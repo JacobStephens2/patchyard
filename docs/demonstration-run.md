@@ -102,11 +102,25 @@ the demonstration answers is real today, not a month-old artifact.
    against the dry-run target, publisher branch hygiene, converge then qualify.
    Note that `factory/alphabetize/staging` now legitimately appears in the
    `matching-refs/heads/factory` listing that step 4 greps; it is a base, not a
-   stale published branch.
+   stale published branch. Step 3, the kill drill, was **not** re-performed for
+   this run; it is satisfied by ruling on two conditions, one of which binds
+   the run itself. Read
+   [Step 3 was ruled satisfied, not re-drilled](#step-3-was-ruled-satisfied-not-re-drilled)
+   before you take it as simply done.
 
 ## The run
 
 Everything above happens before Jacob touches the form. The run itself is:
+
+0. **Stay at the console.** This run is attended from submission to terminal
+   state, with the dashboard's `Full stop` control reachable throughout. That
+   is not general caution: it is the condition the kill drill was waived on
+   ([Step 3 was ruled satisfied, not re-drilled](#step-3-was-ruled-satisfied-not-re-drilled)),
+   so it is the thing standing in for a drill that was not re-performed.
+   `Full stop` blocks claims and requests termination of active work
+   ([`runbook-v0.md`](runbook-v0.md) § Kill and full stop). Leaving the
+   run unattended does not make it riskier by a little — it removes the
+   compensating control the waiver was granted against.
 
 1. **Submit.** Authenticated at `factory.example.com/new`. The body is the
    sanitized ALPHABETIZE request in
@@ -193,10 +207,64 @@ capability path rather than to a curl.
 
 Of precondition 4, steps 1 (caps are `5`/`25` in the running config), 2
 (pause verified — see below), 4 (publisher branch hygiene) and 5 (converge
-then qualify) are done. Step 3, the kill drill, has not been performed.
+then qualify) are done. Step 3, the kill drill, was not performed and was
+ruled satisfied without one; the next section is that ruling and what it
+costs.
 
-No drill and no run has been performed. Everything under **The run** is
-Jacob's.
+No run has been performed. Everything under **The run** is Jacob's.
+
+### Step 3 was ruled satisfied, not re-drilled
+
+Jacob ruled on 2026-08-25 that the attended kill drill is satisfied for #208
+without re-performing it. The ruling is conditional on two things. The first
+is an obligation on whoever runs the demonstration; the second was discharged
+on the day of the ruling and is recorded here so the first is readable:
+
+1. The demonstration is **watched live with `Full stop` available**, not left
+   to run unattended. This is step 0 of **The run** above.
+2. The two open questions about the kill path are filed — done, as
+   [#321](https://github.com/JacobStephens2/patchyard/issues/321).
+   They are an unexplained `requests_closed_state_consistent` violation on two
+   dashboard kills on 2026-07-28, and the fact that no button-driven kill has
+   ever recorded a lease release in its outcome. Filing them is what makes
+   hitting one mid-run a known bounded thing rather than a fresh fault
+   discovered against real Fieldbook.
+
+Why it was not simply drilled: the checklist requires the drill to run
+**against the dry-run target**, and `FACTORY_RUN_MODE` is a hardcoded literal
+in `patchyard-supervisor.env.j2`, read once at daemon bootstrap. There is no
+per-request or per-manifest override. With the daemon at `pre_publish` since
+[#207](https://github.com/JacobStephens2/patchyard/issues/207), a
+`/new` submission goes at real Fieldbook, and A148 keeps a live Fieldbook kill
+outside the grant. Drilling as written therefore meant promoting the mode to a
+variable, converging to `dry_run`, drilling, converging back, and re-verifying
+all three pins in the table above — four converges against the exact
+configuration the run depends on, hours before the run.
+
+What is standing in for the drill, besides attendance: exactly one commit has
+touched `lifecycle.rs` or `child.rs` since the last drill on 2026-07-28
+(`047b802`), so the teardown code is substantially the code that was drilled.
+Read that drill as the ledger has it, not as a clean precedent: on the night
+of 2026-07-28 `factory.controls` recorded **two kills that failed** on
+`requests_closed_state_consistent` and then, 48 minutes later, two that
+completed with `worker_teardown: complete`. Nothing between them is recorded
+as a fix. That is the whole of the first question in #321.
+
+Be exact about what this does and does not substitute for. Step 3 asks you to
+confirm four things: the control completes, the run and request become
+`killed`, **the lease is released**, and worker and child no-residue
+qualification passes afterwards. The code-currency argument above covers the
+teardown half. It does not evidence lease release — that is #321's second
+question, and no button-driven kill has ever recorded it — and no no-residue
+qualification has been run against this configuration. `SPEC.md` acceptance 7
+("an admin kill of a live run terminates the worker, releases the lease, and
+lands the killed event on the SSE stream") therefore remains unevidenced for
+the production path for the duration of this run.
+
+This waiver is scoped to #208. It is not a precedent for the next production
+run, and it does not close #321 — that one closes when the constraint
+violation is explained or shown unreachable and the kill outcome records lease
+disposition unconditionally.
 
 ### `factoryctl claim` is the wrong probe for a pause
 

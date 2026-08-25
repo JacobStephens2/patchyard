@@ -95,6 +95,16 @@ class DemonstrationBase(unittest.TestCase):
         assert match is not None
         return match.group("branch").strip("\"'")
 
+    def section(self, title: str) -> str:
+        """One `##` section of the operator doc, by heading, subsections and all."""
+        match = re.search(
+            rf"(?ms)^## {re.escape(title)}$(?P<body>.*?)(?=^## |\Z)",
+            self.operator_doc,
+        )
+        self.assertIsNotNone(match, f"the doc must carry a `## {title}` section")
+        assert match is not None
+        return match.group("body")
+
     def test_the_publisher_base_branch_is_versioned_not_hardcoded_master(self) -> None:
         # The pull request is opened against the branch that carries the test,
         # not against master. Master is where the request's bug still lives.
@@ -163,6 +173,34 @@ class DemonstrationBase(unittest.TestCase):
         assert sha is not None
         self.assertIn(branch, self.operator_doc)
         self.assertIn(sha.group("sha"), self.operator_doc)
+
+    def test_the_run_says_it_is_attended_with_full_stop_reachable(self) -> None:
+        # Precondition 4 step 3, the attended kill drill, was not re-performed
+        # for this run. Jacob ruled on 2026-08-25 that it is satisfied without
+        # a re-drill on two conditions, and one of them is that the
+        # demonstration is watched live with `Full stop` available rather than
+        # left to run unattended. That condition is what stands in for the
+        # drill, so it has to reach the operator where the operator acts — in
+        # `## The run`, not only in a note further down. A doc that says
+        # "submit, watch, stop" without it reads as permission to walk away,
+        # and walking away voids the premise the ruling was given on.
+        self.assertIn("Full stop", self.section("The run"))
+
+    def test_the_undrilled_kill_path_names_its_open_questions(self) -> None:
+        # The ruling's other condition: the two unresolved things about the
+        # dashboard kill path are filed rather than carried in an operator's
+        # head. An operator who hits either of them mid-run — a kill that
+        # fails on `requests_closed_state_consistent`, or an outcome with no
+        # lease disposition — should find them already known and bounded
+        # instead of reading them as a new fault during a live Fieldbook run.
+        waiver = self.section("What has and has not been performed")
+        self.assertIn("Step 3 was ruled satisfied, not re-drilled", waiver)
+        self.assertIn(
+            "https://github.com/JacobStephens2/patchyard/issues/321",
+            waiver,
+            "the waiver has to name its open questions where it is granted, "
+            "not somewhere else in the document",
+        )
 
     def test_the_base_must_carry_the_exact_path_production_names(self) -> None:
         # The base branch lives in Fieldbook, which this repository cannot read.

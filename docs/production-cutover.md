@@ -127,6 +127,15 @@ operator action; none of it happened as part of authoring this change.
    route authorization explicitly keeps the kill of a live Fieldbook run outside
    the grant; a dry-run or non-Fieldbook kill is inside it.
 
+   **This step was waived once, for issue 208 only.** With the daemon at
+   `pre_publish` there is no dry-run target to drill against without four
+   converges, so Jacob ruled on 2026-08-25 that the drill is satisfied for that
+   run on condition it is attended with `Full stop` reachable. The reasoning,
+   what it does not evidence, and the open questions it left behind are in
+   [`demonstration-run.md`](demonstration-run.md)
+   § Step 3 was ruled satisfied, not re-drilled. Outside issue 208 this step
+   stands as written; do not read the waiver as a general one.
+
 4. **Publisher branch hygiene against real Fieldbook.** The publisher opens
    `factory/<request-id>-change` off `FACTORY_GITHUB_BASE_BRANCH` — since issue
    208 that is `factory/alphabetize/staging`, not `master` — and refuses a

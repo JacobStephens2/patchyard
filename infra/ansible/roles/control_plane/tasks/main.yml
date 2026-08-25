@@ -1850,7 +1850,7 @@
     mode: "0750"
   when: not (factory_restore_drill | default(false) | bool)
 
-- name: Install the Session 7 verifier runner
+- name: Install the production deterministic verifier
   ansible.builtin.template:
     src: "{{ playbook_dir }}/../../worker/runtime/patchyard-run-verifier"
     dest: /usr/local/sbin/patchyard-run-verifier

@@ -2,6 +2,13 @@
 set -euo pipefail
 umask 077
 
+# The production deterministic verifier. It runs the targeted PHPUnit slice on
+# the secret-free worker and returns a verdict shaped by the rejection contract
+# in docs/factory-verify.md: every rejection writes evidence.json naming the
+# assertions that failed, so the supervisor is never left reading a bare exit
+# code. Failing through a builtin under `set -e` is what that contract forbids,
+# so no check below is allowed to terminate the program.
+
 usage() {
   echo "usage: $0 /absolute/git-repo BASE_SHA /absolute/change.patch /absolute/implement-evidence.json /absolute/output-dir TEST.php [...]" >&2
   exit 2
@@ -14,12 +21,18 @@ IMPLEMENT_EVIDENCE=$4
 OUTPUT_DIR=$5
 shift 5
 TESTS=("$@")
-[[ "$SOURCE_REPO" == /* && "$PATCH" == /* && "$IMPLEMENT_EVIDENCE" == /* && "$OUTPUT_DIR" == /* ]]
-[[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
-sudo test -f "$PATCH"
-sudo test -f "$IMPLEMENT_EVIDENCE"
-sudo test ! -e "$OUTPUT_DIR"
-[[ "$(git -C "$SOURCE_REPO" rev-parse "$BASE_SHA^{commit}")" == "$BASE_SHA" ]]
+# Without somewhere to write the verdict there is no way to state a reason, so
+# these two are preconditions rather than assertions. They are the supervisor's
+# own contract - it passes an absolute path and removes any prior directory -
+# so they say what was wrong instead of reprinting the argument list.
+[[ "$OUTPUT_DIR" == /* ]] || {
+  echo "output directory must be an absolute path: $OUTPUT_DIR" >&2
+  exit 2
+}
+sudo test ! -e "$OUTPUT_DIR" || {
+  echo "output directory already exists: $OUTPUT_DIR" >&2
+  exit 2
+}
 
 WORKER_IP={{ hostvars[groups['worker'][0]].private_ip }}
 SSH_ARGS=(
@@ -31,58 +44,181 @@ SSH_ARGS=(
 RUN_ID="s7-$(date -u +%Y%m%d)-$(openssl rand -hex 6)"
 REMOTE_ROOT="/var/tmp/patchyard-incoming/$RUN_ID"
 RUN_TEMP=$(mktemp -d /var/tmp/patchyard-control-verify.XXXXXX)
+RESULT="$RUN_TEMP/result"
+install -d -m 0700 "$RESULT"
 remote_ssh() { ssh "${SSH_ARGS[@]}" {{ factory_manager_user }}@"$WORKER_IP" "$@"; }
 cleanup() {
   remote_ssh rm -r -- "$REMOTE_ROOT" >/dev/null 2>&1 || true
-  rm -r -- "$RUN_TEMP"
+  rm -r -- "$RUN_TEMP" 2>/dev/null || true
 }
 trap cleanup EXIT
 
-sudo install -m 0600 -o {{ factory_manager_user }} -g {{ factory_manager_user }} \
-  "$PATCH" "$RUN_TEMP/change.patch"
-sudo install -m 0600 -o {{ factory_manager_user }} -g {{ factory_manager_user }} \
-  "$IMPLEMENT_EVIDENCE" "$RUN_TEMP/implement-evidence.json"
-PATCH="$RUN_TEMP/change.patch"
-IMPLEMENT_EVIDENCE="$RUN_TEMP/implement-evidence.json"
-jq -e '
-  .host_teardown.run_directories == 0
-  and .host_teardown.processes == 0
-  and .host_teardown.taps == 0
-  and .host_teardown.nftables_tables == 0
-  and .host_teardown.credential_files == 0
-' "$IMPLEMENT_EVIDENCE" >/dev/null
+failure_count=0
+failures=""
+# Every rejection names its assertion, what was expected, and what was seen.
+fail() {
+  failures="$failures$(jq -nc --arg assertion "$1" --arg expected "$2" \
+    --arg observed "$3" '{$assertion, $expected, $observed}')
+"
+  failure_count=$((failure_count + 1))
+}
 
-git -C "$SOURCE_REPO" archive --format=tar "$BASE_SHA" | gzip -n -9 >"$RUN_TEMP/source.tar.gz"
-SOURCE_SHA256=$(sha256sum "$RUN_TEMP/source.tar.gz" | cut -d' ' -f1)
-PATCH_SHA256=$(sha256sum "$PATCH" | cut -d' ' -f1)
-PHPUNIT_EXPECTED=$(</usr/local/share/patchyard/phpunit.sha256)
-[[ "$PHPUNIT_EXPECTED" =~ ^[0-9a-f]{64}$ ]]
-TESTS_JSON=$(printf '%s\n' "${TESTS[@]}" | jq -Rsc 'split("\n")[:-1]')
-jq -n \
-  --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
-  --arg source_archive_sha256 "$SOURCE_SHA256" --arg patch_sha256 "$PATCH_SHA256" \
-  --arg phpunit_binary_sha256 "$PHPUNIT_EXPECTED" --argjson phpunit_tests "$TESTS_JSON" \
-  '{schema_version: 1, $run_id, $base_sha, $source_archive_sha256, $patch_sha256,
-    $phpunit_binary_sha256, $phpunit_tests, timeout_seconds: 120}' \
-  >"$RUN_TEMP/runtime.json"
+# The verdict is only stated if it arrives. A publish that fails leaves the
+# supervisor with no evidence.json at all, which the contract reads as a
+# verdict that named nothing - so the bytes go to stderr instead, where the
+# synthesized verdict carries them. Each step returns rather than exiting so
+# `set -e` cannot take the fallback away.
+publish_result() {
+  sudo chown -R factory-web:factory "$RESULT" || return $?
+  sudo find "$RESULT" -type d -exec chmod 0700 {} + || return $?
+  sudo find "$RESULT" -type f -exec chmod 0600 {} + || return $?
+  sudo mv -- "$RESULT" "$OUTPUT_DIR" || return $?
+}
 
-remote_ssh install -d -m 0700 "$REMOTE_ROOT"
-scp "${SSH_ARGS[@]}" "$RUN_TEMP/source.tar.gz" "$RUN_TEMP/runtime.json" "$PATCH" \
-  {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/"
-remote_ssh sudo /usr/local/sbin/patchyard-verify-runtime \
-  "$REMOTE_ROOT/runtime.json" "$REMOTE_ROOT/source.tar.gz" \
-  "$REMOTE_ROOT/$(basename "$PATCH")" "$REMOTE_ROOT/evidence.json"
-install -d -m 0700 "$RUN_TEMP/result"
-scp "${SSH_ARGS[@]}" {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/evidence.json" "$RUN_TEMP/result/"
-jq -e '
-  .verifier_identity == "factory-worker"
-  and .clean_environment
-  and .tree_hash_equal
-  and .agent_worker_terminated_before_verify
-  and .phpunit_exit_code == 0
-' "$RUN_TEMP/result/evidence.json" >/dev/null
-sudo chown -R factory-web:factory "$RUN_TEMP/result"
-sudo find "$RUN_TEMP/result" -type d -exec chmod 0700 {} +
-sudo find "$RUN_TEMP/result" -type f -exec chmod 0600 {} +
-sudo mv -- "$RUN_TEMP/result" "$OUTPUT_DIR"
+deliver_verdict() {
+  publish_result && return 0
+  printf 'verifier could not publish its verdict to %s; the verdict follows\n' \
+    "$OUTPUT_DIR" >&2
+  cat -- "$RESULT/evidence.json" >&2 || true
+  return 1
+}
+
+# `rejects` decides what the supervisor does next, so it is chosen per gate.
+# `patch` is the only subject a repair attempt can answer. A breached verify
+# environment is `task`: while the gate cannot reach a verdict, no patch this
+# task can produce will pass, so the run ends and escalates rather than
+# spending a live implement run on a failure the model cannot fix.
+reject_if_failed() {
+  local gate=$1 rejects=$2
+  [[ "$failure_count" -gt 0 ]] || return 0
+  printf '%s' "$failures" | jq -sc \
+    --arg gate "$gate" --arg rejects "$rejects" \
+    '{schema_version: 1, status: "failed", gate: $gate, rejects: $rejects,
+      failures: ., publish_invoked: false}' >"$RESULT/evidence.json"
+  deliver_verdict || true
+  printf 'verifier gate %s rejected the %s on %d assertion(s)\n' \
+    "$gate" "$rejects" "$failure_count" >&2
+  exit 1
+}
+
+# Read one field out of a JSON record and assert its exact value. The
+# assertion is named for the field, so what the verdict says and what the
+# record holds cannot drift apart.
+expect() {
+  local file=$1 assertion=$2 filter=$3 wanted=$4 observed
+  observed=$(jq -r "$filter | tostring" "$file" 2>/dev/null || true)
+  [[ "$observed" == "$wanted" ]] || fail "$assertion" "$wanted" "${observed:-absent}"
+}
+
+# Gate 1: the inputs the supervisor handed us, and the pinned PHPUnit binary.
+[[ "$SOURCE_REPO" == /* ]] ||
+  fail source_repository_is_absolute "an absolute path" "$SOURCE_REPO"
+[[ "$PATCH" == /* ]] || fail patch_path_is_absolute "an absolute path" "$PATCH"
+[[ "$IMPLEMENT_EVIDENCE" == /* ]] ||
+  fail implement_evidence_path_is_absolute "an absolute path" "$IMPLEMENT_EVIDENCE"
+[[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] ||
+  fail base_sha_is_40_hex "40 lowercase hex characters" "$BASE_SHA"
+sudo test -f "$PATCH" || fail patch_is_a_file "$PATCH" "absent or not a regular file"
+sudo test -f "$IMPLEMENT_EVIDENCE" ||
+  fail implement_evidence_is_a_file "$IMPLEMENT_EVIDENCE" "absent or not a regular file"
+PHPUNIT_EXPECTED=""
+if [[ -r /usr/local/share/patchyard/phpunit.sha256 ]]; then
+  PHPUNIT_EXPECTED=$(</usr/local/share/patchyard/phpunit.sha256)
+fi
+[[ "$PHPUNIT_EXPECTED" =~ ^[0-9a-f]{64}$ ]] ||
+  fail phpunit_binary_pin_is_64_hex "64 lowercase hex characters" \
+    "${PHPUNIT_EXPECTED:-absent}"
+# The patch and the implement evidence belong to the artifact store, which is
+# not the identity this program reads as. Both are staged privileged once, and
+# everything downstream reads the staged copy - otherwise an unreadable file
+# surfaces as whatever the first unprivileged reader made of it, which for the
+# teardown gate would be a permission fault reported as worker residue.
+if [[ "$failure_count" -eq 0 ]]; then
+  sudo install -m 0600 -o {{ factory_manager_user }} -g {{ factory_manager_user }} \
+    "$PATCH" "$RUN_TEMP/change.patch" ||
+    fail patch_is_readable "$PATCH readable by {{ factory_manager_user }}" \
+      "staging $PATCH failed"
+  sudo install -m 0600 -o {{ factory_manager_user }} -g {{ factory_manager_user }} \
+    "$IMPLEMENT_EVIDENCE" "$RUN_TEMP/implement-evidence.json" ||
+    fail implement_evidence_is_readable \
+      "$IMPLEMENT_EVIDENCE readable by {{ factory_manager_user }}" \
+      "staging $IMPLEMENT_EVIDENCE failed"
+  PATCH="$RUN_TEMP/change.patch"
+  IMPLEMENT_EVIDENCE="$RUN_TEMP/implement-evidence.json"
+fi
+if [[ "$failure_count" -eq 0 ]]; then
+  RESOLVED=$(git -C "$SOURCE_REPO" rev-parse --verify --quiet "$BASE_SHA^{commit}" || true)
+  [[ "$RESOLVED" == "$BASE_SHA" ]] ||
+    fail base_sha_is_a_commit_in_the_repository "$BASE_SHA" \
+      "${RESOLVED:-not a commit in $SOURCE_REPO}"
+fi
+# A targeted PHPUnit path absent at the base SHA is not something a better
+# patch can answer: the lane-A caps forbid the patch from adding it. Naming it
+# here is why the operator reads "land the test first" rather than a PHPUnit
+# transcript from the far side of an SSH hop.
+if [[ "$failure_count" -eq 0 ]]; then
+  for test_path in "${TESTS[@]}"; do
+    git -C "$SOURCE_REPO" cat-file -e "$BASE_SHA:$test_path" 2>/dev/null ||
+      fail targeted_test_exists_at_base "$test_path present at $BASE_SHA" \
+        "$test_path absent at $BASE_SHA"
+  done
+fi
+reject_if_failed verifier-inputs task
+
+# Gate 2: the implement worker left nothing behind to verify around.
+for field in run_directories processes taps nftables_tables credential_files; do
+  expect "$IMPLEMENT_EVIDENCE" "host_teardown_$field" ".host_teardown.$field" 0
+done
+reject_if_failed implement-teardown task
+
+# Gate 3: the exact source, patch, and manifest reach the worker and it runs.
+transport() {
+  git -C "$SOURCE_REPO" archive --format=tar "$BASE_SHA" \
+    | gzip -n -9 >"$RUN_TEMP/source.tar.gz" || return $?
+  local source_sha256 patch_sha256 tests_json
+  source_sha256=$(sha256sum "$RUN_TEMP/source.tar.gz" | cut -d' ' -f1)
+  patch_sha256=$(sha256sum "$PATCH" | cut -d' ' -f1)
+  tests_json=$(printf '%s\n' "${TESTS[@]}" | jq -Rsc 'split("\n")[:-1]')
+  jq -n \
+    --arg run_id "$RUN_ID" --arg base_sha "$BASE_SHA" \
+    --arg source_archive_sha256 "$source_sha256" --arg patch_sha256 "$patch_sha256" \
+    --arg phpunit_binary_sha256 "$PHPUNIT_EXPECTED" --argjson phpunit_tests "$tests_json" \
+    '{schema_version: 1, $run_id, $base_sha, $source_archive_sha256, $patch_sha256,
+      $phpunit_binary_sha256, $phpunit_tests, timeout_seconds: 120}' \
+    >"$RUN_TEMP/runtime.json" || return $?
+  remote_ssh install -d -m 0700 "$REMOTE_ROOT" || return $?
+  scp "${SSH_ARGS[@]}" "$RUN_TEMP/source.tar.gz" "$RUN_TEMP/runtime.json" "$PATCH" \
+    {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/" || return $?
+  remote_ssh sudo /usr/local/sbin/patchyard-verify-runtime \
+    "$REMOTE_ROOT/runtime.json" "$REMOTE_ROOT/source.tar.gz" \
+    "$REMOTE_ROOT/$(basename "$PATCH")" "$REMOTE_ROOT/evidence.json" || return $?
+  scp "${SSH_ARGS[@]}" {{ factory_manager_user }}@"$WORKER_IP:$REMOTE_ROOT/evidence.json" \
+    "$RUN_TEMP/worker-evidence.json" || return $?
+}
+transport_status=0
+transport || transport_status=$?
+[[ "$transport_status" -eq 0 ]] ||
+  fail worker_runtime_completed "the worker runtime returns its evidence" \
+    "the worker runtime transport exited $transport_status"
+reject_if_failed worker-runtime-transport task
+
+WORKER_EVIDENCE="$RUN_TEMP/worker-evidence.json"
+
+# Gate 4: the worker verified under the ruled identity and isolation.
+expect "$WORKER_EVIDENCE" verifier_identity .verifier_identity factory-worker
+expect "$WORKER_EVIDENCE" clean_environment .clean_environment true
+expect "$WORKER_EVIDENCE" agent_worker_terminated_before_verify \
+  .agent_worker_terminated_before_verify true
+reject_if_failed worker-runtime-isolation task
+
+# Gate 5: the only subject a repair attempt could answer.
+expect "$WORKER_EVIDENCE" tree_hash_equal .tree_hash_equal true
+expect "$WORKER_EVIDENCE" phpunit_exit_code .phpunit_exit_code 0
+reject_if_failed targeted-phpunit patch
+
+cp -- "$WORKER_EVIDENCE" "$RESULT/worker-evidence.json"
+jq -n --slurpfile worker "$WORKER_EVIDENCE" --arg run_id "$RUN_ID" \
+  '{schema_version: 1, status: "passed", gate: "targeted-phpunit", $run_id,
+    publish_invoked: false, worker_evidence: $worker[0]}' >"$RESULT/evidence.json"
+deliver_verdict
 echo "verifier_result=$OUTPUT_DIR run_id=$RUN_ID"

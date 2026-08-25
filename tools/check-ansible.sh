@@ -82,6 +82,7 @@ TEST_FILES=(
   infra/ansible/tests/test_openai_control_plane_lifecycle.py
   infra/ansible/tests/test_openai_wif_issuance.py
   infra/ansible/tests/test_preview_capability_deployment.py
+  infra/ansible/tests/test_production_cutover.py
   infra/ansible/tests/test_repair_brief_render.py
   infra/ansible/tests/test_replace_worker.py
   infra/ansible/tests/test_repository_copy.py

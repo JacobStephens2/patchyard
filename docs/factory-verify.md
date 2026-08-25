@@ -96,6 +96,19 @@ first one.
 `verifier-silent-fail-stub` the deliberate breach the supervisor is tested
 against.
 
+`worker/runtime/patchyard-run-verifier` is the program production names
+(`FACTORY_VERIFIER_PROGRAM`, issue 207). Its gates run fail-closed in order -
+`verifier-inputs`, `implement-teardown`, `worker-runtime-transport`,
+`worker-runtime-isolation`, `targeted-phpunit` - and only the last rejects the
+`patch`. The four above it reject the `task`, which is what "no patch the task
+can produce will pass" means for a verify environment that could not reach a
+verdict: the base SHA is not in the repository, the implement worker left
+residue, the worker runtime never returned, or it verified under the wrong
+identity. Calling those a patch rejection would spend the one repair attempt
+on a failure the model was never shown and cannot fix.
+`infra/ansible/tests/test_production_cutover.py` executes that runner against
+mocked hosts, so each row above is a program that ran rather than a claim.
+
 **A rejection says what it rejected.** An optional `rejects` field names the
 subject: `"patch"` (the default when the field is absent) means a different
 patch could satisfy this gate; `"task"` means the task's own shape was rejected -

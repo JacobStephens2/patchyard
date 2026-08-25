@@ -488,10 +488,11 @@ LIVE_GROUP_VARS = ROOT / "infra/ansible/group_vars/all.yml"
 
 
 class LiveImplementSeatContract(unittest.TestCase):
-    def test_supervisor_selects_real_worker_but_keeps_issue_207_cutover_closed(self) -> None:
+    def test_supervisor_selects_the_real_worker_under_the_issue_207_cutover(self) -> None:
         env = LIVE_SUPERVISOR_ENV.read_text(encoding="utf-8")
 
-        self.assertIn("FACTORY_RUN_MODE=dry_run", env)
+        # What this seat's gate owns is the worker transport. The run mode it
+        # runs under is issue 207's cutover, proven in test_production_cutover.py.
         self.assertIn(
             "FACTORY_WORKER_PROGRAM=/usr/local/sbin/patchyard-invoke-worker",
             env,

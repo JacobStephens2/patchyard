@@ -20,6 +20,7 @@ Factory documentation that is not the phase-1 build contract (`SPEC.md` /
 | [`vertex-access.md`](vertex-access.md) | Living ops | Vertex AI project / SA handoff for bench |
 | [`ideas.md`](ideas.md) | Scratch inbox | No authority; graduate into the decision log |
 | [`git-signing.md`](git-signing.md) | Ops | SSH commit signing so GitHub shows Verified for JacobStephens2 |
+| [`production-cutover.md`](production-cutover.md) | Ops | Issue 207: what flips the resident daemon to real Fieldbook, and the checklist before merge and converge |
 
 Nothing in this directory is factory runtime. Runtime state will live under
 `/var/lib/patchyard/` (see `SPEC.md`).

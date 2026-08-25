@@ -168,8 +168,78 @@ forgotten:
 The base branch was pushed to Fieldbook on 2026-08-25 with Jacob's go, so
 precondition 1 is satisfied: the `gh api` call above returns `00af775d`.
 
-No converge, no drill, and no run has been performed. Preconditions 2, 3 and 4
-are unconfirmed. Everything under **The run** is Jacob's.
+The converge was performed on 2026-08-25 from `orchestrate` at merged revision
+`2ccc1c7`, with Jacob's go. It satisfies precondition 2 and the converge half
+of precondition 4, and it is what moved the two pins the run depends on into
+the running unit:
+
+| | Before the converge | After |
+| --- | --- | --- |
+| `FACTORY_BASE_SHA` | `4ef35181` | `00af775d` |
+| `FACTORY_GITHUB_BASE_BRANCH` | `master` | `factory/alphabetize/staging` |
+| Implement image recipe | `e73098db` | `9beb2ec5` |
+
+The first converge reported `changed=14` on the control plane and `changed=2`
+on the worker; the second reported `changed=0` on both, and `qualify.sh`
+passed control-plane, worker, A101 management transport, and the independence
+check. No cloud plans were needed: nothing under `infra/tofu` differs between
+the previously deployed revision and `2ccc1c7`.
+
+Precondition 3 is confirmed short of an authenticated render: the selector is
+in unconditional markup at the base SHA, `fieldbook_preview.tblGroupInfo` still
+has `rqst_id=96429`, and eighteen rows satisfy the select's own query. A plain
+GET redirects to `login.php`, so the live render belongs to the run's own
+capability path rather than to a curl.
+
+Of precondition 4, steps 1 (caps are `5`/`25` in the running config), 2
+(pause verified — see below), 4 (publisher branch hygiene) and 5 (converge
+then qualify) are done. Step 3, the kill drill, has not been performed.
+
+No drill and no run has been performed. Everything under **The run** is
+Jacob's.
+
+### `factoryctl claim` is the wrong probe for a pause
+
+Step 2 asks you to confirm a claim is refused with `ClaimingPaused` while a
+pause holds. Do that with `factoryctl run`, not `factoryctl claim`.
+
+`factoryctl claim` calls `claim_request` in `crates/factory-core/src/state.rs`,
+which checks terminal status, plan-bin status and lease contention and never
+reads `factory.supervisor_state`. It is a low-level lease primitive and it
+succeeds under a pause. The `ClaimingPaused` guard is in the supervisor's own
+claim path, `crates/factory-supervisor/src/store.rs`, which is what the
+resident daemon and `factoryctl run` use — as
+[`runbook-v0.md`](runbook-v0.md) § Foreground run identity already says.
+
+A claim that succeeds under a pause is therefore not a finding. On 2026-08-25
+it was read as one, which cost a wrong turn; that is why it is written here.
+
+The safe probe is `factoryctl run` against a UUID that does not exist. The
+guard reads `supervisor_state ... FOR UPDATE` and returns before the request is
+looked up, so a working pause answers `ClaimingPaused` and a broken one dies on
+an unknown request instead of starting anything:
+
+```
+factoryctl pause  --actor <you> --reason "precondition 4 step 2"
+factoryctl run    00000000-0000-4000-8000-000000000000
+factoryctl resume --actor <you> --reason "precondition 4 step 2 complete"
+```
+
+The pause and resume control rows should each reach `completed` with outcomes
+`{"paused": true}` and `{"paused": false, "full_stop": false}`.
+
+Invoke `run` the way [`runbook-v0.md`](runbook-v0.md) § Foreground run identity
+does. `DATABASE_URL` is set on the supervisor unit and the rest of the
+environment comes from its `EnvironmentFile`, so a plain
+`factoryctl run` dies on `MissingEnvironment("FACTORY_BASE_SHA")` during
+bootstrap — before it reaches the guard, which reads as a broken probe rather
+than a broken pause. The unit does not need stopping for this probe: that step
+exists so the daemon cannot claim the row first, and a UUID with no row has
+nothing to race for.
+
+Performed 2026-08-25: pause `a2fb4cb5` completed in 13ms, `factoryctl run`
+answered `Error: ClaimingPaused`, resume `157d756d` completed in 18ms, and the
+factory returned to `paused=f, full_stop=f` with no lease and no run created.
 
 ### The base branch's own CI run is red, and that is the shape working
 

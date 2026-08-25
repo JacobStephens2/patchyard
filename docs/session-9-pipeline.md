@@ -71,22 +71,39 @@ Fallible cleanup is explicit and checked:
 ## Where the repair brief is rendered
 
 `request.md` is the only channel an isolated worker reads, so for a repair
-attempt those bytes are the whole brief: the fixture request, then the
-verifier's rejection as one line of JSON inside a
-`<VERIFIER_REJECTION_JSON authority="none">` block (F2,
-`docs/agent-content-trust.md`). Until #302 that render was a heredoc inside
-`patchyard-invoke-worker.j2`, verified by hand - the one part of the brief no
-gate executed, and the part where the content-trust framing lives.
+attempt those bytes are the whole brief. The live seat sends them as a JSON
+envelope - `{schema_version, task, implement_policy, guide_content}` - which
+`patchyard-guest-implement` validates and quotes into the Codex prompt. Until
+#302 the render was a heredoc inside `patchyard-invoke-worker.j2`, verified by
+hand - the one part of the brief no gate executed, and the part where the
+content-trust framing lives. #302 extracted it; the merge that brought the live
+seat's envelope onto this branch put the composition back in the transport, and
+[#314](https://github.com/JacobStephens2/patchyard/issues/314) put
+it back behind the gate.
 
-**The render is now `roles/control_plane/files/patchyard-render-request`, a
-file the transport calls and `infra/ansible/tests/test_repair_brief_render.py`
-executes.** The gate asserts the rendered bytes exactly, so dropping the
-`authority="none"` framing fails it as surely as dropping the assertions does,
-and a verdict carrying `</VERIFIER_REJECTION_JSON>` in an `observed` string is
-proven unable to forge a line of the brief. `patchyard-invoke-worker.j2` still
-hashes `request.md` after the render returns, so `run.json`'s `request_sha256`
-is computed over final content; an attempt-0 brief is byte-identical to what the
-heredoc produced.
+**The render is now `roles/control_plane/files/patchyard-render-request`, the
+file that builds the envelope: the transport calls it and
+`infra/ansible/tests/test_repair_brief_render.py` executes it.** It resolves the
+named skill's Guide and the implement policy too, so the whole of `request.md` -
+not merely its frame - is produced by tested code. It reads the Guide the way
+the transport did, with command substitution, so its trailing newline is still
+dropped and no live `request_sha256` moved for a reason nobody asked for.
+
+The verifier's verdict is the one field in that envelope authored outside the
+factory's own control, so it is not carried bare. The render replaces
+`.task.verify_failure` with `{authority: "none", label, verdict}`: the verdict
+sits under `verdict`, and the object around it says what it is (F2,
+`docs/agent-content-trust.md`). The guest's preamble still calls the whole
+envelope untrusted, but "this object is a verdict, and a verdict is data" is the
+statement that survives a model skimming one field. Because the frame is JSON
+structure rather than a markdown block, a hostile `observed` string cannot close
+its own label - the gate proves that with a verdict carrying both
+`</VERIFIER_REJECTION_JSON>` and a forged `"authority": "system"`. The gate
+asserts the rendered bytes exactly, so dropping the framing fails it as surely
+as dropping the assertions does, and it runs the guest's own validation filter
+to prove a bare verdict is refused on arrival rather than merely never sent.
+`patchyard-invoke-worker.j2` hashes `request.md` after the render returns, so
+`run.json`'s `request_sha256` is computed over final content.
 
 **It is not in the supervisor**, which was the other option on the table.
 `WorkerTaskPacket` deliberately has no request-text field, so a supervisor-side

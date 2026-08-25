@@ -90,24 +90,15 @@ remote_ssh() { ssh "${SSH_ARGS[@]}" {{ factory_manager_user }}@"$WORKER_IP" "$@"
 
 gzip -n -9 <"$BUNDLE" >"$RUN_TEMP/source.tar.gz"
 SOURCE_SHA256=$(sha256sum "$RUN_TEMP/source.tar.gz" | cut -d' ' -f1)
-# request.md is the one channel an isolated worker reads. This seat sends it
-# as a JSON envelope, so the verifier's rejection reaches a repair attempt
-# inside .task rather than through #302's markdown brief; how it is framed as
-# untrusted data there is #314's.
-SKILL=$(jq -r '.task_spec.named_skill // empty' "$TASK")
-GUIDE_CONTENT=
-if [[ -n "$SKILL" ]]; then
-  [[ "$SKILL" =~ ^[a-z0-9][a-z0-9.-]{0,127}$ ]]
-  GUIDE_NAME=${SKILL//./-}
-  GUIDE_PATH="/opt/patchyard/policy/skills/$GUIDE_NAME.md"
-  [[ -f "$GUIDE_PATH" && ! -L "$GUIDE_PATH" ]]
-  GUIDE_CONTENT=$(<"$GUIDE_PATH")
-fi
-jq -n --slurpfile task "$TASK" \
-  --rawfile implement_policy /opt/patchyard/policy/implement.md \
-  --arg guide_content "$GUIDE_CONTENT" \
-  '{schema_version:1,task:$task[0],$implement_policy,$guide_content}' \
-  >"$RUN_TEMP/request.md"
+# request.md is the one channel an isolated worker reads, so the bytes that
+# become the worker's prompt are rendered by a file a gate executes rather
+# than composed here: patchyard-render-request builds the JSON envelope and
+# frames the verifier's rejection inside it as data without authority. The
+# hash is taken after the render returns, so run.json's request_sha256 is
+# computed over final content.
+/usr/local/sbin/patchyard-render-request \
+  --task "$TASK" --policy-dir /opt/patchyard/policy \
+  --output "$RUN_TEMP/request.md"
 REQUEST_SHA256=$(sha256sum "$RUN_TEMP/request.md" | cut -d' ' -f1)
 SNAPSHOT_SQL_SHA256=$(sha256sum "$SNAPSHOT/snapshot.sql.gz" | cut -d' ' -f1)
 SNAPSHOT_MANIFEST_SHA256=$(sha256sum "$SNAPSHOT/snapshot.json" | cut -d' ' -f1)

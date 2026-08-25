@@ -271,6 +271,10 @@ if [[ "$MODE" == implement ]]; then
     and .task.attempt == $attempt
     and (.implement_policy | type == "string" and length >= 1)
     and (.guide_content | type == "string")
+    and (.task.verify_failure == null
+      or (.task.verify_failure.authority == "none"
+        and (.task.verify_failure.label | type == "string" and length >= 1)
+        and (.task.verify_failure.verdict | type == "object")))
     and (.task.task_spec.acceptance_tests | type == "array" and length >= 1)
     and ((.task.task_spec.allowed_paths | length)
       + (.task.task_spec.allowed_globs | length) >= 1)

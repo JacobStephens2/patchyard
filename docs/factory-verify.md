@@ -147,15 +147,16 @@ When the attempt *is* spent, it is handed what failed. The `verify_failure` on
 the repair packet carries the gate, the reason code, the artifact holding the
 full verdict, and the stated assertions themselves - at most 20 of them, each
 field at most 2 KiB and stripped of control characters, with
-`failures_truncated` set when the list was cut. The control plane appends that
-object to the worker's `request.md`, which is the only channel the isolated
-worker reads, as one line of JSON inside a `<VERIFIER_REJECTION_JSON
-authority="none">` block introduced as data rather than instructions. A
-verifier's output is an untrusted channel like any other tool stdout (F2 in
-[`agent-content-trust.md`](agent-content-trust.md)), and this one is now the
-only variable text in that file - it is labeled and stripped so it cannot forge
-structure in the brief it is quoted into. That render is
-`patchyard-render-request`, executed by
+`failures_truncated` set when the list was cut. The control plane carries that
+object in the worker's `request.md`, which is the only channel the isolated
+worker reads. It rides framed: the render replaces `.task.verify_failure` with
+`{authority: "none", label, verdict}`, so the field naming the verifier's output
+says in place that it is data stating what failed, never instructions to follow.
+A verifier's output is an untrusted channel like any other tool stdout (F2 in
+[`agent-content-trust.md`](agent-content-trust.md)), and this is the one field
+of that envelope authored outside the factory - labeled and stripped, and framed
+by JSON structure a string cannot forge. That render is
+`patchyard-render-request`, which builds the whole envelope and is executed by
 `infra/ansible/tests/test_repair_brief_render.py`; why it lives on the control
 plane rather than in the supervisor is recorded in
 [`session-9-pipeline.md`](session-9-pipeline.md).

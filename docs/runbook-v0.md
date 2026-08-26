@@ -597,3 +597,54 @@ Three narrower gaps remain, so a bare exit code is still possible:
 
 In those three cases, budget for re-running with the failure reproduced by hand
 rather than expecting a log.
+
+### A request that cannot progress is retired, not retried forever
+
+The durable sweep re-claims a `claimed` row whose lease is gone, and recovery is
+deliberately exempt from the daily caps so a restart cannot strand work in
+flight. Nothing bounded how often that could happen. On 2026-08-25 a triage seat
+failed closed on a provider response that was prose instead of the JSON
+envelope; the sweep re-claimed and retried it **eighteen times**, every one a
+full billed provider call, and it stopped only because an operator paused the
+whole factory
+([#324](https://github.com/JacobStephens2/patchyard/issues/324)).
+
+`FACTORY_MAX_CLAIM_ATTEMPTS` (default `3`) bounds it. A request claimed that many
+times without recording **any** event other than the claims themselves is set to
+`failed` and an event is appended:
+
+```
+request.abandoned  claimed -> failed
+{"attempts": 3, "max_claim_attempts": 3, "reason": "claimed repeatedly without recording progress"}
+```
+
+Read the ceiling exactly:
+
+- **Progress is any event that is not `request.claimed`.** A daemon restart
+  mid-run leaves a run's own transitions behind it, so the count starts again
+  from there and a healthy long run is never retired.
+- **It bounds attempts, it does not add one.** The third failure is the last
+  billed call; the retirement happens on the fourth sweep, before the claim.
+- **It is not a diagnosis.** It stops the spend and puts the request on the
+  dashboard as terminal. Why the stage failed is still the seat's stderr in the
+  `pipeline attempt stopped` event above.
+- **The floor is 2.** One attempt would mean a daemon restart retires the
+  request it was running; the supervisor refuses to boot outside `2..=20`.
+- **A pause freezes retirement too.** The check runs inside the claim
+  transaction, after the pause returns, so nothing is retired while the factory
+  is paused. That is the safe order - a pause stops the spend anyway - but do
+  not read a paused factory's stuck request as one the ceiling declined to
+  retire.
+
+Be exact about what it does **not** cover. The ceiling counts attempts that
+record no event, which is every failure before the first run transition. A
+stage that fails deterministically *after* writing one - a verifier that
+rejects the same patch every time, say - resets the count on each attempt and
+is still unbounded. Bounding that needs a durable record of a failed attempt,
+which the daemon does not write today; it logs the error and nothing else.
+[#324](https://github.com/JacobStephens2/patchyard/issues/324)
+asked for "N consecutive stage failures" and this is the pre-first-event half
+of it.
+
+To retry a retired request, submit it again. There is no un-retire control, by
+design: the same body against the same defect fails the same way.

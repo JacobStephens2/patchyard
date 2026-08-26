@@ -7,7 +7,7 @@ use axum::{
     http::{Method, Request, StatusCode, header},
 };
 use factory_core::auth::{AccountRole, hash_password, verify_password};
-use factory_supervisor::store::{DailyLimits, PgPipelineStore, PipelineStore as _, StoreError};
+use factory_supervisor::store::{ClaimLimits, PgPipelineStore, PipelineStore as _, StoreError};
 use factory_web::{
     AppState,
     auth::{SESSION_COOKIE, csrf_for_secret, new_secret},
@@ -81,9 +81,10 @@ async fn form_notify_claim_and_factoryctl_pause_are_one_durable_path() -> Result
             first_id,
             "dashboard-e2e-listener",
             Duration::from_secs(60),
-            DailyLimits {
+            ClaimLimits {
                 per_submitter: 10_000,
                 global: 10_000,
+                max_claim_attempts: 3,
             },
         )
         .await?;
@@ -146,9 +147,10 @@ async fn form_notify_claim_and_factoryctl_pause_are_one_durable_path() -> Result
                 second_id,
                 "dashboard-e2e-paused",
                 Duration::from_secs(60),
-                DailyLimits {
+                ClaimLimits {
                     per_submitter: 10_000,
                     global: 10_000,
+                    max_claim_attempts: 3,
                 },
             )
             .await,
@@ -396,9 +398,12 @@ async fn submit(
     body: &str,
 ) -> Result<StatusCode, Box<dyn Error>> {
     let boundary = format!("patchyard-{}", Uuid::new_v4());
+    // This fixture is about the durable path, not intake semantics: it carries
+    // no screenshots, so it must carry the confirmation the form asks for.
     let multipart = format!(
         "--{boundary}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{csrf}\r\n\
          --{boundary}\r\nContent-Disposition: form-data; name=\"request_body\"\r\n\r\n{body}\r\n\
+         --{boundary}\r\nContent-Disposition: form-data; name=\"confirm_no_screenshots\"\r\n\r\nyes\r\n\
          --{boundary}--\r\n"
     );
     let request = Request::builder()

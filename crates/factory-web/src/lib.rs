@@ -94,6 +94,12 @@ const TERMINAL_STATES: &[&str] = &[
     "pr_contract_failed",
 ];
 const MAX_FORM_BYTES: usize = 64 * 1024;
+/// The checkbox by which a submitter acknowledges a request with no
+/// screenshots. Named once so the parser and the template cannot drift.
+const CONFIRM_NO_SCREENSHOTS_FIELD: &str = "confirm_no_screenshots";
+/// The confirmation is a presence signal, so its value is read only to keep the
+/// field bounded like every other one.
+const MAX_CONFIRMATION_BYTES: usize = 64;
 const MEBIBYTE: usize = 1024 * 1024;
 
 #[derive(Clone)]
@@ -370,6 +376,7 @@ async fn new_form(State(state): State<AppState>, headers: HeaderMap) -> Response
             String::new(),
             Vec::new(),
             false,
+            false,
             String::new(),
         ),
         None,
@@ -489,6 +496,7 @@ async fn submit(State(state): State<AppState>, request: Request) -> Response {
                 &authenticated,
                 parsed.request_body,
                 submitted_files,
+                parsed.confirm_no_screenshots,
                 StatusCode::UNPROCESSABLE_ENTITY,
                 error.to_string(),
             )
@@ -496,6 +504,32 @@ async fn submit(State(state): State<AppState>, request: Request) -> Response {
         }
     };
     if parsed.screenshots.is_empty() {
+        // The count of admitted uploads is trusted structured data; the body's
+        // prose about attachments is not, and is never read here. A request
+        // that genuinely needs no screenshots still goes through - it goes
+        // through deliberately.
+        if !parsed.confirm_no_screenshots {
+            reject_admission(
+                &state,
+                &authenticated,
+                admission_id,
+                "no-screenshot-unconfirmed",
+                &client,
+            )
+            .await;
+            return render_new_form_error(
+                &authenticated,
+                parsed.request_body,
+                submitted_files,
+                false,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "This request has no screenshots. A request whose meaning is carried by \
+                 attachments cannot be triaged without them. Confirm below to submit it \
+                 anyway, or attach the screenshots."
+                    .to_owned(),
+            )
+            .await;
+        }
         reject_admission(
             &state,
             &authenticated,
@@ -609,6 +643,7 @@ async fn submit(State(state): State<AppState>, request: Request) -> Response {
                     &authenticated,
                     request_body,
                     submitted_files,
+                    false,
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!(
                         "Screenshot \"{filename}\" could not be stored; no screenshots were accepted."
@@ -655,6 +690,7 @@ async fn submit(State(state): State<AppState>, request: Request) -> Response {
                 &authenticated,
                 request_body,
                 submitted_files,
+                false,
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "The screenshots could not be registered; no screenshots were accepted.".to_owned(),
             )
@@ -667,6 +703,7 @@ async fn submit(State(state): State<AppState>, request: Request) -> Response {
             &authenticated,
             request_body,
             submitted_files,
+            false,
             StatusCode::CONFLICT,
             "Duplicate request rejected; the existing intake was left unchanged and no screenshots were accepted."
                 .to_owned(),
@@ -679,6 +716,10 @@ async fn submit(State(state): State<AppState>, request: Request) -> Response {
 struct ParsedUploadForm {
     request_body: String,
     screenshots: Vec<ParsedScreenshot>,
+    /// The submitter's explicit acknowledgement that this request carries no
+    /// screenshots. Driven by the form field alone, never by the request body:
+    /// prose naming attachments is untrusted content (AGENTS.md rule 7).
+    confirm_no_screenshots: bool,
 }
 
 struct ParsedScreenshot {
@@ -836,6 +877,7 @@ async fn remaining_upload_fields(
     let mut submitted_files = Vec::new();
     let mut screenshot_fields = 0_usize;
     let mut upload_bytes = 0_usize;
+    let mut confirm_no_screenshots = false;
     loop {
         let field = multipart.next_field().await.map_err(|_| {
             upload_form_failure(UploadFormError::Multipart, &request_body, &submitted_files)
@@ -843,6 +885,24 @@ async fn remaining_upload_fields(
         let Some(field) = field else {
             break;
         };
+        if field.name() == Some(CONFIRM_NO_SCREENSHOTS_FIELD) {
+            if confirm_no_screenshots {
+                return Err(upload_form_failure(
+                    UploadFormError::ExtraField {
+                        name: CONFIRM_NO_SCREENSHOTS_FIELD.to_owned(),
+                    },
+                    &request_body,
+                    &submitted_files,
+                ));
+            }
+            // An unticked checkbox is not submitted at all, so presence is the
+            // signal and the value carries no authority.
+            read_field_limited(field, MAX_CONFIRMATION_BYTES)
+                .await
+                .map_err(|error| upload_form_failure(error, &request_body, &submitted_files))?;
+            confirm_no_screenshots = true;
+            continue;
+        }
         if field.name() != Some("screenshot") {
             let name = display_untrusted_name(field.name().unwrap_or("unnamed field"));
             return Err(upload_form_failure(
@@ -908,6 +968,7 @@ async fn remaining_upload_fields(
     Ok(ParsedUploadForm {
         request_body,
         screenshots,
+        confirm_no_screenshots,
     })
 }
 
@@ -959,6 +1020,7 @@ async fn render_upload_form_failure(
         authenticated,
         failure.request_body,
         failure.submitted_files,
+        false,
         status,
         failure.error.message(),
     )
@@ -987,6 +1049,7 @@ fn new_template(
     request_body: String,
     submitted_files: Vec<String>,
     submission_rejected: bool,
+    confirm_no_screenshots: bool,
     error: String,
 ) -> NewTemplate {
     NewTemplate {
@@ -1000,6 +1063,7 @@ fn new_template(
         request_body,
         submitted_files,
         submission_rejected,
+        confirm_no_screenshots,
         error,
     }
 }
@@ -1008,11 +1072,19 @@ async fn render_new_form_error(
     authenticated: &Authenticated,
     request_body: String,
     submitted_files: Vec<String>,
+    confirm_no_screenshots: bool,
     status: StatusCode,
     error: String,
 ) -> Response {
     render_page_status(
-        new_template(authenticated, request_body, submitted_files, true, error),
+        new_template(
+            authenticated,
+            request_body,
+            submitted_files,
+            true,
+            confirm_no_screenshots,
+            error,
+        ),
         None,
         status,
     )
@@ -1086,6 +1158,7 @@ async fn upload_pipeline_error(
         authenticated,
         request_body,
         submitted_files,
+        false,
         status,
         format!("Screenshot \"{filename}\" {detail}; no screenshots were accepted."),
     )
@@ -2213,6 +2286,7 @@ struct NewTemplate {
     request_body: String,
     submitted_files: Vec<String>,
     submission_rejected: bool,
+    confirm_no_screenshots: bool,
     error: String,
 }
 
@@ -2464,6 +2538,65 @@ mod tests {
         );
     }
 
+    /// The confirmation input's own tag, so an assertion about `checked`
+    /// cannot be satisfied or broken by the word appearing anywhere else.
+    fn confirmation_tag(rendered: &str) -> &str {
+        rendered
+            .split_once("name=\"confirm_no_screenshots\"")
+            .expect("the confirmation field")
+            .1
+            .split_once('>')
+            .expect("the confirmation tag")
+            .0
+    }
+
+    #[test]
+    fn the_form_always_offers_the_no_screenshot_confirmation() {
+        let rendered = NewTemplate {
+            chrome: PageChrome::anonymous("nonce".to_owned()),
+            request_max: REQUEST_BODY_MAX_UTF16_CODE_UNITS,
+            request_required: true,
+            upload_accept: UPLOAD_ACCEPT,
+            upload_max_bytes: MAX_UPLOAD_BYTES,
+            upload_max_files: MAX_UPLOAD_FILES,
+            upload_max_mib: MAX_UPLOAD_BYTES / super::MEBIBYTE,
+            request_body: String::new(),
+            submitted_files: Vec::new(),
+            submission_rejected: false,
+            confirm_no_screenshots: false,
+            error: String::new(),
+        }
+        .render()
+        .expect("template");
+        let checkbox = confirmation_tag(&rendered);
+        assert!(checkbox.contains("type=\"checkbox\""));
+        // The confirmation is a deliberate act every time; a pre-ticked box
+        // would confirm on the submitter's behalf.
+        assert!(!checkbox.contains("checked"));
+    }
+
+    #[test]
+    fn a_returned_confirmation_stays_ticked_so_the_resubmit_is_one_click() {
+        let rendered = NewTemplate {
+            chrome: PageChrome::anonymous("nonce".to_owned()),
+            request_max: REQUEST_BODY_MAX_UTF16_CODE_UNITS,
+            request_required: true,
+            upload_accept: UPLOAD_ACCEPT,
+            upload_max_bytes: MAX_UPLOAD_BYTES,
+            upload_max_files: MAX_UPLOAD_FILES,
+            upload_max_mib: MAX_UPLOAD_BYTES / super::MEBIBYTE,
+            request_body: "body".to_owned(),
+            submitted_files: Vec::new(),
+            submission_rejected: true,
+            confirm_no_screenshots: true,
+            error: String::new(),
+        }
+        .render()
+        .expect("template");
+        let checkbox = confirmation_tag(&rendered);
+        assert!(checkbox.contains("checked"));
+    }
+
     #[test]
     fn form_constraints_are_projected_from_factory_core() {
         let rendered = NewTemplate {
@@ -2477,6 +2610,7 @@ mod tests {
             request_body: String::new(),
             submitted_files: Vec::new(),
             submission_rejected: false,
+            confirm_no_screenshots: false,
             error: String::new(),
         }
         .render()
@@ -2506,6 +2640,7 @@ mod tests {
                 .to_owned(),
             submitted_files: vec!["<img src=x onerror=alert(2)>.png".to_owned()],
             submission_rejected: true,
+            confirm_no_screenshots: false,
             error: String::new(),
         }
         .render()
@@ -2543,7 +2678,7 @@ mod tests {
             "transition_run(",
             "record_triage(",
             "factory_verify",
-            "DailyLimits",
+            "ClaimLimits",
             "claim_request(",
         ] {
             assert!(
@@ -2559,7 +2694,7 @@ mod tests {
             "UPDATE factory.events",
             "INSERT INTO factory.runs",
             "record_triage",
-            "DailyLimits",
+            "ClaimLimits",
         ] {
             assert!(
                 !store.contains(forbidden),

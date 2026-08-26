@@ -154,6 +154,7 @@ have written differently:
 | gate `implement-teardown` | The implement worker left residue; the run is not verifiable |
 | gate `worker-runtime-isolation` | Verified under the wrong identity or a live agent worker |
 | `ci_wait_timed_out` | Almost certainly the base branch fell outside Fieldbook's CI filter |
+| `request.abandoned` | The request was claimed `FACTORY_MAX_CLAIM_ATTEMPTS` times without recording anything; read the stage stderr in the `pipeline attempt stopped` event, not the retirement ([runbook-v0.md](runbook-v0.md) § A request that cannot progress) |
 
 Only gate `targeted-phpunit` rejects the `patch`, and only it spends the one
 repair loop. [`factory-verify.md`](factory-verify.md) is the contract.

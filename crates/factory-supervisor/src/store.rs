@@ -17,10 +17,21 @@ use uuid::Uuid;
 use crate::artifacts::StoredArtifact;
 use crate::contracts::InvocationUsage;
 
+/// How many exhausted requests one claim retires. Bounded so the hot claim
+/// path never takes an unbounded number of row locks; anything beyond this is
+/// retired by the next sweep, at the cost of one further billed attempt each.
+const RETIRE_SWEEP_LIMIT: u32 = 100;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DailyLimits {
+pub struct ClaimLimits {
     pub per_submitter: u32,
     pub global: u32,
+    /// How many times one request may be claimed without recording progress
+    /// before it is retired. The daily caps bound how much work starts; this
+    /// bounds how often a request that cannot progress restarts it. Every
+    /// claim is a billed provider call, and a stage that fails deterministically
+    /// fails identically on the next sweep.
+    pub max_claim_attempts: u32,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -51,10 +62,15 @@ impl QualificationManifest {
     }
 }
 
-impl DailyLimits {
+impl ClaimLimits {
     pub fn validate(self) -> Result<Self, StoreError> {
         if self.per_submitter == 0 || self.global == 0 || self.per_submitter > self.global {
             return Err(StoreError::InvalidDailyLimits);
+        }
+        // One attempt is a factory with no recovery at all: a daemon restart
+        // mid-run would retire the request it was running.
+        if !(2..=20).contains(&self.max_claim_attempts) {
+            return Err(StoreError::InvalidClaimAttempts);
         }
         Ok(self)
     }
@@ -183,7 +199,7 @@ pub trait PipelineStore: Clone + Send + Sync + 'static {
         &self,
         holder: &str,
         ttl: Duration,
-        limits: DailyLimits,
+        limits: ClaimLimits,
     ) -> impl Future<Output = Result<Option<WorkClaim>, StoreError>> + Send;
 
     fn claim_specific(
@@ -191,7 +207,7 @@ pub trait PipelineStore: Clone + Send + Sync + 'static {
         request_id: Uuid,
         holder: &str,
         ttl: Duration,
-        limits: DailyLimits,
+        limits: ClaimLimits,
     ) -> impl Future<Output = Result<WorkClaim, StoreError>> + Send;
 
     fn load_request(
@@ -680,7 +696,7 @@ impl PgPipelineStore {
         requested: Option<Uuid>,
         holder: &str,
         ttl: Duration,
-        limits: DailyLimits,
+        limits: ClaimLimits,
         qualification: Option<&QualificationManifest>,
     ) -> Result<Option<WorkClaim>, StoreError> {
         validate_label("holder", holder, 128)?;
@@ -708,6 +724,7 @@ impl PgPipelineStore {
                 Ok(None)
             };
         }
+        retire_exhausted_requests(&mut transaction, limits.max_claim_attempts).await?;
         let global_count: i64 = sqlx::query_scalar(
             r#"
             SELECT count(DISTINCT request_id)
@@ -1076,7 +1093,7 @@ impl PgPipelineStore {
         request_id: Uuid,
         holder: &str,
         ttl: Duration,
-        limits: DailyLimits,
+        limits: ClaimLimits,
     ) -> Result<WorkClaim, StoreError> {
         if holder != "factory-session14-qualification" {
             return Err(StoreError::InvalidLabel("session 14 qualification holder"));
@@ -1093,7 +1110,7 @@ impl PipelineStore for PgPipelineStore {
         &self,
         holder: &str,
         ttl: Duration,
-        limits: DailyLimits,
+        limits: ClaimLimits,
     ) -> Result<Option<WorkClaim>, StoreError> {
         self.claim(None, holder, ttl, limits, None).await
     }
@@ -1103,7 +1120,7 @@ impl PipelineStore for PgPipelineStore {
         request_id: Uuid,
         holder: &str,
         ttl: Duration,
-        limits: DailyLimits,
+        limits: ClaimLimits,
     ) -> Result<WorkClaim, StoreError> {
         self.claim(Some(request_id), holder, ttl, limits, None)
             .await?
@@ -2198,6 +2215,91 @@ impl LifecycleStore for PgPipelineStore {
     }
 }
 
+/// Retire every request that has been claimed `max_claim_attempts` times
+/// without recording anything but the claims themselves.
+///
+/// The daily caps bound how much work the factory starts. Nothing bounded how
+/// often it restarted the same work: a stage that fails deterministically -
+/// triage rejecting a malformed provider envelope, say - fails the same way on
+/// every sweep, and each sweep is another billed call. Progress is any event
+/// other than `request.claimed`, so a daemon restart mid-run resets the count
+/// and only a request that reaches nothing at all is retired.
+///
+/// Read the scope exactly: this bounds attempts that record **no event**, which
+/// is every failure before the first `transition_run`. A stage that fails
+/// deterministically *after* writing one resets the count on every attempt and
+/// is still unbounded - bounding that needs a durable record of a failed
+/// attempt, which the daemon does not write today (issue 324 item 2).
+///
+/// Runs in the caller's transaction, which already holds `supervisor_state`
+/// `FOR UPDATE`, so this cannot race a concurrent claim of the same row. It is
+/// therefore also skipped while the factory is paused, because the pause
+/// returns before this point: a pause freezes retirement along with claiming.
+async fn retire_exhausted_requests(
+    transaction: &mut Transaction<'_, Postgres>,
+    max_claim_attempts: u32,
+) -> Result<(), StoreError> {
+    let exhausted = sqlx::query(
+        r#"
+        SELECT candidate.id, candidate.trace_id, attempt.attempts
+        FROM factory.requests AS candidate
+        CROSS JOIN LATERAL (
+            SELECT count(*) AS attempts
+            FROM factory.events AS claimed
+            WHERE claimed.request_id = candidate.id
+              AND claimed.event_type = 'request.claimed'
+              AND claimed.id > COALESCE((
+                SELECT max(progress.id)
+                FROM factory.events AS progress
+                WHERE progress.request_id = candidate.id
+                  AND progress.event_type <> 'request.claimed'
+              ), 0)
+        ) AS attempt
+        WHERE candidate.status = 'claimed'
+          AND attempt.attempts >= $1
+          AND NOT EXISTS (
+            SELECT 1
+            FROM factory.leases
+            WHERE leases.request_id = candidate.id
+              AND leases.released_at IS NULL
+              AND leases.expires_at > clock_timestamp()
+          )
+        ORDER BY candidate.received_at, candidate.id
+        LIMIT $2
+        FOR UPDATE OF candidate
+        "#,
+    )
+    .bind(i64::from(max_claim_attempts))
+    .bind(i64::from(RETIRE_SWEEP_LIMIT))
+    .fetch_all(&mut **transaction)
+    .await?;
+    for row in exhausted {
+        let request_id: Uuid = row.try_get("id")?;
+        let trace_id: String = row.try_get("trace_id")?;
+        let attempts: i64 = row.try_get("attempts")?;
+        sqlx::query("UPDATE factory.requests SET status='failed' WHERE id=$1")
+            .bind(request_id)
+            .execute(&mut **transaction)
+            .await?;
+        append_event(
+            transaction,
+            request_id,
+            None,
+            "request.abandoned",
+            Some("claimed"),
+            Some("failed"),
+            &trace_id,
+            serde_json::json!({
+                "attempts": attempts,
+                "max_claim_attempts": max_claim_attempts,
+                "reason": "claimed repeatedly without recording progress",
+            }),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn append_event(
     transaction: &mut Transaction<'_, Postgres>,
@@ -2253,6 +2355,8 @@ pub enum StoreError {
     Ledger(#[from] ledger::LedgerError),
     #[error("daily limits must be positive and per-submitter cannot exceed global")]
     InvalidDailyLimits,
+    #[error("the claim-attempt ceiling must be between 2 and 20")]
+    InvalidClaimAttempts,
     #[error("lease TTL must be 1..=86400 seconds")]
     InvalidLeaseTtl,
     #[error("publisher lease TTL must be 1..=3600 seconds")]

@@ -35,7 +35,7 @@ use crate::{
         CredentialCommand, ProcessAgentBackend, ProcessVerifierBackend, ProcessWorkerBackend,
         StageCommand, VerifierCommand, WorkerCommand,
     },
-    store::{DailyLimits, PgPipelineStore},
+    store::{ClaimLimits, PgPipelineStore},
 };
 
 pub struct RuntimeComponents {
@@ -427,9 +427,10 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         holder,
         sweep_interval: duration_env("FACTORY_SWEEP_SECONDS", 30)?,
         lease_ttl: duration_env("FACTORY_LEASE_TTL_SECONDS", 3600)?,
-        limits: DailyLimits {
+        limits: ClaimLimits {
             per_submitter: u32_env("FACTORY_DAILY_PER_SUBMITTER", 5)?,
             global: u32_env("FACTORY_DAILY_GLOBAL", 25)?,
+            max_claim_attempts: u32_env("FACTORY_MAX_CLAIM_ATTEMPTS", 3)?,
         }
         .validate()?,
         max_active: usize_env("FACTORY_MAX_ACTIVE", 2)?,

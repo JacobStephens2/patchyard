@@ -12,7 +12,7 @@ use crate::{
     pipeline::{Pipeline, PipelineError, PipelineOutcome},
     proposer::{ImprovementProposer, ProposerError, ProposerOutcome},
     reconcile::Reconciler,
-    store::{ControlKind, DailyLimits, PgPipelineStore, PipelineStore, StoreError},
+    store::{ClaimLimits, ControlKind, PgPipelineStore, PipelineStore, StoreError},
 };
 
 #[derive(Clone, Debug)]
@@ -21,7 +21,7 @@ pub struct DaemonConfig {
     pub holder: String,
     pub sweep_interval: Duration,
     pub lease_ttl: Duration,
-    pub limits: DailyLimits,
+    pub limits: ClaimLimits,
     pub max_active: usize,
     pub reconcile_abandoned_after: Duration,
     pub reconcile_sweep_limit: usize,

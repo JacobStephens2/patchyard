@@ -23,6 +23,10 @@
     <p>No screenshots selected.</p>
     {% endif %}
   </div>
+  <p class="confirm-no-screenshots">
+    <input id="confirm_no_screenshots" name="confirm_no_screenshots" type="checkbox" value="yes"{% if confirm_no_screenshots %} checked{% endif %}>
+    <label for="confirm_no_screenshots">This request needs no screenshots.</label>
+  </p>
   <button type="submit">queue request</button>
 </form>
 {% endblock %}

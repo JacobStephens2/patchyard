@@ -123,6 +123,19 @@ class SupervisorEnvironmentCutover(unittest.TestCase):
         self.assertIn("FACTORY_DAILY_PER_SUBMITTER=5", self.environment)
         self.assertIn("FACTORY_DAILY_GLOBAL=25", self.environment)
 
+    def test_a_request_that_cannot_progress_is_bounded(self) -> None:
+        # The daily caps do not bound this: a recovery claim is exempt from
+        # them by design, so a deterministically failing stage re-ran forever.
+        line = next(
+            row
+            for row in self.environment.splitlines()
+            if row.startswith("FACTORY_MAX_CLAIM_ATTEMPTS=")
+        )
+        ceiling = int(line.split("=", 1)[1])
+        # The supervisor rejects anything outside this range at bootstrap.
+        self.assertGreaterEqual(ceiling, 2)
+        self.assertLessEqual(ceiling, 20)
+
 
 class VerifierCase(unittest.TestCase):
     """A temporary control plane: a real Git repository and mocked hosts."""

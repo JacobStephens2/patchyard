@@ -26,7 +26,7 @@ use factory_supervisor::{
         VerifierCommand, WorkerCommand,
     },
     store::{
-        ControlKind, ControlRow, DailyLimits, ExistingRun, PipelineStore, RequestWork,
+        ClaimLimits, ControlKind, ControlRow, ExistingRun, PipelineStore, RequestWork,
         SideEffectDisposition, StoreError, WorkClaim,
     },
 };
@@ -104,7 +104,7 @@ impl PipelineStore for MemoryStore {
         &self,
         _holder: &str,
         _ttl: Duration,
-        _limits: DailyLimits,
+        _limits: ClaimLimits,
     ) -> Result<Option<WorkClaim>, StoreError> {
         Ok(None)
     }
@@ -114,7 +114,7 @@ impl PipelineStore for MemoryStore {
         request_id: Uuid,
         _holder: &str,
         _ttl: Duration,
-        _limits: DailyLimits,
+        _limits: ClaimLimits,
     ) -> Result<WorkClaim, StoreError> {
         Ok(fixture_claim(request_id))
     }

@@ -6,7 +6,7 @@ use factory_core::{
     state::{FactoryRepository as _, NewRequest, PostgresRepository, Sha256Digest, TraceId},
 };
 use factory_supervisor::store::{
-    ControlKind, DailyLimits, PgPipelineStore, PipelineStore, PublisherStore, StoreError,
+    ClaimLimits, ControlKind, PgPipelineStore, PipelineStore, PublisherStore, StoreError,
 };
 use factory_verify::ledger::{self, Provenance, RunClass, RunRecord};
 use uuid::Uuid;
@@ -33,6 +33,163 @@ fn request(source: &str) -> NewRequest {
 }
 
 #[tokio::test]
+async fn a_request_that_never_progresses_is_retired_instead_of_reclaimed_forever()
+-> Result<(), Box<dyn Error>> {
+    let Some((runtime_url, admin_url)) = urls() else {
+        eprintln!("skipped: disposable PostgreSQL URLs are not set");
+        return Ok(());
+    };
+    let admin = PostgresRepository::connect(&admin_url).await?;
+    let store = PgPipelineStore::connect(&runtime_url).await?;
+    store
+        .set_claiming_state(false, false, "integration-test")
+        .await?;
+    let stuck = request(&format!("ceiling-{}", Uuid::new_v4()));
+    admin.create_request(&stuck).await?;
+    let limits = ClaimLimits {
+        per_submitter: 10,
+        global: 10_000,
+        max_claim_attempts: 3,
+    };
+    let holder = "ceiling-holder";
+
+    // A stage that fails before it writes anything else leaves the claim event
+    // as the request's only progress. Each sweep is a billed provider call.
+    for attempt in 1..=3 {
+        let claim = store
+            .claim_specific(stuck.id, holder, Duration::from_secs(60), limits)
+            .await?;
+        assert_eq!(claim.request_id, stuck.id, "attempt {attempt}");
+        store.release_lease(stuck.id, holder).await?;
+    }
+
+    // The fourth sweep retires it rather than spending a fourth call. Drive it
+    // through the daemon's own path: this row must no longer be a candidate.
+    let retired = store
+        .claim_next(holder, Duration::from_secs(60), limits)
+        .await?;
+    assert_ne!(
+        retired.map(|claim| claim.request_id),
+        Some(stuck.id),
+        "an exhausted request must not be claimed"
+    );
+
+    let status: String =
+        sqlx::query_scalar("SELECT status::text FROM factory.requests WHERE id=$1")
+            .bind(stuck.id)
+            .fetch_one(admin.pool())
+            .await?;
+    assert_eq!(status, "failed");
+    let abandoned: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM factory.events WHERE request_id=$1 AND event_type='request.abandoned'",
+    )
+    .bind(stuck.id)
+    .fetch_one(admin.pool())
+    .await?;
+    assert_eq!(abandoned, 1, "the retirement must be on the stream");
+    let claims: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM factory.events WHERE request_id=$1 AND event_type='request.claimed'",
+    )
+    .bind(stuck.id)
+    .fetch_one(admin.pool())
+    .await?;
+    assert_eq!(
+        claims, 3,
+        "the ceiling bounds attempts, it does not add one"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_request_under_the_ceiling_is_left_alone_by_the_retire_sweep()
+-> Result<(), Box<dyn Error>> {
+    let Some((runtime_url, admin_url)) = urls() else {
+        eprintln!("skipped: disposable PostgreSQL URLs are not set");
+        return Ok(());
+    };
+    let admin = PostgresRepository::connect(&admin_url).await?;
+    let store = PgPipelineStore::connect(&runtime_url).await?;
+    store
+        .set_claiming_state(false, false, "integration-test")
+        .await?;
+    let under = request(&format!("under-{}", Uuid::new_v4()));
+    admin.create_request(&under).await?;
+    let limits = ClaimLimits {
+        per_submitter: 10,
+        global: 10_000,
+        max_claim_attempts: 5,
+    };
+    let holder = "under-holder";
+
+    // The retire pass runs on every claim and must touch only exhausted rows:
+    // a request one short of the ceiling stays claimable and unmarked.
+    for _ in 0..4 {
+        store
+            .claim_specific(under.id, holder, Duration::from_secs(60), limits)
+            .await?;
+        store.release_lease(under.id, holder).await?;
+    }
+    let status: String =
+        sqlx::query_scalar("SELECT status::text FROM factory.requests WHERE id=$1")
+            .bind(under.id)
+            .fetch_one(admin.pool())
+            .await?;
+    assert_eq!(status, "claimed", "four of five attempts is not exhausted");
+    let abandoned: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM factory.events WHERE request_id=$1 AND event_type='request.abandoned'",
+    )
+    .bind(under.id)
+    .fetch_one(admin.pool())
+    .await?;
+    assert_eq!(abandoned, 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn progress_on_a_request_resets_its_claim_attempts() -> Result<(), Box<dyn Error>> {
+    let Some((runtime_url, admin_url)) = urls() else {
+        eprintln!("skipped: disposable PostgreSQL URLs are not set");
+        return Ok(());
+    };
+    let admin = PostgresRepository::connect(&admin_url).await?;
+    let store = PgPipelineStore::connect(&runtime_url).await?;
+    store
+        .set_claiming_state(false, false, "integration-test")
+        .await?;
+    let progressing = request(&format!("reset-{}", Uuid::new_v4()));
+    admin.create_request(&progressing).await?;
+    let limits = ClaimLimits {
+        per_submitter: 10,
+        global: 10_000,
+        max_claim_attempts: 2,
+    };
+    let holder = "reset-holder";
+
+    for _ in 0..2 {
+        store
+            .claim_specific(progressing.id, holder, Duration::from_secs(60), limits)
+            .await?;
+        store.release_lease(progressing.id, holder).await?;
+    }
+    // A restart mid-run is not a failing request: any event other than the
+    // claim itself is progress, and the count starts again from there.
+    sqlx::query(
+        "INSERT INTO factory.events (request_id,event_type,trace_id) VALUES ($1,'request.triaged',$2)",
+    )
+    .bind(progressing.id)
+    .bind(progressing.trace_id.as_str())
+    .execute(admin.pool())
+    .await?;
+
+    store
+        .claim_specific(progressing.id, holder, Duration::from_secs(60), limits)
+        .await
+        .expect("progress must clear the ceiling");
+    store.release_lease(progressing.id, holder).await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn durable_sweep_claims_recovery_limits_and_control_rows() -> Result<(), Box<dyn Error>> {
     let Some((runtime_url, admin_url)) = urls() else {
         eprintln!("skipped: disposable PostgreSQL URLs are not set");
@@ -48,9 +205,10 @@ async fn durable_sweep_claims_recovery_limits_and_control_rows() -> Result<(), B
     let second = request(&source);
     admin.create_request(&first).await?;
     admin.create_request(&second).await?;
-    let limits = DailyLimits {
+    let limits = ClaimLimits {
         per_submitter: 1,
         global: 10_000,
+        max_claim_attempts: 3,
     };
     let claimed = store
         .claim_specific(
@@ -458,9 +616,10 @@ async fn sweep_skips_ready_for_review_request_and_claims_queued_work() -> Result
     let queued_request = request(&format!("queued-sweep-{}", Uuid::new_v4()));
     admin.create_request(&ready_request).await?;
     admin.create_request(&queued_request).await?;
-    let limits = DailyLimits {
+    let limits = ClaimLimits {
         per_submitter: 100,
         global: 10_000,
+        max_claim_attempts: 3,
     };
     store
         .claim_specific(

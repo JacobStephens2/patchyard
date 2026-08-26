@@ -957,6 +957,60 @@ async fn upload_rate_and_daily_user_quotas_are_transactional() -> Result<(), Box
 }
 
 #[tokio::test]
+async fn a_screenshotless_submission_is_warned_once_and_accepted_on_confirmation()
+-> Result<(), Box<dyn Error>> {
+    let Some(harness) = harness("screenshotless harness").await? else {
+        return Ok(());
+    };
+    let identity = seed_identity(&harness.admin, AccountRole::Submitter).await?;
+    let body = format!("no-screenshot-guard-{}", Uuid::new_v4());
+
+    let warned = submit_screenshots(&harness.app, &identity, &body, &[])
+        .await?
+        .0;
+    assert_eq!(warned.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let page = String::from_utf8(warned.into_body().collect().await?.to_bytes().to_vec())?;
+    assert!(page.contains("This request has no screenshots."));
+    assert!(page.contains("name=\"confirm_no_screenshots\""));
+
+    // The warning must not have queued anything.
+    let queued: i64 = sqlx::query_scalar("SELECT count(*) FROM factory.requests WHERE body=$1")
+        .bind(&body)
+        .fetch_one(&harness.admin)
+        .await?;
+    assert_eq!(queued, 0, "a warned submission must not reach the daemon");
+    let reason: String = sqlx::query_scalar(
+        "SELECT reason FROM factory.upload_admissions WHERE user_id=$1 AND state='rejected' ORDER BY admitted_at DESC,id DESC LIMIT 1",
+    )
+    .bind(identity.id)
+    .fetch_one(&harness.admin)
+    .await?;
+    assert_eq!(reason, "no-screenshot-unconfirmed");
+
+    // The same body, confirmed, goes through.
+    let boundary = format!("patchyard-{}", Uuid::new_v4());
+    let bytes = multipart_submission_confirmed(&boundary, &identity.csrf, &body, &[], true);
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/new")
+        .header(header::COOKIE, &identity.cookie)
+        .header(
+            header::CONTENT_TYPE,
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .header(header::CONTENT_LENGTH, bytes.len().to_string())
+        .body(Body::from(bytes))?;
+    let confirmed = harness.app.clone().oneshot(request).await?;
+    assert_eq!(confirmed.status(), StatusCode::OK);
+    let queued: i64 = sqlx::query_scalar("SELECT count(*) FROM factory.requests WHERE body=$1")
+        .bind(&body)
+        .fetch_one(&harness.admin)
+        .await?;
+    assert_eq!(queued, 1);
+    Ok(())
+}
+
+#[tokio::test]
 async fn hostile_ledger_text_is_inert_and_nonterminal_has_refresh_fallback()
 -> Result<(), Box<dyn Error>> {
     let hostile = r#"<script>alert(1)</script><a href="https://phish.invalid">sign in</a>"#;
@@ -1347,7 +1401,7 @@ fn multipart_submission(
 ) -> Vec<u8> {
     match screenshot {
         Some(screenshot) => multipart_submission_many(boundary, csrf, request_body, &[screenshot]),
-        None => multipart_submission_many(boundary, csrf, request_body, &[]),
+        None => multipart_submission_confirmed(boundary, csrf, request_body, &[], true),
     }
 }
 
@@ -1356,6 +1410,16 @@ fn multipart_submission_many(
     csrf: &str,
     request_body: &str,
     screenshots: &[(&str, &str, &[u8])],
+) -> Vec<u8> {
+    multipart_submission_confirmed(boundary, csrf, request_body, screenshots, false)
+}
+
+fn multipart_submission_confirmed(
+    boundary: &str,
+    csrf: &str,
+    request_body: &str,
+    screenshots: &[(&str, &str, &[u8])],
+    confirm_no_screenshots: bool,
 ) -> Vec<u8> {
     let mut body = format!(
         "--{boundary}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{csrf}\r\n\
@@ -1371,6 +1435,14 @@ fn multipart_submission_many(
         );
         body.extend_from_slice(bytes);
         body.extend_from_slice(b"\r\n");
+    }
+    if confirm_no_screenshots {
+        body.extend_from_slice(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"confirm_no_screenshots\"\r\n\r\nyes\r\n"
+            )
+            .as_bytes(),
+        );
     }
     body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
     body

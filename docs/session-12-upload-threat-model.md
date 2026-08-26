@@ -11,6 +11,7 @@ The protected asset is the factory admin browser session, which can operate the 
 ## Fixed limits and fail-closed policy
 
 - Authentication and submit authorization are checked before reading multipart fields.
+- A submission that admits **zero** uploads is re-rendered with a warning and a `confirm_no_screenshots` checkbox rather than queued, and only a second submission carrying that field reaches the intake row ([#324](https://github.com/JacobStephens2/patchyard/issues/324) item 3). The signal is the count of admitted uploads, which is trusted structured data; the request body's prose about attachments is untrusted content and is never parsed for it. The unconfirmed attempt releases its admission as `no-screenshot-unconfirmed`.
 - `Content-Length` is mandatory and the complete multipart request is capped at 8 MiB plus 128 KiB of framing.
 - One screenshot is allowed per request. The compressed screenshot field is capped at 8 MiB.
 - Each user is limited to 20 admitted uploads and 256 MiB of clean-image reservations per UTC day. Pending reservations count against both limits.

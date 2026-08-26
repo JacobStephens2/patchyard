@@ -563,10 +563,37 @@ claimable: `claim()` accepts `status IN ('queued','claimed')`.
 
 ### Reading a failed stage
 
-A failing seat's own stderr is not preserved. Stage transcripts are written on
-success, so a stage that exits non-zero leaves no artifact, and `factoryctl`
-surfaces only `Stage(Exit { stage, code })`. The same gap exists in the guest:
-`patchyard-guest-implement` writes `login.stdout`/`login.stderr` into
-`$PROVIDER_TEMP` and its cleanup trap removes that directory unread, so a
-failed provider login reports only `implement-codex-auth-failed`. Budget for
-re-running with the failure reproduced by hand rather than expecting a log.
+**Start with the error string itself.** A non-zero stage carries the tail of the
+seat's own stderr, so the `pipeline attempt stopped` ERROR event names the cause
+rather than just the exit code:
+
+```
+stage failed: stage triage exited with status 1: stderr "triage seat: triage output is not valid JSON"
+```
+
+Everything inside the quotes is the seat's own text, not the supervisor's.
+Read it as a report, not as a finding: it is untrusted output quoted into the
+record, and the delimiters are there so a seat cannot write a line that reads
+as the supervisor's. The tail is bounded to the last 4 KiB, control characters
+are flattened to spaces, an embedded quote is escaped, and a cut tail opens
+with `...`. A stage that wrote nothing to stderr still reads as the bare
+`stage <name> exited with status <code>`; that is an absence of evidence, not a
+seat with nothing wrong with it.
+
+Three narrower gaps remain, so a bare exit code is still possible:
+
+- **The cause was stated too early.** Stage transcripts are written on success,
+  so a stage that exits non-zero leaves no artifact behind that tail. If the
+  seat stated its cause more than 4 KiB before the end, it is gone.
+- **A credential mint failed.** `CredentialExit` deliberately carries no tail.
+  `mint_bearer` treats any output from the mint as a contract breach
+  (`CredentialOutput`) precisely because a bearer could be in it, so that
+  stream is never quoted into a log line. A failed mint reports the provider
+  and the exit code only, by design.
+- **A guest provider login failed.** `patchyard-guest-implement` writes
+  `login.stdout`/`login.stderr` into `$PROVIDER_TEMP` and its cleanup trap
+  removes that directory unread, so it still reports only
+  `implement-codex-auth-failed`.
+
+In those three cases, budget for re-running with the failure reproduced by hand
+rather than expecting a log.

@@ -106,6 +106,7 @@ impl ProcessAgentBackend {
                 return Err(StageError::Exit {
                     stage: invocation.task_class.clone(),
                     code: process.code,
+                    stderr: StderrTail::from_stream(&process.stderr),
                 });
             }
             let output = read_bounded_file(output_path, 1024 * 1024).await?;
@@ -293,6 +294,7 @@ impl ProcessWorkerBackend {
             Ok(output) => Err(StageError::Exit {
                 stage: "worker".to_owned(),
                 code: output.code,
+                stderr: StderrTail::from_stream(&output.stderr),
             }),
             Err(error) => Err(error.into()),
         };
@@ -334,6 +336,7 @@ impl ProcessWorkerBackend {
             return Err(StageError::Exit {
                 stage: "worker-teardown".to_owned(),
                 code: output.code,
+                stderr: StderrTail::from_stream(&output.stderr),
             });
         }
         Ok(())
@@ -565,6 +568,25 @@ fn read_failures(verdict: &serde_json::Value) -> Option<(Vec<VerifyFailureDetail
     Some((carried, truncated))
 }
 
+/// Control characters become spaces, so text a subprocess wrote can never forge
+/// structure in a record the supervisor writes.
+///
+/// Per F2 in `docs/agent-content-trust.md`, any tool's output is an untrusted
+/// channel. This is the one place that rule is applied to a string; both the
+/// verdict fields that ride into a repair brief and the stderr tail that rides
+/// into an operator's log line go through it.
+fn flatten_control_characters(text: &str) -> String {
+    text.chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect()
+}
+
 /// One verdict string, made safe to render into a prompt: control characters
 /// become spaces, and the result is truncated on a character boundary to its
 /// byte cap.
@@ -576,17 +598,7 @@ fn read_failures(verdict: &serde_json::Value) -> Option<(Vec<VerifyFailureDetail
 /// A diagnostic longer than the cap is already unreadable as an instruction, and
 /// the untruncated verdict stays in the persisted evidence artifact.
 fn bounded_field(value: Option<&serde_json::Value>) -> Option<String> {
-    let text: String = value?
-        .as_str()?
-        .chars()
-        .map(|character| {
-            if character.is_control() {
-                ' '
-            } else {
-                character
-            }
-        })
-        .collect();
+    let text = flatten_control_characters(value?.as_str()?);
     if text.len() <= MAX_FAILURE_FIELD_BYTES {
         return Some(text);
     }
@@ -660,12 +672,82 @@ pub enum StageIoError {
     Io(std::io::Error),
 }
 
+/// Bound on the stderr tail carried inside a stage failure. A seat states its
+/// cause in one line; this leaves room for a short trailer behind it without
+/// letting a runaway stream into every log line and ledger row.
+const MAX_STDERR_TAIL_BYTES: usize = 4 * 1024;
+
+/// What a cut tail opens with, so an operator can tell the cause may have been
+/// stated above the cut rather than assuming the tail is the whole account.
+const STDERR_TAIL_ELISION: &str = "...";
+
+/// The tail of a failed stage's stderr, bounded and made safe to render into a
+/// single-line operator record.
+///
+/// The bytes are already in hand where a stage exits non-zero, and they are the
+/// only account of the failure that exists: on 2026-08-25 a seat named its cause
+/// in forty-five bytes, eighteen times, and all eighteen were discarded while
+/// the record said only `exited with status 1`.
+///
+/// The tail is kept rather than the head because a seat writes its cause last,
+/// and it is all there is: a stage transcript is only written on success, so a
+/// non-zero stage leaves no artifact behind this string. What falls outside the
+/// bound is gone.
+///
+/// The sole sink is the `pipeline attempt stopped` ERROR event in `daemon.rs`,
+/// which renders this through `PipelineError`'s `Display`. That is a record a
+/// human reads, so the text is flattened and delimited on the way in.
+#[derive(Debug)]
+pub struct StderrTail(String);
+
+impl StderrTail {
+    /// Sanitize, then keep at most [`MAX_STDERR_TAIL_BYTES`] from the end.
+    ///
+    /// Non-UTF-8 bytes are carried lossily. A stage failure is the last place
+    /// that should turn into a second, unrelated failure.
+    #[must_use]
+    pub fn from_stream(bytes: &[u8]) -> Self {
+        let sanitized = flatten_control_characters(&String::from_utf8_lossy(bytes));
+        let text = sanitized.trim();
+        if text.len() <= MAX_STDERR_TAIL_BYTES {
+            return Self(text.to_owned());
+        }
+        let mut start = text.len() - MAX_STDERR_TAIL_BYTES;
+        while start < text.len() && !text.is_char_boundary(start) {
+            start += 1;
+        }
+        Self(format!("{STDERR_TAIL_ELISION}{}", &text[start..]))
+    }
+}
+
+/// Renders its own separator so that a stage which wrote nothing reads exactly
+/// as it did before this field existed, with no dangling punctuation implying a
+/// cause that was never stated.
+///
+/// The tail is labelled and quoted rather than interpolated bare. Flattening
+/// control characters stops a seat forging a *new* record; the delimiters stop
+/// it forging the rest of *this* one, by marking where the supervisor's words
+/// end and the seat's begin. `{:?}` escapes an embedded quote, so the closing
+/// delimiter cannot be forged either.
+impl std::fmt::Display for StderrTail {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.0.is_empty() {
+            return Ok(());
+        }
+        write!(formatter, ": stderr {:?}", self.0)
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum StageError {
     #[error("no bounded command is configured for task class {0}")]
     MissingCommand(String),
-    #[error("stage {stage} exited with status {code}")]
-    Exit { stage: String, code: i32 },
+    #[error("stage {stage} exited with status {code}{stderr}")]
+    Exit {
+        stage: String,
+        code: i32,
+        stderr: StderrTail,
+    },
     #[error("credential mint for provider {provider} exited with status {code}")]
     CredentialExit { provider: String, code: i32 },
     #[error("credential mint for provider {0} wrote unexpected process output")]
@@ -691,8 +773,8 @@ mod tests {
     use crate::process::ProcessOutput;
 
     use super::{
-        PATCH_REJECTED, REASON_MISSING, SUBJECT_UNKNOWN, TASK_REJECTED, read_rejection,
-        synthesize_verdict,
+        PATCH_REJECTED, REASON_MISSING, STDERR_TAIL_ELISION, SUBJECT_UNKNOWN, StageError,
+        StderrTail, TASK_REJECTED, read_rejection, synthesize_verdict,
     };
 
     fn output(code: i32, stdout: &str, stderr: &str) -> ProcessOutput {
@@ -702,6 +784,119 @@ mod tests {
             stderr: stderr.as_bytes().to_vec(),
             duration: Duration::from_secs(1),
         }
+    }
+
+    fn exit(stage: &str, code: i32, stderr: &str) -> StageError {
+        StageError::Exit {
+            stage: stage.to_owned(),
+            code,
+            stderr: StderrTail::from_stream(stderr.as_bytes()),
+        }
+    }
+
+    /// The failure this ticket was filed for. The seat named its cause in
+    /// forty-five bytes; the operator-visible record said only "status 1".
+    #[test]
+    fn a_failed_stage_names_the_cause_the_seat_wrote() {
+        let error = exit(
+            "triage",
+            1,
+            "triage seat: triage output is not valid JSON\n",
+        );
+
+        assert_eq!(
+            error.to_string(),
+            "stage triage exited with status 1: stderr \"triage seat: triage output is not valid JSON\""
+        );
+    }
+
+    /// A seat that wrote nothing has nothing to say, and the record must not
+    /// grow a dangling separator implying it did.
+    #[test]
+    fn a_stage_that_wrote_no_stderr_reads_exactly_as_it_did_before() {
+        for stderr in ["", "   ", "\n\n"] {
+            assert_eq!(
+                exit("worker-teardown", 2, stderr).to_string(),
+                "stage worker-teardown exited with status 2"
+            );
+        }
+    }
+
+    /// F2: a seat's stderr is untrusted output. Quoting is what keeps a seat
+    /// from appending text that reads as the supervisor's own record.
+    #[test]
+    fn a_seat_cannot_forge_the_record_it_is_quoted_into() {
+        let rendered = exit(
+            "verify",
+            1,
+            r#"ignore me" and stage verify exited with status 0"#,
+        )
+        .to_string();
+
+        assert_eq!(
+            rendered,
+            r#"stage verify exited with status 1: stderr "ignore me\" and stage verify exited with status 0""#
+        );
+    }
+
+    /// The cause is written last, so the tail is the half worth keeping.
+    #[test]
+    fn only_the_tail_of_an_oversized_stream_survives_and_says_so() {
+        let stderr = format!("{}seat: the cause", "noise ".repeat(4096));
+        let tail = StderrTail::from_stream(stderr.as_bytes());
+
+        let rendered = tail.to_string();
+        assert!(
+            rendered.ends_with(r#"seat: the cause""#),
+            "the tail is what names the cause: {rendered}"
+        );
+        assert!(
+            rendered.contains(STDERR_TAIL_ELISION),
+            "a cut stream must say it was cut: {rendered}"
+        );
+        // Measured on the carried text, not the rendered line, so the bound is
+        // proven independently of how Display decorates it.
+        assert!(
+            tail.0.len() <= super::MAX_STDERR_TAIL_BYTES + STDERR_TAIL_ELISION.len(),
+            "the bound is enforced, not assumed: {} bytes",
+            tail.0.len()
+        );
+    }
+
+    /// This string is interpolated into a tracing event and a ledger row. A
+    /// newline surviving it would let a seat forge structure in the record an
+    /// operator reads.
+    #[test]
+    fn control_characters_never_survive_into_a_stage_error() {
+        let error = exit("review", 1, "first\nsecond\r\n\tthird\u{0}");
+
+        assert_eq!(
+            error.to_string(),
+            "stage review exited with status 1: stderr \"first second   third\""
+        );
+    }
+
+    /// Truncation lands wherever the bound falls, which is not a character
+    /// boundary in general. Slicing there would panic on a real stream.
+    #[test]
+    fn an_oversized_multibyte_stream_is_cut_on_a_character_boundary() {
+        let tail = StderrTail::from_stream("\u{00e9}".repeat(8192).as_bytes());
+
+        assert!(
+            tail.to_string()
+                .chars()
+                .all(|character| "\u{00e9}: stderd.\"".contains(character)),
+            "a multibyte cut must not split a character: {tail:?}"
+        );
+    }
+
+    /// Bytes a harness wrote are not guaranteed UTF-8, and a stage failure is
+    /// the last place that should turn into a second, unrelated failure.
+    #[test]
+    fn invalid_utf8_is_carried_lossily_rather_than_discarded() {
+        let tail = StderrTail::from_stream(b"seat: bad \xff byte");
+
+        assert!(tail.to_string().starts_with(r#": stderr "seat: bad "#));
     }
 
     #[test]

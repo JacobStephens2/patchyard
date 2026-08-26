@@ -1669,7 +1669,26 @@ pub enum PipelineError {
 
 #[cfg(test)]
 mod tests {
-    use super::{WorkerEvidence, first_changed_lines};
+    use super::{PipelineError, WorkerEvidence, first_changed_lines};
+    use crate::stages::{StageError, StderrTail};
+
+    /// The seat's own line has to survive every wrapper between the stage and
+    /// the `pipeline attempt stopped` event, which renders this Display. It is
+    /// the whole point of the fix that the operator record is not just a code.
+    #[test]
+    fn a_stage_failure_carries_the_seats_line_all_the_way_to_the_operator_record() {
+        let error = PipelineError::from(StageError::Exit {
+            stage: "triage".to_owned(),
+            code: 1,
+            stderr: StderrTail::from_stream(b"triage seat: triage output is not valid JSON\n"),
+        });
+
+        assert_eq!(
+            error.to_string(),
+            "stage failed: stage triage exited with status 1: \
+             stderr \"triage seat: triage output is not valid JSON\""
+        );
+    }
 
     #[test]
     fn root_cause_lines_point_to_the_first_added_line_not_the_hunk_header() {

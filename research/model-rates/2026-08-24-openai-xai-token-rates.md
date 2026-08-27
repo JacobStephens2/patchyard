@@ -28,6 +28,13 @@ A fourth finding was not asked for and matters anyway: **cache writes are a sepa
 billed, separately reported token category** on both OpenAI and Anthropic, and no seat
 table in this repo has ever priced them. Detail under secondary question 1.
 
+*Amended 2026-08-26, pointers only - no number in this record changed.* All four open
+questions below are now answered in dated follow-up records. Two of the findings above are
+superseded in their evidence class rather than their content: finding 1's "xAI untested"
+no longer holds (tested, same answer), and the fourth finding's cache-write category is an
+OpenAI and Anthropic property, **not** an industry one - xAI publishes three pricing
+columns and no cache-write rate at all.
+
 ## GPT-5.6 Sol on OpenAI
 
 Seats: `implement`, `repair`, `improvement_proposer_review` (`policy/routing.json`).
@@ -171,28 +178,66 @@ sends a large repair brief.
 
 ## Open questions
 
-None of these block #295; all four are cheap to get wrong silently.
+**All four were resolved on 2026-08-26, each in its own dated record.** The questions are
+left as written; the answer follows each. Nothing below amends the rates above - the
+2026-08-24 reading stands, and the re-check confirmed it line for line.
 
-1. **Does xAI price by reasoning effort?** Its documentation is silent, so the
-   counter-example A154 clause (2) said would force a re-key is ruled out on OpenAI and
-   Anthropic but merely *unobserved* on xAI. Cheap to settle by asking xAI directly; worth
-   settling before the key is treated as proven on all three providers.
-2. **Does xAI cache automatically, and can it be disabled from Grok Build?** xAI publishes
-   a cached-input rate and documents no mechanics. The arbiter seat inherits whatever
-   A154 clause (5) decides, on a provider where we cannot currently predict whether the
-   refusal fires. Worth answering before the arbiter seat runs live rather than after.
-3. **What is the GPT-5.6 Sol rate after 2026-11-21?** The promotional window is published
-   and finite. A stale rate is a confidently wrong money number, which is the failure mode
-   A154 exists to prevent, so the table wants a read-date and a re-check.
-4. **Does the `>272K` threshold count cache reads toward the prompt size?** Both providers
-   reprice *the full request* above the threshold, and neither states whether cached tokens
-   count toward it. On a long-running Codex session where most input is cache reads, this
-   decides whether a run crosses into the 2x tier.
+1. **Does xAI price by reasoning effort?** **No** -
+   [`2026-08-26-xai-effort-pricing.md`](2026-08-26-xai-effort-pricing.md). xAI documents
+   `reasoning_effort` with named values and attaches no price to any of them, so its
+   position is now the same shape as OpenAI's rather than the silence recorded here. Still
+   *unchallenged rather than proven*: no xAI page denies effort pricing, and the finding
+   rests on the absence of an effort dimension from tables that demonstrably do tier on
+   context. **A154 clause (2)'s `(model, provider)` key is not re-keyed.** Two things
+   surfaced beside the answer: xAI enumerates **reasoning tokens as a token type distinct
+   from output** and publishes no rate for them, and **Priority Processing bills a flat 2x
+   on all token types** - a second price-moving request parameter, structurally the same as
+   Anthropic's `speed`. Both widen the *value* behind the key, not the key.
+2. **Does xAI cache automatically, and can it be disabled from Grok Build?** **Yes,
+   automatically; and no, it cannot be disabled at any layer** -
+   [`2026-08-26-xai-prompt-caching.md`](2026-08-26-xai-prompt-caching.md). The gap this
+   record reported is closed: xAI does document the mechanics, under `advanced-api-usage/`,
+   which neither the pricing page nor the model page links to. No published token
+   threshold; the two caching controls that exist (`x-grok-conv-id`, `prompt_cache_key`)
+   only *increase* hit rate; Grok Build applies the conv id unconditionally and keeps
+   prefixes byte-identical by construction. **A154 clause (5) fires on the
+   `dispute_arbitration` seat** from the second model call onward, on stronger evidence
+   than the OpenAI case below - documented behaviour plus Apache-2.0 source, not an open
+   bug report. The qualification: it fires *non-deterministically*, since eviction and
+   routing can legitimately yield `cached_tokens = 0`, which is operationally worse than a
+   certain failure.
+3. **What is the GPT-5.6 Sol rate after 2026-11-21?** **Still unpublished, and the
+   question is now better established** -
+   [`2026-08-26-gpt-5-6-sol-rate-recheck.md`](2026-08-26-gpt-5-6-sol-rate-recheck.md).
+   Every figure above reproduced exactly two days on, cache writes included; the
+   promotional clause is unchanged word for word and the date has not moved. The successor
+   number does not exist to be read - it is not that it was missed. The changelog adds one
+   fact this record did not carry: the promotion **is** the 2026-08-21 price cut itself,
+   quantified as 20% lower input and 33% lower output, which inverts to $5.00 / $30.00 -
+   *an inference for bounding only, never to be cited as a published rate.* One scope
+   wrinkle: the promotional footnote appears only under the **Standard** service tier on
+   the pricing page, while the model page and changelog state it unqualified. Irrelevant
+   while the seats run Standard; immediate if one moves to Batch or Flex.
+4. **Does the `>272K` threshold count cache reads toward the prompt size?** **xAI: yes,
+   published. OpenAI: unpublished, and the natural reading is yes** -
+   [`2026-08-26-cache-reads-vs-context-threshold.md`](2026-08-26-cache-reads-vs-context-threshold.md).
+   xAI states it in those words: *"Long context pricing applies when total prompt tokens
+   (including cached tokens) exceed the model's long context threshold."* OpenAI states it
+   nowhere across eight pages checked; the inference chain is that the threshold is phrased
+   against "input tokens" and `usage.input_tokens` demonstrably includes cache reads, so
+   the only published quantity by that name is the inclusive one. **That is an inference,
+   not a finding**, and it decides a factor of two on `implement`, the highest-spend seat -
+   so any code that computes the tier from `usage.input_tokens` is *making* the inference
+   and should be labelled as an assumption citing that record, not written as sourced. The
+   record carries the cheapest way to convert it into a measurement, and the trap to avoid:
+   xAI's "the 2x multiplier applies to all token types" sentence is under Priority
+   Processing, not long context, and does not answer this question.
 
 ## Sources
 
 All read 2026-08-24. Provider-owned pages only, per #304 - no aggregator is cited for any
-rate. The Artificial Analysis figures already in `research/artificial-analysis/` were
+rate. The four follow-up records listed under Open questions were read
+2026-08-26 and carry their own source lists. The Artificial Analysis figures already in `research/artificial-analysis/` were
 deliberately not used: their "$/M blended" column is a derived cost estimate, not a
 published rate.
 

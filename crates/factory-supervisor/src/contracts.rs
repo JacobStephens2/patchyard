@@ -75,6 +75,23 @@ pub struct OutContract {
     pub claims: Vec<WorkerClaim>,
 }
 
+/// One changed line range, in reviewed-SHA line numbers: `line_count` lines
+/// starting at 1-based `start_line`.
+///
+/// The manifest counts a file's changed lines but never says where they are,
+/// so without this the reviewer's projection can only offer whole file bodies,
+/// and a file over the projection's per-file cap has no body it can offer.
+/// Read by `worktree::inspect_patch` out of the supervisor's own `git diff`
+/// of the applied result, alongside the manifest and from the same
+/// recomputation - never out of hunk headers a worker wrote.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PatchHunk {
+    pub path: String,
+    pub start_line: u32,
+    pub line_count: u32,
+}
+
 /// Reviewer input. Request text, builder rationale, and all transcripts are
 /// absent by construction.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -86,6 +103,7 @@ pub struct ReviewPacket {
     pub task_spec: TaskSpec,
     pub patch_sha256: String,
     pub manifest: DiffManifest,
+    pub hunks: Vec<PatchHunk>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

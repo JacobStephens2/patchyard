@@ -27,6 +27,20 @@ MAX_RESPONSE_BYTES = 1_000_000
 MAX_OUTPUT_BYTES = 1_000_000
 MAX_WORKSPACE_FILE_BYTES = 262_144
 MAX_WORKSPACE_TOTAL_BYTES = 524_288
+# A body over the per-file cap is still reviewable through a bounded window
+# around the packet's supervisor-derived hunk ranges: a three-line change to a
+# 1.4 MB file needs a few hundred bytes of context, not 1.4 MB. A windowed
+# entry carries no `content` key at all, so it cannot be misread as a whole
+# body the way #322's empty `content` was misread as an observed empty file.
+WINDOW_CONTEXT_LINES = 40
+MAX_WORKSPACE_WINDOW_BYTES = 65_536
+# Finding the hunk lines means reading from the start of the file, so what the
+# window may scan is bounded separately from what it keeps.
+MAX_WORKSPACE_SCAN_BYTES = 8_388_608
+# Matches MAX_REVIEW_HUNKS in crates/factory-supervisor/src/pipeline.rs, which
+# refuses to build a packet over the same ceiling. Two constants across a
+# process boundary cannot be shared; both sides refuse rather than truncate.
+MAX_PACKET_HUNKS = 256
 # Why a manifest-listed body is absent from the projection. A projected entry
 # carries no reason, so an empty `content` with no `omitted` key is an observed
 # empty file rather than an unread one; `policy/review.md` teaches the reviewer
@@ -150,6 +164,7 @@ def packet_contract(path: Path) -> dict[str, Any]:
             "task_spec",
             "patch_sha256",
             "manifest",
+            "hunks",
         }
         or value.get("schema_version") != 1
         or UUID_PATTERN.fullmatch(str(value.get("review_id", ""))) is None
@@ -159,6 +174,8 @@ def packet_contract(path: Path) -> dict[str, Any]:
         or not isinstance(value.get("manifest"), dict)
         or not isinstance(value["manifest"].get("files"), list)
         or len(value["manifest"]["files"]) > 64
+        or not isinstance(value.get("hunks"), list)
+        or len(value["hunks"]) > MAX_PACKET_HUNKS
     ):
         raise SeatError("review packet does not match the typed contract")
     return value
@@ -170,25 +187,153 @@ def omitted(raw_path: str, reason: str | None) -> dict[str, str]:
     return {"path": raw_path, "content": "", "omitted": reason}
 
 
-def workspace_files(manifest: dict[str, Any]) -> list[dict[str, str]]:
+def is_workspace_relative(raw_path: Any) -> bool:
+    """A path the projection may name: relative, traversal-free, in-charset."""
+    return (
+        isinstance(raw_path, str)
+        and WORKSPACE_PATH_PATTERN.fullmatch(raw_path) is not None
+        and not raw_path.startswith("/")
+        and ".." not in raw_path.split("/")
+    )
+
+
+def bounded_line_number(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and 1 <= value < 2**31
+
+
+def hunks_by_path(hunks: list[Any]) -> dict[str, list[tuple[int, int]]]:
+    """Group the packet's changed-line ranges by path.
+
+    The ranges are the supervisor's, read from its own diff of the applied
+    result, and are in reviewed-SHA line numbers. Workspace bytes cannot
+    influence them.
+    """
+    grouped: dict[str, list[tuple[int, int]]] = {}
+    for hunk in hunks:
+        if (
+            not isinstance(hunk, dict)
+            or set(hunk) != {"path", "start_line", "line_count"}
+            or not is_workspace_relative(hunk.get("path"))
+            or not bounded_line_number(hunk.get("start_line"))
+            or not bounded_line_number(hunk.get("line_count"))
+        ):
+            raise SeatError("review packet hunk is malformed")
+        grouped.setdefault(hunk["path"], []).append(
+            (hunk["start_line"], hunk["line_count"])
+        )
+    return grouped
+
+
+def window_spans(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Expand each changed range by the context radius and merge overlaps.
+
+    Adjacent spans merge too, so two nearby hunks read as one continuous
+    excerpt rather than as two segments with an invisible gap of zero lines.
+    """
+    merged: list[list[int]] = []
+    for first, last in sorted(
+        (
+            max(1, start - WINDOW_CONTEXT_LINES),
+            start + count - 1 + WINDOW_CONTEXT_LINES,
+        )
+        for start, count in ranges
+    ):
+        if merged and first <= merged[-1][1] + 1:
+            merged[-1][1] = max(merged[-1][1], last)
+        else:
+            merged.append([first, last])
+    return [(first, last) for first, last in merged]
+
+
+def windowed_body(path: Path, ranges: list[tuple[int, int]]) -> dict[str, Any]:
+    """Project only the lines around the change, naming the ranges shown.
+
+    Raises `SeatError` carrying the reason the caller should mark instead, so a
+    file no window can carry falls back to an omission marker.
+    """
+    if not ranges:
+        raise SeatError("no hunk range covers the oversize file", "oversize")
+    spans = window_spans(ranges)
+    kept: list[list[str]] = [[] for _ in spans]
+    kept_bytes = 0
+    total_lines = 0
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, "rb") as handle:
+        if os.fstat(handle.fileno()).st_size > MAX_WORKSPACE_SCAN_BYTES:
+            raise SeatError("workspace file exceeds the window scan limit", "oversize")
+        for line in handle:
+            total_lines += 1
+            for index, (first, last) in enumerate(spans):
+                if not first <= total_lines <= last:
+                    continue
+                kept_bytes += len(line)
+                if kept_bytes > MAX_WORKSPACE_WINDOW_BYTES:
+                    raise SeatError("window exceeds the byte limit", "oversize")
+                try:
+                    kept[index].append(line.decode("utf-8"))
+                except UnicodeDecodeError as error:
+                    raise SeatError("window is not UTF-8", "undecodable") from error
+                break
+    segments = [
+        {"start_line": first, "line_count": len(lines), "content": "".join(lines)}
+        for (first, _), lines in zip(spans, kept)
+        if lines
+    ]
+    if not segments:
+        raise SeatError("no windowed line exists at the reviewed SHA", "oversize")
+    return {"total_lines": total_lines, "segments": segments}
+
+
+def project_body(
+    path: Path, raw_path: str, ranges: list[tuple[int, int]]
+) -> dict[str, Any]:
+    """Project one readable workspace path as a body, a window, or an omission."""
+    try:
+        body = read_regular(path, MAX_WORKSPACE_FILE_BYTES, f"workspace file {raw_path}")
+    except SeatError as error:
+        if error.reason == OBSERVED_EMPTY:
+            return {"path": raw_path, "content": ""}
+        if error.reason != "oversize":
+            return omitted(raw_path, error.reason)
+        try:
+            return {"path": raw_path, "windowed": windowed_body(path, ranges)}
+        except SeatError as refusal:
+            return omitted(raw_path, refusal.reason)
+        except OSError:
+            return omitted(raw_path, "unreadable")
+    try:
+        return {"path": raw_path, "content": body.decode("utf-8")}
+    except UnicodeDecodeError:
+        return omitted(raw_path, "undecodable")
+
+
+def projected_bytes(entry: dict[str, Any]) -> int:
+    if "windowed" in entry:
+        return sum(
+            len(segment["content"].encode("utf-8"))
+            for segment in entry["windowed"]["segments"]
+        )
+    return len(entry["content"].encode("utf-8"))
+
+
+def workspace_files(packet: dict[str, Any]) -> list[dict[str, Any]]:
     """Read each manifest-listed path from the read-only reviewed worktree.
 
     The reviewed SHA already contains the applied change; the file bodies give
-    the seat the concrete code the manifest only names. Every byte read here is
-    untrusted data.
+    the seat the concrete code the manifest only names. A body over the
+    per-file cap is projected as a window around the packet's hunk ranges
+    instead, which is what makes a change to a large file observable at all.
+    Every byte read here is untrusted data.
     """
-    contents: list[dict[str, str]] = []
+    hunks = hunks_by_path(packet["hunks"])
+    contents: list[dict[str, Any]] = []
     total = 0
     root = Path.cwd()
-    for entry in manifest["files"]:
+    for entry in packet["manifest"]["files"]:
         if not isinstance(entry, dict):
             raise SeatError("manifest entry is malformed")
         raw_path = str(entry.get("path", ""))
-        if (
-            WORKSPACE_PATH_PATTERN.fullmatch(raw_path) is None
-            or raw_path.startswith("/")
-            or ".." in raw_path.split("/")
-        ):
+        if not is_workspace_relative(raw_path):
             raise SeatError("manifest path is outside the workspace contract")
         if entry.get("binary") is True:
             contents.append(omitted(raw_path, "binary"))
@@ -199,28 +344,15 @@ def workspace_files(manifest: dict[str, Any]) -> list[dict[str, str]]:
         path = (root / raw_path).resolve()
         if root not in path.parents:
             raise SeatError("manifest path escapes the workspace")
-        try:
-            body = read_regular(path, MAX_WORKSPACE_FILE_BYTES, f"workspace file {raw_path}")
-        except SeatError as error:
-            contents.append(
-                {"path": raw_path, "content": ""}
-                if error.reason == OBSERVED_EMPTY
-                else omitted(raw_path, error.reason)
-            )
-            continue
-        try:
-            text = body.decode("utf-8")
-        except UnicodeDecodeError:
-            contents.append(omitted(raw_path, "undecodable"))
-            continue
-        total += len(body)
+        projected = project_body(path, raw_path, hunks.get(raw_path, []))
+        total += projected_bytes(projected)
         if total > MAX_WORKSPACE_TOTAL_BYTES:
             raise SeatError("workspace file contents exceed the byte limit")
-        contents.append({"path": raw_path, "content": text})
+        contents.append(projected)
     return contents
 
 
-def untrusted_message(packet: dict[str, Any], files: list[dict[str, str]]) -> str:
+def untrusted_message(packet: dict[str, Any], files: list[dict[str, Any]]) -> str:
     encoded = json.dumps(
         {
             "authority": "none",
@@ -432,7 +564,7 @@ def run(arguments: list[str]) -> int:
     if display_model not in MODEL_SPECS or effort not in EFFORTS:
         raise SeatError("review seat model or effort is unsupported")
     api_model, input_rate, output_rate = MODEL_SPECS[display_model]
-    files = workspace_files(packet["manifest"])
+    files = workspace_files(packet)
     raw = provider_request(
         provider_endpoint(provider),
         bearer,

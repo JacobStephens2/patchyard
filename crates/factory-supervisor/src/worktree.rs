@@ -19,7 +19,10 @@ use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::process::{ProcessError, ProcessSpec, run_bounded};
+use crate::{
+    contracts::PatchHunk,
+    process::{ProcessError, ProcessSpec, run_bounded},
+};
 
 /// Credential-free source bundle made from one exact commit.
 pub struct ExactBundle {
@@ -253,10 +256,26 @@ impl Drop for DetachedWorktree {
     }
 }
 
+/// Ceiling on the hunk ranges one recomputation may yield. Lane A is capped at
+/// 2 files and 50 changed lines, so a diff that reaches this is malformed
+/// rather than large, and inspection must fail closed instead of growing.
+///
+/// The review seat validates the same ceiling on the receiving side, as
+/// `MAX_PACKET_HUNKS` in
+/// `infra/ansible/roles/control_plane/files/patchyard-review-seat`. The two
+/// cannot share a constant across the process boundary; raising one without
+/// the other only makes the seat, not the supervisor, the refusing side.
+const MAX_PATCH_HUNKS: usize = 256;
+
 /// Independently recomputed patch facts used to construct OutContract.
 #[derive(Clone, Debug)]
 pub struct InspectedPatch {
     pub manifest: DiffManifest,
+    /// Where the change landed, in reviewed-SHA line numbers. Read from the
+    /// same recomputed diff as `manifest`, so the reviewer's window is aimed
+    /// by the supervisor's own reading of the applied result rather than by
+    /// hunk headers the worker wrote.
+    pub hunks: Vec<PatchHunk>,
     pub patch_sha256: String,
     pub base_tree_hash: String,
     pub result_tree_hash: String,
@@ -420,6 +439,18 @@ async fn inspect_in_worktree(
     )
     .await?;
     let manifest = parse_manifest(&worktree.reviewed_sha, &numstat, &raw)?;
+    // Zero context lines: the hunk headers then state the changed ranges
+    // exactly, and the seat supplies the reading context itself. Rename
+    // detection is deliberately off here - a rename's `b/` side is the only
+    // path a window can be taken against, and `parse_manifest` above is what
+    // records the rename itself.
+    let unified = git_stdout_path(
+        worktree.path(),
+        &["diff", "--cached", "-U0", "--no-renames", "HEAD", "--"],
+        cancellation,
+    )
+    .await?;
+    let hunks = parse_hunks(&unified)?;
     let result_root = worktree.path().to_path_buf();
     let result_tree_hash = tokio::task::spawn_blocking(move || tree_hash(&result_root))
         .await
@@ -430,10 +461,119 @@ async fn inspect_in_worktree(
         .map_err(WorktreeError::Join)??;
     Ok(InspectedPatch {
         manifest,
+        hunks,
         patch_sha256,
         base_tree_hash,
         result_tree_hash,
     })
+}
+
+/// Read every hunk's new-file line range out of the recomputed unified diff.
+///
+/// The manifest counts a file's changed lines but never says where they are,
+/// so without this the reviewer's projection can only offer whole file bodies,
+/// and a file over its per-file cap has no body it can offer.
+///
+/// The path comes from each `+++ b/` line rather than from `diff --git`,
+/// because `+++` names the side the ranges are in. A `+++ /dev/null` file was
+/// deleted, so it has no reviewed-SHA line to window and its hunks are
+/// dropped.
+///
+/// A pure-deletion hunk (`+n,0`) has no new line of its own; it is recorded as
+/// the single line the deletion sits against, which is the line a window must
+/// show for the removal to be visible.
+///
+/// An empty result is a valid answer, not a fault: a diff that only changes
+/// modes or only touches binary files has no textual hunk to window. The seat
+/// falls back to its omission markers for those paths.
+fn parse_hunks(unified: &str) -> Result<Vec<PatchHunk>, WorktreeError> {
+    let mut hunks = Vec::new();
+    let mut current_path: Option<&str> = None;
+    let mut named_a_side = false;
+    // Remaining old/new lines the hunk body must still account for. While
+    // these are live, a `@@` or `+++` at column 0 is diff content, not a
+    // header: every body line carries a one-character prefix.
+    let mut remaining: Option<(u32, u32)> = None;
+    for line in unified.lines() {
+        if remaining == Some((0, 0)) {
+            remaining = None;
+        }
+        if let Some((old_span, new_span)) = remaining.as_mut() {
+            match line.as_bytes().first() {
+                Some(b'-') => {
+                    *old_span = old_span
+                        .checked_sub(1)
+                        .ok_or(WorktreeError::MalformedGitOutput)?;
+                }
+                Some(b'+') => {
+                    *new_span = new_span
+                        .checked_sub(1)
+                        .ok_or(WorktreeError::MalformedGitOutput)?;
+                }
+                // `\ No newline at end of file` belongs to the line before it.
+                Some(b'\\') => {}
+                Some(_) | None => return Err(WorktreeError::MalformedGitOutput),
+            }
+            continue;
+        }
+        if let Some(path) = line.strip_prefix("+++ b/") {
+            current_path = Some(path);
+            named_a_side = true;
+            continue;
+        }
+        if line == "+++ /dev/null" {
+            current_path = None;
+            named_a_side = true;
+            continue;
+        }
+        let Some(header) = line.strip_prefix("@@ -") else {
+            continue;
+        };
+        if !named_a_side {
+            return Err(WorktreeError::MalformedGitOutput);
+        }
+        let (old_span, rest) = split_hunk_span(header)?;
+        let (new_span, _) = split_hunk_span(
+            rest.strip_prefix('+')
+                .ok_or(WorktreeError::MalformedGitOutput)?,
+        )?;
+        remaining = Some((old_span.1, new_span.1));
+        let Some(path) = current_path else {
+            continue;
+        };
+        if hunks.len() >= MAX_PATCH_HUNKS {
+            return Err(WorktreeError::TooManyPatchHunks(MAX_PATCH_HUNKS));
+        }
+        hunks.push(PatchHunk {
+            path: path.to_owned(),
+            start_line: new_span.0.max(1),
+            line_count: new_span.1.max(1),
+        });
+    }
+    Ok(hunks)
+}
+
+/// Split one `start[,count]` hunk span off the front of a hunk header,
+/// returning it and the remainder after the following space.
+fn split_hunk_span(header: &str) -> Result<((u32, u32), &str), WorktreeError> {
+    let (span, rest) = header
+        .split_once(' ')
+        .ok_or(WorktreeError::MalformedGitOutput)?;
+    let (start, count) = match span.split_once(',') {
+        Some((start, count)) => (start, count),
+        None => (span, "1"),
+    };
+    Ok((
+        (
+            start
+                .parse::<u32>()
+                .map_err(|_| WorktreeError::MalformedGitOutput)?,
+            count
+                .parse::<u32>()
+                .map_err(|_| WorktreeError::MalformedGitOutput)?,
+        ),
+        rest,
+    ))
 }
 
 fn parse_manifest(base_sha: &str, numstat: &str, raw: &str) -> Result<DiffManifest, WorktreeError> {
@@ -618,6 +758,8 @@ pub enum WorktreeError {
     Git { operation: &'static str, code: i32 },
     #[error("Git output did not match the bounded manifest grammar")]
     MalformedGitOutput,
+    #[error("recomputed diff carries more than {0} hunks")]
+    TooManyPatchHunks(usize),
     #[error("worktree is not UTF-8")]
     NonUtf8,
     #[error("worktree has {actual}, expected {expected}")]
@@ -641,7 +783,102 @@ mod tests {
 
     use factory_verify::caps::ChangeKind;
 
-    use super::{DetachedWorktree, parse_manifest};
+    use super::{DetachedWorktree, WorktreeError, inspect_patch, parse_hunks, parse_manifest};
+
+    /// factory#325: the reviewer's projection can only window a large file if
+    /// the packet says where the change is, and the manifest never does.
+    #[test]
+    fn hunk_ranges_are_read_in_reviewed_sha_line_numbers_for_every_hunk() {
+        let unified = "\
+diff --git a/mfieldbook/common_functions.php b/mfieldbook/common_functions.php
+index 1111111..2222222 100644
+--- a/mfieldbook/common_functions.php
++++ b/mfieldbook/common_functions.php
+@@ -901 +901,2 @@ function first() {
+-old behavior
++new behavior
++added behavior
+@@ -41001 +41002 @@ function second() {
+-old
++new
+";
+
+        let hunks = parse_hunks(unified).expect("recomputed diff");
+
+        assert_eq!(hunks.len(), 2);
+        assert_eq!(hunks[0].path, "mfieldbook/common_functions.php");
+        assert_eq!((hunks[0].start_line, hunks[0].line_count), (901, 2));
+        assert_eq!((hunks[1].start_line, hunks[1].line_count), (41002, 1));
+    }
+
+    /// A hunk body line that reads like a header must not be counted as one,
+    /// or every range after it points at the wrong part of the file.
+    #[test]
+    fn a_hunk_body_line_shaped_like_a_header_is_content_not_a_new_range() {
+        let unified = "\
+--- a/notes.md
++++ b/notes.md
+@@ -1,2 +1,2 @@
+-@@ -9999,9 +9999,9 @@ not a header
+-+++ b/also-not-a-header
++@@ -8888,8 +8888,8 @@ still not a header
+++++ b/still-not-a-header
+";
+
+        let hunks = parse_hunks(unified).expect("recomputed diff");
+
+        assert_eq!(hunks.len(), 1);
+        assert_eq!(hunks[0].path, "notes.md");
+        assert_eq!((hunks[0].start_line, hunks[0].line_count), (1, 2));
+    }
+
+    /// A pure deletion adds no line of its own, so `+n,0` has to become the
+    /// one line a window shows for the removal to be visible at all.
+    #[test]
+    fn a_pure_deletion_hunk_still_names_a_line_a_window_can_show() {
+        let unified = "\
+--- a/notes.md
++++ b/notes.md
+@@ -5 +4,0 @@
+-removed
+";
+
+        let hunks = parse_hunks(unified).expect("recomputed diff");
+
+        assert_eq!(hunks.len(), 1);
+        assert_eq!((hunks[0].start_line, hunks[0].line_count), (4, 1));
+    }
+
+    /// A deleted file has no reviewed-SHA line to show, so it contributes no
+    /// range - and the file after it must still be read correctly.
+    #[test]
+    fn a_deleted_files_hunks_are_dropped_without_losing_the_next_file() {
+        let unified = "\
+--- a/gone.php
++++ /dev/null
+@@ -1,2 +0,0 @@
+-first
+-second
+--- a/kept.php
++++ b/kept.php
+@@ -7 +7 @@
+-old
++new
+";
+
+        let hunks = parse_hunks(unified).expect("recomputed diff");
+
+        assert_eq!(hunks.len(), 1);
+        assert_eq!(hunks[0].path, "kept.php");
+        assert_eq!((hunks[0].start_line, hunks[0].line_count), (7, 1));
+    }
+
+    #[test]
+    fn a_hunk_header_before_any_file_header_fails_closed() {
+        let error = parse_hunks("@@ -1 +1 @@\n-old\n+new\n").expect_err("no file named");
+
+        assert!(matches!(error, WorktreeError::MalformedGitOutput));
+    }
 
     fn git(repository: &std::path::Path, arguments: &[&str]) {
         let output = Command::new("git")
@@ -670,6 +907,80 @@ mod tests {
         assert_eq!(manifest.files[0].change, ChangeKind::Added);
         assert_eq!(manifest.files[0].old_mode.as_deref(), Some("000000"));
         assert_eq!(manifest.files[0].new_mode.as_deref(), Some("120000"));
+    }
+
+    /// The `-U0 --no-renames` flags and `parse_hunks` have to agree about what
+    /// Git actually emits, so this runs the real recomputation end to end: two
+    /// files changed in one patch, one of them past line 40,000.
+    #[tokio::test]
+    async fn inspection_recomputes_hunk_ranges_from_the_applied_result() {
+        let temporary = tempdir().expect("temporary repository");
+        let repository = temporary.path().join("repository");
+        fs::create_dir(&repository).expect("repository directory");
+        git(&repository, &["init"]);
+        git(&repository, &["config", "user.name", "Patchyard Factory test"]);
+        git(
+            &repository,
+            &["config", "user.email", "factory-test@invalid.example"],
+        );
+        let mut wide: Vec<String> = (1..=41_000).map(|line| format!("line {line}")).collect();
+        fs::write(repository.join("wide.php"), wide.join("\n") + "\n").expect("wide fixture");
+        fs::write(repository.join("small.php"), "alpha\nbeta\n").expect("small fixture");
+        git(&repository, &["add", "wide.php", "small.php"]);
+        git(&repository, &["commit", "-m", "fixture"]);
+        let base_sha = String::from_utf8(
+            Command::new("git")
+                .arg("-C")
+                .arg(&repository)
+                .args(["rev-parse", "HEAD"])
+                .output()
+                .expect("rev-parse")
+                .stdout,
+        )
+        .expect("UTF-8 SHA")
+        .trim()
+        .to_owned();
+
+        wide[39_999] = "line 40000 changed".to_owned();
+        fs::write(repository.join("wide.php"), wide.join("\n") + "\n").expect("wide edit");
+        fs::write(repository.join("small.php"), "alpha\ngamma\n").expect("small edit");
+        let patch = String::from_utf8(
+            Command::new("git")
+                .arg("-C")
+                .arg(&repository)
+                .args(["diff"])
+                .output()
+                .expect("diff")
+                .stdout,
+        )
+        .expect("UTF-8 patch");
+        git(&repository, &["checkout", "--", "."]);
+        let patch_path = temporary.path().join("worker.patch");
+        fs::write(&patch_path, patch).expect("patch file");
+
+        let inspected = inspect_patch(
+            &repository,
+            &base_sha,
+            &patch_path,
+            &temporary.path().join("inspect"),
+            &CancellationToken::new(),
+        )
+        .await
+        .expect("inspection recomputes the applied result");
+
+        let mut ranges: Vec<(String, u32, u32)> = inspected
+            .hunks
+            .into_iter()
+            .map(|hunk| (hunk.path, hunk.start_line, hunk.line_count))
+            .collect();
+        ranges.sort();
+        assert_eq!(
+            ranges,
+            vec![
+                ("small.php".to_owned(), 2, 1),
+                ("wide.php".to_owned(), 40_000, 1),
+            ]
+        );
     }
 
     #[tokio::test]

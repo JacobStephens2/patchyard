@@ -16,7 +16,7 @@ use uuid::Uuid;
 use crate::{
     child::{ChildContract, ChildError, ChildSecret, ChildTerminalState, IsolatedChildSpawner},
     config::Seat,
-    contracts::{ResolvedInvocation, ReviewArtifact, ReviewPacket},
+    contracts::{PatchHunk, ResolvedInvocation, ReviewArtifact, ReviewPacket},
     proposer::{EvidenceCitation, PromptBundleManifest},
     stages::{CredentialCommand, StageError},
     worktree::{DetachedWorktree, WorktreeError},
@@ -100,6 +100,7 @@ impl SandboxedReviewer {
         task_spec: &TaskSpec,
         patch_sha256: &str,
         manifest: &DiffManifest,
+        hunks: &[PatchHunk],
         invocations: Vec<ResolvedInvocation>,
         cancellation: &CancellationToken,
     ) -> Result<Vec<ReviewExecution>, ReviewError> {
@@ -156,6 +157,7 @@ impl SandboxedReviewer {
                         task_spec.clone(),
                         patch_sha256.to_owned(),
                         manifest.clone(),
+                        hunks.to_vec(),
                         invocation.clone(),
                         cancellation,
                     )
@@ -175,6 +177,7 @@ impl SandboxedReviewer {
                 let task_spec = task_spec.clone();
                 let patch_sha256 = patch_sha256.to_owned();
                 let manifest = manifest.clone();
+                let hunks = hunks.to_vec();
                 let cancellation = cancellation.clone();
                 let review_id = *review_id;
                 let invocation = invocation.clone();
@@ -188,6 +191,7 @@ impl SandboxedReviewer {
                             task_spec,
                             patch_sha256,
                             manifest,
+                            hunks,
                             invocation,
                             &cancellation,
                         )
@@ -280,6 +284,7 @@ impl SandboxedReviewer {
         task_spec: TaskSpec,
         patch_sha256: String,
         manifest: DiffManifest,
+        hunks: Vec<PatchHunk>,
         invocation: ResolvedInvocation,
         cancellation: &CancellationToken,
     ) -> Result<ReviewExecution, ReviewError> {
@@ -290,6 +295,7 @@ impl SandboxedReviewer {
             task_spec,
             patch_sha256,
             manifest,
+            hunks,
         };
         let packet_bytes = serde_json::to_vec(&packet)?;
         let prompt_bytes = tokio::fs::read(&self.config.prompt).await?;
@@ -556,6 +562,7 @@ mod tests {
                     base_sha: reviewed_sha.clone(),
                     files: Vec::new(),
                 },
+                &[],
                 vec![ResolvedInvocation {
                     task_class: "review".to_owned(),
                     routing_version: "fixture".to_owned(),

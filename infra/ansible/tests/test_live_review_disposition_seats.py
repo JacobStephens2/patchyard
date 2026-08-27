@@ -238,6 +238,9 @@ class ReviewSeatBehavior(unittest.TestCase):
                             }
                         ],
                     },
+                    "hunks": [
+                        {"path": "fixture.txt", "start_line": 1, "line_count": 1}
+                    ],
                 }
             )
         )
@@ -316,10 +319,11 @@ class ReviewSeatBehavior(unittest.TestCase):
         self.assertIn("review output envelope is malformed", result.stderr)
         self.assertFalse(self.output.exists())
 
-    def project(self, entries: list[dict]) -> list[dict]:
+    def project(self, entries: list[dict], hunks=None) -> list[dict]:
         """Run one round trip and return the WORKSPACE_FILES channel entries."""
         packet = json.loads(self.packet_path.read_text())
         packet["manifest"]["files"] = entries
+        packet["hunks"] = [] if hunks is None else hunks
         self.packet_path.write_text(json.dumps(packet))
         result, loopback = self.invoke(
             json.dumps(
@@ -421,6 +425,157 @@ class ReviewSeatBehavior(unittest.TestCase):
         self.assertIn("omitted", prompt)
         for reason in module.OMISSION_REASONS:
             self.assertIn(f"`{reason}`", prompt)
+
+    def test_oversize_body_is_windowed_around_the_packets_hunk_ranges(self) -> None:
+        # factory#325: the acceptance case. A three-line change to a file 5.7x
+        # the per-file cap must reach the reviewer as the changed lines, not as
+        # an omission it can only escalate.
+        lines = [f"line {number}\n" for number in range(1, 40_001)]
+        lines[19_999] = "CHANGED marker\n"
+        (self.workspace / "common_functions.php").write_text("".join(lines))
+        self.assertGreater(
+            (self.workspace / "common_functions.php").stat().st_size, 262_144
+        )
+        entries = self.project(
+            [
+                {
+                    "path": "common_functions.php",
+                    "change": "modified",
+                    "additions": 1,
+                    "deletions": 1,
+                    "binary": False,
+                }
+            ],
+            [{"path": "common_functions.php", "start_line": 20_000, "line_count": 1}],
+        )
+        self.assertNotIn("omitted", entries[0])
+        self.assertNotIn("content", entries[0])
+        window = entries[0]["windowed"]
+        self.assertEqual(window["total_lines"], 40_000)
+        self.assertEqual(len(window["segments"]), 1)
+        segment = window["segments"][0]
+        # 40 lines of context each side of the one changed line.
+        self.assertEqual(segment["start_line"], 19_960)
+        self.assertEqual(segment["line_count"], 81)
+        self.assertIn("CHANGED marker\n", segment["content"])
+        self.assertTrue(segment["content"].startswith("line 19960\n"))
+        self.assertTrue(segment["content"].endswith("line 20040\n"))
+        # The reviewer can quote the changed line; the 1.4 MB body never rides.
+        self.assertLess(len(segment["content"]), 4096)
+
+    def test_adjacent_hunks_merge_into_one_segment_and_distant_ones_do_not(self) -> None:
+        (self.workspace / "big.php").write_text(
+            "".join(f"line {number}\n" for number in range(1, 40_001))
+        )
+        entries = self.project(
+            [
+                {
+                    "path": "big.php",
+                    "change": "modified",
+                    "additions": 2,
+                    "deletions": 0,
+                    "binary": False,
+                }
+            ],
+            [
+                {"path": "big.php", "start_line": 100, "line_count": 1},
+                {"path": "big.php", "start_line": 150, "line_count": 1},
+                {"path": "big.php", "start_line": 30_000, "line_count": 1},
+            ],
+        )
+        segments = entries[0]["windowed"]["segments"]
+        self.assertEqual(
+            [(segment["start_line"], segment["line_count"]) for segment in segments],
+            [(60, 131), (29_960, 81)],
+        )
+
+    def test_oversize_file_with_no_hunk_range_is_still_named_omitted(self) -> None:
+        # A window is only honest where the packet says the change is. With no
+        # range for the path, the #322 marker is still the correct projection.
+        (self.workspace / "big.php").write_text("x" * (262_144 + 1))
+        entries = self.project(
+            [
+                {
+                    "path": "big.php",
+                    "change": "modified",
+                    "additions": 1,
+                    "deletions": 0,
+                    "binary": False,
+                }
+            ],
+            [{"path": "other.php", "start_line": 1, "line_count": 1}],
+        )
+        self.assertEqual(entries[0]["omitted"], "oversize")
+        self.assertEqual(entries[0]["content"], "")
+        self.assertNotIn("windowed", entries[0])
+
+    def test_a_window_that_cannot_decode_is_named_undecodable_not_oversize(self) -> None:
+        (self.workspace / "big.dat").write_bytes(
+            b"header\n" + b"\xff\xfe\n" + b"x" * 262_144
+        )
+        entries = self.project(
+            [
+                {
+                    "path": "big.dat",
+                    "change": "modified",
+                    "additions": 1,
+                    "deletions": 0,
+                    "binary": False,
+                }
+            ],
+            [{"path": "big.dat", "start_line": 2, "line_count": 1}],
+        )
+        self.assertEqual(entries[0]["omitted"], "undecodable")
+
+    def test_a_file_too_large_to_scan_is_named_oversize(self) -> None:
+        module = load_module(REVIEW_SEAT, "patchyard_review_seat")
+        target = self.workspace / "huge.php"
+        with target.open("wb") as handle:
+            handle.write(b"line\n" * ((module.MAX_WORKSPACE_SCAN_BYTES // 5) + 1))
+        entries = self.project(
+            [
+                {
+                    "path": "huge.php",
+                    "change": "modified",
+                    "additions": 1,
+                    "deletions": 0,
+                    "binary": False,
+                }
+            ],
+            [{"path": "huge.php", "start_line": 2, "line_count": 1}],
+        )
+        self.assertEqual(entries[0]["omitted"], "oversize")
+
+    def test_malformed_hunk_ranges_fail_closed(self) -> None:
+        for hunk in (
+            {"path": "fixture.txt", "start_line": 0, "line_count": 1},
+            {"path": "fixture.txt", "start_line": 1, "line_count": 0},
+            {"path": "../escape.txt", "start_line": 1, "line_count": 1},
+            {"path": "fixture.txt", "start_line": 1},
+            {"path": "fixture.txt", "start_line": True, "line_count": 1},
+        ):
+            with self.subTest(hunk=hunk):
+                packet = json.loads(self.packet_path.read_text())
+                packet["hunks"] = [hunk]
+                self.packet_path.write_text(json.dumps(packet))
+                result, _ = self.invoke("{}")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("hunk is malformed", result.stderr)
+
+    def test_packet_without_hunks_fails_the_typed_contract(self) -> None:
+        packet = json.loads(self.packet_path.read_text())
+        del packet["hunks"]
+        self.packet_path.write_text(json.dumps(packet))
+        result, _ = self.invoke("{}")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not match the typed contract", result.stderr)
+
+    def test_review_prompt_teaches_the_windowed_shape(self) -> None:
+        # A window is only safe if the prompt says a window is not the file;
+        # otherwise it trades #322's silent misreading for a new one.
+        prompt = (ROOT / "policy/review.md").read_text()
+        for key in ("`windowed`", "`content`", "total_lines", "start_line", "line_count"):
+            self.assertIn(key, prompt)
 
     def test_manifest_path_escapes_are_rejected(self) -> None:
         packet = json.loads(self.packet_path.read_text())

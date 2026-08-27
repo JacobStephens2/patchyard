@@ -25,7 +25,8 @@ use crate::{
     config::{RoutingConfig, RoutingError},
     contracts::{
         DispositionArtifact, DispositionKind, DispositionPacket, DisputeRecord, OutContract,
-        ResolvedInvocation, TriageInvocation, VerifyFailure, WorkerClaim, WorkerTaskPacket,
+        PatchHunk, ResolvedInvocation, TriageInvocation, VerifyFailure, WorkerClaim,
+        WorkerTaskPacket,
     },
     lifecycle::{LifecycleError, LifecycleService},
     observability,
@@ -451,6 +452,10 @@ impl<S: PipelineStore> Pipeline<S> {
                 cancellation,
             )
             .await?;
+            // The reviewer's window is aimed by the supervisor's own
+            // recomputation, taken here before the manifest moves into the
+            // contract; the worker's patch text never aims it.
+            let hunks = inspected.hunks;
             let evidence: WorkerEvidence = serde_json::from_slice(&outputs.evidence_bytes)?;
             evidence.validate()?;
             self.record_usage(run.id, &task_packet.invocation, evidence.usage)
@@ -487,6 +492,7 @@ impl<S: PipelineStore> Pipeline<S> {
                     task,
                     &contract,
                     &patch_path,
+                    &hunks,
                     cancellation,
                 )
                 .await?
@@ -902,6 +908,7 @@ impl<S: PipelineStore> Pipeline<S> {
         }))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn adversarial_review(
         &self,
         request_id: Uuid,
@@ -909,6 +916,7 @@ impl<S: PipelineStore> Pipeline<S> {
         task: &TaskSpec,
         contract: &OutContract,
         patch: &Path,
+        hunks: &[PatchHunk],
         cancellation: &CancellationToken,
     ) -> Result<bool, PipelineError> {
         let reviewed_sha = materialize_review_sha(
@@ -932,6 +940,7 @@ impl<S: PipelineStore> Pipeline<S> {
                 task,
                 &contract.patch_sha256,
                 &contract.manifest,
+                hunks,
                 invocations,
                 cancellation,
             )

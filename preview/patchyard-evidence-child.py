@@ -103,6 +103,12 @@ TEST_MODE = os.environ.get("PATCHYARD_EVIDENCE_TEST") == "1"
 BROWSER_START_TIMEOUT_MS = 30_000
 # The browser the suite drives when no per-case override names another one.
 TEST_CHROMIUM = "/opt/google/chrome/chrome"
+# A closed CDP pipe means the browser has closed its end, so its exit status is
+# imminent rather than hypothetical - but it is not necessarily reaped at the
+# instant the read returns, and on a loaded host it is often not. Wait a bounded
+# moment for the status before naming what happened, or a browser that crashed
+# is reported as one that is still running.
+BROWSER_EXIT_STATUS_WAIT_S = 3
 
 
 def browser_start_timeout_ms() -> int:
@@ -433,8 +439,16 @@ class Cdp:
         return self.sequence
 
     def closed_diagnostic(self) -> str:
+        # Only reached on a terminal path, so the wait cannot delay a capture
+        # that still has somewhere to go.
+        try:
+            self.process.wait(timeout=BROWSER_EXIT_STATUS_WAIT_S)
+        except subprocess.TimeoutExpired:
+            pass
         returncode = self.process.poll()
         if returncode is None:
+            # Closed its pipe and outlived the wait: genuinely still running,
+            # which is a different condition from having just died.
             return "browser_pipe_closed_running"
         if returncode == 0:
             return "browser_pipe_closed_clean"

@@ -290,6 +290,24 @@ class EvidenceBrowserControls(unittest.TestCase):
             chromium=browser,
         )
 
+    def test_browser_that_closes_its_pipe_before_exiting_is_still_named_a_crash(
+        self,
+    ) -> None:
+        # Closes the CDP pipe, then exits non-zero a moment later. That ordering
+        # is what a loaded host produces by accident: the read returns EOF while
+        # the browser is not yet reaped. Naming the exit status requires waiting
+        # for it rather than sampling once, or a crash reports as a browser that
+        # is still running - the one thing it certainly is not.
+        browser = self.root / "lingering-crash-browser"
+        browser.write_text("#!/bin/sh\nexec 4>&-\nsleep 0.5\nexit 42\n")
+        browser.chmod(0o700)
+        self.assert_state(
+            "completed",
+            "browser_crashed",
+            browser_diagnostic="browser_pipe_closed_nonzero",
+            chromium=browser,
+        )
+
     def test_browser_that_never_answers_is_named_a_start_timeout(self) -> None:
         # A browser that never completes its readiness handshake is a slow or
         # wedged start, and is named as one. Before the start had its own

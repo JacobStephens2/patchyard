@@ -174,6 +174,7 @@ evidence artifact:
 | S13-N10 | In-child probe reaches cloud metadata, a representative private-fleet address, an undeclared DNS server, or any non-preview destination | `egress_probe_failed` |
 | S13-N11 | Child forks or hangs past cancellation/timeout | `child_timed_out` |
 | S13-N12 | Any process, mount, namespace, tmpfs bearer, active preview capability, staging path, or firewall rule remains after normal, failed, cancelled, or crashed execution | `teardown_failed` |
+| S13-N13 | Chromium is spawned but never answers its first DevTools call within the browser-start deadline | `browser_start_timed_out` |
 
 Positive fixtures are one provider-free review-bearing dry run through the
 hardened daemon and one isolated evidence capture whose screenshot, DOM

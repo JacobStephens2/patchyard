@@ -884,7 +884,8 @@ if ! wait "$CHILD_PID"; then
         and (.state | IN(
           "redirect_blocked","cross_origin_blocked","popup_blocked",
           "download_blocked","output_limit_exceeded",
-          "bearer_disclosure_blocked","browser_crashed","child_timed_out",
+          "bearer_disclosure_blocked","browser_crashed",
+          "browser_start_timed_out","child_timed_out",
           "contract_rejected"
         ))
       then .state else "contract_rejected" end

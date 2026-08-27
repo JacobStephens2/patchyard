@@ -16,12 +16,10 @@ import runpy
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "patchyard-evidence-child.py"
-EXCEPTION_BROWSER_DIAGNOSTIC = runpy.run_path(str(HELPER))[
-    "exception_browser_diagnostic"
-]
-COMMAND_REJECTION_DIAGNOSTICS = runpy.run_path(str(HELPER))[
-    "COMMAND_REJECTION_DIAGNOSTICS"
-]
+HELPER_NAMESPACE = runpy.run_path(str(HELPER))
+EXCEPTION_BROWSER_DIAGNOSTIC = HELPER_NAMESPACE["exception_browser_diagnostic"]
+COMMAND_REJECTION_DIAGNOSTICS = HELPER_NAMESPACE["COMMAND_REJECTION_DIAGNOSTICS"]
+BROWSER_START_TIMEOUT_MS = HELPER_NAMESPACE["BROWSER_START_TIMEOUT_MS"]
 HOST = "1.preview.example.dev"
 CAPABILITY_ID = "a" * 32
 LEASE_ID = "b" * 32
@@ -29,19 +27,24 @@ TOKEN = f"efc1.{CAPABILITY_ID}.{'d' * 64}"
 
 # The total deadline is derived from its own parts rather than set beside them.
 # A state-classification fixture never finds the selector, so it spends the whole
-# action allowance before it can classify, and navigation may spend its own. A
-# total smaller than navigation + action + browser start therefore fires first
-# and reports child_timed_out instead of the classification under test. That is
-# what a 30 s total did on a shared CI runner, where it left only 8 s for a cold
-# Chromium start.
+# action allowance before it can classify, and navigation may spend its own, and
+# a completed capture then reads the DOM and screenshots under the total alone.
+# A total smaller than the sum fires first and reports child_timed_out instead of
+# the classification under test.
+#
+# Browser start is deliberately absent from this sum. The helper arms these
+# clocks at its readiness handshake rather than at spawn, and bounds the start
+# separately, so no share of the contract's budget is reserved for however slow
+# a cold Chromium is on a loaded runner.
 NAVIGATION_TIMEOUT_MS = 20_000
 ACTION_TIMEOUT_MS = 2_000
-BROWSER_START_ALLOWANCE_MS = 20_000
-TOTAL_TIMEOUT_MS = NAVIGATION_TIMEOUT_MS + ACTION_TIMEOUT_MS + BROWSER_START_ALLOWANCE_MS
-# The outer subprocess deadline must exceed the inner one, or the harness is
+OUTPUT_ALLOWANCE_MS = 10_000
+TOTAL_TIMEOUT_MS = NAVIGATION_TIMEOUT_MS + ACTION_TIMEOUT_MS + OUTPUT_ALLOWANCE_MS
+# The outer subprocess deadline must exceed every inner one, or the harness is
 # killed before it can classify and write failure.json, and the assertion sees
-# no file rather than the state under test.
-SUBPROCESS_TIMEOUT_S = TOTAL_TIMEOUT_MS / 1000 + 10
+# no file rather than the state under test. Browser start precedes the total, so
+# it is added rather than assumed to overlap.
+SUBPROCESS_TIMEOUT_S = (BROWSER_START_TIMEOUT_MS + TOTAL_TIMEOUT_MS) / 1000 + 10
 
 
 class FixtureHandler(BaseHTTPRequestHandler):
@@ -142,12 +145,14 @@ class EvidenceBrowserControls(unittest.TestCase):
         cls.port = cls.server.server_address[1]
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
-        # Warm Chromium before any assertion runs. unittest executes a class in
-        # alphabetical order, so whichever test sorts first would otherwise
-        # absorb process cold start - paging the binary in, building a fresh
-        # profile - inside its own deadline, and fail as `child_timed_out` on a
-        # loaded runner. Deliberately unasserted: this is not a test, and a real
-        # breakage still surfaces in the cases below.
+        # Warm Chromium before any assertion runs, so the alphabetically first
+        # test does not pay process cold start - paging the binary in, building
+        # a fresh profile. Since the helper bounds start separately from the
+        # contract's clocks, this is a wall-clock saving rather than the thing
+        # keeping the first test from failing; a start slow enough to exhaust
+        # the start deadline is named as that wherever it happens. Deliberately
+        # unasserted: this is not a test, and a real breakage still surfaces in
+        # the cases below.
         try:
             cls.capture("completed")
         except (OSError, subprocess.SubprocessError):
@@ -166,7 +171,10 @@ class EvidenceBrowserControls(unittest.TestCase):
         fixture: str,
         *,
         maximum_dom_bytes: int = 2_000_000,
+        navigation_timeout_ms: int = NAVIGATION_TIMEOUT_MS,
+        action_timeout_ms: int = ACTION_TIMEOUT_MS,
         total_timeout_ms: int = TOTAL_TIMEOUT_MS,
+        browser_start_ms: int | None = None,
         chromium: Path | None = None,
     ) -> tuple[subprocess.CompletedProcess, Path]:
         case = Path(tempfile.mkdtemp(dir=cls.root))
@@ -179,9 +187,9 @@ class EvidenceBrowserControls(unittest.TestCase):
                 "screenshot",
             ],
             # State-classification fixtures must not race a cold Chromium start.
-            # The timeout fixture below supplies its own 250 ms total deadline.
-            "navigation_timeout_ms": NAVIGATION_TIMEOUT_MS,
-            "action_timeout_ms": ACTION_TIMEOUT_MS,
+            # The timeout fixtures below supply their own narrowed deadlines.
+            "navigation_timeout_ms": navigation_timeout_ms,
+            "action_timeout_ms": action_timeout_ms,
             "total_timeout_ms": total_timeout_ms,
             "maximum_dom_bytes": maximum_dom_bytes,
             "maximum_screenshot_bytes": 5_000_000,
@@ -204,6 +212,8 @@ class EvidenceBrowserControls(unittest.TestCase):
         }
         if chromium is not None:
             environment["PATCHYARD_EVIDENCE_TEST_CHROMIUM"] = str(chromium)
+        if browser_start_ms is not None:
+            environment["PATCHYARD_EVIDENCE_TEST_BROWSER_START_MS"] = str(browser_start_ms)
         result = subprocess.run(
             [sys.executable, str(HELPER), str(contract_path), str(bearer_path), str(output)],
             env=environment,
@@ -280,12 +290,56 @@ class EvidenceBrowserControls(unittest.TestCase):
             chromium=browser,
         )
 
-    def test_browser_timeout_is_named(self) -> None:
-        browser = self.root / "hung-browser"
+    def test_browser_that_never_answers_is_named_a_start_timeout(self) -> None:
+        # A browser that never completes its readiness handshake is a slow or
+        # wedged start, and is named as one. Before the start had its own
+        # deadline this arrived as child_timed_out, indistinguishable from a
+        # capture that hung after the browser was up.
+        browser = self.root / "silent-browser"
         browser.write_text("#!/bin/sh\nsleep 5\n")
         browser.chmod(0o700)
         self.assert_state(
+            "completed", "browser_start_timed_out", chromium=browser, browser_start_ms=250
+        )
+
+    def test_browser_timeout_after_start_is_named(self) -> None:
+        # Answers the readiness handshake, then stops responding. The start is
+        # over, so the contract's own clocks are armed and this is a genuine
+        # capture timeout rather than a start that never finished.
+        browser = self.root / "stalling-browser"
+        browser.write_text(
+            "#!/usr/bin/python3\n"
+            "import os, time\n"
+            "buffer = b''\n"
+            "while b'\\0' not in buffer:\n"
+            "    buffer += os.read(3, 4096)\n"
+            'os.write(4, b\'{"id":1,"result":{}}\\0\')\n'
+            "time.sleep(30)\n"
+        )
+        browser.chmod(0o700)
+        self.assert_state(
             "completed", "child_timed_out", chromium=browser, total_timeout_ms=250
+        )
+
+    def test_slow_browser_start_does_not_consume_the_classification_budget(self) -> None:
+        # A start slower than the whole navigation budget must still leave that
+        # budget intact, so the fixture is classified rather than reported as
+        # child_timed_out. This is the CI failure that recurred twice: the
+        # deadlines were armed at spawn, so cold-start latency on a loaded
+        # runner was charged against navigation and action.
+        browser = self.root / "slow-start-browser"
+        browser.write_text(
+            f'#!/bin/sh\nsleep 3\nexec "{HELPER_NAMESPACE["TEST_CHROMIUM"]}" "$@"\n'
+        )
+        browser.chmod(0o700)
+        self.assert_state(
+            "missing",
+            "contract_rejected",
+            "document_2xx",
+            200,
+            chromium=browser,
+            navigation_timeout_ms=3_000,
+            action_timeout_ms=500,
         )
 
     def test_absent_selector_is_a_contract_rejection_not_a_timeout(self) -> None:

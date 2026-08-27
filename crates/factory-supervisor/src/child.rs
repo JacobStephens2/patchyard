@@ -42,6 +42,7 @@ pub enum ChildTerminalState {
     OutputLimitExceeded,
     BearerDisclosureBlocked,
     BrowserCrashed,
+    BrowserStartTimedOut,
     AuthorityProbeFailed,
     EgressProbeFailed,
     ChildTimedOut,
@@ -447,6 +448,7 @@ fn validate_terminal(
             | ChildTerminalState::OutputLimitExceeded
             | ChildTerminalState::BearerDisclosureBlocked
             | ChildTerminalState::BrowserCrashed
+            | ChildTerminalState::BrowserStartTimedOut
             | ChildTerminalState::ChildTimedOut
     );
     if probe_must_pass && (!authority_isolated || !egress_isolated) {

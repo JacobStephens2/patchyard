@@ -198,6 +198,11 @@ async fn every_predeclared_negative_state_imports_nothing_and_tears_down() {
             "teardown_failed",
             ChildTerminalState::TeardownFailed,
         ),
+        (
+            "S13-N13",
+            "browser_start_timed_out",
+            ChildTerminalState::BrowserStartTimedOut,
+        ),
     ] {
         let fixture = Fixture::new();
         let error = fixture

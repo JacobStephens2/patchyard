@@ -1524,7 +1524,12 @@ fn map_evidence_error(error: EvidenceError) -> LifecycleError {
         EvidenceError::Child(ChildError::Process(ProcessError::Cancelled)) => {
             LifecycleError::Cancelled
         }
+        // A browser that never finished starting is a slow host, not a capture
+        // that hung, but both are timeouts and neither is a terminal evidence
+        // failure - they share preview_timed_out so a loaded runner stays
+        // retryable.
         EvidenceError::FailClosed(ChildTerminalState::ChildTimedOut)
+        | EvidenceError::FailClosed(ChildTerminalState::BrowserStartTimedOut)
         | EvidenceError::Child(ChildError::Process(ProcessError::TimedOut(_))) => {
             failed("preview_timed_out", "isolated_browser_timeout", error)
         }
@@ -2075,6 +2080,7 @@ mod tests {
             ("/browser_crashed", "evidence_failed"),
             ("/authority_probe_failed", "evidence_failed"),
             ("/egress_probe_failed", "evidence_failed"),
+            ("/browser_start_timed_out", "preview_timed_out"),
             ("/child_timed_out", "preview_timed_out"),
             ("/teardown_failed", "lease_cleanup_failed"),
         ] {

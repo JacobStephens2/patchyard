@@ -32,7 +32,7 @@ case "$FIXTURE" in
     ;;
 esac
 case "$STATE" in
-  completed|redirect_blocked|dns_binding_changed|cross_origin_blocked|popup_blocked|download_blocked|output_limit_exceeded|bearer_disclosure_blocked|browser_crashed|authority_probe_failed|egress_probe_failed|child_timed_out|teardown_failed) ;;
+  completed|redirect_blocked|dns_binding_changed|cross_origin_blocked|popup_blocked|download_blocked|output_limit_exceeded|bearer_disclosure_blocked|browser_crashed|browser_start_timed_out|authority_probe_failed|egress_probe_failed|child_timed_out|teardown_failed) ;;
   *) STATE=contract_rejected ;;
 esac
 REQUEST_SHA=$(sha256sum "$REQUEST" | cut -d' ' -f1)

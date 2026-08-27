@@ -40,6 +40,7 @@ FAILURE_STATES = {
     "output_limit_exceeded",
     "bearer_disclosure_blocked",
     "browser_crashed",
+    "browser_start_timed_out",
     "child_timed_out",
     "contract_rejected",
 }
@@ -94,6 +95,23 @@ BROWSER_DIAGNOSTICS = {
     "browser_screenshot_base64_invalid",
 }
 TEST_MODE = os.environ.get("PATCHYARD_EVIDENCE_TEST") == "1"
+# Bringing a cold Chromium up - paging a 280 MB binary in, building a fresh
+# profile - is a property of the machine, not of the capture contract, so it
+# gets its own deadline rather than a share of one the contract sets.  The
+# contract's clocks are armed only once the browser has answered, so what they
+# bound is navigation and action rather than however loaded the host is today.
+BROWSER_START_TIMEOUT_MS = 30_000
+# The browser the suite drives when no per-case override names another one.
+TEST_CHROMIUM = "/opt/google/chrome/chrome"
+
+
+def browser_start_timeout_ms() -> int:
+    """Milliseconds allowed for the browser to answer its first CDP call."""
+    if TEST_MODE:
+        override = os.environ.get("PATCHYARD_EVIDENCE_TEST_BROWSER_START_MS")
+        if override is not None:
+            return int(override)
+    return BROWSER_START_TIMEOUT_MS
 
 COMMAND_REJECTION_DIAGNOSTICS = {
     "Browser.getVersion": "browser_command_rejected_browser_version",
@@ -493,7 +511,7 @@ def run_controlled_browser(
     stderr: Path,
 ) -> tuple[bytes, bytes]:
     browser = (
-        os.environ.get("PATCHYARD_EVIDENCE_TEST_CHROMIUM", "/opt/google/chrome/chrome")
+        os.environ.get("PATCHYARD_EVIDENCE_TEST_CHROMIUM", TEST_CHROMIUM)
         if TEST_MODE
         else "/usr/lib64/chromium-browser/chromium-browser"
     )
@@ -566,10 +584,9 @@ def run_controlled_browser(
         else:
             os.close(target)
     cdp = Cdp(process, to_browser_write, from_browser_read)
-    total_deadline = time.monotonic() + total_timeout_ms / 1000
-    navigation_deadline = min(
-        total_deadline, time.monotonic() + navigation_timeout_ms / 1000
-    )
+    # Armed at spawn, and the only clock that is: it bounds the start alone.
+    # The contract's clocks are armed below, once the browser has answered.
+    start_deadline = time.monotonic() + browser_start_timeout_ms() / 1000
     allowed_origin = origin(allowed_url)
     if allowed_origin is None:
         raise CaptureFailure("contract_rejected")
@@ -653,7 +670,21 @@ def run_controlled_browser(
             loaded = True
 
     try:
-        cdp.call("Browser.getVersion", None, None, navigation_deadline, handle)
+        # The first round trip is the readiness handshake.  Only once it returns
+        # is the browser actually up, so only then are the contract's clocks
+        # armed - otherwise cold-start latency is charged against navigation and
+        # action, and a loaded host reports child_timed_out in whichever test
+        # happens to spawn first rather than naming the slow start.
+        try:
+            cdp.call("Browser.getVersion", None, None, start_deadline, handle)
+        except CaptureFailure as failure:
+            if failure.state != "child_timed_out":
+                raise
+            raise CaptureFailure("browser_start_timed_out") from failure
+        total_deadline = time.monotonic() + total_timeout_ms / 1000
+        navigation_deadline = min(
+            total_deadline, time.monotonic() + navigation_timeout_ms / 1000
+        )
         created = cdp.call(
             "Target.createTarget",
             {"url": "about:blank"},

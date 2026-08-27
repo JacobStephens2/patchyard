@@ -12,7 +12,7 @@ use crate::{
     pipeline::{Pipeline, PipelineError, PipelineOutcome},
     proposer::{ImprovementProposer, ProposerError, ProposerOutcome},
     reconcile::Reconciler,
-    store::{ClaimLimits, ControlKind, PgPipelineStore, PipelineStore, StoreError},
+    store::{ClaimLimits, ControlKind, KillReport, PgPipelineStore, PipelineStore, StoreError},
 };
 
 #[derive(Clone, Debug)]
@@ -355,8 +355,8 @@ impl SupervisorDaemon {
             .kill_cleanup(run_id)
             .await
             .map_err(|_| StoreError::KillCleanupFailed(run_id))?;
-        let request_id = self.store.kill_run(run_id, control_id, reason).await?;
-        Ok(kill_outcome(run_id, request_id))
+        let report = self.store.kill_run(run_id, control_id, reason).await?;
+        Ok(kill_outcome(run_id, report))
     }
 
     async fn execute_full_stop(
@@ -451,12 +451,13 @@ fn accept_stopped_proposer(
     }
 }
 
-fn kill_outcome(run_id: Uuid, request_id: Option<Uuid>) -> serde_json::Value {
+fn kill_outcome(run_id: Uuid, report: KillReport) -> serde_json::Value {
     serde_json::json!({
         "run_id": run_id,
-        "request_id": request_id,
+        "request_id": report.request_id,
         "worker_teardown": "complete",
         "terminal_event": "run.killed",
+        "lease_release": report.lease_release.as_str(),
     })
 }
 
@@ -466,13 +467,33 @@ mod tests {
 
     use super::{accept_stopped_proposer, kill_outcome};
     use crate::proposer::{ProposerError, ProposerOutcome};
+    use crate::store::{KillReport, LeaseDisposition};
 
     #[test]
-    fn kill_outcome_claims_only_the_cleanup_it_performed() {
-        let outcome = kill_outcome(Uuid::new_v4(), Some(Uuid::new_v4()));
+    fn kill_outcome_records_the_lease_disposition_it_was_given() {
+        let outcome = kill_outcome(
+            Uuid::new_v4(),
+            KillReport {
+                request_id: Some(Uuid::new_v4()),
+                lease_release: LeaseDisposition::Released,
+            },
+        );
 
         assert_eq!(outcome["worker_teardown"], "complete");
-        assert!(outcome.get("lease_release").is_none());
+        assert_eq!(outcome["lease_release"], "released");
+    }
+
+    #[test]
+    fn kill_outcome_states_a_lease_disposition_even_when_none_was_held() {
+        let outcome = kill_outcome(
+            Uuid::new_v4(),
+            KillReport {
+                request_id: None,
+                lease_release: LeaseDisposition::NoneHeld,
+            },
+        );
+
+        assert_eq!(outcome["lease_release"], "none_held");
     }
 
     #[test]

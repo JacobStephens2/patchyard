@@ -127,6 +127,38 @@ impl ControlKind {
     }
 }
 
+/// What the kill path left the request's lease in. Recorded on every kill so
+/// the cutover safety checklist's "the lease is released" step is answerable
+/// from `factory.controls` alone.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LeaseDisposition {
+    /// The kill released a lease that was still held, or found it already
+    /// released.
+    Released,
+    /// The request never held a lease, so there was nothing to release.
+    NoneHeld,
+    /// A lease row survived the release write still unreleased.
+    Outstanding,
+}
+
+impl LeaseDisposition {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Released => "released",
+            Self::NoneHeld => "none_held",
+            Self::Outstanding => "outstanding",
+        }
+    }
+}
+
+/// What one kill did, in the terms the control outcome records.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct KillReport {
+    pub request_id: Option<Uuid>,
+    pub lease_release: LeaseDisposition,
+}
+
 #[derive(Clone, Debug)]
 pub struct ControlRow {
     pub id: Uuid,
@@ -335,7 +367,7 @@ pub trait PipelineStore: Clone + Send + Sync + 'static {
         run_id: Uuid,
         control_id: Uuid,
         reason: &str,
-    ) -> impl Future<Output = Result<Option<Uuid>, StoreError>> + Send;
+    ) -> impl Future<Output = Result<KillReport, StoreError>> + Send;
 
     fn request_for_run(
         &self,
@@ -1724,14 +1756,17 @@ impl PipelineStore for PgPipelineStore {
         run_id: Uuid,
         control_id: Uuid,
         reason: &str,
-    ) -> Result<Option<Uuid>, StoreError> {
+    ) -> Result<KillReport, StoreError> {
         let request_id: Option<Uuid> =
             sqlx::query_scalar("SELECT request_id FROM factory.runs WHERE id=$1")
                 .bind(run_id)
                 .fetch_optional(&self.pool)
                 .await?;
         let Some(request_id) = request_id else {
-            return Ok(None);
+            return Ok(KillReport {
+                request_id: None,
+                lease_release: LeaseDisposition::NoneHeld,
+            });
         };
         self.finish_run(
             request_id,
@@ -1741,13 +1776,26 @@ impl PipelineStore for PgPipelineStore {
             serde_json::json!({"control_id": control_id, "reason": reason}),
         )
         .await?;
-        sqlx::query(
-            "UPDATE factory.leases SET released_at=COALESCE(released_at,clock_timestamp()) WHERE request_id=$1",
+        // The release write reports what it left behind, so the outcome can
+        // state a lease disposition rather than leaving the checklist item
+        // unanswerable.
+        let released: Vec<bool> = sqlx::query_scalar(
+            "UPDATE factory.leases SET released_at=COALESCE(released_at,clock_timestamp()) WHERE request_id=$1 RETURNING released_at IS NOT NULL",
         )
         .bind(request_id)
-        .execute(&self.pool)
+        .fetch_all(&self.pool)
         .await?;
-        Ok(Some(request_id))
+        let lease_release = if released.is_empty() {
+            LeaseDisposition::NoneHeld
+        } else if released.iter().all(|released| *released) {
+            LeaseDisposition::Released
+        } else {
+            LeaseDisposition::Outstanding
+        };
+        Ok(KillReport {
+            request_id: Some(request_id),
+            lease_release,
+        })
     }
 
     async fn request_for_run(&self, run_id: Uuid) -> Result<Option<Uuid>, StoreError> {

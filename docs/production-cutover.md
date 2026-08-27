@@ -123,6 +123,9 @@ operator action; none of it happened as part of authoring this change.
    run owns a worker lifecycle, then use the dashboard `Kill` button. Confirm
    the control completes, the run and request become `killed`, the lease is
    released, and worker and child no-residue qualification passes afterwards.
+   The kill's own outcome answers the lease question: every kill records
+   `lease_release` in `factory.controls.outcome` (`released`, `none_held`, or
+   `outstanding`), so the step is answerable from the control row alone.
    **The drill runs against the dry-run target, not Fieldbook.** The 2026-08-18
    route authorization explicitly keeps the kill of a live Fieldbook run outside
    the grant; a dry-run or non-Fieldbook kill is inside it.

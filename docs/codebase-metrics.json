@@ -6,9 +6,9 @@
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 43460,
-      "comments": 953,
-      "blanks": 2606,
+      "code": 43524,
+      "comments": 968,
+      "blanks": 2611,
       "files": 92,
       "languages": [
         {
@@ -42,15 +42,15 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 680,
+          "comments": 688,
           "blanks": 49,
           "files": 49
         },
         {
           "language": "Rust",
-          "code": 40850,
-          "comments": 242,
-          "blanks": 2299,
+          "code": 40914,
+          "comments": 249,
+          "blanks": 2304,
           "files": 57
         },
         {
@@ -274,10 +274,10 @@
     {
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
-      "code": 12621,
-      "comments": 24425,
-      "blanks": 6513,
-      "files": 218,
+      "code": 12645,
+      "comments": 25210,
+      "blanks": 6708,
+      "files": 222,
       "languages": [
         {
           "language": "BASH",
@@ -288,22 +288,29 @@
         },
         {
           "language": "JSON",
-          "code": 11433,
+          "code": 11441,
           "comments": 0,
           "blanks": 1,
-          "files": 51
+          "files": 52
         },
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 24405,
-          "blanks": 6458,
-          "files": 176
+          "comments": 25183,
+          "blanks": 6653,
+          "files": 180
         },
         {
           "language": "Python",
-          "code": 4,
+          "code": 8,
           "comments": 0,
+          "blanks": 0,
+          "files": 2
+        },
+        {
+          "language": "Rust",
+          "code": 12,
+          "comments": 5,
           "blanks": 0,
           "files": 1
         },

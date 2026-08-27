@@ -26,8 +26,8 @@ use factory_supervisor::{
         VerifierCommand, WorkerCommand,
     },
     store::{
-        ClaimLimits, ControlKind, ControlRow, ExistingRun, PipelineStore, RequestWork,
-        SideEffectDisposition, StoreError, WorkClaim,
+        ClaimLimits, ControlKind, ControlRow, ExistingRun, KillReport, LeaseDisposition,
+        PipelineStore, RequestWork, SideEffectDisposition, StoreError, WorkClaim,
     },
 };
 use factory_verify::ledger::{RunRecord, ValidatedRunRecord};
@@ -349,8 +349,11 @@ impl PipelineStore for MemoryStore {
         _run_id: Uuid,
         _control_id: Uuid,
         _reason: &str,
-    ) -> Result<Option<Uuid>, StoreError> {
-        Ok(self.state.lock().expect("memory store").request_id)
+    ) -> Result<KillReport, StoreError> {
+        Ok(KillReport {
+            request_id: self.state.lock().expect("memory store").request_id,
+            lease_release: LeaseDisposition::Released,
+        })
     }
 
     async fn request_for_run(&self, _run_id: Uuid) -> Result<Option<Uuid>, StoreError> {

@@ -6,7 +6,8 @@ use factory_core::{
     state::{FactoryRepository as _, NewRequest, PostgresRepository, Sha256Digest, TraceId},
 };
 use factory_supervisor::store::{
-    ClaimLimits, ControlKind, PgPipelineStore, PipelineStore, PublisherStore, StoreError,
+    ClaimLimits, ControlKind, LeaseDisposition, PgPipelineStore, PipelineStore, PublisherStore,
+    StoreError,
 };
 use factory_verify::ledger::{self, Provenance, RunClass, RunRecord};
 use uuid::Uuid;
@@ -362,17 +363,27 @@ async fn durable_sweep_claims_recovery_limits_and_control_rows() -> Result<(), B
     assert!(store.claim_control(kill_id).await?);
     // The daemon calls this only after checked worker teardown; this store
     // assertion covers the remaining atomic terminal-event and lease effects.
-    assert_eq!(
-        store.kill_run(run_id, kill_id, "kill fixture").await?,
-        Some(swept.request_id)
-    );
+    let report = store.kill_run(run_id, kill_id, "kill fixture").await?;
+    assert_eq!(report.request_id, Some(swept.request_id));
+    // The checklist asks whether the lease was released. The kill answers it,
+    // so `factory.controls` carries the answer without a second query.
+    assert_eq!(report.lease_release, LeaseDisposition::Released);
     store
         .complete_control(
             kill_id,
             true,
-            serde_json::json!({"worker_teardown": "complete"}),
+            serde_json::json!({
+                "worker_teardown": "complete",
+                "lease_release": report.lease_release.as_str(),
+            }),
         )
         .await?;
+    let recorded: serde_json::Value =
+        sqlx::query_scalar("SELECT outcome FROM factory.controls WHERE id=$1")
+            .bind(kill_id)
+            .fetch_one(store.pool())
+            .await?;
+    assert_eq!(recorded["lease_release"], "released");
     assert_eq!(store.load_request(swept.request_id).await?.status, "killed");
     let run_state: String = sqlx::query_scalar("SELECT state::text FROM factory.runs WHERE id=$1")
         .bind(run_id)
@@ -441,10 +452,11 @@ async fn kill_preserves_an_existing_terminal_request_outcome() -> Result<(), Box
         )
         .await?;
     assert!(store.claim_control(kill_id).await?);
-    assert_eq!(
-        store.kill_run(run_id, kill_id, "close orphan run").await?,
-        Some(fixture.id)
-    );
+    let report = store.kill_run(run_id, kill_id, "close orphan run").await?;
+    assert_eq!(report.request_id, Some(fixture.id));
+    // The close already released the lease; the kill reports that state rather
+    // than staying silent about it.
+    assert_eq!(report.lease_release, LeaseDisposition::Released);
     store
         .complete_control(kill_id, true, serde_json::json!({"closed_orphan": true}))
         .await?;

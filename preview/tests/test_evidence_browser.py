@@ -47,6 +47,62 @@ TOTAL_TIMEOUT_MS = NAVIGATION_TIMEOUT_MS + ACTION_TIMEOUT_MS + OUTPUT_ALLOWANCE_
 SUBPROCESS_TIMEOUT_S = (BROWSER_START_TIMEOUT_MS + TOTAL_TIMEOUT_MS) / 1000 + 10
 
 
+# A browser that speaks the protocol the child expects and nothing more, so the
+# action path can be driven without Chromium and without load. It honours the
+# in-page poll deadline the child embeds in the expression - which is what a
+# fixture whose selector is absent by design costs - and then delays only the
+# reply that carries the result, which is the transport the child must not
+# charge to the action budget.
+CDP_STUB = r"""#!/usr/bin/python3
+import json, os, re, time
+
+TRANSPORT_DELAY_S = __TRANSPORT_DELAY_S__
+buffer = b""
+
+
+def receive():
+    global buffer
+    while b"\0" not in buffer:
+        buffer += os.read(3, 65536)
+    raw, buffer = buffer.split(b"\0", 1)
+    return json.loads(raw)
+
+
+def send(payload):
+    os.write(4, json.dumps(payload).encode() + b"\0")
+
+
+while True:
+    message = receive()
+    method, identifier = message.get("method"), message.get("id")
+    if method == "Target.createTarget":
+        send({"id": identifier, "result": {"targetId": "t1"}})
+    elif method == "Target.attachToTarget":
+        send({"id": identifier, "result": {"sessionId": "s1"}})
+    elif method == "Page.navigate":
+        send({"id": identifier, "result": {}})
+        send({"method": "Network.responseReceived", "sessionId": "s1", "params": {
+            "type": "Document",
+            "response": {"url": message["params"]["url"], "status": 200, "headers": {}},
+        }})
+        send({"method": "Page.loadEventFired", "sessionId": "s1", "params": {}})
+    elif method == "Runtime.evaluate":
+        poll = re.search(r"Date\.now\(\) \+ (\d+)", message["params"]["expression"])
+        time.sleep(int(poll.group(1)) / 1000 if poll else 0)
+        time.sleep(TRANSPORT_DELAY_S)
+        send({"id": identifier, "result": {"result": {"value": {
+            "missing": ["#sales_person_id"],
+            "popup": False,
+            "download": False,
+            "pageKind": "unknown",
+        }}}})
+    elif method == "Browser.close":
+        raise SystemExit(0)
+    elif identifier is not None:
+        send({"id": identifier, "result": {}})
+"""
+
+
 class FixtureHandler(BaseHTTPRequestHandler):
     server_version = "patchyard-evidence-fixture/1"
 
@@ -223,6 +279,14 @@ class EvidenceBrowserControls(unittest.TestCase):
         )
         return result, output
 
+    def cdp_stub(self, transport_delay_ms: int) -> Path:
+        browser = self.root / f"cdp-stub-{transport_delay_ms}"
+        browser.write_text(
+            CDP_STUB.replace("__TRANSPORT_DELAY_S__", str(transport_delay_ms / 1000))
+        )
+        browser.chmod(0o700)
+        return browser
+
     def assert_state(
         self,
         fixture: str,
@@ -358,6 +422,33 @@ class EvidenceBrowserControls(unittest.TestCase):
             chromium=browser,
             navigation_timeout_ms=3_000,
             action_timeout_ms=500,
+        )
+
+    def test_slow_action_result_transport_still_classifies(self) -> None:
+        # The round trip carrying the action's result is transport, and how long
+        # it takes belongs to the host. Charging it to the action budget left it
+        # a fixed 250 ms that no contract could widen: at a 400 ms round trip
+        # this reported child_timed_out at a 2 s action budget and still did at
+        # 10 s. The classification must survive a slow round trip.
+        self.assert_state(
+            "missing",
+            "contract_rejected",
+            "document_2xx",
+            200,
+            chromium=self.cdp_stub(1_000),
+            action_timeout_ms=2_000,
+        )
+
+    def test_action_result_transport_remains_bounded_by_the_total(self) -> None:
+        # The allowance is an allowance, not an exemption: a round trip that
+        # outlasts what is left of the total is still a capture timeout, and the
+        # total remains the outer bound on everything inside it.
+        self.assert_state(
+            "missing",
+            "child_timed_out",
+            chromium=self.cdp_stub(3_000),
+            action_timeout_ms=500,
+            total_timeout_ms=1_500,
         )
 
     def test_absent_selector_is_a_contract_rejection_not_a_timeout(self) -> None:

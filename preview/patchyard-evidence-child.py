@@ -101,6 +101,12 @@ TEST_MODE = os.environ.get("PATCHYARD_EVIDENCE_TEST") == "1"
 # contract's clocks are armed only once the browser has answered, so what they
 # bound is navigation and action rather than however loaded the host is today.
 BROWSER_START_TIMEOUT_MS = 30_000
+# Carrying the action's settled promise back over CDP is transport, not action,
+# and how long it takes is a property of the host rather than of the contract.
+# It gets its own allowance for the same reason browser start does: subtracting
+# a fixed margin from the action budget makes the margin unwidenable, so a host
+# whose round trip exceeds it cannot classify at any budget.
+ACTION_RESULT_TRANSPORT_MS = 5_000
 # The browser the suite drives when no per-case override names another one.
 TEST_CHROMIUM = "/opt/google/chrome/chrome"
 # A closed CDP pipe means the browser has closed its end, so its exit status is
@@ -756,11 +762,17 @@ def run_controlled_browser(
         action_deadline = min(
             total_deadline, time.monotonic() + action_timeout_ms / 1000
         )
-        # The browser-side poll must leave bounded time for CDP to deliver its
-        # settled promise.  Otherwise a genuinely absent selector consumes the
-        # full action budget and is misclassified as a transport timeout rather
-        # than the typed contract rejection it is.
-        selector_poll_timeout_ms = max(action_timeout_ms - 250, 0)
+        # The poll gets the whole allowance the contract granted the action; the
+        # round trip that carries its result gets its own, on top. A fixture
+        # whose selector is absent by design spends the poll in full before it
+        # can classify, so charging the transport to the same budget means a
+        # slow round trip is reported as a capture timeout rather than the typed
+        # contract rejection it is - and no larger action_timeout_ms helps,
+        # because a margin subtracted from the budget never widens with it.
+        selector_poll_timeout_ms = action_timeout_ms
+        action_result_deadline = min(
+            total_deadline, action_deadline + ACTION_RESULT_TRANSPORT_MS / 1000
+        )
         expression = f"""
 (async () => {{
   const selectors = {selector_json};
@@ -799,7 +811,7 @@ def run_controlled_browser(
             "Runtime.evaluate",
             {"expression": expression, "awaitPromise": True, "returnByValue": True},
             session_id,
-            action_deadline,
+            action_result_deadline,
             handle,
         )
         result = action.get("result", {})

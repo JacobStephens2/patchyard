@@ -36,6 +36,22 @@ pub struct WorkerTaskPacket {
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct InvocationUsage {
+    /// Total logical input, including cache reads and cache writes.
+    pub input_tokens: u64,
+    #[serde(default)]
+    pub cached_input_tokens: u64,
+    #[serde(default)]
+    pub cache_write_input_tokens: u64,
+    pub output_tokens: u64,
+    /// Transitional seat-reported value. The supervisor recomputes cost and
+    /// accepts this only when it agrees exactly; new seats omit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_microusd: Option<u64>,
+}
+
+/// Usage after the trusted control plane has applied its rate policy.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AccountedUsage {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cost_microusd: u64,

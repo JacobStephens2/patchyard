@@ -250,10 +250,7 @@ async fn real_triage_seat_parses_thinking_then_text_without_bearer_residue() {
     .expect("TriageOutput::parse_json accepts the seat result");
     assert_eq!(result.usage.input_tokens, INPUT_TOKENS);
     assert_eq!(result.usage.output_tokens, OUTPUT_TOKENS);
-    assert_eq!(
-        result.usage.cost_microusd,
-        INPUT_TOKENS * 10 + OUTPUT_TOKENS * 50
-    );
+    assert_eq!(result.usage.cost_microusd, None);
     assert!(!String::from_utf8_lossy(&result.transcript).contains(&bearer));
 
     server.await.expect("stub server");

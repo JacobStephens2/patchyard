@@ -440,6 +440,7 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
     let routing = RoutingConfig::load(
         &repository.path().join("policy/routing.json"),
         &repository.path().join("docs/bench.json"),
+        &repository.path().join("policy/model-rates.json"),
     )?;
     let agent = Arc::new(FixtureAgent {
         patch: Mutex::new(patch),
@@ -619,6 +620,7 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
         RoutingConfig::load(
             &repository.path().join("policy/routing.json"),
             &repository.path().join("docs/bench.json"),
+            &repository.path().join("policy/model-rates.json"),
         )?,
         ImprovementProposerConfig {
             repository: repository.path().to_path_buf(),
@@ -753,6 +755,7 @@ async fn production_threshold_qualification_exclusion_and_open_cap()
         RoutingConfig::load(
             &repository.path().join("policy/routing.json"),
             &repository.path().join("docs/bench.json"),
+            &repository.path().join("policy/model-rates.json"),
         )?,
         ImprovementProposerConfig {
             repository: repository.path().to_path_buf(),
@@ -962,6 +965,7 @@ fn fixture_repository() -> Result<TempDir, Box<dyn std::error::Error>> {
         "policy/proposer-output.schema.json",
         "policy/proposer.md",
         "policy/provider-egress.json",
+        "policy/model-rates.json",
         "policy/routing.json",
         "policy/rubric.md",
     ] {

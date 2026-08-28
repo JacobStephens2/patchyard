@@ -15,7 +15,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::artifacts::StoredArtifact;
-use crate::contracts::InvocationUsage;
+use crate::contracts::AccountedUsage;
 
 /// How many exhausted requests one claim retires. Bounded so the hot claim
 /// path never takes an unbounded number of row locks; anything beyond this is
@@ -283,7 +283,7 @@ pub trait PipelineStore: Clone + Send + Sync + 'static {
         &self,
         run_id: Uuid,
         model_id: &str,
-        usage: InvocationUsage,
+        usage: AccountedUsage,
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
 
     fn register_artifact(
@@ -1304,7 +1304,7 @@ impl PipelineStore for PgPipelineStore {
         &self,
         run_id: Uuid,
         model_id: &str,
-        usage: InvocationUsage,
+        usage: AccountedUsage,
     ) -> Result<(), StoreError> {
         validate_label("model id", model_id, 256)?;
         let input = i64::try_from(usage.input_tokens).map_err(|_| StoreError::UsageOverflow)?;

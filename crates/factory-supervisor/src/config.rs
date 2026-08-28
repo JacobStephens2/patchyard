@@ -9,6 +9,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 
+use crate::{
+    contracts::{AccountedUsage, InvocationUsage},
+    pricing::{ModelRates, PricingError},
+};
+
 /// An exact model × harness × provider × effort seat.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -56,6 +61,8 @@ pub struct RoutingConfig {
     /// False until a separate reviewed change activates provider execution.
     pub live_provider_execution: bool,
     pub rules: BTreeMap<String, RoutingRule>,
+    #[serde(skip)]
+    rates: ModelRates,
 }
 
 /// One serving host's provider-egress and credential eligibility record.
@@ -120,11 +127,16 @@ struct BenchFloor {
 impl RoutingConfig {
     /// Parse routing and prove every selected pair exists, is preferred, and
     /// has passed the canonical bench floor. No daemon seat is hard-coded.
-    pub fn load(routing_path: &Path, bench_path: &Path) -> Result<Self, RoutingError> {
+    pub fn load(
+        routing_path: &Path,
+        bench_path: &Path,
+        rates_path: &Path,
+    ) -> Result<Self, RoutingError> {
         let routing_bytes = std::fs::read(routing_path)?;
         let bench_bytes = std::fs::read(bench_path)?;
-        let config: Self = serde_json::from_slice(&routing_bytes)?;
+        let mut config: Self = serde_json::from_slice(&routing_bytes)?;
         let bench: Bench = serde_json::from_slice(&bench_bytes)?;
+        config.rates = ModelRates::load(rates_path)?;
         config.validate(&bench_bytes, &bench)?;
         Ok(config)
     }
@@ -171,6 +183,7 @@ impl RoutingConfig {
             if pair.floor.status != "pass" || !pair.preferred_harness {
                 return Err(RoutingError::SeatIneligible(name.clone()));
             }
+            self.rates.require_current(&rule.seat)?;
         }
         for (author_name, rule) in &self.rules {
             for reviewer_name in &rule.reviewers {
@@ -220,6 +233,16 @@ impl RoutingConfig {
         self.rules
             .get(task_class)
             .ok_or_else(|| RoutingError::MissingRule(task_class.to_owned()))
+    }
+
+    /// Price one invocation from normalized token categories under the same
+    /// policy that made its seat routable at daemon start.
+    pub fn account_usage(
+        &self,
+        seat: &Seat,
+        usage: InvocationUsage,
+    ) -> Result<AccountedUsage, RoutingError> {
+        Ok(self.rates.account(seat, usage)?)
     }
 }
 
@@ -277,6 +300,8 @@ pub enum RoutingError {
     Io(#[from] std::io::Error),
     #[error("routing policy or canonical bench JSON is invalid: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("model-rate policy failed: {0}")]
+    Pricing(#[from] PricingError),
     #[error("routing policy envelope is invalid")]
     InvalidEnvelope,
     #[error("routing rule is missing: {0}")]
@@ -309,17 +334,24 @@ pub enum ProviderEgressError {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::{fs, path::Path};
 
-    use super::{ProviderEgressConfig, RoutingConfig};
+    use super::{ProviderEgressConfig, RoutingConfig, RoutingError};
+    use crate::contracts::InvocationUsage;
+    use crate::pricing::PricingError;
+
+    fn canonical_routing() -> RoutingConfig {
+        RoutingConfig::load(
+            Path::new("../../policy/routing.json"),
+            Path::new("../../docs/bench.json"),
+            Path::new("../../policy/model-rates.json"),
+        )
+        .expect("canonical routing and rates")
+    }
 
     #[test]
     fn canonical_routing_resolves_against_bench() {
-        let config = RoutingConfig::load(
-            Path::new("../../policy/routing.json"),
-            Path::new("../../docs/bench.json"),
-        )
-        .expect("canonical routing");
+        let config = canonical_routing();
         // Live execution is on for the triage seat. What must stay true is not
         // that the flag is off, but that it is never on for a seat whose
         // provider is unqualified - the condition bootstrap enforces.
@@ -350,6 +382,224 @@ mod tests {
                 .provider,
             "xAI"
         );
+    }
+
+    #[test]
+    fn supervisor_accounts_for_the_banked_live_implement_usage() {
+        let config = canonical_routing();
+        let seat = &config.resolve("implement").expect("implement").seat;
+
+        let accounted = config
+            .account_usage(
+                seat,
+                InvocationUsage {
+                    input_tokens: 97_018,
+                    cached_input_tokens: 80_078,
+                    cache_write_input_tokens: 16_919,
+                    output_tokens: 4_538,
+                    cost_microusd: None,
+                },
+            )
+            .expect("published rate covers every reported token category");
+
+        assert_eq!(accounted.cost_microusd, 207_470);
+    }
+
+    #[test]
+    fn supervisor_refuses_a_nonzero_category_without_a_published_rate() {
+        let config = canonical_routing();
+        let seat = &config.resolve("triage").expect("triage").seat;
+
+        let error = config
+            .account_usage(
+                seat,
+                InvocationUsage {
+                    input_tokens: 10,
+                    cached_input_tokens: 1,
+                    cache_write_input_tokens: 0,
+                    output_tokens: 1,
+                    cost_microusd: None,
+                },
+            )
+            .expect_err("Anthropic cache reads have no ruled rate");
+
+        assert!(matches!(
+            error,
+            RoutingError::Pricing(PricingError::UnpricedCategory("cached_input_tokens"))
+        ));
+    }
+
+    #[test]
+    fn supervisor_names_an_unpriced_cache_write_category() {
+        let config = canonical_routing();
+        let seat = &config.resolve("dispute_arbitration").expect("arbiter").seat;
+
+        let error = config
+            .account_usage(
+                seat,
+                InvocationUsage {
+                    input_tokens: 10,
+                    cached_input_tokens: 0,
+                    cache_write_input_tokens: 1,
+                    output_tokens: 1,
+                    cost_microusd: None,
+                },
+            )
+            .expect_err("xAI publishes no cache-write rate");
+
+        assert!(matches!(
+            error,
+            RoutingError::Pricing(PricingError::UnpricedCategory("cache_write_input_tokens"))
+        ));
+    }
+
+    #[test]
+    fn routing_refuses_a_model_without_a_rate_before_daemon_start() {
+        let temporary = tempfile::tempdir().expect("rate fixture");
+        let mut rates: serde_json::Value = serde_json::from_slice(
+            &fs::read("../../policy/model-rates.json").expect("canonical rates"),
+        )
+        .expect("rate JSON");
+        rates["rates"]
+            .as_array_mut()
+            .expect("rate rows")
+            .retain(|rate| rate["model"] != "GPT-5.6 Sol");
+        let rates_path = temporary.path().join("model-rates.json");
+        fs::write(
+            &rates_path,
+            serde_json::to_vec(&rates).expect("rate fixture JSON"),
+        )
+        .expect("rate fixture write");
+
+        let error = RoutingConfig::load(
+            Path::new("../../policy/routing.json"),
+            Path::new("../../docs/bench.json"),
+            &rates_path,
+        )
+        .expect_err("an unpriced routed model must make startup fail");
+
+        assert!(matches!(
+            error,
+            RoutingError::Pricing(PricingError::MissingRate(ref key))
+                if key == "OpenAI/GPT-5.6 Sol"
+        ));
+    }
+
+    #[test]
+    fn routing_refuses_an_expired_rate_before_daemon_start() {
+        let temporary = tempfile::tempdir().expect("rate fixture");
+        let mut rates: serde_json::Value = serde_json::from_slice(
+            &fs::read("../../policy/model-rates.json").expect("canonical rates"),
+        )
+        .expect("rate JSON");
+        let openai = rates["rates"]
+            .as_array_mut()
+            .expect("rate rows")
+            .iter_mut()
+            .find(|rate| rate["model"] == "GPT-5.6 Sol")
+            .expect("OpenAI rate");
+        openai["valid_through"] = serde_json::json!("2026-08-27");
+        let rates_path = temporary.path().join("model-rates.json");
+        fs::write(
+            &rates_path,
+            serde_json::to_vec(&rates).expect("rate fixture JSON"),
+        )
+        .expect("rate fixture write");
+
+        let error = RoutingConfig::load(
+            Path::new("../../policy/routing.json"),
+            Path::new("../../docs/bench.json"),
+            &rates_path,
+        )
+        .expect_err("a stale routed rate must make startup fail");
+
+        assert!(matches!(
+            error,
+            RoutingError::Pricing(PricingError::ExpiredRate(ref key))
+                if key == "OpenAI/GPT-5.6 Sol"
+        ));
+    }
+
+    #[test]
+    fn openai_long_context_pricing_starts_strictly_above_272k_input_tokens() {
+        let config = canonical_routing();
+        let seat = &config.resolve("implement").expect("implement").seat;
+        let usage = |input_tokens| InvocationUsage {
+            input_tokens,
+            cached_input_tokens: 0,
+            cache_write_input_tokens: 0,
+            output_tokens: 1,
+            cost_microusd: None,
+        };
+
+        assert_eq!(
+            config
+                .account_usage(seat, usage(272_000))
+                .expect("standard tier")
+                .cost_microusd,
+            1_088_020
+        );
+        assert_eq!(
+            config
+                .account_usage(seat, usage(272_001))
+                .expect("long-context tier")
+                .cost_microusd,
+            2_176_038
+        );
+    }
+
+    #[test]
+    fn supervisor_rejects_a_seat_reported_cost_that_disagrees() {
+        let config = canonical_routing();
+        let seat = &config
+            .resolve("implementation_review")
+            .expect("review")
+            .seat;
+
+        let error = config
+            .account_usage(
+                seat,
+                InvocationUsage {
+                    input_tokens: 100,
+                    cached_input_tokens: 0,
+                    cache_write_input_tokens: 0,
+                    output_tokens: 50,
+                    cost_microusd: Some(0),
+                },
+            )
+            .expect_err("the legacy zero must not override trusted pricing");
+
+        assert!(matches!(
+            error,
+            RoutingError::Pricing(PricingError::ReportedCostMismatch {
+                reported: 0,
+                computed: 1_750
+            })
+        ));
+    }
+
+    #[test]
+    fn supervisor_rejects_cache_counts_larger_than_total_input() {
+        let config = canonical_routing();
+        let seat = &config.resolve("implement").expect("implement").seat;
+
+        let error = config
+            .account_usage(
+                seat,
+                InvocationUsage {
+                    input_tokens: 10,
+                    cached_input_tokens: 8,
+                    cache_write_input_tokens: 3,
+                    output_tokens: 1,
+                    cost_microusd: None,
+                },
+            )
+            .expect_err("categories cannot exceed the reported total");
+
+        assert!(matches!(
+            error,
+            RoutingError::Pricing(PricingError::InvalidUsage)
+        ));
     }
 
     #[test]

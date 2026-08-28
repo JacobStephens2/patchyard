@@ -161,7 +161,7 @@ class DispositionSeatBehavior(unittest.TestCase):
             loopback.close()
         return result, loopback
 
-    def test_valid_disposition_round_trip_prices_opus_and_removes_bearer(self) -> None:
+    def test_valid_disposition_round_trip_reports_tokens_and_removes_bearer(self) -> None:
         text = json.dumps(
             {
                 "schema_version": 1,
@@ -179,10 +179,9 @@ class DispositionSeatBehavior(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         artifact = json.loads((self.stage / "output.json").read_text())
         self.assertEqual(artifact["review_id"], self.review_id)
-        # Opus 5 [max] pricing per A119: $5/M input, $25/M output.
         self.assertEqual(
             artifact["usage"],
-            {"input_tokens": 100, "output_tokens": 50, "cost_microusd": 100 * 5 + 50 * 25},
+            {"input_tokens": 100, "output_tokens": 50},
         )
         self.assertIn("PATCHYARD_USAGE=", result.stderr)
         self.assertFalse((self.stage / "bearer").exists())
@@ -297,7 +296,7 @@ class ReviewSeatBehavior(unittest.TestCase):
         self.assertEqual(len(artifact["findings"]), 1)
         self.assertEqual(
             artifact["usage"],
-            {"input_tokens": 100, "output_tokens": 50, "cost_microusd": 1750},
+            {"input_tokens": 100, "output_tokens": 50},
         )
         # The manifest-listed file body reaches the provider as untrusted data.
         self.assertIn("alpha\\nbeta\\n", loopback.request_body["messages"][0]["content"])

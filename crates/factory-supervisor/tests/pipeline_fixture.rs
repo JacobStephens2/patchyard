@@ -16,7 +16,7 @@ use factory_supervisor::{
     artifacts::{ArtifactStore, StoredArtifact},
     child::{ChildSpawnConfig, IsolatedChildSpawner},
     config::RoutingConfig,
-    contracts::InvocationUsage,
+    contracts::AccountedUsage,
     lifecycle::{LifecycleFuture, LifecycleResult, LifecycleService},
     pipeline::{Pipeline, PipelineConfig, PipelineOutcome, RunMode},
     publisher::{PublishInput, PublishService, PublishedPullRequest, PublisherFuture},
@@ -55,7 +55,7 @@ struct MemoryState {
     run_state: Option<String>,
     events: Vec<Event>,
     artifacts: Vec<StoredArtifact>,
-    usage: Vec<(String, InvocationUsage)>,
+    usage: Vec<(String, AccountedUsage)>,
     released: bool,
     controls: Vec<ControlRow>,
 }
@@ -95,7 +95,7 @@ struct MemorySnapshot {
     run_state: String,
     events: Vec<Event>,
     artifacts: Vec<StoredArtifact>,
-    usage: Vec<(String, InvocationUsage)>,
+    usage: Vec<(String, AccountedUsage)>,
     released: bool,
 }
 
@@ -209,7 +209,7 @@ impl PipelineStore for MemoryStore {
         &self,
         _run_id: Uuid,
         model_id: &str,
-        usage: InvocationUsage,
+        usage: AccountedUsage,
     ) -> Result<(), StoreError> {
         self.state
             .lock()
@@ -477,6 +477,7 @@ impl Fixture {
                 RoutingConfig::load(
                     &project.join("policy/routing.json"),
                     &project.join("docs/bench.json"),
+                    &project.join("policy/model-rates.json"),
                 )
             }
         })
@@ -783,7 +784,14 @@ async fn alphabetize_dry_run_asserts_lane_targets_patch_barrier_and_stop_boundar
         patch_text.matches("+        'zoe' => 'Zoe Adams'").count(),
         1
     );
-    assert!(!snapshot.usage.is_empty());
+    let (_, implement_usage) = snapshot
+        .usage
+        .iter()
+        .find(|(model, _)| model.starts_with("GPT-5.6 Sol|"))
+        .expect("implement usage reaches the durable rollup");
+    assert_eq!(implement_usage.input_tokens, 29);
+    assert_eq!(implement_usage.output_tokens, 31);
+    assert_eq!(implement_usage.cost_microusd, 736);
 }
 
 #[tokio::test]

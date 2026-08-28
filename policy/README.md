@@ -30,3 +30,18 @@ missing bound file, a stdlib shadow, an ungated checker, a broken wrapper
 contract - so a rewrite can never launder a failing tree into a pass. On a
 rewrite it names every row it adds, drops, or re-pins, and prints the two
 workflow rows a human then pastes in; it never writes CI config itself.
+
+## `model-rates.json`
+
+The supervisor's only token-price table. Each `(provider, model)` entry records
+its dated source, optional validity boundary, and one or more context tiers in
+micro-USD per million tokens. Routed seats fail closed at daemon start when an
+entry is missing or expired. Invocation ingest rejects inconsistent category
+totals, nonzero categories without a published rate, and any transitional
+seat-reported cost that disagrees with the supervisor.
+
+Seats retain their API model-id maps because they need those ids to make calls,
+but they report normalized token categories and never compute cost. The
+independent A119 constant in `tools/check-anthropic-spend.py` deliberately stays
+separate: that checker compares factory arithmetic with the provider bill, so
+deriving both sides from this table would make the check tautological.

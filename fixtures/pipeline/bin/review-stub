@@ -5,5 +5,5 @@ prompt=$1
 packet=$2
 output=$3
 test -r "$prompt"
-jq '{schema_version:1,review_id:.review_id,reviewed_sha:.reviewed_sha,findings:[],usage:{input_tokens:17,output_tokens:5,cost_microusd:0}}' "$packet" >"$output"
+jq '{schema_version:1,review_id:.review_id,reviewed_sha:.reviewed_sha,findings:[],usage:{input_tokens:17,output_tokens:5}}' "$packet" >"$output"
 printf 'independent reviewer fixture\n'

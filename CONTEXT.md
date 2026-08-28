@@ -135,3 +135,22 @@ _Avoid_: temporary key, override, patch
 **Fixture**:
 A committed input to a test or a checker, never a record of a live run.
 _Avoid_: naming a result, a requirement, or a proof
+
+## Cost accounting
+
+**Rate**:
+The dated provider-published unit price for one model and token category,
+recorded in `policy/model-rates.json`. A rate may carry context tiers and a
+published validity boundary. It is reporting policy, never a spending limit.
+_Avoid_: cost, budget, cap
+
+**Cost**:
+The supervisor-derived price of one invocation's normalized token usage,
+rounded to the nearest micro-USD after all categories are summed. It feeds
+telemetry and the per-model rollup; it grants no authority to spend.
+_Avoid_: rate, spend cap, provider bill
+
+**Spend cap**:
+The provider-enforced ceiling attached to a minted bearer. It is the money
+safety control and remains distinct from the supervisor's reporting arithmetic.
+_Avoid_: rate table, reported cost, daily run cap

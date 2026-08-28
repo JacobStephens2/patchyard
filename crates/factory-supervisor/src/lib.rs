@@ -17,6 +17,7 @@ pub mod lifecycle;
 pub mod observability;
 pub mod pipeline;
 pub mod preview;
+pub mod pricing;
 pub mod process;
 pub mod proposer;
 pub mod publisher;

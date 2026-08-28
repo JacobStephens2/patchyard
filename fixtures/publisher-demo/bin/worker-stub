@@ -19,5 +19,5 @@ jq -e 'has("untrusted_request") | not' "$task" >/dev/null
 mkdir -m 700 -- "$output"
 cp -- "$fixture_root/fieldbook.patch" "$output/change.patch"
 printf '%s\n' 'Applied the Session 10 publisher demonstration fixture.' >"$output/rationale.txt"
-printf '%s\n' '{"schema_version":1,"claims":[{"id":"sorted-permutation","assertion":"Both salesperson queries use first-name/last-name ordering","evidence_ref":"verify-evidence"}],"usage":{"input_tokens":0,"output_tokens":0,"cost_microusd":0}}' >"$output/evidence.json"
+printf '%s\n' '{"schema_version":1,"claims":[{"id":"sorted-permutation","assertion":"Both salesperson queries use first-name/last-name ordering","evidence_ref":"verify-evidence"}],"usage":{"input_tokens":0,"output_tokens":0}}' >"$output/evidence.json"
 printf '%s\n' '{"event":"publisher-demo-fixture-complete","live_model":false}' >"$output/transcript.jsonl"

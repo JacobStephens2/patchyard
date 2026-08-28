@@ -121,6 +121,9 @@ PRECOMPUTED_UNCACHED_INPUT_TOKENS = (
     HISTORICAL_UNCACHED_INPUT_TOKENS_PER_BODY * CALIBRATION_COPIES
 )
 MINIMUM_UNCACHED_INPUT_TOKENS = 300_000
+# Deliberately independent of policy/model-rates.json (A154): this checker
+# compares factory arithmetic with the provider bill, so sharing the rate
+# input would make the check tautological.
 A119_INPUT_USD_PER_MILLION_TOKENS = Decimal("5")
 MINIMUM_UNCACHED_INPUT_COST_USD = (
     Decimal(MINIMUM_UNCACHED_INPUT_TOKENS)

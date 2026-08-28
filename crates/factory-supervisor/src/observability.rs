@@ -10,7 +10,7 @@ use opentelemetry_sdk::trace::SdkTracerProvider;
 use thiserror::Error;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
-use crate::contracts::InvocationUsage;
+use crate::contracts::AccountedUsage;
 
 /// Install the pull-only `/metrics` listener owned by the metrics exporter.
 pub fn install_metrics(address: SocketAddr) -> Result<(), BuildError> {
@@ -47,7 +47,7 @@ pub fn record_stage(stage: &'static str, outcome: &'static str, duration: Durati
     histogram!("factory_stage_latency_seconds", "stage" => stage).record(duration);
 }
 
-pub fn record_usage(model: String, usage: InvocationUsage) {
+pub fn record_usage(model: String, usage: AccountedUsage) {
     counter!("factory_llm_tokens_total", "model" => model.clone(), "direction" => "input")
         .increment(usage.input_tokens);
     counter!("factory_llm_tokens_total", "model" => model.clone(), "direction" => "output")

@@ -114,7 +114,7 @@ impl ProcessAgentBackend {
             Ok(AgentResult {
                 value,
                 transcript: process.transcript(),
-                usage: parse_usage(&process),
+                usage: parse_usage(&process)?,
                 cli_version: command.cli_version.clone(),
             })
         }
@@ -128,15 +128,22 @@ impl ProcessAgentBackend {
     }
 }
 
-fn parse_usage(process: &ProcessOutput) -> InvocationUsage {
-    // Harnesses may include one exact typed usage line on stderr. Missing or
-    // malformed telemetry is zero; it never changes authorization.
-    process
+fn parse_usage(process: &ProcessOutput) -> Result<InvocationUsage, StageError> {
+    // Harnesses may include one exact typed usage line on stderr. Absence is
+    // zero telemetry, but a present malformed or duplicate envelope fails
+    // closed so an unknown billed category can never become free usage.
+    let mut envelopes = process
         .stderr
         .split(|byte| *byte == b'\n')
-        .find_map(|line| line.strip_prefix(b"PATCHYARD_USAGE="))
-        .and_then(|line| serde_json::from_slice(line).ok())
-        .unwrap_or_default()
+        .filter_map(|line| line.strip_prefix(b"PATCHYARD_USAGE="));
+    let Some(envelope) = envelopes.next() else {
+        return Ok(InvocationUsage::default());
+    };
+    let usage = serde_json::from_slice(envelope)?;
+    if envelopes.next().is_some() {
+        return Err(StageError::DuplicateUsage);
+    }
+    Ok(usage)
 }
 
 pub(crate) async fn mint_bearer(
@@ -758,6 +765,8 @@ pub enum StageError {
     Process(#[from] ProcessError),
     #[error("stage JSON contract failed: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("stage wrote more than one usage envelope")]
+    DuplicateUsage,
     #[error("stage filesystem operation failed: {0}")]
     Io(#[from] std::io::Error),
     #[error("stage file contract failed: {0}")]
@@ -774,7 +783,7 @@ mod tests {
 
     use super::{
         PATCH_REJECTED, REASON_MISSING, STDERR_TAIL_ELISION, SUBJECT_UNKNOWN, StageError,
-        StderrTail, TASK_REJECTED, read_rejection, synthesize_verdict,
+        StderrTail, TASK_REJECTED, parse_usage, read_rejection, synthesize_verdict,
     };
 
     fn output(code: i32, stdout: &str, stderr: &str) -> ProcessOutput {
@@ -792,6 +801,40 @@ mod tests {
             code,
             stderr: StderrTail::from_stream(stderr.as_bytes()),
         }
+    }
+
+    #[test]
+    fn a_present_unpriced_usage_category_fails_closed() {
+        let process = output(
+            0,
+            "",
+            r#"PATCHYARD_USAGE={"input_tokens":10,"output_tokens":1,"future_billable_tokens":1}"#,
+        );
+
+        assert!(matches!(parse_usage(&process), Err(StageError::Json(_))));
+    }
+
+    #[test]
+    fn duplicate_usage_envelopes_fail_closed() {
+        let process = output(
+            0,
+            "",
+            "PATCHYARD_USAGE={\"input_tokens\":10,\"output_tokens\":1}\n\
+             PATCHYARD_USAGE={\"input_tokens\":20,\"output_tokens\":2}\n",
+        );
+
+        assert!(matches!(
+            parse_usage(&process),
+            Err(StageError::DuplicateUsage)
+        ));
+    }
+
+    #[test]
+    fn absent_usage_remains_explicit_zero_telemetry() {
+        assert_eq!(
+            parse_usage(&output(0, "", "ordinary seat diagnostic\n")).expect("no envelope"),
+            crate::contracts::InvocationUsage::default()
+        );
     }
 
     /// The failure this ticket was filed for. The seat named its cause in

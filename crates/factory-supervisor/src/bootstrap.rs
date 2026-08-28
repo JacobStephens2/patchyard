@@ -106,11 +106,12 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
 
     let routing_path = root.join("policy/routing.json");
     let bench_path = root.join("docs/bench.json");
+    let rates_path = root.join("policy/model-rates.json");
     let rubric_path = root.join("policy/rubric.md");
     let routing = blocking({
         let routing_path = routing_path.clone();
         let bench_path = bench_path.clone();
-        move || RoutingConfig::load(&routing_path, &bench_path)
+        move || RoutingConfig::load(&routing_path, &bench_path, &rates_path)
     })
     .await??;
     let provider_egress = if routing.live_provider_execution {
@@ -690,6 +691,7 @@ mod tests {
             RoutingConfig::load(
                 Path::new("../../policy/routing.json"),
                 Path::new("../../docs/bench.json"),
+                Path::new("../../policy/model-rates.json"),
             )
             .expect("routing"),
             ProviderEgressConfig::load(Path::new("../../policy/provider-egress.json"))

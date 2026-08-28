@@ -27,9 +27,8 @@ UUID_PATTERN = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 )
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
-MODEL_SPECS = {
-    # A119 seats Opus 5 [max] at $5/M input tokens and $25/M output tokens.
-    "Claude Opus 5": ("claude-opus-5", 5, 25),
+MODEL_IDS = {
+    "Claude Opus 5": "claude-opus-5",
 }
 EFFORTS = {"low", "medium", "high", "max"}
 DISPOSITIONS = {"concede", "refute", "escalate"}
@@ -377,9 +376,9 @@ def run(arguments: list[str]) -> int:
         provider = require_environment("PATCHYARD_PROVIDER")
         display_model = require_environment("PATCHYARD_MODEL")
         effort = require_environment("PATCHYARD_EFFORT")
-        if display_model not in MODEL_SPECS or effort not in EFFORTS:
+        if display_model not in MODEL_IDS or effort not in EFFORTS:
             raise SeatError("disposition seat model or effort is unsupported")
-        api_model, input_rate, output_rate = MODEL_SPECS[display_model]
+        api_model = MODEL_IDS[display_model]
         raw = provider_request(
             provider_endpoint(provider),
             bearer,
@@ -391,11 +390,9 @@ def run(arguments: list[str]) -> int:
         artifact, input_tokens, output_tokens = parse_provider_response(
             raw, api_model, input_value
         )
-        cost_microusd = input_tokens * input_rate + output_tokens * output_rate
         artifact["usage"] = {
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
-            "cost_microusd": cost_microusd,
         }
         output = (json.dumps(artifact, separators=(",", ":")) + "\n").encode()
         if len(output) > MAX_OUTPUT_BYTES:

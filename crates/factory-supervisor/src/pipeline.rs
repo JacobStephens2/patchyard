@@ -304,7 +304,8 @@ impl<S: PipelineStore> Pipeline<S> {
             8 * 1024 * 1024,
         )
         .await?;
-        observability::record_usage(invocation.seat.model_id(), output.usage);
+        let usage = self.routing.account_usage(&invocation.seat, output.usage)?;
+        observability::record_usage(invocation.seat.model_id(), usage);
         let classification = self.rubric.classify(&output.value.task_spec)?;
         let submission = TriageSubmission {
             id: Uuid::new_v4(),
@@ -1330,6 +1331,7 @@ impl<S: PipelineStore> Pipeline<S> {
         invocation: &ResolvedInvocation,
         usage: crate::contracts::InvocationUsage,
     ) -> Result<(), PipelineError> {
+        let usage = self.routing.account_usage(&invocation.seat, usage)?;
         observability::record_usage(invocation.seat.model_id(), usage);
         self.store
             .record_usage(run_id, &invocation.seat.model_id(), usage)

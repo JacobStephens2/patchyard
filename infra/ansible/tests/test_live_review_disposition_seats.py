@@ -697,10 +697,24 @@ class LiveSeatDeployment(unittest.TestCase):
         self.assertIn("apply_child_firewall", evidence)
 
     def test_timeouts_nest_seat_below_unit_below_supervisor(self) -> None:
-        self.assertIn("TimeoutStartSec=240s", self.unit)
-        self.assertIn("FACTORY_CHILD_TIMEOUT_SECONDS=270", self.environment)
-        self.assertIn("PROVIDER_TIMEOUT_SECONDS = 180", REVIEW_SEAT.read_text())
+        # Sized together with the review seat's max_tokens (#353): at the
+        # ~125 tok/s the failed 2026-08-30 calls generated, a response that
+        # actually needs the raised 65,536-token ceiling takes several
+        # hundred seconds, so the 180s/240s/270s stack would have turned the
+        # max_tokens rejection into a timeout kill. The nesting is the
+        # invariant: seat < unit TimeoutStartSec < supervisor, so the seat
+        # times a slow provider out and the terminal record reports it.
+        self.assertIn("TimeoutStartSec=660s", self.unit)
+        self.assertIn("FACTORY_CHILD_TIMEOUT_SECONDS=720", self.environment)
+        self.assertIn("PROVIDER_TIMEOUT_SECONDS = 600", REVIEW_SEAT.read_text())
         self.assertIn("PROVIDER_TIMEOUT_SECONDS = 170", DISPOSITION_SEAT.read_text())
+
+    def test_review_response_budget_fits_the_windowed_packet(self) -> None:
+        # 16,384 was sized before c35f3b4 windowed large workspace files into
+        # the packet; with adaptive thinking at effort max the response blew
+        # the cap and the seat read its own truncation as a malformed
+        # provider envelope, four times in a row on 2026-08-30 (#353).
+        self.assertIn('"max_tokens": 65536,', REVIEW_SEAT.read_text())
 
     def test_live_seats_resolve_to_a_qualified_provider(self) -> None:
         qualified = {

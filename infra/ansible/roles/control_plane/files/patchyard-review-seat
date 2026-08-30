@@ -51,7 +51,7 @@ OMISSION_REASONS = ("oversize", "binary", "deleted", "undecodable", "unreadable"
 OBSERVED_EMPTY = "empty"
 # Bounded below the launcher-side child timeout so the seat, not the
 # sandbox teardown, is what times a slow provider call out.
-PROVIDER_TIMEOUT_SECONDS = 180
+PROVIDER_TIMEOUT_SECONDS = 600
 ANTHROPIC_MESSAGES = "https://api.anthropic.com/v1/messages"
 LOOPBACK_PROVIDER = re.compile(r"http://127[.]0[.]0[.]1:([0-9]{1,5})")
 BEARER_PATTERN = re.compile(r"sk-ant-oat01-[A-Za-z0-9_-]+")
@@ -386,7 +386,7 @@ def provider_request(
     body = json.dumps(
         {
             "model": model,
-            "max_tokens": 16384,
+            "max_tokens": 65536,
             "system": system_prompt,
             "messages": [{"role": "user", "content": user_message}],
             "thinking": {"type": "adaptive"},

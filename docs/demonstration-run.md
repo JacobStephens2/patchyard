@@ -108,6 +108,62 @@ the demonstration answers is real today, not a month-old artifact.
    [Step 3 was ruled satisfied, not re-drilled](#step-3-was-ruled-satisfied-not-re-drilled)
    before you take it as simply done.
 
+## Before the next attempt
+
+The 2026-08-25 attempt (recorded under
+[What has and has not been performed](#what-has-and-has-not-been-performed))
+left the factory under Full stop with two screenshot-less requests the daemon
+will take the moment it is resumed, on a revision that retries a failing
+triage stage without a ceiling. These steps undo that, in this order.
+
+1. **Converge the control plane to master, then qualify.** The daemon must run
+   a revision at or after `2d46b61` — that is the claim ceiling and the `/new`
+   no-screenshot confirm — and it should carry `dad92b2`, so a failing seat's
+   stderr is kept, and `c35f3b4`, so the review seat can see the change to
+   `mfieldbook/common_functions.php` instead of a projection of it. The path is
+   `tools/deploy-control-plane.sh` from `orchestrate`, then `converge.sh` and
+   `qualify.sh` as on 2026-08-25, with Jacob's go: a converge is inside the
+   A148 grant, but every converge so far on this ticket has been gated by
+   hand, and this one lands hours before a live run. Afterwards re-read the
+   three pins in the table above from `/etc/patchyard/supervisor.env` and
+   the worker's recipe marker; they survived the last converge and should
+   survive this one, but the run depends on them, so look.
+
+2. **Close both leftover rows before lifting the Full stop.** Invoke
+   `factoryctl` as [`runbook-v0.md`](runbook-v0.md) § Foreground run identity
+   says:
+
+   ```
+   factoryctl close 55868a0e-294b-4116-bbbf-db620c4cdead
+   factoryctl close 2235d555-59a6-4d61-a329-4ba45c544b1f
+   ```
+
+   `close_request` refuses `plan_bin`, `failed` and `killed` rows and treats
+   an already-`closed` one as a no-op, so it takes a stranded `claimed` row
+   and a `queued` one alike, and it releases any open lease on the request
+   in the same transaction. Confirm
+   both read `closed`. Do this **before** Resume, not after: the sweep orders
+   a `claimed` row ahead of `queued` ones, and Resume is what lets it run.
+
+3. **Resume from the dashboard** and confirm `paused=f, full_stop=f` with no
+   new `request.claimed` event. The 12:19 drill lease on `6b7c19d7` will still
+   show as active; it expired on 2026-08-25 and the sweep ignores it.
+
+4. **Re-run the readiness reads** — base ref `00af775d`, three refs under
+   `heads/factory`, zero open factory pull requests, `snapshots/current`,
+   recipe marker `9beb2ec5` — and the pause probe under
+   [`factoryctl claim` is the wrong probe for a pause](#factoryctl-claim-is-the-wrong-probe-for-a-pause)
+   if the converge restarted the daemon.
+
+5. **Submit with both PNGs attached, and look before you leave the form.**
+   The 19:03 admission went in at 1,114 bytes: the body, no files. On the
+   converged revision `/new` warns and asks for confirmation when no
+   screenshot is attached; if you see that warning, the files did not go
+   with the form — stop and attach them. The request page should list two
+   attachments before triage starts.
+
+Then **The run**, from step 0.
+
 ## The run
 
 Everything above happens before Jacob touches the form. The run itself is:
@@ -212,7 +268,47 @@ then qualify) are done. Step 3, the kill drill, was not performed and was
 ruled satisfied without one; the next section is that ruling and what it
 costs.
 
-No run has been performed. Everything under **The run** is Jacob's.
+Everything under **The run** was attempted once, on 2026-08-25, and did not
+reach a pull request. The next section is that record and the durable state it
+left behind, which is what the next attempt starts from.
+
+### The first attended attempt, 2026-08-25, and what it left behind
+
+Two rehearsal submissions preceded it that afternoon, both from `orchestrate`
+under Jacob's dashboard identity, and each found a fault the attended attempt
+then inherited or avoided:
+
+| Time (UTC) | Request | What happened |
+| --- | --- | --- |
+| 14:06:47 | `4fddaa3d` | The sanitized body **without** its two screenshots (admission `rejected`, reason `no-screenshot`, 1,114 bytes). The triage seat answered prose instead of the JSON envelope, the stage exited 1, and the durable sweep re-claimed and retried it eighteen times, every one a billed provider call, until a pause at 14:09. Closed by hand at 15:08. Filed as [#324](https://github.com/JacobStephens2/patchyard/issues/324). |
+| 15:16:29 | `8d2be21e` | The same body **with** the screenshots (one admission `completed`, 3,227,432 bytes). Triage classified lane A on the first attempt; the implement seat (GPT-5.6 Sol [xhigh] via Codex on OpenAI) persisted a patch at 15:23; the review seat (Claude Opus 5 [max] via Claude Code on Anthropic) raised a finding that the packet projected `mfieldbook/common_functions.php` as empty, two review rounds disputed it, and the dispute escalated to the (stubbed) arbiter seat. Run `53b831be` ended `escalated`, reason `review_dispute_requires_third_family`, at 15:28:52; the request is `failed`. The packet defect is [#322](https://github.com/JacobStephens2/patchyard/issues/322). |
+
+The attended attempt, from Jacob's account at `/new`:
+
+| Time (UTC) | Fact | Source |
+| --- | --- | --- |
+| 19:03:47.98 | Upload admission `8592f511` `rejected`, reason `no-screenshot`, `content_length` 1,114 — the body went in **without** the two PNGs, the `4fddaa3d` shape | `factory.upload_admissions` |
+| 19:03:48.00 | Request `55868a0e-294b-4116-bbbf-db620c4cdead` received, source `dashboard:26c11a36` | `factory.requests` |
+| 19:03:48.08 | `request.claimed`, holder `factory-supervisor`, fencing token 1, `run_class: production`. **No console step preceded it** — the claim half of the demonstration is proven. | `factory.events` |
+| 19:03:54 | `pause` `ad06564e` from the dashboard, completed in 12 ms | `factory.controls` |
+| 19:04:43 | Lease released cleanly (not expired; expiry was 20:03:48) | `factory.leases` |
+| 19:04:46 | `pipeline attempt stopped; durable sweep will recover` — `stage triage exited with status 1` | supervisor journal |
+| 19:10:07 | `pause` `6faa2813` | `factory.controls` |
+| 19:10:21, 19:10:22 | `full_stop` `72bbb5b6` and `33ed1981`, both `{"full_stop": true, "active_workers": 0}` | `factory.controls` |
+
+The stage's stderr was not kept — that is [#323](https://github.com/JacobStephens2/patchyard/issues/323), fixed on master in `dad92b2` — so the triage failure is attributed to the missing screenshots by shape, not by transcript: same body, same seat, same exit, three hours after `4fddaa3d`, and the same body with the screenshots had passed triage first time at 15:17.
+
+What that left behind, as read from the control plane on 2026-08-30:
+
+- `factory.supervisor_state` is `paused=t, full_stop=t`, updated 19:10:22 by `jacob@stephens.page`. **The factory has been under Full stop since.** Nothing has been claimed; the nightly backup (`patchyard-backup.timer`, 02:20 UTC; the restart landed at 02:26 on 2026-08-30) stops and restarts the daemon, and it comes back into the same state.
+- `55868a0e` is still `claimed`, with no lease, no run and one event — the shape [#332](https://github.com/JacobStephens2/patchyard/issues/332) describes. Nothing on the dashboard reaches it. #332 closed on `2d46b61`, which bounds the row rather than repairs it: on the converged revision the sweep re-claims it, the seat fails again, and `request.abandoned` retires it after three billed calls. Closing it by hand costs none.
+- `2235d555-59a6-4d61-a329-4ba45c544b1f` was received 2026-08-26 23:02:08 from the same account, body `Alphabetize the employee drop down lists`, no screenshots. It is `queued` behind the Full stop.
+- The lease row from the 12:19 pause drill (`holder: pause-drill-208` on `6b7c19d7`, the July orphan) was never released and expired at 12:20:22. It is inert — the sweep reads expiry — but it is the one row `factory.leases` reports as active.
+- No factory pull request was opened on Fieldbook; `heads/factory` still holds exactly the three refs step 4 counted, and `max_open_prs` is untouched.
+
+Two things about the next Resume follow from the sweep's own order. `claim_next` in `crates/factory-supervisor/src/store.rs` takes a `claimed` row whose lease is gone **before** a `queued` one, so lifting the Full stop hands the daemon `55868a0e` first and `2235d555` second — both screenshot-less — before the fixture body is ever submitted. And the installed revision is the one that retried `4fddaa3d` eighteen times: `/opt/patchyard` is at `f411798` (#330, 2026-08-25), which predates `2d46b61`'s `FACTORY_MAX_CLAIM_ATTEMPTS` ceiling (default 3). Master at `acea4b7` carries ten commits the control plane does not run, and four of them answer what ended 2026-08-25: `dad92b2` ([#323](https://github.com/JacobStephens2/patchyard/issues/323), the stderr), `2d46b61` ([#324](https://github.com/JacobStephens2/patchyard/issues/324), the ceiling and the `/new` no-screenshot confirm), `c35f3b4` ([#325](https://github.com/JacobStephens2/patchyard/issues/325), a bounded window so a large file can be reviewed at all — the fix for [#322](https://github.com/JacobStephens2/patchyard/issues/322) itself, `1bc6aab`, is already installed) and `2360251` ([#321](https://github.com/JacobStephens2/patchyard/issues/321), lease disposition on kill). [Before the next attempt](#before-the-next-attempt) is the checklist that follows.
+
+The preconditions themselves still held on 2026-08-30: the base ref returns `00af775d`; `FACTORY_RUN_MODE=pre_publish`, `FACTORY_BASE_SHA=00af775d`, `FACTORY_GITHUB_BASE_BRANCH=factory/alphabetize/staging` and the `5`/`25` caps are in `/etc/patchyard/supervisor.env`; `snapshots/current -> 2026-08-22-6e9437f90437`; the worker's `fieldbook-implement.recipe-sha256` reads `9beb2ec5`; Fieldbook's `phpunit.yml` still filters on `[master, '**/staging']` at master `b38f8063`.
 
 ### Step 3 was ruled satisfied, not re-drilled
 
@@ -242,9 +338,16 @@ variable, converging to `dry_run`, drilling, converging back, and re-verifying
 all three pins in the table above — four converges against the exact
 configuration the run depends on, hours before the run.
 
-What is standing in for the drill, besides attendance: exactly one commit has
-touched `lifecycle.rs` or `child.rs` since the last drill on 2026-07-28
-(`047b802`), so the teardown code is substantially the code that was drilled.
+What is standing in for the drill, besides attendance: on the revision the
+control plane runs (`f411798`), exactly one commit has touched `lifecycle.rs`
+or `child.rs` since the last drill on 2026-07-28 (`047b802`), so the teardown
+code is substantially the code that was drilled. That statement is about the
+installed revision, not master: `dddd2c8` (#338) has since touched both files
+and `2360251` (#337) changed the kill path in `daemon.rs` and `store.rs`, so
+the converge that [Before the next attempt](#before-the-next-attempt) calls for
+moves the daemon onto code the 2026-07-28 drill did not exercise. Read the
+waiver again after that converge with that in front of you; it does not get
+stronger by being repeated.
 Read that drill as the ledger has it, not as a clean precedent: on the night
 of 2026-07-28 `factory.controls` recorded **two kills that failed** on
 `requests_closed_state_consistent` and then, 48 minutes later, two that

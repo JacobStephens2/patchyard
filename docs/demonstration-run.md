@@ -116,7 +116,9 @@ left the factory under Full stop with two screenshot-less requests the daemon
 will take the moment it is resumed, on a revision that retries a failing
 triage stage without a ceiling. These steps undo that, in this order.
 
-1. **Converge the control plane to master, then qualify.** The daemon must run
+1. **Converge the control plane to master, then qualify.** Performed
+   2026-08-30 with Jacob's go; see
+   [The converge of 2026-08-30](#the-converge-of-2026-08-30). The daemon must run
    a revision at or after `2d46b61` — that is the claim ceiling and the `/new`
    no-screenshot confirm — and it should carry `dad92b2`, so a failing seat's
    stderr is kept, and `c35f3b4`, so the review seat can see the change to
@@ -151,7 +153,7 @@ triage stage without a ceiling. These steps undo that, in this order.
 
 4. **Re-run the readiness reads** — base ref `00af775d`, three refs under
    `heads/factory`, zero open factory pull requests, `snapshots/current`,
-   recipe marker `9beb2ec5` — and the pause probe under
+   recipe marker `0c3e875f` — and the pause probe under
    [`factoryctl claim` is the wrong probe for a pause](#factoryctl-claim-is-the-wrong-probe-for-a-pause)
    if the converge restarted the daemon.
 
@@ -306,9 +308,39 @@ What that left behind, as read from the control plane on 2026-08-30:
 - The lease row from the 12:19 pause drill (`holder: pause-drill-208` on `6b7c19d7`, the July orphan) was never released and expired at 12:20:22. It is inert — the sweep reads expiry — but it is the one row `factory.leases` reports as active.
 - No factory pull request was opened on Fieldbook; `heads/factory` still holds exactly the three refs step 4 counted, and `max_open_prs` is untouched.
 
+#### The converge of 2026-08-30
+
+Performed from `orchestrate` at merged revision `e816a68` (the merge of #350),
+with Jacob's go, by `converge.sh` twice and then `qualify.sh`. The first pass
+reported `ok=253 changed=16` on the control plane and `ok=96 changed=3` on the
+worker; the second `changed=0` on both. What moved: the four reviewed binaries,
+`/opt/patchyard` from `f411798` to `e816a68`, the supervisor environment
+(now carrying `FACTORY_MAX_CLAIM_ATTEMPTS=3`), the triage seat and the fixed
+child operations, and on the worker the implement image, rebuilt because
+`dad92b2` changed `patchyard-guest-implement` and moved the pinned recipe:
+
+| | Before | After |
+| --- | --- | --- |
+| `/opt/patchyard` | `f411798` | `e816a68` |
+| Implement image recipe | `9beb2ec5` | `0c3e875f` |
+| `FACTORY_MAX_CLAIM_ATTEMPTS` | unset (unbounded) | `3` |
+
+`FACTORY_RUN_MODE`, `FACTORY_BASE_SHA`, `FACTORY_GITHUB_BASE_BRANCH`,
+`FACTORY_VERIFY_TESTS` and the `5`/`25` caps read back unchanged, and
+`snapshots/current` is still `2026-08-22-6e9437f90437`. `qualify.sh` passed
+control-plane, worker, A101 management transport and the independence check.
+Its first run failed the independence check on two gitignored
+`__pycache__/*.pyc` files under `roles/control_plane/files/` — local
+byte-compile residue from 2026-08-26/27 that embeds the `/srv/orchestration`
+path — which were removed; nothing deployed was affected. Durable state after:
+`paused=t, full_stop=t` unchanged since 2026-08-25 19:10:22, zero claims, and
+the same four open rows. The daemon has restarted once, at 15:17:09 UTC, and
+now runs `dddd2c8` and `2360251`, which is the case the waiver note above
+anticipates.
+
 Two things about the next Resume follow from the sweep's own order. `claim_next` in `crates/factory-supervisor/src/store.rs` takes a `claimed` row whose lease is gone **before** a `queued` one, so lifting the Full stop hands the daemon `55868a0e` first and `2235d555` second — both screenshot-less — before the fixture body is ever submitted. And the installed revision is the one that retried `4fddaa3d` eighteen times: `/opt/patchyard` is at `f411798` (#330, 2026-08-25), which predates `2d46b61`'s `FACTORY_MAX_CLAIM_ATTEMPTS` ceiling (default 3). Master at `acea4b7` carries ten commits the control plane does not run, and four of them answer what ended 2026-08-25: `dad92b2` ([#323](https://github.com/JacobStephens2/patchyard/issues/323), the stderr), `2d46b61` ([#324](https://github.com/JacobStephens2/patchyard/issues/324), the ceiling and the `/new` no-screenshot confirm), `c35f3b4` ([#325](https://github.com/JacobStephens2/patchyard/issues/325), a bounded window so a large file can be reviewed at all — the fix for [#322](https://github.com/JacobStephens2/patchyard/issues/322) itself, `1bc6aab`, is already installed) and `2360251` ([#321](https://github.com/JacobStephens2/patchyard/issues/321), lease disposition on kill). [Before the next attempt](#before-the-next-attempt) is the checklist that follows.
 
-The preconditions themselves still held on 2026-08-30: the base ref returns `00af775d`; `FACTORY_RUN_MODE=pre_publish`, `FACTORY_BASE_SHA=00af775d`, `FACTORY_GITHUB_BASE_BRANCH=factory/alphabetize/staging` and the `5`/`25` caps are in `/etc/patchyard/supervisor.env`; `snapshots/current -> 2026-08-22-6e9437f90437`; the worker's `fieldbook-implement.recipe-sha256` reads `9beb2ec5`; Fieldbook's `phpunit.yml` still filters on `[master, '**/staging']` at master `b38f8063`.
+The preconditions themselves still held on 2026-08-30, read before the converge: the base ref returns `00af775d`; `FACTORY_RUN_MODE=pre_publish`, `FACTORY_BASE_SHA=00af775d`, `FACTORY_GITHUB_BASE_BRANCH=factory/alphabetize/staging` and the `5`/`25` caps are in `/etc/patchyard/supervisor.env`; `snapshots/current -> 2026-08-22-6e9437f90437`; the worker's `fieldbook-implement.recipe-sha256` read `9beb2ec5` (now `0c3e875f`, see below); Fieldbook's `phpunit.yml` still filters on `[master, '**/staging']` at master `b38f8063`.
 
 ### Step 3 was ruled satisfied, not re-drilled
 

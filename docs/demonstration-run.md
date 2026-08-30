@@ -131,7 +131,9 @@ triage stage without a ceiling. These steps undo that, in this order.
    the worker's recipe marker; they survived the last converge and should
    survive this one, but the run depends on them, so look.
 
-2. **Close both leftover rows before lifting the Full stop.** Invoke
+2. **Close both leftover rows before lifting the Full stop.** Performed
+   2026-08-30 20:29 UTC: both rows read `closed` with `request.closed`
+   events appended, Full stop still held. Invoke
    `factoryctl` as [`runbook-v0.md`](runbook-v0.md) § Foreground run identity
    says:
 

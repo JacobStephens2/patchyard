@@ -10,9 +10,9 @@ Group=root
 ExecStart=/usr/local/sbin/patchyard-child-launcher %i
 ExecStopPost=/usr/local/sbin/patchyard-reap-child %i
 # Bounds the whole child run including a live review seat's provider call
-# (seat ceiling 180s); the supervisor-side FACTORY_CHILD_TIMEOUT_SECONDS
+# (seat ceiling 600s); the supervisor-side FACTORY_CHILD_TIMEOUT_SECONDS
 # stays above this so the terminal record is what reports the timeout.
-TimeoutStartSec=240s
+TimeoutStartSec=660s
 TimeoutStopSec=30s
 KillMode=control-group
 MemoryMax=768M

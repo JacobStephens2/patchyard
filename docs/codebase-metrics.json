@@ -6,10 +6,10 @@
     {
       "role": "product",
       "description": "Rust services, server-rendered UI assets, and PostgreSQL migrations.",
-      "code": 43533,
-      "comments": 972,
-      "blanks": 2611,
-      "files": 92,
+      "code": 44047,
+      "comments": 980,
+      "blanks": 2659,
+      "files": 93,
       "languages": [
         {
           "language": "CSS",
@@ -42,16 +42,16 @@
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 688,
+          "comments": 695,
           "blanks": 49,
-          "files": 49
+          "files": 50
         },
         {
           "language": "Rust",
-          "code": 40923,
-          "comments": 253,
-          "blanks": 2304,
-          "files": 57
+          "code": 41437,
+          "comments": 254,
+          "blanks": 2352,
+          "files": 58
         },
         {
           "language": "SQL",
@@ -72,14 +72,14 @@
     {
       "role": "infrastructure",
       "description": "OpenTofu, Ansible, worker runtime, and preview-fleet desired state.",
-      "code": 39699,
-      "comments": 1323,
-      "blanks": 3445,
+      "code": 39708,
+      "comments": 1334,
+      "blanks": 3447,
       "files": 192,
       "languages": [
         {
           "language": "BASH",
-          "code": 10344,
+          "code": 10346,
           "comments": 486,
           "blanks": 669,
           "files": 52
@@ -135,9 +135,9 @@
         },
         {
           "language": "Python",
-          "code": 21396,
-          "comments": 397,
-          "blanks": 1974,
+          "code": 21403,
+          "comments": 408,
+          "blanks": 1976,
           "files": 48
         },
         {
@@ -181,7 +181,7 @@
       "role": "tooling",
       "description": "Checks, generators, model projections, fixtures, and CI orchestration.",
       "code": 30991,
-      "comments": 647,
+      "comments": 650,
       "blanks": 2431,
       "files": 137,
       "languages": [
@@ -237,7 +237,7 @@
         {
           "language": "Python",
           "code": 25730,
-          "comments": 334,
+          "comments": 337,
           "blanks": 2237,
           "files": 55
         },
@@ -274,10 +274,10 @@
     {
       "role": "governance",
       "description": "Constitution, specification, rulings, policy, research, and review record.",
-      "code": 12645,
-      "comments": 25211,
-      "blanks": 6708,
-      "files": 222,
+      "code": 12697,
+      "comments": 25307,
+      "blanks": 6732,
+      "files": 223,
       "languages": [
         {
           "language": "BASH",
@@ -288,16 +288,16 @@
         },
         {
           "language": "JSON",
-          "code": 11441,
+          "code": 11493,
           "comments": 0,
           "blanks": 1,
-          "files": 52
+          "files": 53
         },
         {
           "language": "Markdown",
           "code": 0,
-          "comments": 25184,
-          "blanks": 6653,
+          "comments": 25280,
+          "blanks": 6677,
           "files": 180
         },
         {

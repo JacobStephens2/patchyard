@@ -202,6 +202,36 @@ class DemonstrationBase(unittest.TestCase):
             "not somewhere else in the document",
         )
 
+    def test_the_record_names_the_first_attempt_and_what_it_left_behind(
+        self,
+    ) -> None:
+        # The first attended submission happened on 2026-08-25 at 19:03 UTC
+        # and ended in a Full stop seven minutes later. It left durable state
+        # the next attempt inherits: a request stranded at `claimed`, a second
+        # body queued the next evening, and `full_stop` still asserted. An
+        # operator who reads "no run has been performed" and presses Resume
+        # hands the daemon those two rows before the fixture body is ever
+        # submitted - on the installed revision, with no claim ceiling. The
+        # record therefore has to name both rows where the operator will read
+        # it, and the doc must not still claim nothing has happened.
+        record = self.section("What has and has not been performed")
+        self.assertNotIn("No run has been performed", record)
+        self.assertIn("55868a0e-294b-4116-bbbf-db620c4cdead", record)
+        self.assertIn("2235d555-59a6-4d61-a329-4ba45c544b1f", record)
+        self.assertIn("Full stop", record)
+
+    def test_the_next_attempt_has_its_own_checklist(self) -> None:
+        # What the first attempt taught is only useful if it is a step the
+        # operator performs before the next one, not a paragraph of history.
+        # The two rows left behind get closed before Resume, and the daemon
+        # runs a revision that carries the fixes for the two faults that
+        # ended 2026-08-25 (`FACTORY_MAX_CLAIM_ATTEMPTS` and the no-screenshot
+        # confirm, both in `2d46b61`).
+        checklist = self.section("Before the next attempt")
+        self.assertIn("factoryctl close", checklist)
+        self.assertIn("2d46b61", checklist)
+        self.assertIn("Resume", checklist)
+
     def test_the_base_must_carry_the_exact_path_production_names(self) -> None:
         # The base branch lives in Fieldbook, which this repository cannot read.
         # What it can prove is that the file the operator is told to land is

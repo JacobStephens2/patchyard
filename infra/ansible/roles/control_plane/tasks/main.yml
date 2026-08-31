@@ -314,6 +314,7 @@
   loop:
     - review-worktrees
     - proposer-review-worktrees
+    - arbiter-worktrees
   tags: [session13]
 
 - name: Recreate the isolated-child staging root after boot
@@ -774,6 +775,9 @@
     - source: patchyard-review-seat
       destination: /usr/local/libexec/patchyard-review-seat
       mode: "0755"
+    - source: patchyard-arbiter-seat
+      destination: /usr/local/libexec/patchyard-arbiter-seat
+      mode: "0755"
     - source: patchyard-provider-resolver
       destination: /usr/local/libexec/patchyard-provider-resolver
       mode: "0755"
@@ -782,6 +786,9 @@
       mode: "0750"
     - source: patchyard-mint-openai-seat-bearer
       destination: /usr/local/sbin/patchyard-mint-openai-seat-bearer
+      mode: "0750"
+    - source: patchyard-mint-xai-seat-bearer
+      destination: /usr/local/sbin/patchyard-mint-xai-seat-bearer
       mode: "0750"
   when: not (factory_restore_drill | default(false) | bool)
   notify: Restart factory supervisor
@@ -811,6 +818,16 @@
   when: not (factory_restore_drill | default(false) | bool)
   notify: Restart factory supervisor
 
+- name: Install the hardened supervisor xAI seat-mint requester
+  ansible.builtin.copy:
+    src: patchyard-request-xai-seat-bearer
+    dest: /usr/local/libexec/patchyard-request-xai-seat-bearer
+    owner: root
+    group: factory
+    mode: "0750"
+  when: not (factory_restore_drill | default(false) | bool)
+  notify: Restart factory supervisor
+
 - name: Remove the superseded seat-mint sudo grant
   ansible.builtin.file:
     path: /etc/sudoers.d/patchyard-seat-mint
@@ -832,6 +849,18 @@
   ansible.builtin.copy:
     src: patchyard-openai-seat-mint@.service
     dest: /etc/systemd/system/patchyard-openai-seat-mint@.service
+    owner: root
+    group: root
+    mode: "0644"
+  when: not (factory_restore_drill | default(false) | bool)
+  notify:
+    - Reload systemd
+    - Restart factory supervisor
+
+- name: Install the root-only xAI seat-mint systemd template
+  ansible.builtin.copy:
+    src: patchyard-xai-seat-mint@.service
+    dest: /etc/systemd/system/patchyard-xai-seat-mint@.service
     owner: root
     group: root
     mode: "0644"
@@ -903,16 +932,21 @@
     - /etc/sudoers.d/patchyard-seat-mint
     - /etc/systemd/system/patchyard-seat-mint@.service
     - /etc/systemd/system/patchyard-openai-seat-mint@.service
+    - /etc/systemd/system/patchyard-xai-seat-mint@.service
+    - /etc/patchyard/xai-seat.key
     - /run/patchyard-seat-mint-probes
     - /run/patchyard-seats
     - /usr/local/libexec/patchyard-request-seat-bearer
     - /usr/local/libexec/patchyard-request-openai-seat-bearer
+    - /usr/local/libexec/patchyard-request-xai-seat-bearer
     - /usr/local/libexec/patchyard-triage-seat
     - /usr/local/libexec/patchyard-disposition-seat
     - /usr/local/libexec/patchyard-review-seat
+    - /usr/local/libexec/patchyard-arbiter-seat
     - /usr/local/libexec/patchyard-provider-resolver
     - /usr/local/sbin/patchyard-mint-seat-bearer
     - /usr/local/sbin/patchyard-mint-openai-seat-bearer
+    - /usr/local/sbin/patchyard-mint-xai-seat-bearer
     - /usr/local/sbin/patchyard-run-anthropic-issuance
   when: factory_restore_drill | default(false) | bool
   notify:

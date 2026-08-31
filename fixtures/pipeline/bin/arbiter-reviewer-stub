@@ -1,0 +1,9 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+prompt=$1
+packet=$2
+output=$3
+test -r "$prompt"
+jq '{schema_version:1,dispute_id:.dispute.dispute_id,decision:"reviewer",evidence:"fixture arbitration: the finding stands against the worktree bytes",usage:{input_tokens:11,output_tokens:5}}' "$packet" >"$output"
+printf 'typed arbitration fixture (reviewer upheld)\n'

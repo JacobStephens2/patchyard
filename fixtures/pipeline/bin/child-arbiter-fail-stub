@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# A live arbitration child that dies before writing any terminal record -
+# the shape a provider outage or launcher fault leaves behind.
+set -euo pipefail
+JOB=${1:?job directory required}
+[[ "$JOB" == /* ]]
+echo 'fixture arbitration child failing closed' >&2
+exit 1

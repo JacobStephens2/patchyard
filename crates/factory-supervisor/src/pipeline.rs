@@ -20,13 +20,14 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::{
+    arbiter::{ArbiterError, SandboxedArbiter},
     artifacts::{ArtifactError, ArtifactStore, StoredArtifact},
     automaton,
     config::{RoutingConfig, RoutingError},
     contracts::{
-        DispositionArtifact, DispositionKind, DispositionPacket, DisputeRecord, OutContract,
-        PatchHunk, ResolvedInvocation, TriageInvocation, VerifyFailure, WorkerClaim,
-        WorkerTaskPacket,
+        ArbitrationDecision, ArbitrationPacket, DispositionArtifact, DispositionKind,
+        DispositionPacket, DisputeRecord, OutContract, PatchHunk, ResolvedInvocation,
+        TriageInvocation, VerifyFailure, WorkerClaim, WorkerTaskPacket,
     },
     lifecycle::{LifecycleError, LifecycleService},
     observability,
@@ -106,6 +107,9 @@ pub struct Pipeline<S: PipelineStore> {
     worker: ProcessWorkerBackend,
     verifier: ProcessVerifierBackend,
     reviewer: SandboxedReviewer,
+    /// `None` keeps the stubbed dispute escalation: a dispute is terminal
+    /// until bootstrap proves the arbiter seat's provider qualified (A113).
+    arbiter: Option<SandboxedArbiter>,
     publisher: Option<Arc<dyn PublishService>>,
     lifecycle: Option<Arc<dyn LifecycleService>>,
 }
@@ -123,6 +127,7 @@ impl<S: PipelineStore> Pipeline<S> {
         worker: ProcessWorkerBackend,
         verifier: ProcessVerifierBackend,
         reviewer: SandboxedReviewer,
+        arbiter: Option<SandboxedArbiter>,
         publisher: Option<Arc<dyn PublishService>>,
         lifecycle: Option<Arc<dyn LifecycleService>>,
     ) -> Self {
@@ -136,6 +141,7 @@ impl<S: PipelineStore> Pipeline<S> {
             worker,
             verifier,
             reviewer,
+            arbiter,
             publisher,
             lifecycle,
         }
@@ -486,7 +492,7 @@ impl<S: PipelineStore> Pipeline<S> {
             )
             .await?;
 
-            if self
+            if let Some(reason) = self
                 .adversarial_review(
                     claim.request_id,
                     run.id,
@@ -503,7 +509,7 @@ impl<S: PipelineStore> Pipeline<S> {
                         claim.request_id,
                         run.id,
                         "run.escalated",
-                        "review_dispute_requires_third_family",
+                        reason,
                         serde_json::json!({"dry_run": true}),
                     )
                     .await;
@@ -909,6 +915,9 @@ impl<S: PipelineStore> Pipeline<S> {
         }))
     }
 
+    /// Run every configured reviewer, adjudicate their findings, and resolve
+    /// any disputes. `Ok(None)` means the run may proceed; `Ok(Some(reason))`
+    /// names the first escalation the dispute path produced.
     #[allow(clippy::too_many_arguments)]
     async fn adversarial_review(
         &self,
@@ -919,7 +928,7 @@ impl<S: PipelineStore> Pipeline<S> {
         patch: &Path,
         hunks: &[PatchHunk],
         cancellation: &CancellationToken,
-    ) -> Result<bool, PipelineError> {
+    ) -> Result<Option<&'static str>, PipelineError> {
         let reviewed_sha = materialize_review_sha(
             &self.config.repository,
             &contract.base_sha,
@@ -947,7 +956,7 @@ impl<S: PipelineStore> Pipeline<S> {
             )
             .await?;
         observability::record_stage("review", "success", started.elapsed());
-        let mut escalate = false;
+        let mut escalation: Option<&'static str> = None;
         for (index, review) in reviews.into_iter().enumerate() {
             let stage = format!("review-{index}");
             self.persist(
@@ -1068,25 +1077,172 @@ impl<S: PipelineStore> Pipeline<S> {
                         1024 * 1024,
                     )
                     .await?;
-                    self.store
-                        .transition_run(
+                    if let Some(reason) = self
+                        .resolve_dispute(
                             request_id,
                             run_id,
-                            "review.dispute_escalated",
-                            "reviewing",
-                            &format!("dispute:{}", dispute.dispute_id),
-                            serde_json::json!({
-                                "dispute_id": dispute.dispute_id,
-                                "arbiter": self.invocation("dispute_arbitration")?,
-                                "stubbed": true,
-                            }),
+                            &stage,
+                            index,
+                            task,
+                            contract,
+                            hunks,
+                            &dispute,
+                            cancellation,
                         )
-                        .await?;
-                    escalate = true;
+                        .await?
+                    {
+                        escalation.get_or_insert(reason);
+                    }
                 }
             }
         }
-        Ok(escalate)
+        Ok(escalation)
+    }
+
+    /// Resolve one escalated dispute. `Ok(None)` means the dispute resolved
+    /// in the author's favor and the run may proceed; `Ok(Some(reason))` is
+    /// the escalation this dispute forces.
+    ///
+    /// Order is ruled by A77: an empirically checkable finding resolves by
+    /// experiment above all arbitration (clause 4) - the experiment runner is
+    /// sequenced as its own ticket, so until it exists such a dispute
+    /// escalates under its own name rather than being judged. Everything else
+    /// arbitrates to the third family when that seat is live, and keeps the
+    /// stubbed terminal escalation while its provider is unqualified.
+    #[allow(clippy::too_many_arguments)]
+    async fn resolve_dispute(
+        &self,
+        request_id: Uuid,
+        run_id: Uuid,
+        stage: &str,
+        review_index: usize,
+        task: &TaskSpec,
+        contract: &OutContract,
+        hunks: &[PatchHunk],
+        dispute: &DisputeRecord,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<&'static str>, PipelineError> {
+        if dispute.finding.empirically_checkable {
+            self.store
+                .transition_run(
+                    request_id,
+                    run_id,
+                    "review.dispute_escalated",
+                    "reviewing",
+                    &format!("dispute:{}", dispute.dispute_id),
+                    serde_json::json!({
+                        "dispute_id": dispute.dispute_id,
+                        "empirically_checkable": true,
+                        "resolution": "experiment_required",
+                    }),
+                )
+                .await?;
+            return Ok(Some("review_dispute_requires_experiment"));
+        }
+        let Some(arbiter) = &self.arbiter else {
+            self.store
+                .transition_run(
+                    request_id,
+                    run_id,
+                    "review.dispute_escalated",
+                    "reviewing",
+                    &format!("dispute:{}", dispute.dispute_id),
+                    serde_json::json!({
+                        "dispute_id": dispute.dispute_id,
+                        "arbiter": self.invocation("dispute_arbitration")?,
+                        "stubbed": true,
+                    }),
+                )
+                .await?;
+            return Ok(Some("review_dispute_requires_third_family"));
+        };
+        let invocation = self.invocation("dispute_arbitration")?;
+        let packet = ArbitrationPacket {
+            schema_version: 1,
+            dispute: dispute.clone(),
+            task_spec: task.clone(),
+            manifest: contract.manifest.clone(),
+            hunks: hunks.to_vec(),
+        };
+        let started = Instant::now();
+        let execution = match arbiter
+            .arbitrate(
+                &self.config.repository,
+                &packet,
+                invocation.clone(),
+                cancellation,
+            )
+            .await
+        {
+            Ok(execution) => {
+                observability::record_stage("arbitration", "success", started.elapsed());
+                execution
+            }
+            Err(error) => {
+                // The seat going live must never make a dispute worse than
+                // the stub it replaces (#356): a provider outage or a
+                // malformed envelope escalates the run with the failure on
+                // the ledger instead of failing the request with no terminal
+                // dispute event.
+                observability::record_stage("arbitration", "error", started.elapsed());
+                self.store
+                    .transition_run(
+                        request_id,
+                        run_id,
+                        "review.dispute_escalated",
+                        "reviewing",
+                        &format!("dispute:{}", dispute.dispute_id),
+                        serde_json::json!({
+                            "dispute_id": dispute.dispute_id,
+                            "arbiter": invocation,
+                            "arbiter_error": error.to_string(),
+                        }),
+                    )
+                    .await?;
+                return Ok(Some("review_dispute_arbitration_failed"));
+            }
+        };
+        self.persist(
+            request_id,
+            Some(run_id),
+            stage,
+            "arbitration.json",
+            "arbitration-artifact",
+            serde_json::to_vec(&execution.artifact)?,
+            1024 * 1024,
+        )
+        .await?;
+        self.persist(
+            request_id,
+            Some(run_id),
+            &format!("arbitration-{review_index}"),
+            "transcript.log",
+            "agent-transcript",
+            execution.transcript,
+            8 * 1024 * 1024,
+        )
+        .await?;
+        self.record_usage(run_id, &execution.invocation, execution.artifact.usage)
+            .await?;
+        self.store
+            .transition_run(
+                request_id,
+                run_id,
+                "review.dispute_arbitrated",
+                "reviewing",
+                &format!("arbitration:{}", dispute.dispute_id),
+                serde_json::json!({
+                    "dispute_id": dispute.dispute_id,
+                    "decision": execution.artifact.decision,
+                    "arbiter": execution.invocation,
+                }),
+            )
+            .await?;
+        Ok(match execution.artifact.decision {
+            ArbitrationDecision::Author => None,
+            ArbitrationDecision::Reviewer => Some("review_dispute_reviewer_upheld"),
+            ArbitrationDecision::ExperimentRequired => Some("review_dispute_requires_experiment"),
+        })
     }
 
     async fn run_verify(
@@ -1623,6 +1779,8 @@ pub enum PipelineError {
     Stage(#[from] StageError),
     #[error("review failed: {0}")]
     Review(#[from] ReviewError),
+    #[error("dispute arbitration failed: {0}")]
+    Arbiter(#[from] ArbiterError),
     #[error("artifact persistence failed: {0}")]
     Artifact(#[from] ArtifactError),
     #[error("exact worktree operation failed: {0}")]

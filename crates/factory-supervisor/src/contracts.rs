@@ -188,7 +188,9 @@ pub struct DispositionPacket {
     pub patch_sha256: String,
 }
 
-/// One disputed finding sent to the third-family arbiter stub.
+/// One disputed finding sent to the third-family arbiter. Both positions ride
+/// in it by design (A87): the reviewer's finding with its evidence, and the
+/// author's disposition with its evidence. No transcript rides with either.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DisputeRecord {
@@ -199,6 +201,19 @@ pub struct DisputeRecord {
     pub patch_sha256: String,
     pub finding: ReviewFinding,
     pub author_disposition: FindingDisposition,
+}
+
+/// Arbiter input. Mirrors [`ReviewPacket`]'s worktree-aiming fields so the
+/// isolated seat can project bounded windows of the exact change the dispute
+/// is about; author and reviewer transcripts are absent by construction (F5).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArbitrationPacket {
+    pub schema_version: u16,
+    pub dispute: DisputeRecord,
+    pub task_spec: TaskSpec,
+    pub manifest: DiffManifest,
+    pub hunks: Vec<PatchHunk>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

@@ -4,6 +4,7 @@
 //! never treats request text, rationale, review prose, or model confidence as
 //! authority.
 
+pub mod arbiter;
 pub mod artifacts;
 pub mod automaton;
 pub mod bootstrap;

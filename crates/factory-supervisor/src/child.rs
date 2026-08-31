@@ -25,6 +25,7 @@ const MAX_CONTROL_OUTPUT_BYTES: usize = 64 * 1024;
 #[serde(rename_all = "snake_case")]
 pub enum ChildKind {
     Review,
+    Arbitration,
     Proposer,
     ProposerDisposition,
     Evidence,
@@ -108,6 +109,21 @@ pub enum ChildContract {
         #[serde(default)]
         egress_host: Option<String>,
     },
+    Arbitration {
+        workspace: String,
+        reviewed_sha: String,
+        packet_sha256: String,
+        prompt_sha256: String,
+        model: String,
+        effort: String,
+        harness: String,
+        provider: String,
+        /// `None` keeps the sealed `offline-arbitration` network policy;
+        /// `Some` pins egress to exactly this qualified provider host on
+        /// tcp/443, the same shape the live review child uses.
+        #[serde(default)]
+        egress_host: Option<String>,
+    },
     Proposer {
         packet_sha256: String,
         prompt_sha256: String,
@@ -136,6 +152,7 @@ impl ChildContract {
     pub fn kind(&self) -> ChildKind {
         match self {
             Self::Review { .. } => ChildKind::Review,
+            Self::Arbitration { .. } => ChildKind::Arbitration,
             Self::Proposer { .. } => ChildKind::Proposer,
             Self::ProposerDisposition { .. } => ChildKind::ProposerDisposition,
             Self::Evidence { .. } => ChildKind::Evidence,
@@ -468,6 +485,7 @@ fn validate_terminal(
 fn validate_output_name(kind: ChildKind, name: &str) -> Result<(), ChildError> {
     let allowed: &[&str] = match kind {
         ChildKind::Review => &["review.json", "transcript.log"],
+        ChildKind::Arbitration => &["arbitration.json", "transcript.log"],
         ChildKind::Proposer => &["proposal.json", "transcript.log"],
         ChildKind::ProposerDisposition => &["disposition.json", "transcript.log"],
         ChildKind::Evidence => &[
@@ -489,6 +507,8 @@ fn output_maximum(contract: &ChildContract, name: &str) -> Result<usize, ChildEr
     match (contract, name) {
         (ChildContract::Review { .. }, "review.json") => Ok(1024 * 1024),
         (ChildContract::Review { .. }, "transcript.log") => Ok(MAX_CHILD_OUTPUT_BYTES),
+        (ChildContract::Arbitration { .. }, "arbitration.json") => Ok(1024 * 1024),
+        (ChildContract::Arbitration { .. }, "transcript.log") => Ok(MAX_CHILD_OUTPUT_BYTES),
         (ChildContract::Proposer { .. }, "proposal.json") => Ok(1024 * 1024),
         (ChildContract::Proposer { .. }, "transcript.log") => Ok(MAX_CHILD_OUTPUT_BYTES),
         (ChildContract::ProposerDisposition { .. }, "disposition.json") => Ok(1024 * 1024),
@@ -517,6 +537,13 @@ fn expected_network_policy_sha256(contract: &ChildContract) -> Result<String, Ch
         ChildContract::Review {
             egress_host: None, ..
         } => "offline-review".to_owned(),
+        ChildContract::Arbitration {
+            egress_host: Some(host),
+            ..
+        } => format!("provider={host}\ntransport=tcp/443\ndns=none\n"),
+        ChildContract::Arbitration {
+            egress_host: None, ..
+        } => "offline-arbitration".to_owned(),
         ChildContract::Proposer { .. } => "offline-proposer".to_owned(),
         ChildContract::ProposerDisposition { .. } => "offline-proposer-disposition".to_owned(),
         ChildContract::Evidence { capture, .. } => {

@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+JOB=${1:?job directory required}
+[[ "$JOB" == /* && -d "$JOB/input" && -d "$JOB/output" ]]
+REQUEST="$JOB/request.json"
+jq -e '.schema_version == 1 and .contract.kind == "arbitration"' "$REQUEST" >/dev/null
+JOB_ID=$(jq -r .job_id "$REQUEST")
+REVIEWED_SHA=$(jq -r .contract.reviewed_sha "$REQUEST")
+[[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]]
+[[ "$(sha256sum "$JOB/input/packet.json" | cut -d' ' -f1)" \
+  == "$(jq -r .contract.packet_sha256 "$REQUEST")" ]]
+[[ "$(sha256sum "$JOB/input/prompt.md" | cut -d' ' -f1)" \
+  == "$(jq -r .contract.prompt_sha256 "$REQUEST")" ]]
+
+BIN=$(dirname "$0")
+"$BIN/arbiter-reviewer-stub" \
+  "$JOB/input/prompt.md" "$JOB/input/packet.json" "$JOB/output/arbitration.json" \
+  >"$JOB/output/transcript.log" 2>&1
+printf '%s\n' 'fixture arbitration child completed' >>"$JOB/output/transcript.log"
+chmod 0600 "$JOB/output/arbitration.json" "$JOB/output/transcript.log"
+REQUEST_SHA=$(sha256sum "$REQUEST" | cut -d' ' -f1)
+ARBITRATION_SHA=$(sha256sum "$JOB/output/arbitration.json" | cut -d' ' -f1)
+TRANSCRIPT_SHA=$(sha256sum "$JOB/output/transcript.log" | cut -d' ' -f1)
+ARBITRATION_BYTES=$(stat -c %s "$JOB/output/arbitration.json")
+TRANSCRIPT_BYTES=$(stat -c %s "$JOB/output/transcript.log")
+jq -n \
+  --arg job_id "$JOB_ID" \
+  --arg request_sha256 "$REQUEST_SHA" \
+  --arg network_policy_sha256 "$(printf '%s' offline-arbitration | sha256sum | cut -d' ' -f1)" \
+  --arg arbitration_sha256 "$ARBITRATION_SHA" \
+  --arg transcript_sha256 "$TRANSCRIPT_SHA" \
+  --argjson arbitration_bytes "$ARBITRATION_BYTES" \
+  --argjson transcript_bytes "$TRANSCRIPT_BYTES" \
+  '{
+    schema_version: 1,
+    job_id: $job_id,
+    kind: "arbitration",
+    state: "completed",
+    request_sha256: $request_sha256,
+    network_policy_sha256: $network_policy_sha256,
+    outputs: [
+      {name: "arbitration.json", sha256: $arbitration_sha256, bytes: $arbitration_bytes},
+      {name: "transcript.log", sha256: $transcript_sha256, bytes: $transcript_bytes}
+    ],
+    isolation: {
+      sibling_unreachable: true,
+      shared_scratch_unreachable: true,
+      credential_paths_unreachable: true,
+      postgres_socket_unreachable: true,
+      artifact_tree_unreachable: true,
+      metadata_unreachable: true,
+      private_fleet_unreachable: true
+    },
+    teardown: {
+      complete: true,
+      processes: 0,
+      mounts: 0,
+      namespaces: 0,
+      secret_files: 0,
+      staging_paths: 0,
+      firewall_rules: 0,
+      preview_capabilities: 0
+    }
+  }' >"$JOB/terminal.json"
+chmod 0600 "$JOB/terminal.json"

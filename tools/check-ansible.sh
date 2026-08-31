@@ -76,6 +76,7 @@ TEST_FILES=(
   infra/ansible/tests/test_demonstration_run.py
   infra/ansible/tests/test_factory_checker_runtime.py
   infra/ansible/tests/test_freeze_graph.py
+  infra/ansible/tests/test_live_arbiter_seat.py
   infra/ansible/tests/test_live_review_disposition_seats.py
   infra/ansible/tests/test_log_secret_scan.py
   infra/ansible/tests/test_merge_refix.py

@@ -121,11 +121,14 @@ test -x /usr/local/sbin/patchyard-run-anthropic-issuance
 test -x /usr/local/libexec/patchyard-triage-seat
 test -x /usr/local/libexec/patchyard-disposition-seat
 test -x /usr/local/libexec/patchyard-review-seat
+test -x /usr/local/libexec/patchyard-arbiter-seat
 test -x /usr/local/libexec/patchyard-provider-resolver
 test -x /usr/local/libexec/patchyard-request-seat-bearer
 test -x /usr/local/sbin/patchyard-mint-seat-bearer
 test -x /usr/local/libexec/patchyard-request-openai-seat-bearer
 test -x /usr/local/sbin/patchyard-mint-openai-seat-bearer
+test -x /usr/local/libexec/patchyard-request-xai-seat-bearer
+test -x /usr/local/sbin/patchyard-mint-xai-seat-bearer
 test ! -e /etc/sudoers.d/patchyard-seat-mint
 grep -Fxq -- '{{ hostvars[groups['worker'][0]].private_ip }}' \
   /etc/patchyard/anthropic-worker-ip

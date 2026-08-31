@@ -3,7 +3,8 @@ polkit.addRule(function(action, subject) {
         subject.user == "factory-manager" &&
         action.lookup("unit") &&
         (/^patchyard-seat-mint@agent-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.service$/.test(action.lookup("unit")) ||
-         /^patchyard-openai-seat-mint@agent-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.service$/.test(action.lookup("unit"))) &&
+         /^patchyard-openai-seat-mint@agent-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.service$/.test(action.lookup("unit")) ||
+         /^patchyard-xai-seat-mint@agent-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.service$/.test(action.lookup("unit"))) &&
         action.lookup("verb") == "start") {
         return polkit.Result.YES;
     }

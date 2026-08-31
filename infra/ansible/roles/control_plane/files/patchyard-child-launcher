@@ -245,6 +245,8 @@ output_claims() {
   local names=() name
   if [[ "$STATE" == completed && "$KIND" == review ]]; then
     names=(review.json transcript.log)
+  elif [[ "$STATE" == completed && "$KIND" == arbitration ]]; then
+    names=(arbitration.json transcript.log)
   elif [[ "$STATE" == completed && "$KIND" == proposer ]]; then
     names=(proposal.json transcript.log)
   elif [[ "$STATE" == completed && "$KIND" == proposer_disposition ]]; then
@@ -402,7 +404,8 @@ path_contract "$REQUEST" "$MANAGER_USER" 600 file
 jq -e --arg id "$ID" '
   .schema_version == 1
   and (.job_id | type == "string" and gsub("-"; "") == $id)
-  and (.contract.kind == "review" or .contract.kind == "proposer"
+  and (.contract.kind == "review" or .contract.kind == "arbitration"
+    or .contract.kind == "proposer"
     or .contract.kind == "proposer_disposition"
     or .contract.kind == "evidence")
 ' "$REQUEST" >/dev/null
@@ -732,6 +735,222 @@ if [[ "$KIND" == review ]]; then
   if [[ -n "$REVIEW_BEARER" ]]; then
     for name in review.json transcript.log; do
       if grep -aFq -- "$REVIEW_BEARER" "$OUTPUT/$name"; then
+        STATE=bearer_disclosure_blocked
+        exit 1
+      fi
+    done
+  fi
+  STATE=completed
+  FAILURE_STAGE=none
+  exit 0
+fi
+
+if [[ "$KIND" == arbitration ]]; then
+  jq -e '
+    .contract.kind == "arbitration"
+    and (.contract.workspace | test("^/var/lib/patchyard/supervisor/arbiter-worktrees/arbiter-[0-9a-f]{32}$"))
+    and (.contract.reviewed_sha | test("^[0-9a-f]{40}$"))
+    and (.contract.packet_sha256 | test("^[0-9a-f]{64}$"))
+    and (.contract.prompt_sha256 | test("^[0-9a-f]{64}$"))
+    and ([.contract.model,.contract.effort,.contract.harness,.contract.provider]
+      | all(type == "string" and test("^[A-Za-z0-9 ._+:/-]{1,128}$")))
+    and (.contract | has("egress_host"))
+    and ((.contract.egress_host == null)
+      or (.contract.egress_host
+        | type == "string" and test("^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$")))
+  ' "$REQUEST" >/dev/null
+  WORKSPACE=$(jq -r .contract.workspace "$REQUEST")
+  REVIEWED_SHA=$(jq -r .contract.reviewed_sha "$REQUEST")
+  EGRESS_HOST=$(jq -r '.contract.egress_host // empty' "$REQUEST")
+  [[ "$(readlink -f -- "$WORKSPACE")" == "$WORKSPACE" ]]
+  [[ "$(git -c "safe.directory=$WORKSPACE" -C "$WORKSPACE" rev-parse HEAD)" \
+    == "$REVIEWED_SHA" ]]
+  [[ -z "$(git -c "safe.directory=$WORKSPACE" -C "$WORKSPACE" status --porcelain)" ]]
+  path_contract "$JOB/input/packet.json" "$MANAGER_USER" 600 file
+  path_contract "$JOB/input/prompt.md" "$MANAGER_USER" 600 file
+  [[ "$(sha256sum "$JOB/input/packet.json" | cut -d' ' -f1)" \
+    == "$(jq -r .contract.packet_sha256 "$REQUEST")" ]]
+  [[ "$(sha256sum "$JOB/input/prompt.md" | cut -d' ' -f1)" \
+    == "$(jq -r .contract.prompt_sha256 "$REQUEST")" ]]
+  if [[ -n "$EGRESS_HOST" ]]; then
+    ARBITER_HARNESS_PATH=/usr/local/libexec/patchyard-arbiter-seat
+    NETWORK_POLICY_SHA256=$(
+      printf 'provider=%s\ntransport=tcp/443\ndns=none\n' "$EGRESS_HOST" |
+        sha256sum | cut -d' ' -f1
+    )
+  else
+    ARBITER_HARNESS_PATH=/opt/patchyard/fixtures/pipeline/bin/arbiter-stub
+    NETWORK_POLICY_SHA256=$(printf '%s' offline-arbitration | sha256sum | cut -d' ' -f1)
+  fi
+
+  chown "$NOBODY_UID:$NOBODY_GID" \
+    "$JOB/input/packet.json" "$JOB/input/prompt.md" "$OUTPUT"
+  chmod 0400 "$JOB/input/packet.json" "$JOB/input/prompt.md"
+  chmod 0700 "$OUTPUT"
+  # REVIEW_WORKSPACE is the shared teardown global finish() re-chmods; the
+  # arbitration branch reuses it so the one trap restores either kind's
+  # worktree.
+  REVIEW_WORKSPACE=$WORKSPACE
+  FAILURE_STAGE=arbitration_workspace_projection
+  chmod 0555 "$REVIEW_WORKSPACE"
+
+  ARBITER_BEARER=
+  ARBITER_RUN_PREFIX=(setsid)
+  ARBITER_NET_ARGS=()
+  ARBITER_PROBE_MOUNTS=()
+  ARBITER_CHILD_MOUNTS=()
+  ARBITER_CHILD_ENVIRONMENT=()
+  if [[ -n "$EGRESS_HOST" ]]; then
+    FAILURE_STAGE=arbitration_secret_validation
+    path_contract "$JOB/secret" "$MANAGER_USER" 700 directory
+    path_contract "$JOB/secret/bearer" "$MANAGER_USER" 600 file
+    ARBITER_BEARER=$(<"$JOB/secret/bearer")
+    # Pattern-match, never =~: glibc compiles a bounded repetition of a
+    # bracket expression into >1GB of state, which trips the unit's 768M
+    # MemoryMax before the seat ever runs. Length and character class are
+    # checked separately with constant-space builtins.
+    # 20 matches the seat's and the mint's own lower bound ("xai-" plus at
+    # least 16 key bytes), unlike the review branch's Anthropic-shaped 16.
+    (( ${#ARBITER_BEARER} >= 20 && ${#ARBITER_BEARER} <= 8192 ))
+    [[ "$ARBITER_BEARER" != *[![:graph:]]* ]]
+
+    FAILURE_STAGE=arbitration_network_policy
+    set +e
+    RESOLUTION=$(/usr/local/libexec/patchyard-provider-resolver "$EGRESS_HOST")
+    RESOLUTION_STATUS=$?
+    set -e
+    if [[ "$RESOLUTION_STATUS" -eq 42 ]]; then
+      STATE=dns_binding_changed
+      exit 1
+    fi
+    [[ "$RESOLUTION_STATUS" -eq 0 ]]
+    jq -e \
+      --arg host "$EGRESS_HOST" \
+      '.schema_version == 1 and .state == "stable" and .host == $host
+       and (.addresses | type == "array" and length > 0)
+       and all(.addresses[]; test("^[0-9]{1,3}(\\.[0-9]{1,3}){3}$"))' \
+      <<<"$RESOLUTION" >/dev/null
+    mapfile -t RESOLUTION_ONE < <(jq -r '.addresses[]' <<<"$RESOLUTION")
+    (set -o noclobber
+      {
+        printf '127.0.0.1 localhost\n'
+        for address in "${RESOLUTION_ONE[@]}"; do
+          printf '%s %s\n' "$address" "$EGRESS_HOST"
+        done
+      } >"$JOB/input/hosts"
+    )
+    chmod 0400 "$JOB/input/hosts"
+    chown "$NOBODY_UID:$NOBODY_GID" "$JOB/input/hosts" "$JOB/secret/bearer"
+    chmod 0400 "$JOB/secret/bearer"
+
+    exec {NETWORK_LOCK}>/run/lock/patchyard-evidence.lock
+    flock -w 10 "$NETWORK_LOCK"
+    SHORT=${ID:0:8}
+    NETNS="efn$SHORT"
+    HOST_VETH="efh$SHORT"
+    GUEST_VETH="efg$SHORT"
+    NFT_TABLE="eta_child_$SHORT"
+    BASE_FORWARD=$(sysctl -n net.ipv4.ip_forward)
+    [[ "$BASE_FORWARD" == 0 ]] || {
+      FAILURE_STAGE=arbitration_non_router_baseline
+      exit 1
+    }
+    create_child_netns
+    PROVIDER_SET=$(IFS=,; echo "${RESOLUTION_ONE[*]}")
+    apply_child_firewall "$PROVIDER_SET"
+
+    exec {ARBITER_HOSTS_FD}<"$JOB/input/hosts"
+    exec {ARBITER_BEARER_FD}<"$JOB/secret/bearer"
+    ARBITER_RUN_PREFIX=(setsid ip netns exec "$NETNS")
+    ARBITER_NET_ARGS=(--share-net)
+    ARBITER_PROBE_MOUNTS=(--ro-bind-fd "$ARBITER_HOSTS_FD" /etc/hosts)
+    ARBITER_CHILD_MOUNTS=(
+      --dir /secret
+      --ro-bind /etc/pki /etc/pki
+      --ro-bind-fd "$ARBITER_HOSTS_FD" /etc/hosts
+      --ro-bind-fd "$ARBITER_BEARER_FD" /secret/bearer
+    )
+    ARBITER_CHILD_ENVIRONMENT=(--setenv PATCHYARD_BEARER_FILE /secret/bearer)
+  fi
+
+  FAILURE_STAGE=arbitration_sandbox
+  MODEL=$(jq -r .contract.model "$REQUEST")
+  EFFORT=$(jq -r .contract.effort "$REQUEST")
+  HARNESS=$(jq -r .contract.harness "$REQUEST")
+  PROVIDER=$(jq -r .contract.provider "$REQUEST")
+  exec {ARBITER_WORKSPACE_FD}<"$WORKSPACE"
+  exec {ARBITER_PACKET_FD}<"$JOB/input/packet.json"
+  exec {ARBITER_PROMPT_FD}<"$JOB/input/prompt.md"
+  exec {ARBITER_PROBE_FD}</usr/local/libexec/patchyard-child-probe
+  exec {ARBITER_HARNESS_FD}<"$ARBITER_HARNESS_PATH"
+  exec {ARBITER_OUTPUT_FD}<"$OUTPUT"
+  mkdir "$ISOLATION_DIRECTORY"
+  chown "$NOBODY_UID:$NOBODY_GID" "$ISOLATION_DIRECTORY"
+  chmod 0700 "$ISOLATION_DIRECTORY"
+  exec {ARBITER_PROBE_OUTPUT_FD}<"$ISOLATION_DIRECTORY"
+  if ! "${ARBITER_RUN_PREFIX[@]}" env -i PATH=/usr/bin:/bin /usr/bin/bwrap \
+    "${BWRAP_BASE[@]}" \
+    "${ARBITER_NET_ARGS[@]}" \
+    --dir /input \
+    --dir /workspace \
+    --dir /probe-output \
+    --ro-bind-fd "$ARBITER_WORKSPACE_FD" /workspace \
+    --ro-bind-fd "$ARBITER_PACKET_FD" /input/PACKET.json \
+    --ro-bind-fd "$ARBITER_PROMPT_FD" /input/PROMPT.md \
+    --ro-bind-fd "$ARBITER_PROBE_FD" /isolation-probe \
+    "${ARBITER_PROBE_MOUNTS[@]}" \
+    --bind-fd "$ARBITER_PROBE_OUTPUT_FD" /probe-output \
+    --chdir /workspace \
+    /usr/bin/setpriv \
+      --reuid "$NOBODY_UID" --regid "$NOBODY_GID" --clear-groups \
+      /isolation-probe /probe-output/isolation.json; then
+    require_isolation || true
+    exit 1
+  fi
+  require_isolation
+  chown -R root:root "$ISOLATION_DIRECTORY"
+  chmod 0700 "$ISOLATION_DIRECTORY"
+  chmod 0600 "$ISOLATION_FILE"
+  exec {ARBITER_PROBE_OUTPUT_FD}>&-
+  exec {ARBITER_PROBE_FD}>&-
+  "${ARBITER_RUN_PREFIX[@]}" env -i PATH=/usr/bin:/bin /usr/bin/bwrap \
+    "${BWRAP_BASE[@]}" \
+    "${ARBITER_NET_ARGS[@]}" \
+    --dir /input \
+    --dir /output \
+    --dir /workspace \
+    --ro-bind-fd "$ARBITER_WORKSPACE_FD" /workspace \
+    --ro-bind-fd "$ARBITER_PACKET_FD" /input/PACKET.json \
+    --ro-bind-fd "$ARBITER_PROMPT_FD" /input/PROMPT.md \
+    --ro-bind-fd "$ARBITER_HARNESS_FD" /harness \
+    "${ARBITER_CHILD_MOUNTS[@]}" \
+    --bind-fd "$ARBITER_OUTPUT_FD" /output \
+    --chdir /workspace \
+    --setenv PATCHYARD_MODEL "$MODEL" \
+    --setenv PATCHYARD_EFFORT "$EFFORT" \
+    --setenv PATCHYARD_HARNESS "$HARNESS" \
+    --setenv PATCHYARD_PROVIDER "$PROVIDER" \
+    "${ARBITER_CHILD_ENVIRONMENT[@]}" \
+    /usr/bin/setpriv \
+      --reuid "$NOBODY_UID" --regid "$NOBODY_GID" --clear-groups \
+      /harness /input/PROMPT.md /input/PACKET.json /output/arbitration.json \
+    >"$OUTPUT/transcript.log" 2>&1 &
+  CHILD_PID=$!
+  if ! wait "$CHILD_PID"; then
+    CHILD_PID=
+    STATE=contract_rejected
+    exit 1
+  fi
+  CHILD_PID=
+  FAILURE_STAGE=arbitration_output_validation
+  require_isolation
+  [[ -f "$OUTPUT/arbitration.json" && ! -L "$OUTPUT/arbitration.json" ]]
+  [[ "$(stat -c %s "$OUTPUT/arbitration.json")" -le 1048576 ]]
+  [[ "$(stat -c %s "$OUTPUT/transcript.log")" -le 8388608 ]]
+  chmod 0600 "$OUTPUT/arbitration.json" "$OUTPUT/transcript.log"
+  if [[ -n "$ARBITER_BEARER" ]]; then
+    for name in arbitration.json transcript.log; do
+      if grep -aFq -- "$ARBITER_BEARER" "$OUTPUT/$name"; then
         STATE=bearer_disclosure_blocked
         exit 1
       fi

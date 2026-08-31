@@ -1,0 +1,616 @@
+#!/usr/bin/env python3
+"""Invoke the third-family dispute-arbitration seat inside the A87 sandbox.
+
+Runs as `nobody` inside the isolated arbitration child: the workspace at the
+reviewed SHA is the read-only current directory, the typed dispute packet and
+prompt are the only inputs, and the seat bearer arrives as a read-only file
+the launcher removes on teardown. The only reachable endpoint is the
+provider's API surface pinned by the launcher's network policy.
+
+The provider client is a bounded one-shot against xAI's chat-completions
+surface (the Grok Build harness pairing from `policy/routing.json`). Budgets
+are sized to the dispute record plus worktree windows from day one (#353):
+`max_tokens` matches the review seat's windowed-packet ceiling, and every
+envelope rejection names the field that failed, `finish_reason` included.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import sys
+from typing import Any
+import urllib.error
+import urllib.request
+
+
+MAX_INPUT_BYTES = 1_000_000
+MAX_PROMPT_BYTES = 256_000
+MAX_RESPONSE_BYTES = 4_000_000
+MAX_OUTPUT_BYTES = 1_000_000
+MAX_EVIDENCE_BYTES = 65_536
+MAX_WORKSPACE_FILE_BYTES = 262_144
+MAX_WORKSPACE_TOTAL_BYTES = 524_288
+# Same windowed projection as the review seat: a body over the per-file cap
+# is carried as a bounded window around the packet's supervisor-derived hunk
+# ranges rather than dropped, and a windowed entry carries no `content` key.
+WINDOW_CONTEXT_LINES = 40
+MAX_WORKSPACE_WINDOW_BYTES = 65_536
+MAX_WORKSPACE_SCAN_BYTES = 8_388_608
+# Matches MAX_REVIEW_HUNKS in crates/factory-supervisor/src/pipeline.rs. Two
+# constants across a process boundary cannot be shared; both sides refuse
+# rather than truncate.
+MAX_PACKET_HUNKS = 256
+OMISSION_REASONS = ("oversize", "binary", "deleted", "undecodable", "unreadable")
+OBSERVED_EMPTY = "empty"
+# Bounded below the launcher-side child unit timeout (660s) so the seat, not
+# the sandbox teardown, is what times a slow provider call out.
+PROVIDER_TIMEOUT_SECONDS = 600
+XAI_CHAT_COMPLETIONS = "https://api.x.ai/v1/chat/completions"
+LOOPBACK_PROVIDER = re.compile(r"http://127[.]0[.]0[.]1:([0-9]{1,5})")
+# xAI team API keys: an `xai-` prefix over one base-62 body.
+BEARER_PATTERN = re.compile(r"xai-[A-Za-z0-9]{16,8000}")
+UUID_PATTERN = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+)
+SHA1_PATTERN = re.compile(r"[0-9a-f]{40}")
+SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
+WORKSPACE_PATH_PATTERN = re.compile(r"[A-Za-z0-9._/-]{1,512}")
+MODEL_IDS = {
+    "Grok 4.5": "grok-4.5",
+}
+# `xhigh` is deliberately absent: on grok-4.5 xAI silently treats it as
+# `high` (research/model-rates/2026-08-26-xai-effort-pricing.md), and a seat
+# that asks for an effort the model does not honor is misreporting provenance.
+EFFORTS = {"low", "medium", "high"}
+DECISIONS = {"author", "reviewer", "experiment_required"}
+
+
+class SeatError(RuntimeError):
+    """A bounded seat precondition or provider response failed closed.
+
+    `reason` names which precondition failed, for the one caller that projects
+    a refusal instead of aborting on it.
+    """
+
+    def __init__(self, message: str, reason: str | None = None):
+        super().__init__(message)
+        self.reason = reason
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, file_pointer, code, message, headers, url):
+        del request, file_pointer, code, message, headers, url
+        return None
+
+
+def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise SeatError("JSON contains a duplicate key")
+        value[key] = item
+    return value
+
+
+def reject_json_constant(value: str) -> None:
+    raise SeatError(f"JSON contains forbidden numeric constant {value}")
+
+
+def load_json(value: bytes, label: str) -> Any:
+    try:
+        return json.loads(
+            value,
+            object_pairs_hook=reject_duplicate_keys,
+            parse_constant=reject_json_constant,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise SeatError(f"{label} is not valid JSON") from error
+
+
+def read_regular(path: Path, maximum: int, label: str) -> bytes:
+    try:
+        metadata = path.lstat()
+        resolved = path.resolve(strict=True)
+    except OSError as error:
+        raise SeatError(f"{label} cannot be opened", "unreadable") from error
+    if (
+        not path.is_absolute()
+        or resolved != path
+        or not stat.S_ISREG(metadata.st_mode)
+        or path.is_symlink()
+    ):
+        raise SeatError(f"{label} is outside the regular-file contract", "unreadable")
+    if metadata.st_size > maximum:
+        raise SeatError(f"{label} is outside the regular-file contract", "oversize")
+    if metadata.st_size == 0:
+        raise SeatError(
+            f"{label} is outside the regular-file contract", OBSERVED_EMPTY
+        )
+    return path.read_bytes()
+
+
+def read_bearer(path: Path) -> str:
+    value = read_regular(path, 8192, "seat bearer")
+    try:
+        bearer = value.decode("ascii")
+    except UnicodeDecodeError as error:
+        raise SeatError("seat bearer is not ASCII") from error
+    if BEARER_PATTERN.fullmatch(bearer) is None:
+        raise SeatError("seat bearer type is invalid")
+    return bearer
+
+
+def require_environment(name: str) -> str:
+    value = os.environ.get(name, "")
+    if not value:
+        raise SeatError(f"required seat variable {name} is missing")
+    return value
+
+
+def packet_contract(path: Path) -> dict[str, Any]:
+    value = load_json(
+        read_regular(path, MAX_INPUT_BYTES, "arbitration packet"), "arbitration packet"
+    )
+    if (
+        not isinstance(value, dict)
+        or set(value)
+        != {"schema_version", "dispute", "task_spec", "manifest", "hunks"}
+        or value.get("schema_version") != 1
+        or not isinstance(value.get("dispute"), dict)
+        or not isinstance(value.get("task_spec"), dict)
+        or not isinstance(value.get("manifest"), dict)
+        or not isinstance(value["manifest"].get("files"), list)
+        or len(value["manifest"]["files"]) > 64
+        or not isinstance(value.get("hunks"), list)
+        or len(value["hunks"]) > MAX_PACKET_HUNKS
+    ):
+        raise SeatError("arbitration packet does not match the typed contract")
+    dispute = value["dispute"]
+    if (
+        set(dispute)
+        != {
+            "schema_version",
+            "dispute_id",
+            "reviewed_sha",
+            "task_spec_sha256",
+            "patch_sha256",
+            "finding",
+            "author_disposition",
+        }
+        or dispute.get("schema_version") != 1
+        or UUID_PATTERN.fullmatch(str(dispute.get("dispute_id", ""))) is None
+        or SHA1_PATTERN.fullmatch(str(dispute.get("reviewed_sha", ""))) is None
+        or SHA256_PATTERN.fullmatch(str(dispute.get("task_spec_sha256", ""))) is None
+        or SHA256_PATTERN.fullmatch(str(dispute.get("patch_sha256", ""))) is None
+        or not isinstance(dispute.get("finding"), dict)
+        or not isinstance(dispute.get("author_disposition"), dict)
+    ):
+        raise SeatError("arbitration packet dispute is malformed")
+    # A77 clause 4 is enforced by the supervisor before any arbiter is
+    # consulted; a checkable finding arriving here is a contract breach, and
+    # the seat refuses to judge it rather than trusting the caller.
+    if dispute["finding"].get("empirically_checkable") is not False:
+        raise SeatError("arbitration packet finding is not judgment-only")
+    return value
+
+
+def omitted(raw_path: str, reason: str | None) -> dict[str, str]:
+    if reason not in OMISSION_REASONS:
+        raise SeatError("workspace omission reason is unsupported")
+    return {"path": raw_path, "content": "", "omitted": reason}
+
+
+def is_workspace_relative(raw_path: Any) -> bool:
+    """A path the projection may name: relative, traversal-free, in-charset."""
+    return (
+        isinstance(raw_path, str)
+        and WORKSPACE_PATH_PATTERN.fullmatch(raw_path) is not None
+        and not raw_path.startswith("/")
+        and ".." not in raw_path.split("/")
+    )
+
+
+def bounded_line_number(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and 1 <= value < 2**31
+
+
+def hunks_by_path(hunks: list[Any]) -> dict[str, list[tuple[int, int]]]:
+    """Group the packet's changed-line ranges by path.
+
+    The ranges are the supervisor's, read from its own diff of the applied
+    result, and are in reviewed-SHA line numbers. Workspace bytes cannot
+    influence them.
+    """
+    grouped: dict[str, list[tuple[int, int]]] = {}
+    for hunk in hunks:
+        if (
+            not isinstance(hunk, dict)
+            or set(hunk) != {"path", "start_line", "line_count"}
+            or not is_workspace_relative(hunk.get("path"))
+            or not bounded_line_number(hunk.get("start_line"))
+            or not bounded_line_number(hunk.get("line_count"))
+        ):
+            raise SeatError("arbitration packet hunk is malformed")
+        grouped.setdefault(hunk["path"], []).append(
+            (hunk["start_line"], hunk["line_count"])
+        )
+    return grouped
+
+
+def window_spans(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Expand each changed range by the context radius and merge overlaps."""
+    merged: list[list[int]] = []
+    for first, last in sorted(
+        (
+            max(1, start - WINDOW_CONTEXT_LINES),
+            start + count - 1 + WINDOW_CONTEXT_LINES,
+        )
+        for start, count in ranges
+    ):
+        if merged and first <= merged[-1][1] + 1:
+            merged[-1][1] = max(merged[-1][1], last)
+        else:
+            merged.append([first, last])
+    return [(first, last) for first, last in merged]
+
+
+def windowed_body(path: Path, ranges: list[tuple[int, int]]) -> dict[str, Any]:
+    """Project only the lines around the change, naming the ranges shown."""
+    if not ranges:
+        raise SeatError("no hunk range covers the oversize file", "oversize")
+    spans = window_spans(ranges)
+    kept: list[list[str]] = [[] for _ in spans]
+    kept_bytes = 0
+    total_lines = 0
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, "rb") as handle:
+        if os.fstat(handle.fileno()).st_size > MAX_WORKSPACE_SCAN_BYTES:
+            raise SeatError("workspace file exceeds the window scan limit", "oversize")
+        for line in handle:
+            total_lines += 1
+            for index, (first, last) in enumerate(spans):
+                if not first <= total_lines <= last:
+                    continue
+                kept_bytes += len(line)
+                if kept_bytes > MAX_WORKSPACE_WINDOW_BYTES:
+                    raise SeatError("window exceeds the byte limit", "oversize")
+                try:
+                    kept[index].append(line.decode("utf-8"))
+                except UnicodeDecodeError as error:
+                    raise SeatError("window is not UTF-8", "undecodable") from error
+                break
+    segments = [
+        {"start_line": first, "line_count": len(lines), "content": "".join(lines)}
+        for (first, _), lines in zip(spans, kept)
+        if lines
+    ]
+    if not segments:
+        raise SeatError("no windowed line exists at the reviewed SHA", "oversize")
+    return {"total_lines": total_lines, "segments": segments}
+
+
+def project_body(
+    path: Path, raw_path: str, ranges: list[tuple[int, int]]
+) -> dict[str, Any]:
+    """Project one readable workspace path as a body, a window, or an omission."""
+    try:
+        body = read_regular(path, MAX_WORKSPACE_FILE_BYTES, f"workspace file {raw_path}")
+    except SeatError as error:
+        if error.reason == OBSERVED_EMPTY:
+            return {"path": raw_path, "content": ""}
+        if error.reason != "oversize":
+            return omitted(raw_path, error.reason)
+        try:
+            return {"path": raw_path, "windowed": windowed_body(path, ranges)}
+        except SeatError as refusal:
+            return omitted(raw_path, refusal.reason)
+        except OSError:
+            return omitted(raw_path, "unreadable")
+    try:
+        return {"path": raw_path, "content": body.decode("utf-8")}
+    except UnicodeDecodeError:
+        return omitted(raw_path, "undecodable")
+
+
+def projected_bytes(entry: dict[str, Any]) -> int:
+    if "windowed" in entry:
+        return sum(
+            len(segment["content"].encode("utf-8"))
+            for segment in entry["windowed"]["segments"]
+        )
+    return len(entry["content"].encode("utf-8"))
+
+
+def workspace_files(packet: dict[str, Any]) -> list[dict[str, Any]]:
+    """Read each manifest-listed path from the read-only reviewed worktree.
+
+    Every byte read here is untrusted data.
+    """
+    hunks = hunks_by_path(packet["hunks"])
+    contents: list[dict[str, Any]] = []
+    total = 0
+    root = Path.cwd()
+    for entry in packet["manifest"]["files"]:
+        if not isinstance(entry, dict):
+            raise SeatError("manifest entry is malformed")
+        raw_path = str(entry.get("path", ""))
+        if not is_workspace_relative(raw_path):
+            raise SeatError("manifest path is outside the workspace contract")
+        if entry.get("binary") is True:
+            contents.append(omitted(raw_path, "binary"))
+            continue
+        if entry.get("change") == "deleted":
+            contents.append(omitted(raw_path, "deleted"))
+            continue
+        path = (root / raw_path).resolve()
+        if root not in path.parents:
+            raise SeatError("manifest path escapes the workspace")
+        projected = project_body(path, raw_path, hunks.get(raw_path, []))
+        total += projected_bytes(projected)
+        if total > MAX_WORKSPACE_TOTAL_BYTES:
+            raise SeatError("workspace file contents exceed the byte limit")
+        contents.append(projected)
+    return contents
+
+
+def untrusted_message(packet: dict[str, Any], files: list[dict[str, Any]]) -> str:
+    encoded = json.dumps(
+        {
+            "authority": "none",
+            "channels": [
+                {"channel": "PACKET_JSON", "authority": "none", "content": packet},
+                {"channel": "WORKSPACE_FILES", "authority": "none", "content": files},
+            ],
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+    return encoded.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+
+
+def provider_endpoint(provider: str) -> str:
+    if provider == "xAI":
+        return XAI_CHAT_COMPLETIONS
+    match = LOOPBACK_PROVIDER.fullmatch(provider)
+    if match is not None and 1 <= int(match.group(1)) <= 65535:
+        return provider + "/v1/chat/completions"
+    raise SeatError("arbiter seat provider is unsupported")
+
+
+def provider_request(
+    endpoint: str,
+    bearer: str,
+    model: str,
+    effort: str,
+    system_prompt: str,
+    user_message: str,
+) -> bytes:
+    body = json.dumps(
+        {
+            "model": model,
+            "max_tokens": 65536,
+            "reasoning_effort": effort,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+    ).encode()
+    request = urllib.request.Request(
+        endpoint,
+        data=body,
+        headers={
+            "authorization": f"Bearer {bearer}",
+            "content-type": "application/json",
+            "user-agent": "patchyard-arbiter-seat/1",
+        },
+        method="POST",
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect)
+    try:
+        response = opener.open(request, timeout=PROVIDER_TIMEOUT_SECONDS)
+    except urllib.error.HTTPError as error:
+        status = int(error.code)
+        error.close()
+        raise SeatError(
+            f"provider refused arbitration request with HTTP {status}"
+        ) from error
+    except (OSError, urllib.error.URLError) as error:
+        raise SeatError("provider transport failed") from error
+    with response:
+        if response.status != 200:
+            raise SeatError(
+                f"provider refused arbitration request with HTTP {response.status}"
+            )
+        raw = response.read(MAX_RESPONSE_BYTES + 1)
+    if len(raw) > MAX_RESPONSE_BYTES:
+        raise SeatError("provider response exceeds the byte limit")
+    return raw
+
+
+def nonnegative_integer(value: Any, label: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value < 2**63:
+        raise SeatError(f"provider {label} is invalid")
+    return value
+
+
+def read_usage(usage: dict[str, Any]) -> dict[str, int]:
+    """Read xAI usage into the supervisor's normalized token categories.
+
+    A154(3) normalizes `input_tokens` as total logical input, which is what
+    xAI's `prompt_tokens` publishes (cache reads included, and priced -
+    A154(7): unavoidable cached tokens with published rates are priced).
+    Reasoning tokens are the one category xAI enumerates without its own
+    rate, so their placement is pinned by arithmetic rather than assumed:
+    `total_tokens` must equal either prompt + completion (reasoning already
+    inside `completion_tokens`) or prompt + completion + reasoning (billed
+    beside it, so it is added to output here). Any other arithmetic is an
+    account this seat cannot price and fails closed by name.
+    """
+    prompt_tokens = nonnegative_integer(usage.get("prompt_tokens"), "prompt token count")
+    completion_tokens = nonnegative_integer(
+        usage.get("completion_tokens"), "completion token count"
+    )
+    prompt_details = usage.get("prompt_tokens_details", {})
+    completion_details = usage.get("completion_tokens_details", {})
+    if not isinstance(prompt_details, dict) or not isinstance(completion_details, dict):
+        raise SeatError("provider usage details are malformed")
+    cached_tokens = nonnegative_integer(
+        prompt_details.get("cached_tokens", 0), "cached token count"
+    )
+    reasoning_tokens = nonnegative_integer(
+        completion_details.get("reasoning_tokens", 0), "reasoning token count"
+    )
+    if cached_tokens > prompt_tokens:
+        raise SeatError("provider cached tokens exceed prompt tokens")
+    output_tokens = completion_tokens
+    if "total_tokens" in usage:
+        total_tokens = nonnegative_integer(usage.get("total_tokens"), "total token count")
+        if total_tokens == prompt_tokens + completion_tokens:
+            pass  # reasoning already inside completion_tokens
+        elif (
+            reasoning_tokens > 0
+            and total_tokens == prompt_tokens + completion_tokens + reasoning_tokens
+        ):
+            output_tokens = completion_tokens + reasoning_tokens
+        else:
+            raise SeatError("provider token arithmetic is unaccountable")
+    return {
+        "input_tokens": prompt_tokens,
+        "cached_input_tokens": cached_tokens,
+        "output_tokens": output_tokens,
+    }
+
+
+def select_provider_text(choices: Any) -> str:
+    if not isinstance(choices, list) or len(choices) != 1:
+        raise SeatError("provider response must contain one choice")
+    choice = choices[0]
+    if not isinstance(choice, dict) or not isinstance(choice.get("message"), dict):
+        raise SeatError("provider response choice is malformed")
+    finish_reason = choice.get("finish_reason")
+    if finish_reason != "stop":
+        raise SeatError(
+            f"provider response finish_reason is {finish_reason!r}, not \"stop\""
+        )
+    text = choice["message"].get("content")
+    if not isinstance(text, str) or not text:
+        raise SeatError("provider response text is malformed")
+    return text
+
+
+def parse_provider_response(
+    raw: bytes, model: str, packet: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, int]]:
+    response = load_json(raw, "provider response")
+    if (
+        not isinstance(response, dict)
+        or response.get("object") != "chat.completion"
+        or response.get("model") != model
+        or not isinstance(response.get("usage"), dict)
+    ):
+        raise SeatError("provider response envelope is malformed")
+    output_value = load_json(
+        select_provider_text(response.get("choices")).encode(), "arbitration output"
+    )
+    if (
+        not isinstance(output_value, dict)
+        or set(output_value) != {"schema_version", "dispute_id", "decision", "evidence"}
+        or output_value.get("schema_version") != 1
+        or output_value.get("dispute_id") != packet["dispute"]["dispute_id"]
+        or output_value.get("decision") not in DECISIONS
+        or not isinstance(output_value.get("evidence"), str)
+        or not output_value["evidence"].strip()
+        or len(output_value["evidence"].encode("utf-8")) > MAX_EVIDENCE_BYTES
+    ):
+        raise SeatError("arbitration output envelope is malformed")
+    return output_value, read_usage(response["usage"])
+
+
+def write_output(path: Path, value: bytes) -> None:
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+        )
+        offset = 0
+        while offset < len(value):
+            written = os.write(descriptor, value[offset:])
+            if written <= 0:
+                raise SeatError("arbitration output write made no progress")
+            offset += written
+        os.fsync(descriptor)
+    except BaseException:
+        if descriptor is not None:
+            os.close(descriptor)
+            descriptor = None
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def run(arguments: list[str]) -> int:
+    if len(arguments) != 3:
+        raise SeatError("usage: patchyard-arbiter-seat PROMPT PACKET_JSON OUTPUT_JSON")
+    prompt_path, packet_path, output_path = map(Path, arguments)
+    if not prompt_path.is_absolute() or not packet_path.is_absolute() or not output_path.is_absolute():
+        raise SeatError("seat paths must be absolute")
+    if output_path.exists() or output_path.is_symlink():
+        raise SeatError("arbitration output path already exists")
+    bearer_path = Path(require_environment("PATCHYARD_BEARER_FILE"))
+    # The bearer file is a read-only bind mount; the launcher removes it on
+    # teardown, so like the review seat this seat never deletes it.
+    bearer = read_bearer(bearer_path)
+    packet = packet_contract(packet_path)
+    system_prompt = read_regular(prompt_path, MAX_PROMPT_BYTES, "arbiter prompt").decode(
+        "utf-8"
+    )
+    provider = require_environment("PATCHYARD_PROVIDER")
+    display_model = require_environment("PATCHYARD_MODEL")
+    effort = require_environment("PATCHYARD_EFFORT")
+    if display_model not in MODEL_IDS or effort not in EFFORTS:
+        raise SeatError("arbiter seat model or effort is unsupported")
+    api_model = MODEL_IDS[display_model]
+    files = workspace_files(packet)
+    raw = provider_request(
+        provider_endpoint(provider),
+        bearer,
+        api_model,
+        effort,
+        system_prompt,
+        untrusted_message(packet, files),
+    )
+    artifact, usage = parse_provider_response(raw, api_model, packet)
+    artifact["usage"] = usage
+    output = (json.dumps(artifact, separators=(",", ":")) + "\n").encode()
+    if len(output) > MAX_OUTPUT_BYTES:
+        raise SeatError("arbitration output exceeds the byte limit")
+    if bearer.encode("ascii") in output:
+        raise SeatError("provider response disclosed the seat bearer")
+    write_output(output_path, output)
+    print(
+        "PATCHYARD_USAGE=" + json.dumps(artifact["usage"], separators=(",", ":")),
+        file=sys.stderr,
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(run(sys.argv[1:]))
+    except (SeatError, OSError, UnicodeDecodeError) as error:
+        print(f"arbiter seat: {error}", file=sys.stderr)
+        raise SystemExit(1)

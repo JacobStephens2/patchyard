@@ -13,6 +13,7 @@ use factory_core::triage::Rubric;
 use thiserror::Error;
 
 use crate::{
+    arbiter::{ArbiterSandboxConfig, LiveArbiterSeat, SandboxedArbiter},
     artifacts::ArtifactStore,
     child::{ChildSpawnConfig, IsolatedChildSpawner},
     config::{ProviderEgressConfig, RoutingConfig},
@@ -248,6 +249,59 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         worktree_root: scratch.join("review-worktrees"),
         live: reviewer_live,
     });
+    // The dispute arbiter is live-or-absent, never stubbed-live: the pipeline
+    // keeps its terminal stubbed escalation until the arbiter seat's provider
+    // is credential_qualified (A113), so a routing edit cannot hand a real
+    // dispute to an unqualified provider - and, unlike the always-live seats,
+    // an unqualified arbiter provider must not fail the daemon closed.
+    let arbiter = match &provider_egress {
+        Some(egress) => {
+            let rule = routing.resolve("dispute_arbitration")?;
+            // Each provider needs its own hardened mint requester. A
+            // reseating (A77 clause 3 anticipates a compliant K3 contesting
+            // the seat) adds its requester here; until it has one, a
+            // qualified-but-unwired provider keeps the arbiter absent and
+            // disputes keep the stubbed escalation, rather than minting
+            // another provider's bearer and failing inside the child.
+            let requester = match rule.seat.provider.as_str() {
+                "xAI" => Some(path_env(
+                    "FACTORY_ARBITER_SEAT_REQUESTER",
+                    "/usr/local/libexec/patchyard-request-xai-seat-bearer",
+                )),
+                _ => None,
+            };
+            let entry = egress
+                .by_display_name(&rule.seat.provider)
+                .filter(|entry| entry.credential_qualified);
+            match (entry, requester) {
+                (Some(entry), Some(requester)) => {
+                    Some(SandboxedArbiter::new(ArbiterSandboxConfig {
+                        spawner: child_spawner.clone(),
+                        prompt: root.join("policy/arbiter.md"),
+                        worktree_root: scratch.join("arbiter-worktrees"),
+                        live: Some(LiveArbiterSeat {
+                            credential: CredentialCommand {
+                                program: requester,
+                                arguments: Vec::new(),
+                                timeout: duration_env(
+                                    "FACTORY_SEAT_CREDENTIAL_TIMEOUT_SECONDS",
+                                    45,
+                                )?,
+                            },
+                            mint_root: agent_scratch.clone(),
+                            egress_host: entry
+                                .hostnames
+                                .first()
+                                .cloned()
+                                .expect("provider-egress validation requires a hostname"),
+                        }),
+                    }))
+                }
+                _ => None,
+            }
+        }
+        None => None,
+    };
     let store = PgPipelineStore::connect(&database_url).await?;
     let reconciler = Reconciler::new(
         store.clone(),
@@ -420,6 +474,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         worker,
         verifier,
         reviewer,
+        arbiter,
         publisher,
         lifecycle,
     );

@@ -13,6 +13,7 @@ use factory_core::{
     triage::{Rubric, TaskSpec},
 };
 use factory_supervisor::{
+    arbiter::{ArbiterSandboxConfig, SandboxedArbiter},
     artifacts::{ArtifactStore, StoredArtifact},
     child::{ChildSpawnConfig, IsolatedChildSpawner},
     config::RoutingConfig,
@@ -380,6 +381,21 @@ impl Fixture {
             reviewers,
             RunMode::DryRun,
             None,
+            None,
+        )
+        .await
+    }
+
+    /// A fixture whose third-family arbiter is wired, executing the named
+    /// isolated child harness instead of leaving disputes terminal.
+    async fn build_with_arbiter(review_harness: &str, arbiter_harness: &str) -> Self {
+        Self::build_mode(
+            review_harness,
+            "verifier-stub",
+            1,
+            RunMode::DryRun,
+            None,
+            Some(arbiter_harness),
         )
         .await
     }
@@ -390,6 +406,7 @@ impl Fixture {
         reviewers: usize,
         mode: RunMode,
         publisher: Option<Arc<dyn PublishService>>,
+        arbiter_harness: Option<&str>,
     ) -> Self {
         let project = project_root();
         let temp = tempfile::tempdir().expect("fixture tempdir");
@@ -545,6 +562,21 @@ impl Fixture {
             worktree_root: scratch.join("review-worktrees"),
             live: None,
         });
+        let arbiter = arbiter_harness.map(|harness| {
+            SandboxedArbiter::new(ArbiterSandboxConfig {
+                spawner: IsolatedChildSpawner::new(ChildSpawnConfig {
+                    spawn_program: project
+                        .join("fixtures/pipeline/bin")
+                        .join(format!("child-{harness}")),
+                    cancel_program: project.join("fixtures/pipeline/bin/child-cancel-stub"),
+                    staging_root: scratch.join("children"),
+                    timeout: Duration::from_secs(10),
+                }),
+                prompt: project.join("policy/arbiter.md"),
+                worktree_root: scratch.join("arbiter-worktrees"),
+                live: None,
+            })
+        });
         let artifacts = ArtifactStore::open(&artifact_root).expect("artifact store");
         let lifecycle = publisher.as_ref().map(|_| {
             Arc::new(RecordingLifecycle {
@@ -575,6 +607,7 @@ impl Fixture {
             worker,
             verifier,
             reviewer,
+            arbiter,
             publisher,
             lifecycle,
         );
@@ -803,6 +836,7 @@ async fn verified_pre_publish_contract_opens_draft_before_ready_for_review() {
         1,
         RunMode::PrePublish,
         Some(Arc::new(publisher.clone())),
+        None,
     )
     .await;
     let outcome = fixture.run().await;
@@ -835,7 +869,9 @@ async fn verified_pre_publish_contract_opens_draft_before_ready_for_review() {
 
 #[tokio::test]
 async fn review_disposition_escalation_reaches_typed_third_family_stub() {
-    let fixture = Fixture::build("review-escalate-stub", "verifier-stub", 1).await;
+    // A judgment-only (not empirically checkable) dispute with no live
+    // arbiter keeps the stubbed terminal escalation.
+    let fixture = Fixture::build("review-escalate-judgment-stub", "verifier-stub", 1).await;
     let outcome = fixture.run().await;
     assert!(matches!(
         outcome,
@@ -861,6 +897,158 @@ async fn review_disposition_escalation_reaches_typed_third_family_stub() {
             .events
             .iter()
             .any(|event| event.event_type == "verify.started")
+    );
+}
+
+/// A77 clause 4: an empirically checkable finding resolves by experiment,
+/// above all arbitration - a wired arbiter must not even be consulted, and
+/// until the experiment runner ships (its own ticket) the dispute escalates
+/// under the experiment name.
+#[tokio::test]
+async fn an_empirically_checkable_dispute_escalates_to_experiment_not_arbitration() {
+    let fixture = Fixture::build_with_arbiter("review-escalate-stub", "arbiter-author-stub").await;
+    let outcome = fixture.run().await;
+    assert!(matches!(
+        outcome,
+        PipelineOutcome::Escalated { ref reason, .. }
+            if reason == "review_dispute_requires_experiment"
+    ));
+    let snapshot = fixture.store.snapshot();
+    let dispute = snapshot
+        .events
+        .iter()
+        .find(|event| event.event_type == "review.dispute_escalated")
+        .expect("dispute escalation");
+    assert_eq!(dispute.payload["empirically_checkable"], true);
+    assert_eq!(dispute.payload["resolution"], "experiment_required");
+    assert!(
+        !snapshot
+            .events
+            .iter()
+            .any(|event| event.event_type == "review.dispute_arbitrated"),
+        "a checkable dispute never reaches the arbiter"
+    );
+    assert!(
+        !snapshot
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.kind == "arbitration-artifact")
+    );
+}
+
+/// A77 clause 3 live: the third family upholds the author's refutation on the
+/// disputed finding only, and the run proceeds instead of dying escalated.
+#[tokio::test]
+async fn an_author_upheld_arbitration_lets_the_run_proceed() {
+    let fixture =
+        Fixture::build_with_arbiter("review-escalate-judgment-stub", "arbiter-author-stub").await;
+    let outcome = fixture.run().await;
+    assert!(
+        matches!(&outcome, PipelineOutcome::DryRunComplete { .. }),
+        "unexpected outcome: {outcome:?}"
+    );
+    let snapshot = fixture.store.snapshot();
+    let arbitrated = snapshot
+        .events
+        .iter()
+        .find(|event| event.event_type == "review.dispute_arbitrated")
+        .expect("arbitrated dispute");
+    assert_eq!(arbitrated.payload["decision"], "author");
+    assert_eq!(
+        arbitrated.payload["arbiter"]["seat"]["model"], "Grok 4.5",
+        "the ledger records the exact third-family seat that decided"
+    );
+    assert!(
+        snapshot
+            .events
+            .iter()
+            .all(|event| event.event_type != "review.dispute_escalated"),
+        "an arbitrated dispute is resolved, not escalated"
+    );
+    assert!(
+        snapshot
+            .events
+            .iter()
+            .any(|event| event.event_type == "verify.started"),
+        "the run continues to verify after the author is upheld"
+    );
+    assert!(
+        snapshot
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.kind == "dispute-record")
+    );
+    assert!(
+        snapshot
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.kind == "arbitration-artifact")
+    );
+    let (_, arbiter_usage) = snapshot
+        .usage
+        .iter()
+        .find(|(model, _)| model.starts_with("Grok 4.5|"))
+        .expect("arbitration usage reaches the durable rollup");
+    assert_eq!(arbiter_usage.input_tokens, 11);
+    assert_eq!(arbiter_usage.output_tokens, 5);
+}
+
+/// The seat going live must never make a dispute worse than the stub it
+/// replaces: a dead arbitration child escalates the run with the failure on
+/// the ledger, it does not fail the request with no terminal dispute event.
+#[tokio::test]
+async fn a_failed_arbitration_escalates_instead_of_failing_the_run() {
+    let fixture =
+        Fixture::build_with_arbiter("review-escalate-judgment-stub", "arbiter-fail-stub").await;
+    let outcome = fixture.run().await;
+    assert!(
+        matches!(
+            &outcome,
+            PipelineOutcome::Escalated { reason, .. }
+                if reason == "review_dispute_arbitration_failed"
+        ),
+        "unexpected outcome: {outcome:?}"
+    );
+    let snapshot = fixture.store.snapshot();
+    let dispute = snapshot
+        .events
+        .iter()
+        .find(|event| event.event_type == "review.dispute_escalated")
+        .expect("dispute escalation");
+    assert_eq!(dispute.payload["arbiter"]["seat"]["model"], "Grok 4.5");
+    assert!(
+        dispute.payload["arbiter_error"].is_string(),
+        "the ledger names what the arbitration attempt died of"
+    );
+    assert!(snapshot.released);
+}
+
+/// The arbiter siding with the reviewer means the code is at fault and the
+/// author's disposition failed; the run must not ship, and the escalation
+/// names the resolved dispute rather than a missing seat.
+#[tokio::test]
+async fn a_reviewer_upheld_arbitration_escalates_the_run() {
+    let fixture =
+        Fixture::build_with_arbiter("review-escalate-judgment-stub", "arbiter-reviewer-stub").await;
+    let outcome = fixture.run().await;
+    assert!(matches!(
+        outcome,
+        PipelineOutcome::Escalated { ref reason, .. }
+            if reason == "review_dispute_reviewer_upheld"
+    ));
+    let snapshot = fixture.store.snapshot();
+    let arbitrated = snapshot
+        .events
+        .iter()
+        .find(|event| event.event_type == "review.dispute_arbitrated")
+        .expect("arbitrated dispute");
+    assert_eq!(arbitrated.payload["decision"], "reviewer");
+    assert!(
+        !snapshot
+            .events
+            .iter()
+            .any(|event| event.event_type == "verify.started"),
+        "a reviewer-upheld dispute stops the run before verify"
     );
 }
 

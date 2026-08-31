@@ -187,7 +187,9 @@ finish() {
 TOTAL_STAGES=7
 
 # Issue #358 / A113 clause 3. State lives beside the repo, not in .env.
-ENV_FILE="${ENV_FILE:-.xai-a113-wizard.env}"
+# The library above already defaulted ENV_FILE to .env; redirect that
+# default (but keep an explicit ENV_FILE=... from the caller).
+[[ "$ENV_FILE" == ".env" ]] && ENV_FILE=".xai-a113-wizard.env"
 RECORD_FILE="${RECORD_FILE:-xai-a113-clause3-record.md}"
 
 TEAM_NAME="Patchyard Factory"
@@ -198,7 +200,8 @@ TEAM_URL="https://console.x.ai/team/${TEAM_ID}"
 # the two-hop route (MacBook -> orchestrate -> factory). Commands with tricky
 # quoting go through remote_root_stdin, which ships a script over stdin.
 remote_root() {
-  local cmd="sudo -n $*" q
+  local cmd="sudo -n" arg q
+  for arg in "$@"; do printf -v q '%q' "$arg"; cmd+=" $q"; done
   printf -v q '%q' "$cmd"
   ssh operator@example-controller "sudo -n -u conductor ssh conductor@factory.example.com $q"
 }
@@ -246,6 +249,12 @@ say "Re-reading limits to verify:"
 LIMITS_AFTER=$(curl -sS -H "Authorization: Bearer ${XAI_MGMT_KEY}" "$MGMT_URL")
 say "    ${LIMITS_AFTER}"
 unset XAI_MGMT_KEY
+if [[ "$LIMITS_AFTER" == *'"effectiveSl":{"val":"0"}'* ]]; then
+  warn "The effective limit is still 0: the POST did not take (a 0"
+  say "provider-side hard limit clamps any desired soft limit). The A113"
+  say "money boundary is NOT in place; the spend proof stays blocked."
+  confirm "Continue anyway (record will say the limit is not in effect)?" || exit 1
+fi
 XAI_TEAM_POSTPAID_LIMIT="${XAI_LIMIT_CENTS} USD cents/month (soft limit; GET after set: ${LIMITS_AFTER})"
 write_env XAI_LIMIT_CENTS "$XAI_LIMIT_CENTS"
 step "Now DELETE the management key in the console (Management Keys page)."
@@ -262,7 +271,7 @@ ask XAI_PREPAID_READING "Credit balance exactly as shown (expect \$0.00):"
 ask XAI_PREPAID_READING_DATE "Date of this reading (YYYY-MM-DD, today):"
 write_env XAI_PREPAID_READING "$XAI_PREPAID_READING"
 write_env XAI_PREPAID_READING_DATE "$XAI_PREPAID_READING_DATE"
-if [[ "$XAI_PREPAID_READING" != "\$0.00" ]]; then
+if [[ "${XAI_PREPAID_READING#\$}" != "0.00" && "${XAI_PREPAID_READING#\$}" != "0" ]]; then
   warn "Balance is not \$0.00. A team carrying prepaid credit does not"
   say "satisfy A-5. Spend or remove the credit before qualification."
   confirm "Continue anyway (key can land now, qualification waits)?" || exit 1

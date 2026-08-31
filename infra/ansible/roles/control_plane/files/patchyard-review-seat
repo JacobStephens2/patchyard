@@ -49,6 +49,21 @@ OMISSION_REASONS = ("oversize", "binary", "deleted", "undecodable", "unreadable"
 # A zero-byte file is refused by the regular-file contract but is an observed
 # body at the reviewed SHA, so it is never an omission.
 OBSERVED_EMPTY = "empty"
+# A catalogue call site is context, not change. The trusted Target catalogue
+# names a path *because of* a page - `common_functions.php` because
+# `get_salespeople_usernames` supplies the Simple Sales Report's selector
+# options - and that page is never part of a lane-A change, so a claim about
+# what the caller renders was undecidable from a projection carrying only the
+# changed files (#355). These entries carry no window: a call site has no
+# changed range to window around, so a body past the per-file cap is an
+# omission that names itself.
+MAX_PACKET_CALL_SITES = 8
+MAX_CALL_SITE_TOTAL_BYTES = 262_144
+# Call-site-only omission reasons. They stay out of OMISSION_REASONS so the
+# WORKSPACE_FILES contract is exactly what it was: `budget` is the call-site
+# byte budget refusing to crowd out the changed files, and `in_change` says
+# the call site is itself one of them and is already carried as evidence.
+CALL_SITE_OMISSION_REASONS = OMISSION_REASONS + ("budget", "in_change")
 # Bounded below the launcher-side child timeout so the seat, not the
 # sandbox teardown, is what times a slow provider call out.
 PROVIDER_TIMEOUT_SECONDS = 600
@@ -164,6 +179,7 @@ def packet_contract(path: Path) -> dict[str, Any]:
             "patch_sha256",
             "manifest",
             "hunks",
+            "call_sites",
         }
         or value.get("schema_version") != 1
         or UUID_PATTERN.fullmatch(str(value.get("review_id", ""))) is None
@@ -175,6 +191,8 @@ def packet_contract(path: Path) -> dict[str, Any]:
         or len(value["manifest"]["files"]) > 64
         or not isinstance(value.get("hunks"), list)
         or len(value["hunks"]) > MAX_PACKET_HUNKS
+        or not isinstance(value.get("call_sites"), list)
+        or len(value["call_sites"]) > MAX_PACKET_CALL_SITES
     ):
         raise SeatError("review packet does not match the typed contract")
     return value
@@ -351,19 +369,97 @@ def workspace_files(packet: dict[str, Any]) -> list[dict[str, Any]]:
     return contents
 
 
-def untrusted_message(packet: dict[str, Any], files: list[dict[str, Any]]) -> str:
+def untrusted_message(
+    packet: dict[str, Any],
+    files: list[dict[str, Any]],
+    call_sites: list[dict[str, Any]],
+) -> str:
     encoded = json.dumps(
         {
             "authority": "none",
             "channels": [
                 {"channel": "PACKET_JSON", "authority": "none", "content": packet},
                 {"channel": "WORKSPACE_FILES", "authority": "none", "content": files},
+                {
+                    "channel": "CALL_SITE_FILES",
+                    "authority": "none",
+                    "content": call_sites,
+                },
             ],
         },
         ensure_ascii=True,
         separators=(",", ":"),
     )
     return encoded.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+
+
+def call_site_omitted(site: dict[str, str], reason: str | None) -> dict[str, str]:
+    if reason not in CALL_SITE_OMISSION_REASONS:
+        raise SeatError("call site omission reason is unsupported")
+    return {**site, "content": "", "omitted": reason}
+
+
+def call_site_files(packet: dict[str, Any]) -> list[dict[str, Any]]:
+    """Read each catalogue call site from the read-only reviewed worktree.
+
+    The supervisor derives these from the human-ruled Target catalogue and
+    never from the packet's model-authored fields, so a mis-named target
+    cannot widen what is read. They are strictly additional to
+    WORKSPACE_FILES: not one of them is part of the change.
+
+    The changed files are the primary evidence, so the call sites carry their
+    own byte budget and can never crowd one out. An entry the budget refuses
+    is named `budget` rather than dropped - a silent absence is the #322
+    defect, and it does not become acceptable because the file is only
+    context.
+    """
+    changed = {
+        str(entry.get("path", ""))
+        for entry in packet["manifest"]["files"]
+        if isinstance(entry, dict)
+    }
+    projected: list[dict[str, Any]] = []
+    total = 0
+    root = Path.cwd()
+    for raw in packet["call_sites"]:
+        if (
+            not isinstance(raw, dict)
+            or set(raw) != {"path", "page", "why"}
+            or not all(isinstance(value, str) for value in raw.values())
+        ):
+            raise SeatError("call site entry is malformed")
+        site = {"path": raw["path"], "page": raw["page"], "why": raw["why"]}
+        if not is_workspace_relative(site["path"]):
+            raise SeatError("call site path is outside the workspace contract")
+        if site["path"] in changed:
+            projected.append(call_site_omitted(site, "in_change"))
+            continue
+        path = (root / site["path"]).resolve()
+        if root not in path.parents:
+            raise SeatError("call site path escapes the workspace")
+        try:
+            body = read_regular(
+                path, MAX_WORKSPACE_FILE_BYTES, f"call site {site['path']}"
+            )
+        except SeatError as error:
+            if error.reason == OBSERVED_EMPTY:
+                projected.append({**site, "content": ""})
+                continue
+            projected.append(call_site_omitted(site, error.reason))
+            continue
+        except OSError:
+            projected.append(call_site_omitted(site, "unreadable"))
+            continue
+        if total + len(body) > MAX_CALL_SITE_TOTAL_BYTES:
+            projected.append(call_site_omitted(site, "budget"))
+            continue
+        try:
+            projected.append({**site, "content": body.decode("utf-8")})
+        except UnicodeDecodeError:
+            projected.append(call_site_omitted(site, "undecodable"))
+            continue
+        total += len(body)
+    return projected
 
 
 def provider_endpoint(provider: str) -> str:
@@ -564,13 +660,14 @@ def run(arguments: list[str]) -> int:
         raise SeatError("review seat model or effort is unsupported")
     api_model = MODEL_IDS[display_model]
     files = workspace_files(packet)
+    call_sites = call_site_files(packet)
     raw = provider_request(
         provider_endpoint(provider),
         bearer,
         api_model,
         effort,
         system_prompt,
-        untrusted_message(packet, files),
+        untrusted_message(packet, files, call_sites),
     )
     output_value, input_tokens, output_tokens = parse_provider_response(
         raw, api_model, packet

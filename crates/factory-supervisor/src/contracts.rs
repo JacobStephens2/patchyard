@@ -1,6 +1,6 @@
 //! Typed artifacts crossing pipeline stage boundaries.
 
-use factory_core::triage::TaskSpec;
+use factory_core::{catalogue::CallSite, triage::TaskSpec};
 use factory_verify::caps::DiffManifest;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -120,6 +120,9 @@ pub struct ReviewPacket {
     pub patch_sha256: String,
     pub manifest: DiffManifest,
     pub hunks: Vec<PatchHunk>,
+    /// Read-only files the trusted catalogue ties to a target's page, carried
+    /// so a claim about what the caller renders is decidable from the packet.
+    pub call_sites: Vec<CallSite>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -214,6 +217,9 @@ pub struct ArbitrationPacket {
     pub task_spec: TaskSpec,
     pub manifest: DiffManifest,
     pub hunks: Vec<PatchHunk>,
+    /// The same catalogue call sites the reviewer held. An arbiter deciding a
+    /// dispute the reviewer raised from them must be able to read them too.
+    pub call_sites: Vec<CallSite>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

@@ -8,6 +8,7 @@ use std::{
 };
 
 use factory_core::{
+    catalogue::{CallSite, TargetCatalogue},
     state::TriageSubmission,
     triage::{Lane, Rubric, TaskSpec, TriageOutput},
 };
@@ -102,6 +103,9 @@ pub struct Pipeline<S: PipelineStore> {
     config: PipelineConfig,
     routing: RoutingConfig,
     rubric: Rubric,
+    /// Call sites for the rubric's trusted Target catalogue, proven at
+    /// bootstrap to be the rubric's own rows.
+    catalogue: TargetCatalogue,
     artifacts: ArtifactStore,
     agents: ProcessAgentBackend,
     worker: ProcessWorkerBackend,
@@ -122,6 +126,7 @@ impl<S: PipelineStore> Pipeline<S> {
         config: PipelineConfig,
         routing: RoutingConfig,
         rubric: Rubric,
+        catalogue: TargetCatalogue,
         artifacts: ArtifactStore,
         agents: ProcessAgentBackend,
         worker: ProcessWorkerBackend,
@@ -136,6 +141,7 @@ impl<S: PipelineStore> Pipeline<S> {
             config,
             routing,
             rubric,
+            catalogue,
             artifacts,
             agents,
             worker,
@@ -937,6 +943,10 @@ impl<S: PipelineStore> Pipeline<S> {
             cancellation,
         )
         .await?;
+        // The catalogue's authority is the rubric's, so the call sites a
+        // target earns are decided here from human-ruled policy - never from
+        // anything the packet's own model-authored fields could widen.
+        let call_sites = self.catalogue.call_sites(&task.targets)?;
         let invocation = self.invocation("implementation_review")?;
         let invocations = (0..self.config.reviewer_count)
             .map(|_| invocation.clone())
@@ -951,6 +961,7 @@ impl<S: PipelineStore> Pipeline<S> {
                 &contract.patch_sha256,
                 &contract.manifest,
                 hunks,
+                &call_sites,
                 invocations,
                 cancellation,
             )
@@ -1086,6 +1097,7 @@ impl<S: PipelineStore> Pipeline<S> {
                             task,
                             contract,
                             hunks,
+                            &call_sites,
                             &dispute,
                             cancellation,
                         )
@@ -1119,6 +1131,7 @@ impl<S: PipelineStore> Pipeline<S> {
         task: &TaskSpec,
         contract: &OutContract,
         hunks: &[PatchHunk],
+        call_sites: &[CallSite],
         dispute: &DisputeRecord,
         cancellation: &CancellationToken,
     ) -> Result<Option<&'static str>, PipelineError> {
@@ -1163,6 +1176,7 @@ impl<S: PipelineStore> Pipeline<S> {
             task_spec: task.clone(),
             manifest: contract.manifest.clone(),
             hunks: hunks.to_vec(),
+            call_sites: call_sites.to_vec(),
         };
         let started = Instant::now();
         let execution = match arbiter
@@ -1791,6 +1805,8 @@ pub enum PipelineError {
     Routing(#[from] RoutingError),
     #[error("triage policy failed: {0}")]
     Triage(#[from] factory_core::triage::TriageError),
+    #[error("target catalogue failed: {0}")]
+    Catalogue(#[from] factory_core::catalogue::CatalogueError),
     #[error("run provenance failed: {0}")]
     Ledger(#[from] ledger::LedgerError),
     #[error("typed artifact JSON failed: {0}")]

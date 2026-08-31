@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "page": "Simple Sales Report",
+      "path": "mfieldbook/common_functions.php",
+      "behavior": "`get_salespeople_usernames` supplies the Salesperson selector options",
+      "call_sites": [
+        {
+          "path": "mfieldbook/reports/simple_sales_report.php",
+          "why": "renders the Salesperson selector, so it is where the options `get_salespeople_usernames` returns become visible labels"
+        }
+      ]
+    },
+    {
+      "page": "Create or Assign School",
+      "path": "mfieldbook/leads/assign.php",
+      "behavior": "the page builds its Salesperson selector locally",
+      "call_sites": []
+    }
+  ]
+}

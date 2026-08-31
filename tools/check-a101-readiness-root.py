@@ -59,6 +59,7 @@ BOUND_EXTRA_PATHS = (
     "infra/ansible/converge.sh",
     "infra/ansible/inventory/tofu.sh",
     "infra/ansible/qualify.sh",
+    "infra/ansible/roles/control_plane/files/patchyard-arbiter-seat",
     "infra/ansible/roles/control_plane/files/patchyard-log-secret-scan",
     "infra/ansible/roles/control_plane/files/patchyard-mint-seat-bearer",
     "infra/ansible/roles/control_plane/files/patchyard-request-seat-bearer",

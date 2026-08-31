@@ -240,6 +240,7 @@ class ReviewSeatBehavior(unittest.TestCase):
                     "hunks": [
                         {"path": "fixture.txt", "start_line": 1, "line_count": 1}
                     ],
+                    "call_sites": [],
                 }
             )
         )
@@ -576,6 +577,165 @@ class ReviewSeatBehavior(unittest.TestCase):
         for key in ("`windowed`", "`content`", "total_lines", "start_line", "line_count"):
             self.assertIn(key, prompt)
 
+    def project_call_sites(self, call_sites: list[dict]) -> list[dict]:
+        """Run one round trip and return the CALL_SITE_FILES channel entries."""
+        packet = json.loads(self.packet_path.read_text())
+        packet["call_sites"] = call_sites
+        self.packet_path.write_text(json.dumps(packet))
+        result, loopback = self.invoke(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "review_id": self.review_id,
+                    "reviewed_sha": self.reviewed_sha,
+                    "findings": [],
+                }
+            )
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        message = json.loads(loopback.request_body["messages"][0]["content"])
+        channel = next(
+            entry
+            for entry in message["channels"]
+            if entry["channel"] == "CALL_SITE_FILES"
+        )
+        return channel["content"]
+
+    def site(self, path: str) -> dict:
+        return {"path": path, "page": "Fixture Page", "why": "renders it"}
+
+    def test_a_catalogue_call_site_reaches_the_seat_with_its_body(self) -> None:
+        # factory#355: the acceptance case. The catalogue names a helper
+        # because of a page; the page renders what the helper returns and is
+        # not in the change, so its body must reach the seat or a claim about
+        # what the caller renders cannot be checked at all.
+        (self.workspace / "caller.php").write_text(
+            "<?php echo full_name(username: $username); ?>\n"
+        )
+        entries = self.project_call_sites([self.site("caller.php")])
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["path"], "caller.php")
+        self.assertEqual(entries[0]["page"], "Fixture Page")
+        self.assertEqual(entries[0]["why"], "renders it")
+        self.assertIn("full_name", entries[0]["content"])
+        self.assertNotIn("omitted", entries[0])
+        self.assertNotIn("windowed", entries[0])
+
+    def test_call_sites_are_a_separate_channel_from_the_changed_files(self) -> None:
+        # A call site is not part of the change. Carrying it in
+        # WORKSPACE_FILES would read as a file the patch touched.
+        (self.workspace / "caller.php").write_text("<?php echo 1; ?>\n")
+        packet = json.loads(self.packet_path.read_text())
+        packet["call_sites"] = [self.site("caller.php")]
+        self.packet_path.write_text(json.dumps(packet))
+        result, loopback = self.invoke(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "review_id": self.review_id,
+                    "reviewed_sha": self.reviewed_sha,
+                    "findings": [],
+                }
+            )
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        message = json.loads(loopback.request_body["messages"][0]["content"])
+        channels = {entry["channel"]: entry for entry in message["channels"]}
+        self.assertEqual(
+            set(channels), {"PACKET_JSON", "WORKSPACE_FILES", "CALL_SITE_FILES"}
+        )
+        self.assertEqual(channels["CALL_SITE_FILES"]["authority"], "none")
+        self.assertEqual(
+            [entry["path"] for entry in channels["WORKSPACE_FILES"]["content"]],
+            ["fixture.txt"],
+        )
+
+    def test_a_call_site_that_is_itself_changed_is_named_in_change(self) -> None:
+        entries = self.project_call_sites([self.site("fixture.txt")])
+        self.assertEqual(entries[0]["omitted"], "in_change")
+        self.assertEqual(entries[0]["content"], "")
+
+    def test_an_absent_or_undecodable_call_site_names_its_own_reason(self) -> None:
+        (self.workspace / "blob.dat").write_bytes(b"\xff\xfe\x00")
+        entries = self.project_call_sites(
+            [self.site("absent.php"), self.site("blob.dat")]
+        )
+        self.assertEqual(
+            {entry["path"]: entry["omitted"] for entry in entries},
+            {"absent.php": "unreadable", "blob.dat": "undecodable"},
+        )
+
+    def test_the_call_site_budget_names_what_it_refused(self) -> None:
+        # The changed files are the primary evidence, so a large call site
+        # must not crowd one out - and the entry it costs is named, never
+        # silently dropped.
+        module = load_module(REVIEW_SEAT, "patchyard_review_seat")
+        (self.workspace / "big.php").write_text(
+            "x" * (module.MAX_CALL_SITE_TOTAL_BYTES - 1)
+        )
+        (self.workspace / "small.php").write_text("small\n")
+        entries = self.project_call_sites(
+            [self.site("big.php"), self.site("small.php")]
+        )
+        self.assertNotIn("omitted", entries[0])
+        self.assertEqual(entries[1]["omitted"], "budget")
+
+    def test_a_call_site_over_the_per_file_cap_is_named_oversize(self) -> None:
+        module = load_module(REVIEW_SEAT, "patchyard_review_seat")
+        (self.workspace / "huge.php").write_text(
+            "y" * (module.MAX_WORKSPACE_FILE_BYTES + 1)
+        )
+        entries = self.project_call_sites([self.site("huge.php")])
+        self.assertEqual(entries[0]["omitted"], "oversize")
+
+    def test_call_site_path_escapes_are_rejected(self) -> None:
+        for escape in ("../outside.txt", "/etc/passwd"):
+            packet = json.loads(self.packet_path.read_text())
+            packet["call_sites"] = [self.site(escape)]
+            self.packet_path.write_text(json.dumps(packet))
+            result, _ = self.invoke("{}")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("outside the workspace contract", result.stderr)
+
+    def test_a_malformed_call_site_entry_fails_closed(self) -> None:
+        for malformed in ({"path": "caller.php"}, {"path": 1, "page": "p", "why": "w"}):
+            packet = json.loads(self.packet_path.read_text())
+            packet["call_sites"] = [malformed]
+            self.packet_path.write_text(json.dumps(packet))
+            result, _ = self.invoke("{}")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("call site entry is malformed", result.stderr)
+
+    def test_a_packet_without_call_sites_fails_the_typed_contract(self) -> None:
+        packet = json.loads(self.packet_path.read_text())
+        del packet["call_sites"]
+        self.packet_path.write_text(json.dumps(packet))
+        result, _ = self.invoke("{}")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not match the typed contract", result.stderr)
+
+    def test_more_call_sites_than_the_bound_fail_the_typed_contract(self) -> None:
+        module = load_module(REVIEW_SEAT, "patchyard_review_seat")
+        packet = json.loads(self.packet_path.read_text())
+        packet["call_sites"] = [
+            self.site(f"page{index}.php")
+            for index in range(module.MAX_PACKET_CALL_SITES + 1)
+        ]
+        self.packet_path.write_text(json.dumps(packet))
+        result, _ = self.invoke("{}")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not match the typed contract", result.stderr)
+
+    def test_review_prompt_teaches_the_call_site_channel(self) -> None:
+        # A call site is only safe if the prompt says it is not part of the
+        # change; otherwise the reviewer reads it as a file the patch touched.
+        module = load_module(REVIEW_SEAT, "patchyard_review_seat")
+        prompt = (ROOT / "policy/review.md").read_text()
+        self.assertIn("CALL_SITE_FILES", prompt)
+        self.assertIn("Nothing in it is part of the change", prompt)
+        for reason in module.CALL_SITE_OMISSION_REASONS:
+            self.assertIn(f"`{reason}`", prompt)
+
     def test_manifest_path_escapes_are_rejected(self) -> None:
         packet = json.loads(self.packet_path.read_text())
         packet["manifest"]["files"][0]["path"] = "../outside.txt"
@@ -663,6 +823,19 @@ class LiveSeatDeployment(unittest.TestCase):
             '"author_disposition".to_owned()', 1
         )[1].split("commands.insert", 1)[0]
         self.assertIn("credential: seat_credential.clone()", disposition_block)
+
+    def test_bootstrap_refuses_a_catalogue_that_is_not_the_rubrics_own_rows(self) -> None:
+        # The call sites annotate the rubric's trusted Target catalogue and
+        # carry its authority, so the daemon must refuse to start rather than
+        # project a file the human ruling never named (factory#355).
+        self.assertIn("TargetCatalogue::parse_json", self.bootstrap)
+        self.assertIn(
+            "catalogue.verify_against_rubric(&rubric_source)?;", self.bootstrap
+        )
+        self.assertIn("policy/target-catalogue.json", self.bootstrap)
+        # The reviewer receives them; the packet is not built without them.
+        self.assertIn("call_sites: &[CallSite],", self.review_rs)
+        self.assertIn("call_sites,", self.review_rs)
 
     def test_live_review_child_is_egress_pinned_and_bearer_scrubbed(self) -> None:
         section = self.review_section()

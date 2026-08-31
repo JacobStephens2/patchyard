@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use factory_core::triage::TaskSpec;
+use factory_core::{catalogue::CallSite, triage::TaskSpec};
 use factory_verify::caps::DiffManifest;
 use sha2::Digest as _;
 use thiserror::Error;
@@ -101,6 +101,7 @@ impl SandboxedReviewer {
         patch_sha256: &str,
         manifest: &DiffManifest,
         hunks: &[PatchHunk],
+        call_sites: &[CallSite],
         invocations: Vec<ResolvedInvocation>,
         cancellation: &CancellationToken,
     ) -> Result<Vec<ReviewExecution>, ReviewError> {
@@ -158,6 +159,7 @@ impl SandboxedReviewer {
                         patch_sha256.to_owned(),
                         manifest.clone(),
                         hunks.to_vec(),
+                        call_sites.to_vec(),
                         invocation.clone(),
                         cancellation,
                     )
@@ -178,6 +180,7 @@ impl SandboxedReviewer {
                 let patch_sha256 = patch_sha256.to_owned();
                 let manifest = manifest.clone();
                 let hunks = hunks.to_vec();
+                let call_sites = call_sites.to_vec();
                 let cancellation = cancellation.clone();
                 let review_id = *review_id;
                 let invocation = invocation.clone();
@@ -192,6 +195,7 @@ impl SandboxedReviewer {
                             patch_sha256,
                             manifest,
                             hunks,
+                            call_sites,
                             invocation,
                             &cancellation,
                         )
@@ -285,6 +289,7 @@ impl SandboxedReviewer {
         patch_sha256: String,
         manifest: DiffManifest,
         hunks: Vec<PatchHunk>,
+        call_sites: Vec<CallSite>,
         invocation: ResolvedInvocation,
         cancellation: &CancellationToken,
     ) -> Result<ReviewExecution, ReviewError> {
@@ -296,6 +301,7 @@ impl SandboxedReviewer {
             patch_sha256,
             manifest,
             hunks,
+            call_sites,
         };
         let packet_bytes = serde_json::to_vec(&packet)?;
         let prompt_bytes = tokio::fs::read(&self.config.prompt).await?;
@@ -562,6 +568,7 @@ mod tests {
                     base_sha: reviewed_sha.clone(),
                     files: Vec::new(),
                 },
+                &[],
                 &[],
                 vec![ResolvedInvocation {
                     task_class: "review".to_owned(),

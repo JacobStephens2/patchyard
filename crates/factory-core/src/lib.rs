@@ -3,6 +3,7 @@
 use std::{error::Error, fmt};
 
 pub mod auth;
+pub mod catalogue;
 pub mod plan;
 pub mod schema;
 pub mod state;

@@ -9,6 +9,7 @@ use std::{
 };
 
 use factory_core::{
+    catalogue::TargetCatalogue,
     state::{TriageRecorded, TriageSubmission},
     triage::{Rubric, TaskSpec},
 };
@@ -507,6 +508,12 @@ impl Fixture {
                 .expect("rubric source"),
         )
         .expect("rubric");
+        let catalogue = TargetCatalogue::parse_json(
+            &tokio::fs::read_to_string(project.join("policy/target-catalogue.json"))
+                .await
+                .expect("catalogue source"),
+        )
+        .expect("catalogue");
         let request_id = Uuid::new_v4();
         let store = MemoryStore::new(request_id);
         let mut commands = BTreeMap::new();
@@ -602,6 +609,7 @@ impl Fixture {
             },
             routing,
             rubric,
+            catalogue,
             artifacts,
             agents,
             worker,

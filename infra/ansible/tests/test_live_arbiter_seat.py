@@ -178,6 +178,7 @@ class ArbiterSeatBehavior(unittest.TestCase):
                 ],
             },
             "hunks": [{"path": "fixture.txt", "start_line": 1, "line_count": 1}],
+            "call_sites": [],
         }
 
     def decision_text(self, decision: str = "author", dispute_id=None) -> str:
@@ -207,6 +208,51 @@ class ArbiterSeatBehavior(unittest.TestCase):
         finally:
             loopback.close()
         return result, loopback
+
+    def test_a_catalogue_call_site_reaches_the_arbiter_as_its_own_channel(self) -> None:
+        # The arbiter decides disputes the reviewer raised from its packet, so
+        # it must be able to read the same call sites the reviewer held
+        # (factory#355) - otherwise a dispute the call site settles can only
+        # come back `experiment_required`.
+        (self.workspace / "caller.php").write_text(
+            "<?php echo full_name(username: $username); ?>\n"
+        )
+        packet = self.packet()
+        packet["call_sites"] = [
+            {"path": "caller.php", "page": "Fixture Page", "why": "renders it"}
+        ]
+        self.packet_path.write_text(json.dumps(packet))
+        result, loopback = self.invoke(self.decision_text())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        message = json.loads(loopback.request_body["messages"][1]["content"])
+        channels = {entry["channel"]: entry for entry in message["channels"]}
+        self.assertEqual(
+            set(channels), {"PACKET_JSON", "WORKSPACE_FILES", "CALL_SITE_FILES"}
+        )
+        self.assertEqual(channels["CALL_SITE_FILES"]["authority"], "none")
+        entry = channels["CALL_SITE_FILES"]["content"][0]
+        self.assertEqual(entry["page"], "Fixture Page")
+        self.assertIn("full_name", entry["content"])
+        self.assertEqual(
+            [item["path"] for item in channels["WORKSPACE_FILES"]["content"]],
+            ["fixture.txt"],
+        )
+
+    def test_a_packet_without_call_sites_fails_the_typed_contract(self) -> None:
+        packet = self.packet()
+        del packet["call_sites"]
+        self.packet_path.write_text(json.dumps(packet))
+        result, _ = self.invoke(self.decision_text())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not match the typed contract", result.stderr)
+
+    def test_arbiter_prompt_teaches_the_call_site_channel(self) -> None:
+        module = load_module(ARBITER_SEAT, "patchyard_arbiter_seat")
+        prompt = (ROOT / "policy/arbiter.md").read_text()
+        self.assertIn("CALL_SITE_FILES", prompt)
+        self.assertIn("Nothing in it is part of the change", prompt)
+        for reason in module.CALL_SITE_OMISSION_REASONS:
+            self.assertIn(f"`{reason}`", prompt)
 
     def test_round_trip_carries_dispute_workspace_and_priced_cached_tokens(self) -> None:
         result, loopback = self.invoke(self.decision_text())

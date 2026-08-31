@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use factory_core::triage::Rubric;
+use factory_core::{catalogue::TargetCatalogue, triage::Rubric};
 use thiserror::Error;
 
 use crate::{
@@ -134,6 +134,14 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
     };
     let rubric_source = tokio::fs::read_to_string(&rubric_path).await?;
     let rubric = Rubric::parse_markdown(&rubric_source)?;
+    // The catalogue only annotates the rubric's rows with the pages that call
+    // them, so the daemon refuses to start on a catalogue that is not the
+    // rubric's own table. Drift between the two would otherwise reach a
+    // checking seat as a file the human ruling never named.
+    let catalogue = TargetCatalogue::parse_json(
+        &tokio::fs::read_to_string(root.join("policy/target-catalogue.json")).await?,
+    )?;
+    catalogue.verify_against_rubric(&rubric_source)?;
     ensure_private_roots(&scratch, &artifact_root).await?;
     let artifacts = blocking({
         let artifact_root = artifact_root.clone();
@@ -469,6 +477,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
         config,
         routing,
         rubric,
+        catalogue,
         artifacts,
         agents,
         worker,
@@ -711,6 +720,8 @@ pub enum BootstrapError {
     ProviderEgress(#[from] crate::config::ProviderEgressError),
     #[error("rubric failed: {0}")]
     Rubric(#[from] factory_core::triage::TriageError),
+    #[error("target catalogue failed: {0}")]
+    Catalogue(#[from] factory_core::catalogue::CatalogueError),
     #[error("artifact store failed: {0}")]
     Artifact(#[from] crate::artifacts::ArtifactError),
     #[error("isolated-child recovery failed: {0}")]

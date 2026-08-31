@@ -16,3 +16,8 @@ fuzz/coverage/
 .mypy_cache/
 .obsidian/workspace.json
 .DS_Store
+
+# Attended-wizard resume state (tools/provision-xai-seat-key.sh $ENV_FILE).
+# Local scratch that the wizard rewrites on each run; the durable facts it
+# collects are published to its record file, which IS tracked.
+.xai-a113-wizard.env

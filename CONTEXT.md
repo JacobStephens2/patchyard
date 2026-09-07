@@ -154,3 +154,50 @@ _Avoid_: rate, spend cap, provider bill
 The provider-enforced ceiling attached to a minted bearer. It is the money
 safety control and remains distinct from the supervisor's reporting arithmetic.
 _Avoid_: rate table, reported cost, daily run cap
+
+## Adversarial review
+
+**Finding**:
+One falsifiable defect claim a reviewer makes against a change, carrying its own
+evidence and a severity. It is a claim to be checked, never a statement to be
+trusted.
+_Avoid_: comment, issue, objection, review note
+
+**Severity**:
+How much a Finding is worth: blocking, major, or minor. Only a blocking Finding
+can end a run; a severity that costs the run nothing is the reviewer's own
+statement that the change may proceed.
+_Avoid_: priority, weight, level
+
+**Disposition**:
+The author's one permitted move on one Finding - concede, refute, or escalate.
+Every Finding gets exactly one.
+_Avoid_: response, reply, verdict, resolution
+
+**Concession**:
+The Disposition in which the author admits a Finding. On a blocking Finding it
+is an admitted defect and obliges a repair, never a note that the run carries
+forward unchanged.
+_Avoid_: agreement, acceptance, acknowledgement
+
+**Dispute**:
+The record raised when the author refutes or escalates a Finding, pairing that
+Finding with its Disposition. It is the arbiter's whole subject.
+_Avoid_: disagreement, conflict, escalation, contested finding
+
+**Arbitration**:
+A third-family seat's decision on one Dispute, made from its own projection of
+the reviewed SHA. It decides the disputed Finding only, never the change.
+_Avoid_: adjudication, appeal, tie-break, third opinion
+
+**Experiment**:
+A bounded execution whose observed result settles a claim. Reading repository
+bytes is not an Experiment - it is reading the evidence, and a claim decidable
+that way is decidable by a seat that was given the bytes.
+_Avoid_: check, test, verification, investigation, looking at the code
+
+**Evidence gap**:
+A reviewer's report that it was not shown what a claim needs - a windowed range,
+an omitted body, an absent call site. It is a request for evidence, not a
+Finding, and nothing about the change follows from one.
+_Avoid_: finding, blocker, unverifiable claim, missing evidence used loosely

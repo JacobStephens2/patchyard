@@ -5,8 +5,7 @@
 **Purpose:** how to authenticate to AWS Bedrock and invoke Claude Haiku 4.5
 (with reasoning / extended thinking) from the lane-A implement worker, without
 ever placing standing credentials inside the untrusted worker.
-**Set up:** 2026-07-17. AWS account `000000000000` (Educational Travel
-Adventures), region `us-east-1`.
+**Set up:** 2026-07-17. AWS account `000000000000`, region `us-east-1`.
 
 ---
 

@@ -2,7 +2,7 @@
 
 *Generated from `factory-model.json` schema v6, model
 v12 (2026-07-21), canonical identity
-`sha256:45cf6eaf2ceec3da045c9a5483525fcf9f6091413b7896acbd6e036986a9abfa`. Do not edit by hand - edit the model, update its identity,
+`sha256:d8624cd6cd320a5737f585d99c1e60647fb63d8b71c69ea7abd17ca0db280d4b`. Do not edit by hand - edit the model, update its identity,
 and re-run the projector. Hexagons = human; dashed rounded nodes = AI agent;
 rectangles = deterministic software. Dotted edges are decision or feedback
 paths; inspect their labels and endpoints to distinguish human gates from the
@@ -23,7 +23,7 @@ no runtime dependency on orchestration host).
 
 ```mermaid
 %% factory-model schema v6, model v12
-%% canonical sha256:45cf6eaf2ceec3da045c9a5483525fcf9f6091413b7896acbd6e036986a9abfa
+%% canonical sha256:d8624cd6cd320a5737f585d99c1e60647fb63d8b71c69ea7abd17ca0db280d4b
 flowchart LR
   intake["Intake<br/><i>deterministic</i>"]:::det
   triage(["Triage<br/><i>agent</i>"]):::agent

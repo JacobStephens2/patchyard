@@ -654,7 +654,7 @@ def run_controlled_browser(
                 {"name": str(name), "value": str(value)}
                 for name, value in headers.items()
                 if str(name).lower()
-                not in {"authorization", "x-patchyard-capability"}
+                not in {"authorization", "x-patchyard-factory-capability"}
             ]
             forwarded.append({"name": "X-Patchyard-Factory-Capability", "value": bearer})
             cdp.send(

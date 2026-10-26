@@ -401,10 +401,7 @@ mod tests {
         [
             ("GH_PATCHYARD_APP_ID", "123"),
             ("GH_PATCHYARD_APP_INSTALLATION_ID", "456"),
-            (
-                "GH_PATCHYARD_APP_PRIVATE_KEY_FILE",
-                "/run/factory-app.pem",
-            ),
+            ("GH_PATCHYARD_APP_PRIVATE_KEY_FILE", "/run/factory-app.pem"),
         ]
         .into_iter()
         .map(|(name, value)| (OsString::from(name), OsString::from(value)))

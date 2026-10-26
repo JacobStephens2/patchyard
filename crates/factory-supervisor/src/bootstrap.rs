@@ -420,10 +420,7 @@ pub async fn from_environment(database_url: String) -> Result<RuntimeComponents,
                 "/usr/local/libexec/patchyard-git-askpass",
             ),
             repository: RepositoryScope {
-                owner: required_or(
-                    "FACTORY_PROPOSER_GITHUB_OWNER",
-                    "example-org",
-                ),
+                owner: required_or("FACTORY_PROPOSER_GITHUB_OWNER", "example-org"),
                 name: required_or("FACTORY_PROPOSER_GITHUB_REPOSITORY", "factory"),
             },
             base_branch: required_or("FACTORY_PROPOSER_BASE_BRANCH", "master"),
@@ -547,10 +544,7 @@ fn deployed_version_config() -> Result<DeployedVersionConfig, BootstrapError> {
 fn github_from_environment(scratch: PathBuf) -> Result<Arc<GhGitHub>, BootstrapError> {
     Ok(Arc::new(GhGitHub::new(GhGitHubConfig {
         gh_program: path_env("FACTORY_GH_PROGRAM", "/bin/gh"),
-        xdg_state_home: path_env(
-            "XDG_STATE_HOME",
-            "/var/lib/patchyard/supervisor/xdg-state",
-        ),
+        xdg_state_home: path_env("XDG_STATE_HOME", "/var/lib/patchyard/supervisor/xdg-state"),
         gh_config_dir: path_env("GH_CONFIG_DIR", "/var/lib/patchyard/supervisor/gh-config"),
         curl_program: path_env("FACTORY_CURL_PROGRAM", "/bin/curl"),
         openssl_program: path_env("FACTORY_OPENSSL_PROGRAM", "/bin/openssl"),
@@ -565,10 +559,7 @@ fn github_from_environment(scratch: PathBuf) -> Result<Arc<GhGitHub>, BootstrapE
 
 fn repository_scope() -> RepositoryScope {
     RepositoryScope {
-        owner: required_or(
-            "FACTORY_GITHUB_REPOSITORY_OWNER",
-            "example-org",
-        ),
+        owner: required_or("FACTORY_GITHUB_REPOSITORY_OWNER", "example-org"),
         name: required_or("FACTORY_GITHUB_REPOSITORY_NAME", "fieldbook"),
     }
 }

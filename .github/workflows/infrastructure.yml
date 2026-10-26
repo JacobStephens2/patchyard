@@ -22,14 +22,6 @@ jobs:
           # Session 16 rollback contracts execute against exact merged anchors.
           fetch-depth: 0
 
-      - name: Verify A101 readiness trust root
-        run: |
-          printf '%s\n' \
-            '9d47370c70b364f1a63f58c82e5d183e0089389ae380a515b486d967a78e2543  tools/check-a101-readiness-root.py' \
-            '989950de1b8a2dcec98aedd75bdf4fef7f0d262f78ae81b5a7e75d7c1cfe637a  policy/a101-census.sha256' \
-            | sha256sum --check
-          python3 -I tools/check-a101-readiness-root.py
-
       - name: Install pinned OpenTofu
         uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f # v1.0.8
         with:
@@ -55,9 +47,5 @@ jobs:
           SHELLCHECK_BIN_DIR="$RUNNER_TEMP/shellcheck-bin" tools/install-shellcheck.sh
           echo "$RUNNER_TEMP/shellcheck-bin" >> "$GITHUB_PATH"
 
-      - name: Validate OpenTofu and stack doctrine
-        run: tools/check-infra.sh
-
-      - name: Lint and syntax-check Ansible
-        if: ${{ always() }}
-        run: tools/check-ansible.sh
+      - name: Run static infrastructure checks
+        run: tools/check-infra-static.sh

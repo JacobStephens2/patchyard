@@ -209,11 +209,11 @@ class TraefikCapabilityBoundary(unittest.TestCase):
         backend_lower = {name.lower(): value for name, value in backend_headers.items()}
 
         self.assertEqual(
-            auth_lower.get("x-patchyard-capability"), "integration-capability"
+            auth_lower.get("x-patchyard-factory-capability"), "integration-capability"
         )
-        self.assertNotIn("x-patchyard-capability", backend_lower)
+        self.assertNotIn("x-patchyard-factory-capability", backend_lower)
         self.assertEqual(
-            backend_lower.get("x-patchyard-preview-authorization"),
+            backend_lower.get("x-patchyard-factory-preview-authorization"),
             "Bearer translated-preview-authority",
         )
 

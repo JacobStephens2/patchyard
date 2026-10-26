@@ -798,7 +798,10 @@ async fn alphabetize_dry_run_asserts_lane_targets_patch_barrier_and_stop_boundar
     assert_eq!(final_event.payload["publish_invoked"], false);
     assert_eq!(
         final_event.payload["accept"]["allowed_paths"],
-        serde_json::json!(["mfieldbook/common_functions.php", "mfieldbook/leads/assign.php"])
+        serde_json::json!([
+            "mfieldbook/common_functions.php",
+            "mfieldbook/leads/assign.php"
+        ])
     );
     assert_eq!(final_event.payload["accept"]["files"], 2);
     let transcript_count = snapshot

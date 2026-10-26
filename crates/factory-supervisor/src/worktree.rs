@@ -918,7 +918,10 @@ index 1111111..2222222 100644
         let repository = temporary.path().join("repository");
         fs::create_dir(&repository).expect("repository directory");
         git(&repository, &["init"]);
-        git(&repository, &["config", "user.name", "Patchyard Factory test"]);
+        git(
+            &repository,
+            &["config", "user.name", "Patchyard Factory test"],
+        );
         git(
             &repository,
             &["config", "user.email", "factory-test@invalid.example"],
@@ -989,7 +992,10 @@ index 1111111..2222222 100644
         let repository = temporary.path().join("repository");
         fs::create_dir(&repository).expect("repository directory");
         git(&repository, &["init"]);
-        git(&repository, &["config", "user.name", "Patchyard Factory test"]);
+        git(
+            &repository,
+            &["config", "user.name", "Patchyard Factory test"],
+        );
         git(
             &repository,
             &["config", "user.email", "factory-test@invalid.example"],

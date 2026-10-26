@@ -2251,9 +2251,7 @@ fn allowed_pr_link(target: &str) -> bool {
             && run.parse::<Uuid>().is_ok()
             && safe_artifact_name(name);
     }
-    if let Some(path) =
-        target.strip_prefix("https://github.com/example-org/fieldbook/commit/")
-    {
+    if let Some(path) = target.strip_prefix("https://github.com/example-org/fieldbook/commit/") {
         return path
             .strip_suffix("/checks")
             .is_some_and(|sha| sha.len() == 40 && lower_hex(sha));

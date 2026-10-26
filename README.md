@@ -84,6 +84,15 @@ Run the same application gate as hosted CI:
 tools/check-application.sh
 ```
 
+Hosted CI runs `tools/check-application.sh` and
+`tools/check-infra-static.sh`. The full infrastructure gates,
+`tools/check-infra.sh` and `tools/check-ansible.sh`, also check the live
+qualification Results (credential issuance, expiry, revocation, spend, worker
+image), which are bound to the exact bytes of the sources that produced them.
+The September 2026 identity scrub changed those bytes after the Results were
+recorded, so those checks fail until the live qualifications are re-run; CI no
+longer runs them. The Results are kept as recorded.
+
 The individual scaffold binaries can also be exercised directly:
 
 ```bash
